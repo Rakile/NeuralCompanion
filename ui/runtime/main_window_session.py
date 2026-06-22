@@ -634,8 +634,10 @@ class MainWindowSessionMixin:
                     index = self.stream_mode_combo.findText(stream_mode)
                     if index >= 0:
                         self.stream_mode_combo.setCurrentIndex(index)
+                    update_runtime_config("stream_mode", stream_mode)
                 else:
                     self.stream_mode_combo.setCurrentText("On" if bool(stream_mode) else "Off")
+                    update_runtime_config("stream_mode", bool(stream_mode))
             stt_backend_settings = session.get("stt_backend_settings")
             if stt_backend_settings is not None:
                 update_runtime_config("stt_backend_settings", stt_backend_settings)

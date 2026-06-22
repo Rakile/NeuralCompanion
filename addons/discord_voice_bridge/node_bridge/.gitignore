@@ -1,0 +1,7 @@
+.env
+node_modules/
+captures/
+mock_replies/
+turns/
+npm-debug.log*
+

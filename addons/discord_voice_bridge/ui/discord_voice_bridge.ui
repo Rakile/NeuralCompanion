@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DiscordVoiceBridgeTab</class>
+ <widget class="QWidget" name="discord_voice_bridge_tab">
+  <layout class="QVBoxLayout" name="discord_voice_bridge_root_layout">
+   <property name="leftMargin"><number>12</number></property>
+   <property name="topMargin"><number>12</number></property>
+   <property name="rightMargin"><number>12</number></property>
+   <property name="bottomMargin"><number>12</number></property>
+   <item>
+    <widget class="QScrollArea" name="discord_voice_bridge_scroll">
+     <property name="widgetResizable"><bool>true</bool></property>
+     <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+     <widget class="QWidget" name="discord_voice_bridge_scroll_content">
+      <layout class="QVBoxLayout" name="discord_voice_bridge_content_layout">
+       <property name="leftMargin"><number>6</number></property>
+       <property name="topMargin"><number>6</number></property>
+       <property name="rightMargin"><number>6</number></property>
+       <property name="bottomMargin"><number>6</number></property>
+       <property name="spacing"><number>10</number></property>
+       <item>
+        <widget class="QLabel" name="discord_voice_bridge_intro_label">
+         <property name="text"><string>Discord Voice Bridge runs isolated Discord voice turns through the selected NC STT, chat, and TTS providers.</string></property>
+         <property name="wordWrap"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="discord_voice_bridge_command_row">
+         <item><widget class="QPushButton" name="discord_bridge_save_button"><property name="text"><string>Save Settings</string></property></widget></item>
+         <item><widget class="QPushButton" name="discord_bridge_start_button"><property name="text"><string>Start Bridge</string></property></widget></item>
+         <item><widget class="QPushButton" name="discord_bridge_stop_button"><property name="text"><string>Stop Bridge</string></property></widget></item>
+         <item><widget class="QPushButton" name="discord_bridge_restart_button"><property name="text"><string>Restart Bridge</string></property></widget></item>
+         <item><widget class="QPushButton" name="discord_bridge_refresh_button"><property name="text"><string>Refresh Status</string></property></widget></item>
+         <item>
+          <spacer name="discord_voice_bridge_command_spacer">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="discord_bridge_status_label">
+         <property name="text"><string>Status: not checked yet.</string></property>
+         <property name="wordWrap"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTabWidget" name="discord_bridge_settings_tabs">
+         <property name="currentIndex"><number>0</number></property>
+         <widget class="QWidget" name="discord_bridge_general_tab">
+          <attribute name="title"><string>General</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_general_layout">
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_general_group">
+             <property name="title"><string>General</string></property>
+             <layout class="QFormLayout" name="discord_bridge_general_form">
+              <item row="0" column="0"><widget class="QLabel" name="enabled_label"><property name="text"><string>Enable addon</string></property></widget></item>
+              <item row="0" column="1"><widget class="QCheckBox" name="discord_enabled_checkbox"/></item>
+              <item row="1" column="0"><widget class="QLabel" name="start_on_launch_label"><property name="text"><string>Start on NC launch</string></property></widget></item>
+              <item row="1" column="1"><widget class="QCheckBox" name="discord_start_on_launch_checkbox"/></item>
+              <item row="2" column="0"><widget class="QLabel" name="auto_start_label"><property name="text"><string>Auto-start bridge</string></property></widget></item>
+              <item row="2" column="1"><widget class="QCheckBox" name="discord_auto_start_checkbox"/></item>
+              <item row="3" column="0"><widget class="QLabel" name="bridge_mode_label"><property name="text"><string>Bridge mode</string></property></widget></item>
+              <item row="3" column="1"><widget class="QComboBox" name="discord_bridge_mode_combo"/></item>
+              <item row="4" column="0"><widget class="QLabel" name="context_entries_label"><property name="text"><string>Context entries</string></property></widget></item>
+              <item row="4" column="1"><widget class="QSpinBox" name="discord_context_entries_spin"><property name="maximum"><number>1000</number></property></widget></item>
+              <item row="5" column="0"><widget class="QLabel" name="persist_room_context_label"><property name="text"><string>Persist room context between restarts</string></property></widget></item>
+              <item row="5" column="1"><widget class="QCheckBox" name="discord_persist_room_context_checkbox"/></item>
+             </layout>
+            </widget>
+           </item>
+           <item><spacer name="general_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="discord_bridge_discord_tab">
+          <attribute name="title"><string>Discord</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_discord_layout">
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_discord_group">
+             <property name="title"><string>Connection</string></property>
+             <layout class="QFormLayout" name="discord_bridge_discord_form">
+              <item row="0" column="0"><widget class="QLabel" name="token_env_label"><property name="text"><string>Token env var</string></property></widget></item>
+              <item row="0" column="1"><widget class="QLineEdit" name="discord_token_env_edit"/></item>
+              <item row="1" column="0"><widget class="QLabel" name="local_token_label"><property name="text"><string>Local test token</string></property></widget></item>
+              <item row="1" column="1"><widget class="QLineEdit" name="discord_local_token_edit"><property name="echoMode"><enum>QLineEdit::Password</enum></property><property name="placeholderText"><string>leave blank to keep existing local token</string></property></widget></item>
+              <item row="2" column="0"><widget class="QLabel" name="guild_id_label"><property name="text"><string>Server/Guild ID</string></property></widget></item>
+              <item row="2" column="1"><widget class="QLineEdit" name="discord_guild_id_edit"/></item>
+              <item row="3" column="0"><widget class="QLabel" name="channel_id_label"><property name="text"><string>Voice Channel ID</string></property></widget></item>
+              <item row="3" column="1"><widget class="QLineEdit" name="discord_voice_channel_id_edit"/></item>
+              <item row="4" column="0"><widget class="QLabel" name="allowed_user_label"><property name="text"><string>Allowed user IDs</string></property></widget></item>
+              <item row="4" column="1"><widget class="QLineEdit" name="discord_allowed_user_id_edit"/></item>
+              <item row="5" column="0"><widget class="QLabel" name="answer_mode_label"><property name="text"><string>Answer mode</string></property></widget></item>
+              <item row="5" column="1"><widget class="QComboBox" name="discord_answer_mode_combo"/></item>
+             </layout>
+            </widget>
+           </item>
+           <item><spacer name="discord_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="discord_bridge_capture_tab">
+          <attribute name="title"><string>Capture</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_capture_layout">
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_capture_group">
+             <property name="title"><string>Voice Capture</string></property>
+             <layout class="QFormLayout" name="discord_bridge_capture_form">
+              <item row="0" column="0"><widget class="QLabel" name="silence_ms_label"><property name="text"><string>Silence cutoff (ms)</string></property></widget></item>
+              <item row="0" column="1"><widget class="QSpinBox" name="discord_silence_ms_spin"><property name="minimum"><number>200</number></property><property name="maximum"><number>30000</number></property></widget></item>
+              <item row="1" column="0"><widget class="QLabel" name="min_turn_label"><property name="text"><string>Minimum turn length (s)</string></property></widget></item>
+              <item row="1" column="1"><widget class="QDoubleSpinBox" name="discord_min_turn_seconds_spin"><property name="decimals"><number>2</number></property><property name="maximum"><double>10.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property></widget></item>
+              <item row="2" column="0"><widget class="QLabel" name="max_turn_label"><property name="text"><string>Max turn length (s)</string></property></widget></item>
+              <item row="2" column="1"><widget class="QSpinBox" name="discord_max_turn_seconds_spin"><property name="minimum"><number>-1</number></property><property name="maximum"><number>600</number></property></widget></item>
+              <item row="3" column="0"><widget class="QLabel" name="bot_max_turn_label"><property name="text"><string>Bot max turn length (s)</string></property></widget></item>
+              <item row="3" column="1"><widget class="QSpinBox" name="discord_bot_max_turn_seconds_spin"><property name="minimum"><number>-1</number></property><property name="maximum"><number>1200</number></property></widget></item>
+              <item row="4" column="0"><widget class="QLabel" name="bot_idle_label"><property name="text"><string>Bot idle finalize (ms)</string></property></widget></item>
+              <item row="4" column="1"><widget class="QSpinBox" name="discord_bot_idle_finalize_ms_spin"><property name="maximum"><number>60000</number></property></widget></item>
+              <item row="5" column="0"><widget class="QLabel" name="low_info_label"><property name="text"><string>Ignore low-info transcripts</string></property></widget></item>
+              <item row="5" column="1"><widget class="QCheckBox" name="discord_ignore_low_information_checkbox"/></item>
+              <item row="6" column="0"><widget class="QLabel" name="low_info_max_label"><property name="text"><string>Low-info max duration (s)</string></property></widget></item>
+              <item row="6" column="1"><widget class="QDoubleSpinBox" name="discord_low_information_max_seconds_spin"><property name="decimals"><number>2</number></property><property name="maximum"><double>30.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property></widget></item>
+              <item row="7" column="0"><widget class="QLabel" name="low_info_phrases_label"><property name="text"><string>Low-info phrases</string></property></widget></item>
+              <item row="7" column="1"><widget class="QLineEdit" name="discord_low_information_transcripts_edit"/></item>
+              <item row="8" column="0"><widget class="QLabel" name="wav_rate_label"><property name="text"><string>Saved WAV rate</string></property></widget></item>
+              <item row="8" column="1"><widget class="QComboBox" name="discord_wav_sample_rate_combo"/></item>
+              <item row="9" column="0"><widget class="QLabel" name="wav_channels_label"><property name="text"><string>Saved WAV channels</string></property></widget></item>
+              <item row="9" column="1"><widget class="QComboBox" name="discord_wav_channels_combo"/></item>
+              <item row="10" column="0"><widget class="QLabel" name="save_captures_label"><property name="text"><string>Save captures</string></property></widget></item>
+              <item row="10" column="1"><widget class="QCheckBox" name="discord_save_captures_checkbox"/></item>
+              <item row="11" column="0"><widget class="QLabel" name="shared_capture_owner_label"><property name="text"><string>Shared capture owner</string></property></widget></item>
+              <item row="11" column="1"><widget class="QCheckBox" name="discord_shared_capture_owner_checkbox"/></item>
+              <item row="12" column="0"><widget class="QLabel" name="capture_owner_ttl_label"><property name="text"><string>Owner timeout (s)</string></property></widget></item>
+              <item row="12" column="1"><widget class="QDoubleSpinBox" name="discord_capture_owner_ttl_spin"><property name="decimals"><number>1</number></property><property name="minimum"><double>3.000000000000000</double></property><property name="maximum"><double>60.000000000000000</double></property><property name="singleStep"><double>1.000000000000000</double></property></widget></item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="discord_bridge_playback_tab">
+          <attribute name="title"><string>Playback</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_playback_layout">
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_playback_group">
+             <property name="title"><string>Playback And Interruption</string></property>
+             <layout class="QFormLayout" name="discord_bridge_playback_form">
+              <item row="0" column="0"><widget class="QLabel" name="test_tone_label"><property name="text"><string>Play test tone on join</string></property></widget></item>
+              <item row="0" column="1"><widget class="QCheckBox" name="discord_play_test_tone_checkbox"/></item>
+              <item row="1" column="0"><widget class="QLabel" name="queue_replies_label"><property name="text"><string>Queue replies</string></property></widget></item>
+              <item row="1" column="1"><widget class="QCheckBox" name="discord_queue_replies_checkbox"/></item>
+              <item row="2" column="0"><widget class="QLabel" name="interrupt_label"><property name="text"><string>Interrupt reply on speech</string></property></widget></item>
+              <item row="2" column="1"><widget class="QCheckBox" name="discord_interrupt_reply_checkbox"/></item>
+              <item row="3" column="0"><widget class="QLabel" name="interrupt_after_label"><property name="text"><string>Interrupt after speech (s)</string></property></widget></item>
+              <item row="3" column="1"><widget class="QDoubleSpinBox" name="discord_interrupt_after_seconds_spin"><property name="decimals"><number>2</number></property><property name="maximum"><double>60.000000000000000</double></property><property name="singleStep"><double>0.250000000000000</double></property></widget></item>
+              <item row="4" column="0"><widget class="QLabel" name="immunity_label"><property name="text"><string>Reply immunity (s)</string></property></widget></item>
+              <item row="4" column="1"><widget class="QDoubleSpinBox" name="discord_reply_immunity_seconds_spin"><property name="decimals"><number>2</number></property><property name="maximum"><double>60.000000000000000</double></property><property name="singleStep"><double>0.250000000000000</double></property></widget></item>
+              <item row="5" column="0"><widget class="QLabel" name="discard_bot_label"><property name="text"><string>Discard bot speech on human intervention</string></property></widget></item>
+              <item row="5" column="1"><widget class="QCheckBox" name="discord_discard_bot_speech_checkbox"/></item>
+              <item row="6" column="0"><widget class="QLabel" name="coordinate_label"><property name="text"><string>Coordinate bot replies</string></property></widget></item>
+              <item row="6" column="1"><widget class="QCheckBox" name="discord_coordinate_bot_replies_checkbox"/></item>
+              <item row="7" column="0"><widget class="QLabel" name="floor_stale_label"><property name="text"><string>Reply floor stale timeout (s)</string></property></widget></item>
+              <item row="7" column="1"><widget class="QDoubleSpinBox" name="discord_reply_floor_stale_seconds_spin"><property name="maximum"><double>3600.000000000000000</double></property></widget></item>
+              <item row="8" column="0"><widget class="QLabel" name="initial_buffer_chunks_label"><property name="text"><string>Initial buffer chunks</string></property></widget></item>
+              <item row="8" column="1"><widget class="QSpinBox" name="discord_initial_buffer_chunks_spin"><property name="minimum"><number>1</number></property><property name="maximum"><number>6</number></property></widget></item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="discord_bridge_filter_tab">
+          <attribute name="title"><string>Filter</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_filter_layout">
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_filter_group">
+             <property name="title"><string>Response Filter</string></property>
+             <layout class="QFormLayout" name="discord_bridge_filter_form">
+              <item row="0" column="0"><widget class="QLabel" name="filter_enabled_label"><property name="text"><string>Enable filter</string></property></widget></item>
+              <item row="0" column="1"><widget class="QCheckBox" name="discord_filter_enabled_checkbox"/></item>
+              <item row="1" column="0"><widget class="QLabel" name="filter_mode_label"><property name="text"><string>Filter mode</string></property></widget></item>
+              <item row="1" column="1"><widget class="QComboBox" name="discord_filter_mode_combo"/></item>
+              <item row="2" column="0"><widget class="QLabel" name="bot_names_label"><property name="text"><string>Bot names / call words</string></property></widget></item>
+              <item row="2" column="1"><widget class="QLineEdit" name="discord_bot_names_edit"/></item>
+              <item row="3" column="0"><widget class="QLabel" name="uncertain_label"><property name="text"><string>Answer when uncertain</string></property></widget></item>
+              <item row="3" column="1"><widget class="QCheckBox" name="discord_answer_uncertain_checkbox"/></item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="discord_bridge_persona_tab">
+          <attribute name="title"><string>Persona</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_persona_layout">
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_persona_group">
+             <property name="title"><string>Discord Persona</string></property>
+             <layout class="QVBoxLayout" name="discord_bridge_persona_form">
+              <item><widget class="QCheckBox" name="discord_replace_nc_prompt_checkbox"><property name="text"><string>Replace selected NC system prompt for Discord turns</string></property></widget></item>
+              <item><widget class="QPlainTextEdit" name="discord_persona_prompt_edit"><property name="placeholderText"><string>Optional Discord-only persona prompt...</string></property><property name="minimumHeight"><number>120</number></property></widget></item>
+              <item>
+               <layout class="QFormLayout" name="discord_voice_form">
+                <item row="0" column="0"><widget class="QLabel" name="voice_wav_label"><property name="text"><string>Voice clone WAV</string></property></widget></item>
+                <item row="0" column="1"><widget class="QLineEdit" name="discord_voice_clone_wav_edit"/></item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="discord_bridge_bots_tab">
+          <attribute name="title"><string>Bots</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_bots_layout">
+           <item>
+            <widget class="QLabel" name="bots_hint_label">
+             <property name="text"><string>Advanced multi-bot overrides. Leave empty for a single bot using the top-level settings.</string></property>
+             <property name="wordWrap"><bool>true</bool></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPlainTextEdit" name="discord_bots_json_edit">
+             <property name="minimumHeight"><number>220</number></property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="bots_button_row">
+             <item><widget class="QPushButton" name="discord_format_bots_button"><property name="text"><string>Format JSON</string></property></widget></item>
+             <item><spacer name="bots_button_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="discord_bridge_runtime_tab">
+          <attribute name="title"><string>Runtime</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_runtime_layout">
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_runtime_group">
+             <property name="title"><string>NC Runtime Endpoint</string></property>
+             <layout class="QFormLayout" name="discord_bridge_runtime_form">
+              <item row="0" column="0"><widget class="QLabel" name="runtime_host_label"><property name="text"><string>Host</string></property></widget></item>
+              <item row="0" column="1"><widget class="QLineEdit" name="discord_runtime_host_edit"/></item>
+              <item row="1" column="0"><widget class="QLabel" name="runtime_port_label"><property name="text"><string>Port</string></property></widget></item>
+              <item row="1" column="1"><widget class="QSpinBox" name="discord_runtime_port_spin"><property name="maximum"><number>65535</number></property></widget></item>
+              <item row="2" column="0"><widget class="QLabel" name="runtime_session_label"><property name="text"><string>Session mode</string></property></widget></item>
+              <item row="2" column="1"><widget class="QComboBox" name="discord_session_mode_combo"/></item>
+              <item row="3" column="0"><widget class="QLabel" name="use_stt_label"><property name="text"><string>Use selected STT</string></property></widget></item>
+              <item row="3" column="1"><widget class="QCheckBox" name="discord_use_selected_stt_checkbox"/></item>
+              <item row="4" column="0"><widget class="QLabel" name="use_chat_label"><property name="text"><string>Use selected chat provider</string></property></widget></item>
+              <item row="4" column="1"><widget class="QCheckBox" name="discord_use_selected_chat_checkbox"/></item>
+              <item row="5" column="0"><widget class="QLabel" name="use_tts_label"><property name="text"><string>Use selected TTS</string></property></widget></item>
+              <item row="5" column="1"><widget class="QCheckBox" name="discord_use_selected_tts_checkbox"/></item>
+              <item row="6" column="0"><widget class="QLabel" name="allow_non_localhost_label"><property name="text"><string>Allow non-localhost host</string></property></widget></item>
+              <item row="6" column="1"><widget class="QCheckBox" name="discord_allow_non_localhost_checkbox"/></item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_cleanup_group">
+             <property name="title"><string>Cleanup</string></property>
+             <layout class="QFormLayout" name="discord_bridge_cleanup_form">
+              <item row="0" column="0"><widget class="QLabel" name="wav_age_label"><property name="text"><string>WAV max age (minutes)</string></property></widget></item>
+              <item row="0" column="1"><widget class="QDoubleSpinBox" name="discord_wav_max_age_minutes_spin"><property name="maximum"><double>10080.000000000000000</double></property></widget></item>
+              <item row="1" column="0"><widget class="QLabel" name="cleanup_interval_label"><property name="text"><string>Cleanup interval (minutes)</string></property></widget></item>
+              <item row="1" column="1"><widget class="QDoubleSpinBox" name="discord_cleanup_interval_minutes_spin"><property name="minimum"><double>1.000000000000000</double></property><property name="maximum"><double>1440.000000000000000</double></property></widget></item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="discord_bridge_rag_group">
+             <property name="title"><string>RAG Context</string></property>
+             <layout class="QFormLayout" name="discord_bridge_rag_form">
+              <item row="0" column="0"><widget class="QLabel" name="rag_context_label"><property name="text"><string>Use selected RAG context</string></property></widget></item>
+              <item row="0" column="1"><widget class="QCheckBox" name="discord_use_rag_context_checkbox"/></item>
+              <item row="1" column="0"><widget class="QLabel" name="rag_status_label"><property name="text"><string>Status</string></property></widget></item>
+              <item row="1" column="1"><widget class="QLabel" name="discord_rag_status_label"><property name="text"><string>Uses NC RAG Context when enabled and matching chunks exist.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="discord_bridge_status_tab">
+          <attribute name="title"><string>Status</string></attribute>
+          <layout class="QVBoxLayout" name="discord_bridge_status_layout">
+           <item>
+            <widget class="QTableWidget" name="discord_instances_table">
+             <property name="minimumHeight"><number>120</number></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPlainTextEdit" name="discord_logs_preview">
+             <property name="readOnly"><bool>true</bool></property>
+             <property name="minimumHeight"><number>220</number></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

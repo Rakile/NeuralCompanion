@@ -343,19 +343,7 @@ def _default_assistant_memory():
 # ============================================================================
 # INSTRUCTIONS
 # ============================================================================
-DEFAULT_EMOTIONAL_INSTRUCTIONS = """You have a graphical face and a voice. Use them to act out your responses vividly.
-VISUAL MOODS (State-based):
-Insert one of these tags to make your graphical avatar take on a specific facial expression at any given moment.
-Valid Tags: [neutral], [sad], [angry]
-
-VOICE SOUNDS (Action-based):
-Insert one of these tags to express a vocal emotion at any given moment.
-Valid Tags: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff]
-
-Example of how to use tags in a sentence:
-"[angry] You did what? [laugh] [sad] Oh my god, are you okay? [neutral] Or just clumsy?"
-
-Do NOT use emojis when speaking!"""
+DEFAULT_EMOTIONAL_INSTRUCTIONS = ""
 
 DEFAULT_SENSORY_PINGPONG_PROMPT = """You are NC's hidden sensory ping/pong layer. The user never sees this exchange.
 You receive hidden sensory PINGs and must return JSON only, with no prose or markdown.
@@ -956,6 +944,11 @@ def update_runtime_config(key, value):
             value = chat_providers.normalize_provider_id(value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         elif key == "chat_provider_settings":
             value = dict(value or {})
+        elif key == "stream_mode":
+            if isinstance(value, str):
+                value = value.strip().lower() in {"1", "true", "yes", "on", "stream", "enabled"}
+            else:
+                value = bool(value)
         elif key == "stt_backend_settings":
             value = dict(value or {})
         elif key == "chat_replay_role_voices":

@@ -61,6 +61,22 @@ def _stream_text(stream: Iterable[Any]):
             yield str(content)
 
 
+def _should_retry_with_max_completion_tokens(exc: Exception) -> bool:
+    text = str(exc or "").lower()
+    return (
+        "unsupported parameter" in text
+        and "max_tokens" in text
+        and "max_completion_tokens" in text
+    )
+
+
+def _params_with_max_completion_tokens(params: dict[str, Any]) -> dict[str, Any]:
+    updated = dict(params or {})
+    if "max_tokens" in updated and "max_completion_tokens" not in updated:
+        updated["max_completion_tokens"] = updated.pop("max_tokens")
+    return updated
+
+
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
@@ -175,10 +191,22 @@ class Addon(BaseAddon):
 
     def _complete_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
         client = self._client()
-        response = client.chat.completions.create(**dict(params or {}))
+        request = dict(params or {})
+        try:
+            response = client.chat.completions.create(**request)
+        except Exception as exc:
+            if not _should_retry_with_max_completion_tokens(exc):
+                raise
+            response = client.chat.completions.create(**_params_with_max_completion_tokens(request))
         return _extract_text(response)
 
     def _stream_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
         client = self._client()
-        stream = client.chat.completions.create(**{**dict(params or {}), "stream": True})
+        request = {**dict(params or {}), "stream": True}
+        try:
+            stream = client.chat.completions.create(**request)
+        except Exception as exc:
+            if not _should_retry_with_max_completion_tokens(exc):
+                raise
+            stream = client.chat.completions.create(**_params_with_max_completion_tokens(request))
         return _stream_text(stream)

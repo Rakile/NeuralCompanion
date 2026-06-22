@@ -210,12 +210,20 @@ class StreamingChunkAssembler:
             effective_max >= min(self.max_chars, target_chars + STREAM_WHITESPACE_FALLBACK_MARGIN)
             or elapsed_time > (0.9 if self.emission_count == 0 else 1.8)
         )
-        for index in range(effective_max - 1, target_chars - 1, -1):
+        at_hard_max = effective_max >= self.max_chars
+        whitespace_floor = self.min_chunk_size if at_hard_max else max(self.min_chunk_size, min_force_chars)
+        for index in range(effective_max - 1, whitespace_floor - 1, -1):
             if whitespace_fallback_ready and working[index].isspace():
                 return {"cut": index + 1, "quality": 0.2, "reason": "whitespace"}
 
-        if effective_max >= self.max_chars:
-            return {"cut": effective_max, "quality": 0.0, "reason": "max_chars"}
+        if at_hard_max:
+            return self._emergency_force_cut(
+                working,
+                effective_max,
+                whitespace_floor,
+                quality_floor=0.0,
+                reason_prefix="max_chars",
+            )
         return {"cut": 0, "quality": 0.0, "reason": "wait"}
 
     def _best_punctuation_cut(self, working, effective_max, min_force_chars):

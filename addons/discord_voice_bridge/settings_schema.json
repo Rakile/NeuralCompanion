@@ -1,0 +1,728 @@
+{
+  "version": 1,
+  "title": "Discord Voice Bridge Settings",
+  "description": "Settings metadata for the Discord Voice Bridge addon. Defaults live in settings.example.json; ignored local overrides and optional local test tokens live in settings.local.json.",
+  "groups": [
+    {
+      "id": "general",
+      "label": "General",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Enable Discord Voice Bridge",
+          "type": "bool",
+          "default": false,
+          "help": "Allows the addon to accept Discord voice turns and launch bridge instances when start-on-launch or manual Start Bridge is used."
+        },
+        {
+          "key": "auto_start_bridge",
+          "label": "Auto-start bridge",
+          "type": "bool",
+          "default": false,
+          "help": "Compatibility auto-start flag. Start on NC launch is the preferred user-facing switch."
+        },
+        {
+          "key": "start_on_nc_launch",
+          "label": "Start on NC launch",
+          "type": "bool",
+          "default": false,
+          "help": "Starts the bundled Node bridge as soon as this addon initializes."
+        },
+        {
+          "key": "bridge_mode",
+          "label": "Bridge mode",
+          "type": "choice",
+          "choices": ["mock", "http", "tiny_mvp"],
+          "default": "mock",
+          "help": "Mock mode proves Discord transport. HTTP mode uses the real Discord Node bridge. TinyMVP mode uses a local fake voice-room bridge for testing without Discord."
+        },
+        {
+          "key": "tiny_mvp.url",
+          "label": "TinyMVP room URL",
+          "type": "text",
+          "default": "http://127.0.0.1:8788",
+          "help": "Local TinyMVP fake voice-room server URL used when Bridge mode is TinyMVP."
+        },
+        {
+          "key": "tiny_mvp.bridge_script",
+          "label": "TinyMVP bridge script",
+          "type": "path",
+          "default": "",
+          "help": "Optional path to tiny_voice_bridge.py. Leave blank to use a TinyMVP folder next to the NC repo."
+        },
+        {
+          "key": "tiny_mvp.poll_seconds",
+          "label": "TinyMVP poll interval (s)",
+          "type": "float",
+          "default": 0.25,
+          "help": "How often the TinyMVP bridge polls the fake voice-room state."
+        },
+        {
+          "key": "tiny_mvp.capture_mic",
+          "label": "TinyMVP NC microphone input",
+          "type": "bool",
+          "default": false,
+          "help": "When TinyMVP mode is active, use NC's local microphone as the human speaker and route accepted speech through the Discord bridge runtime."
+        },
+        {
+          "key": "tiny_mvp.mic_user_id",
+          "label": "TinyMVP mic user ID",
+          "type": "text",
+          "default": "rakila",
+          "help": "Stable fake human participant ID used for local microphone speech in TinyMVP."
+        },
+        {
+          "key": "tiny_mvp.mic_user_name",
+          "label": "TinyMVP mic user name",
+          "type": "text",
+          "default": "Rakila",
+          "help": "Display name used for local microphone speech in TinyMVP."
+        },
+        {
+          "key": "tiny_mvp.mic_seconds",
+          "label": "TinyMVP max phrase seconds",
+          "type": "float",
+          "default": 6.0,
+          "help": "Maximum phrase length for NC microphone input in TinyMVP mode."
+        },
+        {
+          "key": "tiny_mvp.mic_sample_rate",
+          "label": "TinyMVP mic sample rate",
+          "type": "int",
+          "default": 16000,
+          "help": "Sample rate for TinyMVP microphone WAV captures. 16000 Hz mono is usually enough for STT testing."
+        },
+        {
+          "key": "tiny_mvp.mic_device",
+          "label": "TinyMVP mic device",
+          "type": "text",
+          "default": "",
+          "help": "Optional microphone name fragment or index. Leave blank for the default microphone."
+        }
+      ]
+    },
+    {
+      "id": "discord",
+      "label": "Discord",
+      "fields": [
+        {
+          "key": "discord.token_env_var",
+          "label": "Bot token environment variable",
+          "type": "text",
+          "default": "DISCORD_TOKEN",
+          "secret": false,
+          "help": "Name of the environment variable containing the Discord bot token. The token itself should not be stored in session files."
+        },
+        {
+          "key": "discord.token",
+          "label": "Local test token",
+          "type": "text",
+          "default": "",
+          "secret": true,
+          "help": "Optional write-only local token for private local testing. Prefer token_env_var for normal use; this value must remain in ignored local settings."
+        },
+        {
+          "key": "discord.guild_id",
+          "label": "Server ID",
+          "type": "text",
+          "default": "",
+          "help": "Discord server/guild ID. Can be copied with Discord Developer Mode."
+        },
+        {
+          "key": "discord.voice_channel_id",
+          "label": "Voice channel ID",
+          "type": "text",
+          "default": "",
+          "help": "Discord voice channel ID to join."
+        },
+        {
+          "key": "discord.allowed_user_id",
+          "label": "Allowed user ID",
+          "type": "text",
+          "default": "",
+          "help": "Optional Discord user IDs. Use one ID or a comma/space separated list. Only used when Answer mode is allowed_user_only."
+        },
+        {
+          "key": "discord.answer_mode",
+          "label": "Answer mode",
+          "type": "choice",
+          "choices": ["allowed_user_only", "anyone"],
+          "default": "allowed_user_only",
+          "help": "Controls whose voice turns can trigger NC replies."
+        }
+      ]
+    },
+    {
+      "id": "capture",
+      "label": "Voice Capture",
+      "fields": [
+        {
+          "key": "capture.silence_ms",
+          "label": "Silence cutoff (ms)",
+          "type": "int",
+          "default": 900,
+          "min": 200,
+          "max": 5000,
+          "help": "How long Discord must be silent before a voice turn is considered complete."
+        },
+        {
+          "key": "capture.min_turn_seconds",
+          "label": "Minimum turn length (s)",
+          "type": "float",
+          "default": 0.6,
+          "min": 0.1,
+          "max": 5.0,
+          "help": "Captures shorter than this are ignored before STT/mock processing."
+        },
+        {
+          "key": "capture.max_turn_seconds",
+          "label": "Maximum turn length (s)",
+          "type": "int",
+          "default": 30,
+          "min": -1,
+          "max": 300,
+          "help": "Safety cap for one Discord voice turn. Use -1 for no hard cap; silence/idle detection still ends the turn."
+        },
+        {
+          "key": "capture.bot_max_turn_seconds",
+          "label": "Bot maximum turn length (s)",
+          "type": "int",
+          "default": 120,
+          "min": -1,
+          "max": 600,
+          "help": "Safety cap for voice turns spoken by other Discord bots. Use -1 for no hard cap; this can be higher than human turns because TTS replies may be long."
+        },
+        {
+          "key": "capture.bot_idle_finalize_ms",
+          "label": "Bot idle finalize (ms)",
+          "type": "int",
+          "default": 4500,
+          "min": 0,
+          "max": 30000,
+          "help": "How long decoded bot audio must be idle before finalizing another bot's utterance. Higher values reduce premature bot-to-bot turn taking when TTS chunks pause between sentences."
+        },
+        {
+          "key": "capture.ignore_low_information_transcripts",
+          "label": "Ignore low-information transcripts",
+          "type": "bool",
+          "default": true,
+          "help": "Drops short Whisper hallucinations such as 'and' or '1' before they reach the chat provider."
+        },
+        {
+          "key": "capture.low_information_max_seconds",
+          "label": "Low-information max duration (s)",
+          "type": "float",
+          "default": 2.0,
+          "min": 0.0,
+          "max": 10.0,
+          "help": "Only transcripts at or below this capture duration are checked against the low-information phrase list. Use 0 to apply the phrase list regardless of duration."
+        },
+        {
+          "key": "capture.low_information_transcripts",
+          "label": "Low-information transcript phrases",
+          "type": "json",
+          "default": ["1", "one", "and", "uh", "um", "hmm", "mm", "mhm"],
+          "help": "Exact normalized transcripts to ignore when the capture is short. Keep real short answers such as 'no' out of this list."
+        },
+        {
+          "key": "capture.wav_sample_rate",
+          "label": "Saved capture WAV sample rate",
+          "type": "choice",
+          "choices": [16000, 48000],
+          "default": 16000,
+          "help": "Sample rate for saved/STT capture WAV files. Discord is decoded at 48 kHz stereo, but 16 kHz mono is usually enough for speech recognition and keeps files smaller."
+        },
+        {
+          "key": "capture.wav_channels",
+          "label": "Saved capture WAV channels",
+          "type": "choice",
+          "choices": [1, 2],
+          "default": 1,
+          "help": "Channel count for saved/STT capture WAV files. Mono is recommended for speech recognition and lower disk use."
+        },
+        {
+          "key": "capture.shared_capture_owner_enabled",
+          "label": "Use one shared capture owner",
+          "type": "bool",
+          "default": true,
+          "help": "When multiple NC Discord bots are in the same voice channel, only one active bot captures and forwards human speech to NC. Other bots remain available for speaking and routing."
+        },
+        {
+          "key": "capture.owner_ttl_seconds",
+          "label": "Capture owner timeout (s)",
+          "type": "float",
+          "default": 8.0,
+          "min": 3.0,
+          "max": 60.0,
+          "help": "How long the shared capture owner claim may live without a heartbeat before another active bot may take over."
+        },
+        {
+          "key": "capture.save_captures",
+          "label": "Save captured WAV files",
+          "type": "bool",
+          "default": true,
+          "help": "Keeps captured voice turns on disk for debugging the bridge."
+        }
+      ]
+    },
+    {
+      "id": "playback",
+      "label": "Playback",
+      "fields": [
+        {
+          "key": "playback.play_test_tone_on_join",
+          "label": "Play test tone on join",
+          "type": "bool",
+          "default": false,
+          "help": "Plays a short tone when the bot joins the channel to verify Discord output."
+        },
+        {
+          "key": "playback.queue_replies",
+          "label": "Queue replies",
+          "type": "bool",
+          "default": true,
+          "help": "Serializes outgoing reply audio so Discord playback does not overlap."
+        },
+        {
+          "key": "playback.interrupt_reply_on_user_speech",
+          "label": "Interrupt reply on user speech",
+          "type": "bool",
+          "default": true,
+          "help": "Stops the current Discord reply, clears queued chunks, and aborts the active NC turn stream when the user starts speaking."
+        },
+        {
+          "key": "playback.interrupt_after_seconds",
+          "label": "Interrupt after continuous speech (s)",
+          "type": "float",
+          "default": 4.0,
+          "min": 0.0,
+          "max": 30.0,
+          "help": "Stops current reply audio after this many seconds of continuous user speech, even before STT confirms words. Use 0 to disable."
+        },
+        {
+          "key": "playback.reply_immunity_seconds",
+          "label": "Reply immunity window (s)",
+          "type": "float",
+          "default": 4.0,
+          "min": 0.0,
+          "max": 30.0,
+          "help": "Prevents immediate interruption during the first seconds of a bot reply. Continuous user speech can still interrupt once this window expires. Use 0 to disable."
+        },
+        {
+          "key": "playback.discard_bot_speech_on_human_intervention",
+          "label": "Discard bot speech on human intervention",
+          "type": "bool",
+          "default": true,
+          "help": "When a human starts speaking, active captures of other bots are discarded instead of being sent as partial bot-to-bot turns. This keeps human interruptions from cascading between multiple NC bots."
+        },
+        {
+          "key": "playback.coordinate_bot_replies",
+          "label": "Coordinate bot replies",
+          "type": "bool",
+          "default": true,
+          "help": "When multiple NC Discord bots answer the same room turn, the first bot with playable audio gets the floor and later simultaneous bot replies are discarded."
+        },
+        {
+          "key": "playback.reply_floor_stale_seconds",
+          "label": "Reply floor stale timeout (s)",
+          "type": "float",
+          "default": 180.0,
+          "min": 5.0,
+          "max": 1800.0,
+          "help": "How long a shared bot reply-floor claim may live before another bot treats it as stale. This prevents crashed/stopped bots from holding the floor forever."
+        },
+        {
+          "key": "playback.initial_buffer_chunks",
+          "label": "Initial buffer chunks",
+          "type": "int",
+          "default": 2,
+          "min": 1,
+          "max": 6,
+          "help": "How many rendered TTS chunks are buffered before Discord playback starts. Lower values reduce latency; higher values reduce stutter risk."
+        }
+      ]
+    },
+    {
+      "id": "cleanup",
+      "label": "Runtime Cleanup",
+      "fields": [
+        {
+          "key": "cleanup.wav_max_age_minutes",
+          "label": "WAV max age (minutes)",
+          "type": "float",
+          "default": 60.0,
+          "min": 0.0,
+          "max": 10080.0,
+          "help": "Deletes old Discord capture and reply WAV files after this many minutes. Use 0 to disable cleanup for debugging."
+        },
+        {
+          "key": "cleanup.interval_minutes",
+          "label": "Cleanup interval (minutes)",
+          "type": "float",
+          "default": 10.0,
+          "min": 1.0,
+          "max": 1440.0,
+          "help": "How often the bridge checks for old scratch WAV files while it is running."
+        }
+      ]
+    },
+    {
+      "id": "room_router",
+      "label": "Shared Room Router",
+      "fields": [
+        {
+          "key": "room_router.enabled",
+          "label": "Enable shared room router",
+          "type": "bool",
+          "default": true,
+          "help": "In multi-bot rooms, make one shared routing decision per Discord utterance before any individual bot generates a reply."
+        },
+        {
+          "key": "room_router.mode",
+          "label": "Router mode",
+          "type": "choice",
+          "choices": ["llm_router", "mention_or_question"],
+          "default": "llm_router",
+          "help": "LLM router asks the selected chat provider which bot, if any, should answer. Mention/question is a local fallback based on configured bot call names."
+        },
+        {
+          "key": "room_router.default_when_uncertain",
+          "label": "Route to this bot when uncertain",
+          "type": "bool",
+          "default": true,
+          "help": "If the shared router fails or returns an unclear decision, allow the current bot to continue instead of staying silent."
+        },
+        {
+          "key": "room_router.human_to_bot_routing",
+          "label": "Route human speech to bots",
+          "type": "bool",
+          "default": true,
+          "help": "Allows human Discord utterances to be routed to a bot. Disable to ignore human speech at the shared room-router layer."
+        },
+        {
+          "key": "room_router.bot_to_bot_routing",
+          "label": "Route bot speech to bots",
+          "type": "bool",
+          "default": true,
+          "help": "Allows one NC Discord bot's completed reply to be routed to another NC Discord bot."
+        },
+        {
+          "key": "room_router.exclude_speaker_from_targets",
+          "label": "Exclude speaker from targets",
+          "type": "bool",
+          "default": true,
+          "help": "Removes the speaking bot from eligible routing targets before asking the router. This prevents most accidental self-routes."
+        },
+        {
+          "key": "room_router.allow_group_invitation_routing",
+          "label": "Route group bot invitations",
+          "type": "bool",
+          "default": true,
+          "help": "Allows invitations to multiple named bots, candidate bots, or the bot group to select one best bot instead of returning no route."
+        },
+        {
+          "key": "room_router.allow_open_room_invitation_routing",
+          "label": "Route open-room invitations",
+          "type": "bool",
+          "default": true,
+          "help": "Allows open invitations to the room or all participants to select one best non-human bot. Disable if open room talk should stay human-to-human unless a bot is named."
+        },
+        {
+          "key": "room_router.self_route_policy",
+          "label": "Self-route policy",
+          "type": "choice",
+          "choices": ["ignore", "allow", "error"],
+          "default": "ignore",
+          "help": "Controls what happens if the router selects the same bot that spoke. Ignore blocks it, allow permits it, error blocks it with an explicit self-route reason."
+        },
+        {
+          "key": "room_router.uncertain_fallback_target",
+          "label": "Uncertain fallback target",
+          "type": "choice",
+          "choices": ["self", "first_candidate", "none"],
+          "default": "self",
+          "help": "When Answer when uncertain is enabled, choose whether uncertainty falls back to this bot, the first eligible candidate, or nobody."
+        },
+        {
+          "key": "room_router.decision_timeout_seconds",
+          "label": "Router decision timeout (s)",
+          "type": "float",
+          "default": 20.0,
+          "min": 1.0,
+          "max": 120.0,
+          "help": "How long non-owner bot instances wait for the shared room routing decision file."
+        },
+        {
+          "key": "room_router.decision_max_tokens",
+          "label": "Router decision max tokens",
+          "type": "int",
+          "default": 2048,
+          "min": 80,
+          "max": 4096,
+          "help": "Token budget for the small LLM router JSON decision. Reasoning-capable models may need more than the visible JSON because hidden reasoning can consume output tokens."
+        },
+        {
+          "key": "room_router.route_window_ms",
+          "label": "Route grouping window (ms)",
+          "type": "int",
+          "default": 4000,
+          "min": 500,
+          "max": 30000,
+          "help": "Time bucket used to group the same utterance captured by multiple bot instances. Larger values are more tolerant of capture timing differences."
+        },
+        {
+          "key": "room_router.route_bot_replies_from_text",
+          "label": "Route bot replies from text",
+          "type": "bool",
+          "default": true,
+          "help": "After a bot finishes generating a reply, route the known reply text directly to the next bot instead of waiting for Discord audio capture and STT."
+        },
+        {
+          "key": "room_router.prepare_bot_replies_ahead",
+          "label": "Prepare routed bot replies ahead",
+          "type": "bool",
+          "default": true,
+          "help": "With LLM router, direct bot-text routing, and shared reply-floor coordination enabled, route a completed bot reply as soon as generation finishes so the selected next bot can generate/TTS while the current bot is still speaking. Playback still waits for the floor."
+        },
+        {
+          "key": "room_router.competing_bot_reply_policy",
+          "label": "Competing bot reply policy",
+          "type": "choice",
+          "choices": ["first_ready_wins", "queue", "disabled"],
+          "default": "first_ready_wins",
+          "help": "Policy label for how simultaneous bot replies should be handled. The current Node bridge implements first_ready_wins through the shared reply floor."
+        },
+        {
+          "key": "room_router.reply_floor_mode",
+          "label": "Reply floor mode",
+          "type": "choice",
+          "choices": ["first_ready_wins", "queue", "disabled"],
+          "default": "first_ready_wins",
+          "help": "Policy label for the shared playback floor. first_ready_wins lets the first bot with playable audio speak while competitors are dropped."
+        },
+        {
+          "key": "room_router.dead_air_recovery.enabled",
+          "label": "Enable moderator dead-air recovery",
+          "type": "bool",
+          "default": false,
+          "help": "When a completed routed turn selects no next speaker, let the selected Moderator bot step in."
+        },
+        {
+          "key": "room_router.dead_air_recovery.cooldown_seconds",
+          "label": "Dead-air recovery cooldown (s)",
+          "type": "float",
+          "default": 0.0,
+          "min": 0.0,
+          "max": 3600.0,
+          "help": "Minimum time between automatic Moderator recovery turns. Use 0 for no cooldown."
+        },
+        {
+          "key": "room_router.dead_air_recovery.silence_timeout_seconds",
+          "label": "Dead-air silence timeout (s)",
+          "type": "float",
+          "default": 0.0,
+          "min": 0.0,
+          "max": 3600.0,
+          "help": "Optional quiet-room timer. Use 0 to disable. When the room stays silent this long, the selected Moderator/dead-air recovery action runs so humans have a window to speak before a bot is called."
+        },
+        {
+          "key": "room_router.dead_air_recovery.trigger_mode",
+          "label": "Dead-air recovery trigger",
+          "type": "choice",
+          "choices": ["no_route_after_bot_speech", "no_route_after_any_speech"],
+          "default": "no_route_after_bot_speech",
+          "help": "Choose whether dead-air recovery triggers only after bot speech or also after unrouted human speech."
+        },
+        {
+          "key": "room_router.dead_air_recovery.action_mode",
+          "label": "Dead-air recovery action",
+          "type": "choice",
+          "choices": ["moderator_speaks_and_calls_next", "moderator_speaks_only", "silent_call_next"],
+          "default": "moderator_speaks_and_calls_next",
+          "help": "Choose whether the Moderator speaks and hands off, speaks without handoff, or silently calls the next bot."
+        },
+        {
+          "key": "room_router.dead_air_recovery.next_speaker_strategy",
+          "label": "Dead-air next-speaker strategy",
+          "type": "choice",
+          "choices": ["llm_choose", "round_robin", "selected_fallback"],
+          "default": "llm_choose",
+          "help": "Choose how the recovery system selects the next bot after the Moderator bridge."
+        },
+        {
+          "key": "room_router.dead_air_recovery.selected_fallback_target",
+          "label": "Dead-air fallback target",
+          "type": "text",
+          "default": "",
+          "help": "Optional bot id used by the selected-fallback next-speaker strategy."
+        },
+        {
+            "key": "room_router.routed_text_poll_ms",
+            "label": "Routed text poll interval (ms)",
+            "type": "int",
+            "default": 250,
+            "min": 100,
+            "max": 5000,
+            "help": "How often each bot process checks for text-routed turns addressed to it."
+          },
+          {
+            "key": "room_router.routed_text_max_age_seconds",
+            "label": "Routed text max age (s)",
+            "type": "float",
+            "default": 30.0,
+            "min": 1.0,
+            "max": 600.0,
+            "help": "Discard text-routed bot turns older than this. Routed text is live handoff state, not saved conversation history."
+          },
+          {
+            "key": "room_router.router_rules_prompt",
+            "label": "Router rules prompt",
+            "type": "multiline_text",
+            "default": "",
+            "help": "Optional editable LLM router rules. Leave blank to use the transparent built-in default rules shown in the addon documentation/state."
+          }
+        ]
+      },
+    {
+      "id": "persona",
+      "label": "Persona",
+      "fields": [
+        {
+          "key": "persona.system_prompt",
+          "label": "Discord persona system prompt",
+          "type": "multiline_text",
+          "default": "",
+          "help": "Optional Discord-only personality instructions appended to, or replacing, the selected NC system prompt."
+        },
+        {
+          "key": "persona.replace_nc_system_prompt",
+          "label": "Replace NC system prompt",
+          "type": "bool",
+          "default": false,
+          "help": "When enabled, the Discord persona prompt replaces the currently selected NC system prompt and NC visual/emotional instruction block for this bridge instance."
+        },
+        {
+          "key": "persona.voice_clone_wav",
+          "label": "Voice clone WAV",
+          "type": "path",
+          "default": "",
+          "help": "Optional per-bot WAV reference voice. Relative names such as echo.wav are loaded from NC's root voices folder. Leave blank to use the voice selected in NC's global Persona tab."
+        }
+      ]
+    },
+    {
+      "id": "chat",
+      "label": "Discord Chat",
+      "fields": [
+        {
+          "key": "chat.context_entries",
+          "label": "Context entries",
+          "type": "int",
+          "default": 20,
+          "min": 0,
+          "max": 1000,
+          "help": "How many prior Discord history entries this bot sends to the chat provider. User and assistant messages each count as one entry. Use 0 to send all retained Discord history."
+        },
+        {
+          "key": "chat.use_selected_rag_context",
+          "label": "Use selected RAG context",
+          "type": "bool",
+          "default": true,
+          "help": "When enabled, Discord turns may receive context from NC's active RAG Context addon if that addon is enabled and has matching chunks. This does not modify the RAG database."
+        },
+        {
+          "key": "chat.persist_room_context_between_restarts",
+          "label": "Persist room context between restarts",
+          "type": "bool",
+          "default": false,
+          "help": "When enabled, the Node bridge keeps its shared Discord room context JSON across bridge/app restarts. Leave off to start each bridge launch with a clean shared room context."
+        }
+      ]
+    },
+    {
+      "id": "bots",
+      "label": "Multiple Bots",
+      "fields": [
+        {
+          "key": "bots",
+          "label": "Bot instances",
+          "type": "json",
+          "default": [],
+          "help": "Optional array of bot override objects. Each enabled bot gets its own Discord token/channel settings, persona, localhost runtime port, Node process, and isolated chat history."
+        }
+      ]
+    },
+    {
+      "id": "nc_runtime",
+      "label": "NC Runtime",
+      "fields": [
+        {
+          "key": "nc_runtime.host",
+          "label": "Runtime host",
+          "type": "text",
+          "default": "127.0.0.1",
+          "help": "Local host for the addon runtime endpoint. Keep this on 127.0.0.1, localhost, or ::1 so the bridge is not exposed to the network."
+        },
+        {
+          "key": "nc_runtime.port",
+          "label": "Runtime port",
+          "type": "int",
+          "default": 8768,
+          "min": 1,
+          "max": 65535,
+          "help": "Local runtime port for the single-bot setup. Multi-bot instances should each use a unique port."
+        },
+        {
+          "key": "nc_runtime.allow_non_localhost",
+          "label": "Allow non-localhost runtime host",
+          "type": "bool",
+          "default": false,
+          "help": "Advanced safety override. Leave off for normal use. When off, Start Bridge refuses runtime hosts outside loopback addresses such as 127.0.0.1, localhost, or ::1."
+        },
+        {
+          "key": "nc_runtime.endpoint",
+          "label": "NC bridge endpoint",
+          "type": "text",
+          "default": "ws://127.0.0.1:8768/discord-voice",
+          "help": "Local endpoint used by the Node bridge to send remote voice turns to NC."
+        },
+        {
+          "key": "nc_runtime.http_endpoint",
+          "label": "NC HTTP turn endpoint",
+          "type": "text",
+          "default": "http://127.0.0.1:8768/turn",
+          "help": "Local HTTP endpoint used by the Node bridge for Discord voice turns."
+        },
+        {
+          "key": "nc_runtime.session_mode",
+          "label": "Session mode",
+          "type": "choice",
+          "choices": ["isolated_discord"],
+          "default": "isolated_discord",
+          "help": "Discord voice uses its own isolated context and does not append to the normal Chat tab history."
+        },
+        {
+          "key": "nc_runtime.use_selected_stt",
+          "label": "Use selected STT",
+          "type": "bool",
+          "default": true,
+          "help": "Use the STT provider currently selected in Neural Companion for Discord speech transcription."
+        },
+        {
+          "key": "nc_runtime.use_selected_chat_provider",
+          "label": "Use selected chat provider",
+          "type": "bool",
+          "default": true,
+          "help": "Use the chat provider currently selected in Neural Companion for Discord replies."
+        },
+        {
+          "key": "nc_runtime.use_selected_tts",
+          "label": "Use selected TTS",
+          "type": "bool",
+          "default": true,
+          "help": "Use the TTS provider currently selected in Neural Companion for Discord reply audio."
+        }
+      ]
+    }
+  ]
+}

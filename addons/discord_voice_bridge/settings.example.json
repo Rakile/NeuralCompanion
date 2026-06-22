@@ -1,0 +1,114 @@
+{
+  "enabled": false,
+  "start_on_nc_launch": false,
+  "auto_start_bridge": false,
+  "bridge_mode": "mock",
+  "discord": {
+    "token_env_var": "DISCORD_TOKEN",
+    "guild_id": "",
+    "voice_channel_id": "",
+    "allowed_user_id": "",
+    "answer_mode": "allowed_user_only"
+  },
+  "capture": {
+    "silence_ms": 900,
+    "min_turn_seconds": 0.6,
+    "max_turn_seconds": 30,
+    "bot_max_turn_seconds": 120,
+    "bot_idle_finalize_ms": 4500,
+    "ignore_low_information_transcripts": true,
+    "low_information_max_seconds": 2.0,
+    "low_information_transcripts": ["1", "one", "and", "uh", "um", "hmm", "mm", "mhm"],
+    "wav_sample_rate": 16000,
+    "wav_channels": 1,
+    "shared_capture_owner_enabled": true,
+    "owner_ttl_seconds": 8.0,
+    "save_captures": true
+  },
+  "playback": {
+    "play_test_tone_on_join": false,
+    "queue_replies": true,
+    "interrupt_reply_on_user_speech": true,
+    "interrupt_after_seconds": 4.0,
+    "interrupt_pause_after_failed_probe_seconds": 3.0,
+    "reply_immunity_seconds": 4.0,
+    "discard_bot_speech_on_human_intervention": true,
+    "coordinate_bot_replies": true,
+    "initial_buffer_chunks": 2,
+    "debug_logging": false,
+    "reply_floor_stale_seconds": 180.0
+  },
+  "cleanup": {
+    "wav_max_age_minutes": 60,
+    "interval_minutes": 10
+  },
+  "room_router": {
+    "enabled": true,
+    "mode": "llm_router",
+    "default_when_uncertain": true,
+    "human_to_bot_routing": true,
+    "bot_to_bot_routing": true,
+    "exclude_speaker_from_targets": true,
+    "allow_group_invitation_routing": true,
+    "allow_open_room_invitation_routing": true,
+    "self_route_policy": "ignore",
+    "uncertain_fallback_target": "self",
+    "decision_timeout_seconds": 20.0,
+    "decision_max_tokens": 2048,
+    "route_window_ms": 4000,
+    "route_bot_replies_from_text": true,
+    "prepare_bot_replies_ahead": true,
+    "competing_bot_reply_policy": "first_ready_wins",
+    "reply_floor_mode": "first_ready_wins",
+    "dead_air_recovery": {
+      "enabled": false,
+      "cooldown_seconds": 0.0,
+      "silence_timeout_seconds": 0.0,
+      "trigger_mode": "no_route_after_bot_speech",
+      "action_mode": "moderator_speaks_and_calls_next",
+      "next_speaker_strategy": "llm_choose",
+      "selected_fallback_target": ""
+    },
+    "routed_text_poll_ms": 250,
+    "routed_text_max_age_seconds": 30.0,
+    "router_rules_prompt": "",
+    "candidate_bots": []
+  },
+  "persona": {
+    "system_prompt": "",
+    "replace_nc_system_prompt": false,
+    "voice_clone_wav": ""
+  },
+  "chat": {
+    "context_entries": 20,
+    "use_selected_rag_context": true,
+    "persist_room_context_between_restarts": false
+  },
+  "bots": [],
+  "nc_runtime": {
+    "endpoint": "ws://127.0.0.1:8768/discord-voice",
+    "http_endpoint": "http://127.0.0.1:8768/turn",
+    "host": "127.0.0.1",
+    "port": 8768,
+    "allow_non_localhost": false,
+    "session_mode": "isolated_discord",
+    "use_selected_stt": true,
+    "use_selected_chat_provider": true,
+    "use_selected_tts": true
+  },
+  "mock": {
+    "reply_delay_ms": 450,
+    "reply_audio": "chime"
+  },
+  "tiny_mvp": {
+    "url": "http://127.0.0.1:8788",
+    "bridge_script": "",
+    "poll_seconds": 0.25,
+    "capture_mic": false,
+    "mic_user_id": "rakila",
+    "mic_user_name": "Rakila",
+    "mic_seconds": 6.0,
+    "mic_sample_rate": 16000,
+    "mic_device": ""
+  }
+}

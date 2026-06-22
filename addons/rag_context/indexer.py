@@ -197,8 +197,12 @@ def build_context(results: list[SearchResult], *, max_chars: int) -> str:
     used = len("\n\n".join(parts))
     for result in results:
         label = f"[Source: {Path(result.source).name}, chunk {result.chunk_index + 1}, score {result.score}]"
-        block = f"{label}\n{result.text}"
+        text = str(result.text or "").strip()
+        block = f"{label}\n{text}"
         if used + len(block) + 2 > max_chars:
+            remaining = max_chars - used - len(label) - 8
+            if remaining > 80:
+                parts.append(f"{label}\n{text[:remaining].rstrip()}...")
             break
         parts.append(block)
         used += len(block) + 2

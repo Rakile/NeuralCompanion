@@ -172,7 +172,27 @@ class ChatterboxMultilingualTTSService:
                 self.generated_tokens = []
             except Exception:
                 pass
-            result = original_step(self, logits, next_token=next_token)
+            try:
+                result = original_step(self, logits, next_token=next_token)
+            except RuntimeError as exc:
+                message = str(exc)
+                if "stack expects each tensor to be equal size" not in message:
+                    raise
+                aligned_attns = [item for item in getattr(self, "last_aligned_attns", []) if item is not None]
+                if not aligned_attns:
+                    raise
+                try:
+                    min_rows = min(int(item.shape[0]) for item in aligned_attns)
+                    min_cols = min(int(item.shape[1]) for item in aligned_attns)
+                    if min_rows <= 0 or min_cols <= 0:
+                        raise
+                    self.last_aligned_attns = [
+                        item[:min_rows, :min_cols] if item is not None else item
+                        for item in getattr(self, "last_aligned_attns", [])
+                    ]
+                    result = original_step(self, logits, next_token=next_token)
+                except Exception:
+                    raise exc
             try:
                 self.generated_tokens = []
             except Exception:
