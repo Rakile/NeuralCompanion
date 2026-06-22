@@ -154,7 +154,11 @@ class BackendChatModelCatalogMixin:
             return False
         index = self.model_combo.findText(wanted)
         if index >= 0:
-            self.model_combo.setCurrentIndex(index)
+            self.model_combo.blockSignals(True)
+            try:
+                self.model_combo.setCurrentIndex(index)
+            finally:
+                self.model_combo.blockSignals(False)
             return True
         current = self.model_combo.currentText().strip() if self.model_combo.currentText() else "<none>"
         print(f"[QtGUI] Saved model not available: {wanted}. Keeping current model: {current}")
@@ -172,7 +176,11 @@ class BackendChatModelCatalogMixin:
         active_provider = self._current_chat_provider_value()
         if provider == active_provider:
             _update_runtime_config("model_requires_vision", bool(_checked))
-        self.refresh_model_list_quietly(quiet=True, preloaded_models=list(getattr(self, "_all_model_catalog", []) or []))
+        catalog_map = getattr(self, "_chat_provider_model_catalogs", {}) or {}
+        provider_catalog = list(catalog_map.get(provider) or [])
+        if not provider_catalog:
+            provider_catalog = list(getattr(self, "_all_model_catalog", []) or [])
+        self.refresh_model_list_quietly(quiet=True, preloaded_models=provider_catalog)
         selected_model = str(self.model_combo.currentText() if hasattr(self, "model_combo") else _runtime_config().get("model_name", "") or "").strip()
         if selected_model:
             model_supports_images = self._current_model_supports_images_value(selected_model)
@@ -268,6 +276,9 @@ class BackendChatModelCatalogMixin:
             else list(preloaded_models or [])
         )
         available_catalog = self._set_model_catalog(raw_models)
+        catalog_map = dict(getattr(self, "_chat_provider_model_catalogs", {}) or {})
+        catalog_map[provider] = list(getattr(self, "_all_model_catalog", []) or [])
+        self._chat_provider_model_catalogs = catalog_map
         valid_models = [str(entry.get("id") or "") for entry in list(getattr(self, "_all_model_catalog", []) or []) if str(entry.get("id") or "")]
         self._tutorial_lm_studio_running = bool(valid_models)
 
@@ -315,12 +326,12 @@ class BackendChatModelCatalogMixin:
         self.model_combo.clear()
         self.model_combo.addItems(new_items)
         target_index = 0
-        if filtered_models and current in filtered_models:
-            target_index = filtered_models.index(current)
-        elif filtered_models:
+        if filtered_models:
             wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip() or provider_wanted
             if wanted in filtered_models:
                 target_index = filtered_models.index(wanted)
+            elif current in filtered_models:
+                target_index = filtered_models.index(current)
         self.model_combo.setCurrentIndex(max(0, min(target_index, self.model_combo.count() - 1)))
         self.model_combo.blockSignals(False)
         selected_model = str(self.model_combo.currentText() or "").strip()

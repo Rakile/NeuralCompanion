@@ -4114,6 +4114,11 @@ QTabWidget QTabBar::tab:selected {
                             setter(view_value, refresh_models=not preserve_combo)
                         except TypeError:
                             setter(view_value)
+                    self._copy_combo_state(getattr(backend, "model_combo", None), self._ui_object("model_combo"))
+                    self._copy_checkbox_state(
+                        getattr(backend, "model_requires_vision_checkbox", None),
+                        self._ui_object("model_requires_vision_checkbox"),
+                    )
                 elif object_name == "stt_runtime_backend_tabs":
                     setter = getattr(backend, "_set_stt_backend_editor_value", None)
                     if callable(setter):

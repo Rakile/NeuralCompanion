@@ -65,11 +65,17 @@ class BackendChatProviderFieldsMixin:
         provider_key = chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         previous = str(getattr(self, "_chat_runtime_editor_provider", "") or "").strip().lower()
         self._chat_runtime_editor_provider = provider_key
-        if previous == provider_key and not force:
-            return
         state = self._current_chat_provider_model_state_for(provider_key)
         wanted_model = str((state or {}).get("model_name") or "").strip()
         self._pending_restored_model_name = wanted_model
+        if not refresh_models:
+            self._set_chat_provider_editor_model_display(provider_key, wanted_model)
+            if not self._chat_provider_editor_has_cached_models(provider_key):
+                self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=False)
+        if previous == provider_key and not force:
+            if not refresh_models:
+                self._refresh_chat_provider_card()
+            return
         if hasattr(self, "model_requires_vision_checkbox"):
             self.model_requires_vision_checkbox.blockSignals(True)
             try:
@@ -79,6 +85,41 @@ class BackendChatProviderFieldsMixin:
         self._refresh_chat_provider_card()
         if refresh_models:
             self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
+
+    def _chat_provider_editor_has_cached_models(self, provider_key):
+        provider = chat_providers.normalize_provider_id(provider_key, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        catalog_map = getattr(self, "_chat_provider_model_catalogs", {}) or {}
+        return provider in catalog_map
+
+    def _set_chat_provider_editor_model_display(self, provider_key, model_name):
+        if not hasattr(self, "model_combo"):
+            return
+        provider = chat_providers.normalize_provider_id(provider_key, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        wanted = str(model_name or "").strip()
+        catalog_map = getattr(self, "_chat_provider_model_catalogs", {}) or {}
+        catalog = list(catalog_map.get(provider) or [])
+        if hasattr(self, "model_requires_vision_checkbox") and self.model_requires_vision_checkbox.isChecked():
+            catalog = [entry for entry in catalog if bool((entry or {}).get("supports_images", False))]
+        display_items = []
+        seen = set()
+        for item in [wanted] + [str((entry or {}).get("id") or "").strip() for entry in catalog]:
+            value = str(item or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            display_items.append(value)
+        if not display_items:
+            display_items = ["No Models"]
+        self.model_combo.blockSignals(True)
+        try:
+            current_items = [self.model_combo.itemText(index) for index in range(self.model_combo.count())]
+            if current_items != display_items:
+                self.model_combo.clear()
+                self.model_combo.addItems(display_items)
+            target_index = self.model_combo.findText(wanted) if wanted else 0
+            self.model_combo.setCurrentIndex(max(0, target_index))
+        finally:
+            self.model_combo.blockSignals(False)
 
     def _sync_chat_provider_settings_to_registry(self):
         try:
