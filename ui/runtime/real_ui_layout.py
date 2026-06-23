@@ -4003,15 +4003,63 @@ QTabWidget QTabBar::tab:selected {
                 active_page.updateGeometry()
                 content_hint = active_page.sizeHint().height()
                 wanted = max(132, int(content_hint) + int(tab_bar.sizeHint().height()) + 38)
-                tabs.setMinimumHeight(wanted)
-                tabs.setMaximumHeight(wanted)
-                policy = tabs.sizePolicy()
-                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
-                tabs.setSizePolicy(policy)
+                if object_name == "chat_runtime_provider_tabs":
+                    wanted = max(180, wanted)
+                    cached_wanted = int(tabs.property("_nc_stable_runtime_provider_height") or 0)
+                    wanted = max(wanted, cached_wanted)
+                    tabs.setProperty("_nc_stable_runtime_provider_height", wanted)
+                    if tabs.minimumHeight() == wanted and tabs.maximumHeight() == 16777215:
+                        self._sync_frontend_runtime_tab_stack_height()
+                        return
+                    tabs.setMinimumHeight(wanted)
+                    tabs.setMaximumHeight(16777215)
+                    policy = tabs.sizePolicy()
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                    tabs.setSizePolicy(policy)
+                else:
+                    if tabs.minimumHeight() == wanted and tabs.maximumHeight() == wanted:
+                        return
+                    tabs.setMinimumHeight(wanted)
+                    tabs.setMaximumHeight(wanted)
+                    policy = tabs.sizePolicy()
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
+                    tabs.setSizePolicy(policy)
                 tabs.updateGeometry()
                 self._sync_frontend_runtime_tab_stack_height()
             except Exception:
                 pass
+
+    def _sync_chat_runtime_box_stable_height(self):
+            group_box = self._ui_object("chat_runtime_box")
+            if group_box is None:
+                return False
+            try:
+                layout = group_box.layout()
+                if layout is not None:
+                    layout.invalidate()
+                    layout.activate()
+                group_box.adjustSize()
+                group_box.updateGeometry()
+                wanted = max(1, int(group_box.sizeHint().height()))
+                cached_wanted = int(group_box.property("_nc_stable_chat_runtime_box_height") or 0)
+                wanted = max(wanted, cached_wanted)
+                group_box.setProperty("_nc_stable_chat_runtime_box_height", wanted)
+                policy = group_box.sizePolicy()
+                changed = (
+                    group_box.minimumHeight() != wanted
+                    or group_box.maximumHeight() != wanted
+                    or policy.verticalPolicy() != QtWidgets.QSizePolicy.Minimum
+                )
+                if not changed:
+                    return False
+                group_box.setMinimumHeight(wanted)
+                group_box.setMaximumHeight(wanted)
+                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                group_box.setSizePolicy(policy)
+                group_box.updateGeometry()
+                return True
+            except Exception:
+                return False
 
     def _move_runtime_provider_content_to_active_tab(self, tabs, combo, content, select_tab=True, sync_combo_on_tab_change=True, tab_index=None):
             if tabs is None or content is None:
@@ -5220,6 +5268,12 @@ QWidget#runtime_section_tab_page {
             if page is None:
                 return
             try:
+                try:
+                    is_chat_runtime_page = page.findChild(QtWidgets.QWidget, "chat_runtime_box") is not None
+                except Exception:
+                    is_chat_runtime_page = False
+                if is_chat_runtime_page:
+                    self._sync_chat_runtime_box_stable_height()
                 for widget in (page, stack, container):
                     policy = widget.sizePolicy()
                     policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Expanding)
@@ -5237,12 +5291,46 @@ QWidget#runtime_section_tab_page {
                 page.updateGeometry()
                 page_height = max(1, int(page.sizeHint().height()))
                 stack_height = page_height + 2
-                stack.setMinimumHeight(stack_height)
-                stack.setMaximumHeight(stack_height)
                 tab_bar = getattr(self, "_frontend_runtime_tab_bar", None)
                 tab_height = int(tab_bar.sizeHint().height()) if tab_bar is not None else 36
-                container.setMinimumHeight(stack_height + tab_height)
-                container.setMaximumHeight(stack_height + tab_height)
+                container_height = stack_height + tab_height
+                if is_chat_runtime_page:
+                    try:
+                        for widget in (page, stack, container):
+                            policy = widget.sizePolicy()
+                            policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                            widget.setSizePolicy(policy)
+                    except Exception:
+                        pass
+                    cached_stack_height = int(stack.property("_nc_stable_chat_runtime_stack_height") or 0)
+                    stack_height = max(stack_height, cached_stack_height)
+                    stack.setProperty("_nc_stable_chat_runtime_stack_height", stack_height)
+                    container_height = stack_height + tab_height
+                    if (
+                        stack.minimumHeight() == stack_height
+                        and stack.maximumHeight() == stack_height
+                        and container.minimumHeight() == container_height
+                        and container.maximumHeight() == container_height
+                    ):
+                        return
+                    stack.setMinimumHeight(stack_height)
+                    stack.setMaximumHeight(stack_height)
+                    container.setMinimumHeight(container_height)
+                    container.setMaximumHeight(container_height)
+                    stack.updateGeometry()
+                    container.updateGeometry()
+                    return
+                if (
+                    stack.minimumHeight() == stack_height
+                    and stack.maximumHeight() == stack_height
+                    and container.minimumHeight() == container_height
+                    and container.maximumHeight() == container_height
+                ):
+                    return
+                stack.setMinimumHeight(stack_height)
+                stack.setMaximumHeight(stack_height)
+                container.setMinimumHeight(container_height)
+                container.setMaximumHeight(container_height)
                 stack.updateGeometry()
                 container.updateGeometry()
             except Exception:

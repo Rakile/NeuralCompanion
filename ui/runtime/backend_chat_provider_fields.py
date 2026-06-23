@@ -70,8 +70,6 @@ class BackendChatProviderFieldsMixin:
         self._pending_restored_model_name = wanted_model
         if not refresh_models:
             self._set_chat_provider_editor_model_display(provider_key, wanted_model)
-            if not self._chat_provider_editor_has_cached_models(provider_key):
-                self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=False)
         if previous == provider_key and not force:
             if not refresh_models:
                 self._refresh_chat_provider_card()
@@ -85,11 +83,6 @@ class BackendChatProviderFieldsMixin:
         self._refresh_chat_provider_card()
         if refresh_models:
             self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
-
-    def _chat_provider_editor_has_cached_models(self, provider_key):
-        provider = chat_providers.normalize_provider_id(provider_key, fallback=chat_providers.DEFAULT_PROVIDER_ID)
-        catalog_map = getattr(self, "_chat_provider_model_catalogs", {}) or {}
-        return provider in catalog_map
 
     def _set_chat_provider_editor_model_display(self, provider_key, model_name):
         if not hasattr(self, "model_combo"):
@@ -117,7 +110,9 @@ class BackendChatProviderFieldsMixin:
                 self.model_combo.clear()
                 self.model_combo.addItems(display_items)
             target_index = self.model_combo.findText(wanted) if wanted else 0
-            self.model_combo.setCurrentIndex(max(0, target_index))
+            target_index = max(0, target_index)
+            if self.model_combo.currentText() != (display_items[target_index] if 0 <= target_index < len(display_items) else ""):
+                self.model_combo.setCurrentIndex(target_index)
         finally:
             self.model_combo.blockSignals(False)
 
@@ -355,17 +350,120 @@ class BackendChatProviderFieldsMixin:
         except Exception:
             pass
 
+    def _chat_provider_fields_signature(self, provider_id, fields):
+        signature = []
+        for field in list(fields or []):
+            if not isinstance(field, dict):
+                continue
+            signature.append(
+                (
+                    str(field.get("id") or "").strip(),
+                    str(field.get("label") or "").strip(),
+                    str(field.get("kind") or "").strip().lower(),
+                    str(field.get("placeholder") or "").strip(),
+                    repr(field.get("default")),
+                    repr(field.get("options")),
+                    repr(field.get("env")),
+                    str(field.get("requires_model_support") or "").strip().lower(),
+                    str(field.get("description") or field.get("help") or field.get("text") or "").strip(),
+                )
+            )
+        return (chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID), tuple(signature))
+
+    def _set_widget_value_without_churn(self, widget, value, field=None):
+        if widget is None:
+            return False
+        if getattr(widget, "hasFocus", lambda: False)():
+            return False
+        changed = False
+        try:
+            widget.blockSignals(True)
+            if isinstance(widget, QtWidgets.QCheckBox):
+                next_value = self._bool_generation_value(value, dict(field or {}).get("default", False))
+                if bool(widget.isChecked()) != bool(next_value):
+                    widget.setChecked(bool(next_value))
+                    changed = True
+            elif isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
+                next_value = value if value not in {None, ""} else dict(field or {}).get("default", 0)
+                if isinstance(widget, QtWidgets.QDoubleSpinBox):
+                    next_value = float(next_value)
+                else:
+                    next_value = int(next_value)
+                if widget.value() != next_value:
+                    widget.setValue(next_value)
+                    changed = True
+            elif isinstance(widget, QtWidgets.QComboBox):
+                index = -1
+                if hasattr(widget, "findData"):
+                    index = widget.findData(value)
+                if index < 0:
+                    index = widget.findText(str(value))
+                if index >= 0 and widget.currentIndex() != index:
+                    widget.setCurrentIndex(index)
+                    changed = True
+            elif isinstance(widget, QtWidgets.QLineEdit):
+                text = str(value if value is not None else "")
+                if widget.text() != text:
+                    widget.setText(text)
+                    changed = True
+        except Exception:
+            return False
+        finally:
+            try:
+                widget.blockSignals(False)
+            except Exception:
+                pass
+        return changed
+
     def _refresh_chat_provider_generation_card(self):
         if not hasattr(self, "chat_provider_generation_fields_layout"):
             return
+        provider_id = self._current_chat_provider_editor_value()
+        current_settings = self._current_chat_provider_generation_settings_for(provider_id)
+        fields = list(self._chat_provider_generation_fields(provider_id))
+        signature = self._chat_provider_fields_signature(provider_id, fields)
+        previous_signature = getattr(self, "_chat_provider_generation_fields_signature", None)
+        existing_widgets = getattr(self, "_chat_provider_generation_field_widgets", {}) or {}
+        reusable_ids = [
+            str(field.get("id") or "").strip()
+            for field in fields
+            if str(field.get("id") or "").strip() and str(field.get("kind") or "text").strip().lower() != "note"
+        ]
+        if (
+            previous_signature == signature
+            and getattr(self.chat_provider_generation_fields_layout, "rowCount", lambda: 0)() > 0
+            and all(field_id in existing_widgets for field_id in reusable_ids)
+        ):
+            active_labels = []
+            for field in fields:
+                field_id = str(field.get("id") or "").strip()
+                if not field_id:
+                    continue
+                kind = str(field.get("kind") or "text").strip().lower()
+                if kind == "note":
+                    continue
+                value = self._generation_field_display_value(provider_id, field, current_settings)
+                widget = existing_widgets.get(field_id)
+                self._set_widget_value_without_churn(widget, value, field)
+                tooltip = _generation_field_tooltip(field_id, field)
+                if tooltip and widget is not None:
+                    widget.setToolTip(tooltip)
+                active_labels.append(str(field.get("label") or field_id))
+            if hasattr(self, "chat_provider_generation_section"):
+                if fields:
+                    summary = ", ".join(active_labels[:3])
+                    if len(active_labels) > 3:
+                        summary += f", +{len(active_labels) - 3}"
+                    self.chat_provider_generation_section.setSummary(summary or "no editable fields")
+                else:
+                    self.chat_provider_generation_section.setSummary("legacy fallback controls")
+            return
+
+        self._chat_provider_generation_fields_signature = signature
         self._chat_provider_generation_field_widgets = {}
         self._chat_provider_generation_field_meta = {}
         while self.chat_provider_generation_fields_layout.rowCount():
             self.chat_provider_generation_fields_layout.removeRow(0)
-
-        provider_id = self._current_chat_provider_editor_value()
-        current_settings = self._current_chat_provider_generation_settings_for(provider_id)
-        fields = list(self._chat_provider_generation_fields(provider_id))
 
         if not fields:
             hint = QtWidgets.QLabel("This provider uses legacy generation controls internally.")
@@ -497,14 +595,62 @@ class BackendChatProviderFieldsMixin:
     def _refresh_chat_provider_card(self):
         if not hasattr(self, "chat_provider_fields_layout"):
             return
-        while self.chat_provider_fields_layout.rowCount():
-            self.chat_provider_fields_layout.removeRow(0)
-        self._chat_provider_field_widgets = {}
-        self._chat_provider_field_meta = {}
 
         provider_id = self._current_chat_provider_editor_value()
         current_settings = self._current_chat_provider_settings_for(provider_id)
         fields = list(self._chat_provider_config_fields(provider_id))
+        signature = self._chat_provider_fields_signature(provider_id, fields)
+        previous_signature = getattr(self, "_chat_provider_config_fields_signature", None)
+        existing_widgets = getattr(self, "_chat_provider_field_widgets", {}) or {}
+        reusable_ids = [
+            str(field.get("id") or "").strip()
+            for field in fields
+            if str(field.get("id") or "").strip()
+        ]
+        if (
+            previous_signature == signature
+            and getattr(self.chat_provider_fields_layout, "rowCount", lambda: 0)() > 0
+            and all(field_id in existing_widgets for field_id in reusable_ids)
+        ):
+            for field in fields:
+                field_id = str(field.get("id") or "").strip()
+                if not field_id:
+                    continue
+                editor = existing_widgets.get(field_id)
+                default_value = str(current_settings.get(field_id) or field.get("default") or "").strip()
+                self._set_widget_value_without_churn(editor, default_value, field)
+                if editor is not None:
+                    env_names = list(field.get("env") or [])
+                    tooltip_parts = []
+                    description = str(field.get("description") or field.get("help") or "").strip()
+                    if description:
+                        tooltip_parts.append(description)
+                    if env_names:
+                        tooltip_parts.append("Env: " + ", ".join(str(name) for name in env_names if str(name or "").strip()))
+                    if field.get("default"):
+                        tooltip_parts.append(f"Default: {field.get('default')}")
+                    editor.setToolTip("\n".join(tooltip_parts) if tooltip_parts else "")
+            if hasattr(self, "chat_provider_settings_section"):
+                self.chat_provider_settings_section.setSummary(f"{len(fields)} field(s)" if fields else "no extra fields")
+            if hasattr(self, "chat_provider_hint_label"):
+                metadata = self._chat_provider_metadata(provider_id)
+                description = str(metadata.get("hint") or metadata.get("description") or "").strip()
+                if not description:
+                    provider_label = self._chat_provider_label_from_value(provider_id)
+                    description = f"{provider_label} is selected."
+                self.chat_provider_hint_label.setText(description)
+            self._refresh_chat_provider_generation_card()
+            self._refresh_chat_runtime_summary()
+            refresh_setup = getattr(self, "_refresh_runtime_provider_setup_card", None)
+            if callable(refresh_setup):
+                refresh_setup("llm")
+            return
+
+        self._chat_provider_config_fields_signature = signature
+        while self.chat_provider_fields_layout.rowCount():
+            self.chat_provider_fields_layout.removeRow(0)
+        self._chat_provider_field_widgets = {}
+        self._chat_provider_field_meta = {}
 
         if fields:
             for field in fields:
