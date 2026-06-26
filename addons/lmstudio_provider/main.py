@@ -355,9 +355,16 @@ class Addon(BaseAddon):
     def _native_chat_url(self) -> str:
         return f"{self._native_api_base_url()}/api/v1/chat"
 
-    def _worker_request_config(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None, *, emit_chunks: bool = False) -> dict[str, Any]:
+    def _worker_request_config(
+        self,
+        params: dict[str, Any],
+        additional_params: dict[str, Any] | None = None,
+        *,
+        emit_chunks: bool = False,
+        stream: bool = False,
+    ) -> dict[str, Any]:
         if self._should_use_native_chat(params, additional_params):
-            payload = self._native_chat_payload(params, additional_params, stream=True)
+            payload = self._native_chat_payload(params, additional_params, stream=stream)
             fallback_payload = None
             if "reasoning" in dict(additional_params or {}):
                 control = "prompt_token" if _model_uses_prompt_token_reasoning((params or {}).get("model")) else ""
@@ -365,7 +372,7 @@ class Addon(BaseAddon):
                 fallback_payload = self._native_chat_payload(
                     params,
                     retry_params,
-                    stream=True,
+                    stream=stream,
                     reasoning_control=control or None,
                 )
             return {
@@ -374,17 +381,20 @@ class Addon(BaseAddon):
                 "native": True,
                 "payload": payload,
                 "fallback_payload": fallback_payload,
-                "emit_chunks": bool(emit_chunks),
+                "emit_chunks": bool(emit_chunks) and bool(stream),
+                "stream": bool(stream),
             }
         force_non_stream = bool(isinstance(params, dict) and params.get("response_format") is not None)
-        payload = self._openai_wire_payload(params, additional_params, stream=not force_non_stream)
+        stream = bool(stream) and not force_non_stream
+        payload = self._openai_wire_payload(params, additional_params, stream=stream)
         return {
             "url": self._openai_chat_url(),
             "api_key": self._api_key(),
             "native": False,
             "payload": payload,
-            "emit_chunks": bool(emit_chunks) and not force_non_stream,
+            "emit_chunks": bool(emit_chunks) and bool(stream),
             "force_non_stream": force_non_stream,
+            "stream": bool(stream),
         }
 
     def _start_worker(self) -> subprocess.Popen:
@@ -411,7 +421,7 @@ class Addon(BaseAddon):
     def _complete_chat_via_worker(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
         process = self._start_worker()
         config_text = json.dumps(
-            self._worker_request_config(params, additional_params, emit_chunks=False),
+            self._worker_request_config(params, additional_params, emit_chunks=False, stream=False),
             ensure_ascii=False,
         )
         try:
@@ -428,7 +438,7 @@ class Addon(BaseAddon):
 
     def _stream_chat_via_worker(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
         process = self._start_worker()
-        self._send_worker_config(process, self._worker_request_config(params, additional_params, emit_chunks=True))
+        self._send_worker_config(process, self._worker_request_config(params, additional_params, emit_chunks=True, stream=True))
         final_payload: dict[str, Any] = {}
         return_code = None
         try:
@@ -633,17 +643,6 @@ class Addon(BaseAddon):
         return urlopen(request, timeout=300.0)
 
     def _complete_native_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
-        parts: list[str] = []
-        try:
-            for chunk in self._stream_native_chat(params, additional_params):
-                if chunk:
-                    parts.append(str(chunk))
-            text = _strip_channel_blocks("".join(parts))
-            if text:
-                return text
-        except Exception:
-            if parts:
-                return _strip_channel_blocks("".join(parts))
         try:
             with self._native_chat_request(params, additional_params, stream=False) as response:
                 payload = json.loads(response.read().decode("utf-8", errors="replace"))
@@ -764,20 +763,6 @@ class Addon(BaseAddon):
                 return self._complete_chat_via_worker(params, additional_params)
             if self._should_use_native_chat(params, additional_params):
                 return self._complete_native_chat(params, additional_params)
-            parts: list[str] = []
-            if not (isinstance(params, dict) and params.get("response_format") is not None):
-                try:
-                    client = self._client()
-                    stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
-                    for chunk in _stream_text(stream):
-                        if chunk:
-                            parts.append(str(chunk))
-                    text = _strip_channel_blocks("".join(parts))
-                    if text:
-                        return text
-                except Exception:
-                    if parts:
-                        return _strip_channel_blocks("".join(parts))
             client = self._client()
             response = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=False))
             return _extract_text(response)

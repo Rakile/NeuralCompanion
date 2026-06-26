@@ -672,13 +672,6 @@ class Addon(BaseAddon):
         detail_form.setSpacing(8)
         detail_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
 
-        screen_combo = QtWidgets.QComboBox()
-        screen_combo.setToolTip(
-            "Choose which monitor is captured when Capture area is Whole screen. "
-            "Selected regions and squares keep their own desktop coordinates."
-        )
-        form.addRow("Screen", screen_combo)
-
         max_width_spin = QtWidgets.QSpinBox()
         max_width_spin.setRange(MIN_MAX_SIDE, MAX_MAX_SIDE)
         max_width_spin.setSingleStep(128)
@@ -748,31 +741,6 @@ class Addon(BaseAddon):
         current_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
         current_layout.addWidget(current_label)
         layout.addWidget(current_group)
-
-        def refresh_screen_combo():
-            selected = _normalize_screen_index(getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX))
-            screen_combo.blockSignals(True)
-            screen_combo.clear()
-            virtual = self._virtual_desktop_region()
-            if virtual:
-                screen_combo.addItem(
-                    f"All screens: {virtual['width']} x {virtual['height']} px at {virtual['x']}, {virtual['y']}",
-                    SCREEN_INDEX_ALL,
-                )
-            else:
-                screen_combo.addItem("All screens", SCREEN_INDEX_ALL)
-            for screen_info in self._available_screen_infos():
-                try:
-                    screen_combo.addItem(_screen_label(screen_info), int(screen_info.get("index", 0)))
-                except Exception:
-                    continue
-            selected_index = screen_combo.findData(selected)
-            if selected_index < 0 and selected != SCREEN_INDEX_ALL:
-                screen_combo.addItem(f"Screen {selected + 1} unavailable", selected)
-                selected_index = screen_combo.findData(selected)
-            screen_combo.setCurrentIndex(max(0, selected_index))
-            screen_combo.setEnabled(_normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)) == CAPTURE_MODE_FULL)
-            screen_combo.blockSignals(False)
 
         def refresh_screen_combo():
             selected = _normalize_screen_index(getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX))

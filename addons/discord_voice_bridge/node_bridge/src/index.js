@@ -70,6 +70,14 @@ const mockReplyDelayMs = positiveInt(envOrSetting("MOCK_REPLY_DELAY_MS", jsonSet
 let interruptReplyOnUserSpeech = asBool(
   envOrSetting("DISCORD_INTERRUPT_REPLY_ON_USER_SPEECH", jsonSettings, "playback.interrupt_reply_on_user_speech", true)
 );
+let routeProtectedMicSpeech = asBool(
+  envOrSetting(
+    "DISCORD_ROUTE_PROTECTED_MIC_SPEECH",
+    jsonSettings,
+    "playback.route_protected_mic_speech",
+    setting(jsonSettings, "tiny_mvp.route_protected_mic_speech", false)
+  )
+);
 let interruptAfterSeconds = nonNegativeFloat(
   envOrSetting("DISCORD_INTERRUPT_AFTER_SECONDS", jsonSettings, "playback.interrupt_after_seconds", 4.0),
   4.0
@@ -117,7 +125,7 @@ const wavCleanupIntervalMinutes = positiveFloat(
   envOrSetting("DISCORD_WAV_CLEANUP_INTERVAL_MINUTES", jsonSettings, "cleanup.interval_minutes", 10.0),
   10.0
 );
-const persistRoomContextBetweenRestarts = asBool(
+let persistRoomContextBetweenRestarts = asBool(
   setting(jsonSettings, "chat.persist_room_context_between_restarts", false)
 );
 const botInstanceId = safeFileSegment(setting(jsonSettings, "id", setting(jsonSettings, "name", "default"))).toLowerCase();
@@ -150,7 +158,7 @@ let deadAirRecoveryCooldownMs = Math.round(
   nonNegativeFloat(setting(jsonSettings, "room_router.dead_air_recovery.cooldown_seconds", 0.0), 0.0) * 1000
 );
 let deadAirRecoverySilenceTimeoutMs = Math.round(
-  nonNegativeFloat(setting(jsonSettings, "room_router.dead_air_recovery.silence_timeout_seconds", 0.0), 0.0) * 1000
+  nonNegativeFloat(setting(jsonSettings, "room_router.dead_air_recovery.silence_timeout_seconds", 10.0), 10.0) * 1000
 );
 let deadAirRecoveryTriggerMode = String(
   setting(jsonSettings, "room_router.dead_air_recovery.trigger_mode", "no_route_after_bot_speech") || "no_route_after_bot_speech"
@@ -2166,7 +2174,12 @@ function moderatorDecisionForTurn(turn, routeKey) {
     return null;
   }
   const muted = moderatorMutedBotIds(state);
-  const speakerBotId = safeFileSegment(turn?.speakerBotId || "").toLowerCase();
+  const rawSpeakerBotId = safeFileSegment(turn?.speakerBotId || "").toLowerCase();
+  const speakerIsBot = Boolean(turn?.speakerIsBot === true || (turn?.speakerIsBot !== false && rawSpeakerBotId && rawSpeakerBotId !== "default"));
+  const speakerBotId = speakerIsBot ? rawSpeakerBotId : "";
+  if (rawSpeakerBotId && !speakerIsBot) {
+    console.log(`[DiscordBridgeModerator] Ignoring non-bot speakerBotId for human turn: speaker=${turn?.speakerName || turn?.userId || "unknown"}, speakerBotId=${rawSpeakerBotId}`);
+  }
   const inputText = String(turn?.inputText || "").trim();
   const base = {
     ok: true,
@@ -2177,7 +2190,7 @@ function moderatorDecisionForTurn(turn, routeKey) {
     context_input_text: inputText ? contextLineForTurn(turn, inputText) : "",
     speaker_name: String(turn?.speakerName || ""),
     speaker_bot_id: speakerBotId,
-    speaker_is_bot: Boolean(turn?.speakerBotId || turn?.speakerIsBot),
+    speaker_is_bot: speakerIsBot,
     captured_at: String(turn?.capturedAt || new Date().toISOString()),
     speech_accepted: Boolean(inputText)
   };
@@ -2644,6 +2657,7 @@ async function requestRoomRouteDecision(turn, routeKey) {
       participants: currentParticipantSnapshot(),
       room_context: readRoomContext(),
       candidate_bots: roomRouterCandidatesForTurn(turn),
+      record_route_context: Boolean(routeProtectedMicSpeech && moderatorProtectsCurrentSpeaker()),
       routing_policy: {
         human_to_bot_routing: roomRouterHumanToBotRouting,
         bot_to_bot_routing: roomRouterBotToBotRouting,
@@ -4411,22 +4425,35 @@ async function speakLiveMessage(payload = {}) {
     writeRuntimeStatus("manual_speak_skipped");
     return;
   }
-  const replyWavPath = String(result.reply_wav_path || "");
-  if (!replyWavPath) {
+  const replyChunks = Array.isArray(result.reply_chunks)
+    ? result.reply_chunks.filter((chunk) => String(chunk?.reply_wav_path || "").trim())
+    : [];
+  if (replyChunks.length <= 0 && String(result.reply_wav_path || "").trim()) {
+    replyChunks.push({
+      reply_wav_path: String(result.reply_wav_path || ""),
+      reply_text: String(result.reply_text || text),
+      chunk_index: 0
+    });
+  }
+  if (replyChunks.length <= 0) {
     lastErrorText = "Send Message did not return a reply_wav_path.";
     console.warn(`[DiscordBridgeControl] ${lastErrorText}`);
     writeRuntimeStatus("manual_speak_failed");
     return;
   }
-  markReplyProgressComplete(turnState, 1);
+  markReplyProgressComplete(turnState, replyChunks.length);
   markReplyTurnComplete(turnId);
-  markReplyChunkReady(turnState, 0);
-  if (!queueReplyWavPlaybackForTurn(turnState, turnId, replyWavPath, "Manual Discord message", {
-    replyText: String(result.reply_text || text),
-    turnId
-  })) {
-    releaseUnplayedReplyFloor(turnState);
-    return;
+  for (const chunk of replyChunks) {
+    const chunkIndex = Number.isFinite(Number(chunk.chunk_index)) ? Number(chunk.chunk_index) : replyChunks.indexOf(chunk);
+    const replyWavPath = String(chunk.reply_wav_path || "");
+    markReplyChunkReady(turnState, chunkIndex);
+    if (!queueReplyWavPlaybackForTurn(turnState, turnId, replyWavPath, `Manual Discord message chunk ${chunkIndex + 1}`, {
+      replyText: String(chunk.reply_text || ""),
+      turnId
+    })) {
+      releaseUnplayedReplyFloor(turnState);
+      return;
+    }
   }
   publishCompletedBotReplyText(String(result.reply_text || text), turnState);
   console.log(`[DiscordBridgeControl] Send Message queued for ${botDisplayName}: ${previewText(text, 100)}`);
@@ -4577,7 +4604,11 @@ function attachSpeechCapture(connection, guildId) {
       console.log(`[DiscordBridgeRouter] Ignoring bot audio start because direct bot text routing is enabled: user=${userId}`);
       return;
     }
-    if (!speakerIsBot && !moderatorAllowsHumanSpeaker(userId)) {
+    const protectedMicSpeechAllowed = !speakerIsBot
+      && routeProtectedMicSpeech
+      && moderatorProtectsCurrentSpeaker()
+      && !moderatorHumanMuted(userId);
+    if (!speakerIsBot && !moderatorAllowsHumanSpeaker(userId) && !protectedMicSpeechAllowed) {
       const floor = moderatorHumanFloor();
       const current = moderatorCurrentHumanRoute();
       const pending = moderatorPendingHumanRoute();
@@ -4592,6 +4623,9 @@ function attachSpeechCapture(connection, guildId) {
               : `speaker lock is ${floor?.name || floor?.userId || "unknown"}`;
       console.log(`[DiscordBridgeModerator] Ignoring human capture: user=${userId}, reason=${reason}`);
       return;
+    }
+    if (protectedMicSpeechAllowed) {
+      console.log(`[DiscordBridgeModerator] Capturing protected human speech for context without interrupting current: user=${userId}`);
     }
     const pendingInterrupt = pendingPlaybackInterrupt(`valid speech from user ${userId}`);
     if (pendingInterrupt) {
@@ -4609,6 +4643,9 @@ function attachSpeechCapture(connection, guildId) {
 function reloadLiveSettings() {
   const fresh = loadJsonSettings();
   interruptReplyOnUserSpeech = asBool(setting(fresh, "playback.interrupt_reply_on_user_speech", interruptReplyOnUserSpeech));
+  routeProtectedMicSpeech = asBool(
+    setting(fresh, "playback.route_protected_mic_speech", setting(fresh, "tiny_mvp.route_protected_mic_speech", routeProtectedMicSpeech))
+  );
   interruptAfterSeconds = nonNegativeFloat(setting(fresh, "playback.interrupt_after_seconds", interruptAfterSeconds), interruptAfterSeconds);
   interruptPauseAfterFailedProbeSeconds = nonNegativeFloat(
     setting(fresh, "playback.interrupt_pause_after_failed_probe_seconds", interruptPauseAfterFailedProbeSeconds),
@@ -4667,6 +4704,12 @@ function reloadLiveSettings() {
   deadAirRecoveryFallbackTarget = String(
     setting(fresh, "room_router.dead_air_recovery.selected_fallback_target", deadAirRecoveryFallbackTarget) || deadAirRecoveryFallbackTarget
   ).trim();
+  persistRoomContextBetweenRestarts = asBool(
+    setting(fresh, "chat.persist_room_context_between_restarts", persistRoomContextBetweenRestarts)
+  );
+  if (!persistRoomContextBetweenRestarts) {
+    resetRoomContext("live settings persistence disabled");
+  }
   appendModeratorRecoveryStatus({
     last_reason: "live_settings_reloaded",
     ...(!deadAirRecoveryEnabled ? { last_next_target_bot_id: "" } : {}),

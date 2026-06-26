@@ -418,6 +418,7 @@ class MainWindowSessionMixin:
             "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
             "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
             "sensory_provider_metadata_overrides": self._current_sensory_provider_metadata_override_map() if hasattr(self, "_current_sensory_provider_metadata_override_map") else dict(RUNTIME_CONFIG.get("sensory_provider_metadata_overrides", {}) or {}),
+            "screen_source_auto_attach_next_user_turn": bool(RUNTIME_CONFIG.get("screen_source_auto_attach_next_user_turn", False)),
             "performance_profile": self.performance_profile_combo.currentData() if hasattr(self, "performance_profile_combo") else "",
             "emotional_instructions": self.emotional_text.toPlainText().strip() if hasattr(self, "emotional_text") else str(RUNTIME_CONFIG.get("emotional_instructions", "") or ""),
             "system_prompt": self.system_prompt_text.toPlainText().strip() if hasattr(self, "system_prompt_text") else str(RUNTIME_CONFIG.get("system_prompt", "") or ""),
@@ -864,6 +865,10 @@ class MainWindowSessionMixin:
                 visual_enabled = bool(sensory_allow_hidden_visual_generation)
                 self.sensory_allow_hidden_visual_checkbox.setChecked(visual_enabled)
                 self.on_sensory_allow_hidden_visual_changed(visual_enabled)
+            screen_source_auto_attach_next_user_turn = session.get("screen_source_auto_attach_next_user_turn")
+            if screen_source_auto_attach_next_user_turn is not None:
+                screen_auto_attach_enabled = bool(screen_source_auto_attach_next_user_turn)
+                update_runtime_config("screen_source_auto_attach_next_user_turn", screen_auto_attach_enabled)
             companion_orb_sensory_target_enabled = session.get("companion_orb_sensory_target_enabled")
             if companion_orb_sensory_target_enabled is not None:
                 orb_target_enabled = bool(companion_orb_sensory_target_enabled)

@@ -29,6 +29,7 @@
     "play_test_tone_on_join": false,
     "queue_replies": true,
     "interrupt_reply_on_user_speech": true,
+    "route_protected_mic_speech": false,
     "interrupt_after_seconds": 4.0,
     "interrupt_pause_after_failed_probe_seconds": 3.0,
     "reply_immunity_seconds": 4.0,
@@ -63,7 +64,7 @@
     "dead_air_recovery": {
       "enabled": false,
       "cooldown_seconds": 0.0,
-      "silence_timeout_seconds": 0.0,
+      "silence_timeout_seconds": 10.0,
       "trigger_mode": "no_route_after_bot_speech",
       "action_mode": "moderator_speaks_and_calls_next",
       "next_speaker_strategy": "llm_choose",
@@ -102,6 +103,7 @@
   },
   "tiny_mvp": {
     "url": "http://127.0.0.1:8788",
+    "start_with_gui": true,
     "bridge_script": "",
     "poll_seconds": 0.25,
     "capture_mic": false,

@@ -49,6 +49,7 @@ def test_lmstudio_worker_flattens_openai_compatible_extra_body() -> None:
         },
         {"top_k": 40, "repeat_penalty": 1.11, "min_p": 0.05},
         emit_chunks=True,
+        stream=True,
     )
 
     payload = config["payload"]

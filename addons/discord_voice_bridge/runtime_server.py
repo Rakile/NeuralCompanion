@@ -7,6 +7,7 @@ import re
 import threading
 import time
 import uuid
+import wave
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -587,6 +588,21 @@ class DiscordVoiceRuntimeServer:
                 "user_id": user_id,
             }
         )
+        if self._settings_bool((payload or {}).get("record_route_context"), False):
+            record_result = self.record_user_turn(
+                {
+                    "route_key": route_key,
+                    "context_input_text": context_input_text,
+                    "input_text": input_text,
+                    "speaker_name": speaker_name,
+                    "user_id": user_id,
+                    "captured_at": captured_at,
+                }
+            )
+            decision["context_recorded"] = bool(record_result.get("recorded"))
+            decision["context_record_reason"] = str(record_result.get("reason") or "")
+        else:
+            decision["context_recorded"] = False
         self._remember_route_decision(decision)
         self._debug(
             "room route decision: route=%s speaker=%s candidates=%s answer=%s target=%s reason=%s policy=%s",
@@ -727,23 +743,32 @@ class DiscordVoiceRuntimeServer:
         raw_text = str((payload or {}).get("text") or (payload or {}).get("message") or "").strip()
         if not raw_text:
             return {"ok": False, "error": "Message text is empty.", "turn_id": turn_id}
-        clean_text = self._speech_text_for_tts(turn_id, raw_text)
-        if not clean_text:
+        chunk_events: list[dict[str, Any]] = []
+        reply_chunks: list[str] = []
+        for chunk_index, chunk_text in enumerate(self._speech_chunks_from_reply(raw_text)):
+            clean_text = self._speech_text_for_tts(turn_id, chunk_text)
+            if not clean_text:
+                continue
+            reply_chunks.append(clean_text)
+            for audio_event in self._audio_events_for_text_chunk(clean_text, chunk_index):
+                event = dict(audio_event)
+                event.pop("type", None)
+                chunk_events.append(event)
+        if not chunk_events:
             return {"ok": True, "skipped": True, "reason": "empty_speech_text", "turn_id": turn_id}
-        self._debug("manual speak requested: chars=%s text=%s", len(clean_text), self._preview_text(clean_text))
-        events = list(self._audio_events_for_text_chunk(clean_text, 0))
-        if not events:
-            return {"ok": False, "error": "No TTS audio was produced.", "turn_id": turn_id}
-        self._record_manual_assistant_turn(turn_id, clean_text)
-        event = dict(events[0])
-        event.update({
+        reply_text = " ".join(reply_chunks).strip()
+        self._debug("manual speak requested: chunks=%s chars=%s text=%s", len(chunk_events), len(reply_text), self._preview_text(reply_text))
+        self._record_manual_assistant_turn(turn_id, reply_text)
+        first_event = dict(chunk_events[0])
+        first_event.update({
             "ok": True,
             "turn_id": turn_id,
-            "reply_text": clean_text,
+            "reply_text": reply_text,
+            "reply_chunks": chunk_events,
+            "reply_chunk_count": len(chunk_events),
             "manual_speak": True,
         })
-        event.pop("type", None)
-        return event
+        return first_event
 
     def _record_manual_assistant_turn(self, turn_id: str, reply_text: str) -> None:
         text = str(reply_text or "").strip()
@@ -864,6 +889,18 @@ class DiscordVoiceRuntimeServer:
         node_reply_floor_managed = self._settings_bool((payload or {}).get("node_reply_floor_managed"), False)
         reply_text = ""
         chunk_count = 0
+        stream_audio_ready_seconds = 0.0
+        stream_audio_started_at: float | None = None
+
+        def _stream_buffer_lead_seconds() -> float:
+            if stream_audio_started_at is None:
+                return 0.0
+            elapsed = max(0.0, time.monotonic() - stream_audio_started_at)
+            return max(0.0, stream_audio_ready_seconds - elapsed)
+
+        if stream_mode:
+            reply_runtime_config = dict(reply_runtime_config)
+            reply_runtime_config["_stream_buffer_lead_seconds_getter"] = _stream_buffer_lead_seconds
         try:
             if stream_mode and not sentinel_filter:
                 for chunk_text, reply_so_far in self._stream_chat_chunks(context_input_text, reply_runtime_config):
@@ -893,6 +930,12 @@ class DiscordVoiceRuntimeServer:
                         if self._is_turn_cancelled(turn_id):
                             yield {"type": "cancelled", "ok": True, "turn_id": turn_id}
                             return
+                        duration_seconds = self._wav_duration_seconds(str(audio_event.get("reply_wav_path") or ""))
+                        if duration_seconds > 0:
+                            stream_audio_ready_seconds += duration_seconds
+                            audio_event["duration_seconds"] = duration_seconds
+                            if stream_audio_started_at is None:
+                                stream_audio_started_at = time.monotonic()
                         audio_event["turn_id"] = turn_id
                         audio_event["speaker_name"] = speaker_name
                         audio_event["user_id"] = user_id
@@ -1171,6 +1214,14 @@ class DiscordVoiceRuntimeServer:
             return
         try:
             logger.info("[DiscordBridgeRuntime] " + str(message), *args)
+        except Exception:
+            pass
+
+    def _emit_stream_chunk_debug(self, message: str) -> None:
+        line = str(message)
+        self._debug(line)
+        try:
+            print(f"[DiscordBridgeChunk] {line}", flush=True)
         except Exception:
             pass
 
@@ -2254,7 +2305,7 @@ class DiscordVoiceRuntimeServer:
         assembler = streaming_text.StreamingChunkAssembler(
             target_chars,
             max_chars,
-            config_getter=lambda key, default=None: runtime_config.get(key, default),
+            config_getter=lambda key, default=None: self._stream_config_value(runtime_config, key, default),
             available_emotion_tags_getter=lambda: [f"[{name}]" for name in self._available_emotion_names(runtime_config)],
             last_emotion_getter=lambda text: self._last_emotion_tag(text, runtime_config),
             control_prefix_checker=self._looks_like_control_tag_prefix,
@@ -2265,6 +2316,7 @@ class DiscordVoiceRuntimeServer:
         audio_story_runtime.apply_chat_provider_generation_fields(params, additional_params, provider=provider)
 
         full_parts: list[str] = []
+        stream_chunk_index = 0
         try:
             for content in chat_providers.stream_chat(provider, params, additional_params):
                 if not content:
@@ -2273,17 +2325,91 @@ class DiscordVoiceRuntimeServer:
                 for chunk_info in assembler.feed(str(content)):
                     chunk_text = str(chunk_info.get("text") or "").strip()
                     if chunk_text:
+                        self._emit_stream_chunk_debug(self._stream_chunk_debug_line(
+                            phase="stream",
+                            chunk_index=stream_chunk_index,
+                            chunk_text=chunk_text,
+                            chunk_info=chunk_info,
+                            target_chars=target_chars,
+                            max_chars=max_chars,
+                            runtime_config=runtime_config,
+                        ))
+                        stream_chunk_index += 1
                         yield chunk_text, "".join(full_parts)
             for chunk_info in assembler.feed("", final=True):
                 chunk_text = str(chunk_info.get("text") or "").strip()
                 if chunk_text:
+                    self._emit_stream_chunk_debug(self._stream_chunk_debug_line(
+                        phase="final",
+                        chunk_index=stream_chunk_index,
+                        chunk_text=chunk_text,
+                        chunk_info=chunk_info,
+                        target_chars=target_chars,
+                        max_chars=max_chars,
+                        runtime_config=runtime_config,
+                    ))
+                    stream_chunk_index += 1
                     yield chunk_text, "".join(full_parts)
         except Exception:
             if full_parts:
                 for chunk_text in self._speech_chunks_from_reply("".join(full_parts)):
+                    self._emit_stream_chunk_debug(self._stream_chunk_debug_line(
+                        phase="fallback",
+                        chunk_index=stream_chunk_index,
+                        chunk_text=chunk_text,
+                        chunk_info={"reason": "stream_exception_fallback", "chars": len(str(chunk_text or ""))},
+                        target_chars=target_chars,
+                        max_chars=max_chars,
+                        runtime_config=runtime_config,
+                    ))
+                    stream_chunk_index += 1
                     yield chunk_text, "".join(full_parts)
                 return
             raise
+
+    @staticmethod
+    def _stream_config_value(runtime_config: dict[str, Any], key: str, default: Any = None) -> Any:
+        if key == "stream_buffer_lead_seconds":
+            getter = (runtime_config or {}).get("_stream_buffer_lead_seconds_getter")
+            if callable(getter):
+                try:
+                    return getter()
+                except Exception:
+                    return default
+        return (runtime_config or {}).get(key, default)
+
+    @classmethod
+    def _stream_chunk_debug_line(
+        cls,
+        *,
+        phase: str,
+        chunk_index: int,
+        chunk_text: str,
+        chunk_info: dict[str, Any],
+        target_chars: int,
+        max_chars: int,
+        runtime_config: dict[str, Any],
+    ) -> str:
+        reason = str((chunk_info or {}).get("reason") or "?")
+        quality = (chunk_info or {}).get("quality")
+        chars = int((chunk_info or {}).get("chars") or len(str(chunk_text or "")))
+        first_min = int(runtime_config.get("stream_first_chunk_min_chars", 40) or 40)
+        first_flush = float(runtime_config.get("stream_force_flush_seconds", 0.30) or 0.30)
+        later_flush = float(runtime_config.get("stream_force_flush_later_seconds", 0.70) or 0.70)
+        quality_text = "" if quality is None else f" quality={quality}"
+        lead_text = ""
+        lead_seconds = cls._stream_config_value(runtime_config, "stream_buffer_lead_seconds", None)
+        if lead_seconds is not None:
+            try:
+                lead_text = f" lead={float(lead_seconds):.2f}s"
+            except Exception:
+                lead_text = ""
+        return (
+            f"stream chunk phase={phase} index={int(chunk_index)} chars={chars} "
+            f"reason={reason}{quality_text} target={int(target_chars)} max={int(max_chars)} "
+            f"first_min={first_min} flush={first_flush:g}/{later_flush:g}{lead_text} "
+            f"text={cls._preview_text(chunk_text, 240)}"
+        )
 
     @staticmethod
     def _stream_chunk_limits(runtime_config: dict[str, Any]) -> tuple[int, int]:
@@ -2495,6 +2621,18 @@ class DiscordVoiceRuntimeServer:
             "reply_text": clean_text,
             "reply_wav_path": str(reply_wav_path),
         }
+
+    @staticmethod
+    def _wav_duration_seconds(path: str) -> float:
+        try:
+            with wave.open(str(path), "rb") as wav_file:
+                frame_rate = int(wav_file.getframerate() or 0)
+                frame_count = int(wav_file.getnframes() or 0)
+            if frame_rate <= 0 or frame_count <= 0:
+                return 0.0
+            return max(0.0, frame_count / float(frame_rate))
+        except Exception:
+            return 0.0
 
     def _speech_text_for_tts(self, turn_id: str, text: str) -> str:
         raw_text = str(text or "")
@@ -2723,11 +2861,13 @@ class DiscordVoiceRuntimeServer:
         return chunks
 
     def _available_emotion_names(self, runtime_config: dict[str, Any]) -> list[str]:
+        from core import text_tags
+
         text = str(runtime_config.get("emotional_instructions", "") or "")
         names = {"neutral", "surprised", "angry", "sad"}
         for bracket_value in re.findall(r"\[([^\]]+)\]", text):
             value = str(bracket_value or "").strip().lower()
-            if re.fullmatch(r"[a-z0-9_-]+", value):
+            if re.fullmatch(r"[a-z0-9_-]+", value) and not text_tags.is_sound_tag(value):
                 names.add(value)
         return sorted(names)
 

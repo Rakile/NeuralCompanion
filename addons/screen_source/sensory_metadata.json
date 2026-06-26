@@ -36,6 +36,6 @@
       }
     ],
     "tag_subscriptions": [],
-    "pingpong_prompt": "When screen input is present, infer the user's current application, task focus, and likely visible context from windows, layouts, or readable text. Stay concise and avoid overclaiming unreadable details.\n\nScreen Source is capture-only. By itself it should not request spoken responses, image generation, visual replies, or tags.\n- Set should_speak=false unless an enabled source-specific behavior prompt, such as Screen Supervisor, explicitly asks for a spoken action.\n- Set should_generate_image=false and visual_candidate=\"\" unless a dedicated visual-generation behavior prompt explicitly asks for image generation.\n- Use summary only for meaningful screen-context changes worth retaining. If nothing important changed, prefer keep=false and an empty summary."
+    "prompt_fragment_enabled": false
   }
 }

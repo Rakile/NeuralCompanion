@@ -34,6 +34,8 @@ def is_emotion_tag(tag_name, available_emotion_names):
     normalized = str(tag_name or "").strip().lower()
     if not is_single_word_control_tag(normalized):
         return False
+    if is_sound_tag(normalized):
+        return False
     return normalized in set(str(name or "").strip().lower() for name in available_emotion_names or [])
 
 

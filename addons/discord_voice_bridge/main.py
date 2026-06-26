@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import wave
 from collections import deque
@@ -31,8 +32,10 @@ from addons.discord_voice_bridge.settings import (
 
 ADDON_DIR = Path(__file__).resolve().parent
 NODE_BRIDGE_DIR = ADDON_DIR / "node_bridge"
+TINY_MVP_DIR = ADDON_DIR / "tiny_mvp"
 INSTANCE_SETTINGS_DIR = ADDON_DIR / "runtime_instances"
-DEFAULT_TINY_MVP_BRIDGE_SCRIPT = ADDON_DIR.parent.parent.parent / "TinyMVP" / "tiny_voice_bridge.py"
+DEFAULT_TINY_MVP_ROOM_SCRIPT = TINY_MVP_DIR / "main.py"
+DEFAULT_TINY_MVP_BRIDGE_SCRIPT = TINY_MVP_DIR / "tiny_voice_bridge.py"
 NODE_BRIDGE_REQUIRED_PACKAGES = (
     "@discordjs/voice",
     "discord.js",
@@ -76,6 +79,14 @@ class Addon(BaseAddon):
         self._tiny_mvp_mic_stop: threading.Event | None = None
         self._tiny_mvp_mic_thread: threading.Thread | None = None
         self._tiny_mvp_mic_start_timer: threading.Timer | None = None
+        self._tiny_mvp_room_process = None
+        self._tiny_mvp_room_log_handle = None
+        self._tiny_mvp_room_output_thread = None
+        self._tiny_mvp_room_owned = False
+        self._tiny_mvp_monitor_process = None
+        self._tiny_mvp_monitor_log_handle = None
+        self._tiny_mvp_monitor_output_thread = None
+        self._tiny_mvp_monitor_owned = False
         settings = load_settings()
         self._start_instances_from_settings(settings, force=False, sync_tiny_mvp_mic=False)
         self._schedule_tiny_mvp_local_mic_sync(settings)
@@ -89,6 +100,8 @@ class Addon(BaseAddon):
         self._tiny_mvp_mic_start_timer = None
         self._stop_tiny_mvp_local_mic()
         self.stop_bridge_instances()
+        self._stop_tiny_mvp_room_server()
+        self._stop_tiny_mvp_monitor()
         self.controller = None
         return None
 
@@ -116,6 +129,9 @@ class Addon(BaseAddon):
         return {
             "status": "ready",
             "node_bridge_dir": str(NODE_BRIDGE_DIR),
+            "tiny_mvp_room_script": str(_tiny_mvp_room_script(settings)),
+            "tiny_mvp_room_running": self._tiny_mvp_room_server_running(),
+            "tiny_mvp_monitor_running": self._tiny_mvp_monitor_running(),
             "tiny_mvp_bridge_script": str(_tiny_mvp_bridge_script(settings)),
             "tiny_mvp_mic_running": self._tiny_mvp_local_mic_running(),
             "settings": redacted_settings(settings),
@@ -363,13 +379,218 @@ class Addon(BaseAddon):
             self._bridge_instances = []
             return self.status_snapshot()
         self._bridge_instances = []
-        for instance in _bridge_instances_from_settings(settings, force=force):
+        instances = _bridge_instances_from_settings(settings, force=force)
+        if any(_bridge_mode(instance.settings) == "tiny_mvp" for instance in instances):
+            if not self._ensure_tiny_mvp_room_server(settings):
+                self._bridge_instances = []
+                return self.status_snapshot()
+        else:
+            self._stop_tiny_mvp_room_server()
+        for instance in instances:
             self._bridge_instances.append(instance)
             self._start_runtime_server(instance)
             self._start_node_bridge(instance)
         if sync_tiny_mvp_mic:
             self._sync_tiny_mvp_local_mic(settings)
         return self.status_snapshot()
+
+    def _tiny_mvp_room_server_running(self) -> bool:
+        process = getattr(self, "_tiny_mvp_room_process", None)
+        return bool(process is not None and process.poll() is None)
+
+    def _tiny_mvp_monitor_running(self) -> bool:
+        process = getattr(self, "_tiny_mvp_monitor_process", None)
+        return bool(process is not None and process.poll() is None)
+
+    def _ensure_tiny_mvp_room_server(self, settings: dict[str, Any]) -> bool:
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        tiny_url = str(_get(settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+        if _tiny_mvp_room_reachable(tiny_url):
+            self._sync_tiny_mvp_monitor(settings, tiny_url)
+            return True
+        if self._tiny_mvp_room_server_running():
+            self._sync_tiny_mvp_monitor(settings, tiny_url)
+            return True
+        script = _tiny_mvp_room_script(settings)
+        if not script.exists():
+            if logger:
+                logger.warning("TinyMVP room server script is missing: %s", script)
+            return False
+        host, port = _tiny_mvp_host_port(tiny_url)
+        log_dir = ADDON_DIR / "runtime_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "tiny_mvp_room.log"
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self._tiny_mvp_room_log_handle = log_path.open("a", encoding="utf-8")
+            launched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self._tiny_mvp_room_log_handle.write(f"\n--- TinyMVP room launch @ {launched_at} ---\nscript={script}\nurl={tiny_url}\n")
+            self._tiny_mvp_room_log_handle.flush()
+            self._tiny_mvp_room_process = subprocess.Popen(
+                _tiny_mvp_room_command(settings, host, port),
+                cwd=str(script.parent),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                creationflags=creationflags,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self._tiny_mvp_room_owned = True
+            self._tiny_mvp_room_output_thread = threading.Thread(
+                target=self._forward_tiny_mvp_room_output,
+                name="TinyMVPRoomOutput",
+                daemon=True,
+            )
+            self._tiny_mvp_room_output_thread.start()
+        except Exception as exc:
+            if logger:
+                logger.warning("TinyMVP room server failed to start: %s", exc)
+            self._close_tiny_mvp_room_log_handle()
+            self._tiny_mvp_room_process = None
+            self._tiny_mvp_room_owned = False
+            return False
+        deadline = time.monotonic() + 4.0
+        while time.monotonic() < deadline:
+            if _tiny_mvp_room_reachable(tiny_url):
+                if logger:
+                    logger.info("TinyMVP room server is ready at %s", tiny_url)
+                self._sync_tiny_mvp_monitor(settings, tiny_url)
+                return True
+            if not self._tiny_mvp_room_server_running():
+                break
+            time.sleep(0.15)
+        if logger:
+            logger.warning("TinyMVP room server did not become reachable at %s", tiny_url)
+        return False
+
+    def _forward_tiny_mvp_room_output(self):
+        process = getattr(self, "_tiny_mvp_room_process", None)
+        handle = getattr(self, "_tiny_mvp_room_log_handle", None)
+        if process is None or process.stdout is None:
+            return
+        try:
+            for line in process.stdout:
+                if handle is not None:
+                    handle.write(_redact_runtime_log_text(line))
+                    handle.flush()
+        except Exception:
+            pass
+
+    def _stop_tiny_mvp_room_server(self) -> None:
+        self._stop_tiny_mvp_monitor()
+        process = getattr(self, "_tiny_mvp_room_process", None)
+        if process is not None and bool(getattr(self, "_tiny_mvp_room_owned", False)) and process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+        self._tiny_mvp_room_process = None
+        self._tiny_mvp_room_output_thread = None
+        self._tiny_mvp_room_owned = False
+        self._close_tiny_mvp_room_log_handle()
+
+    def _close_tiny_mvp_room_log_handle(self) -> None:
+        handle = getattr(self, "_tiny_mvp_room_log_handle", None)
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        self._tiny_mvp_room_log_handle = None
+
+    def _sync_tiny_mvp_monitor(self, settings: dict[str, Any], tiny_url: str) -> None:
+        if bool(_get(settings or {}, "tiny_mvp.start_with_gui", True)):
+            self._start_tiny_mvp_monitor(settings, tiny_url)
+        else:
+            self._stop_tiny_mvp_monitor()
+
+    def _start_tiny_mvp_monitor(self, settings: dict[str, Any], tiny_url: str) -> None:
+        if self._tiny_mvp_monitor_running():
+            return
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        script = _tiny_mvp_room_script(settings)
+        if not script.exists():
+            if logger:
+                logger.warning("TinyMVP monitor script is missing: %s", script)
+            return
+        log_dir = ADDON_DIR / "runtime_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "tiny_mvp_monitor.log"
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self._tiny_mvp_monitor_log_handle = log_path.open("a", encoding="utf-8")
+            launched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            monitor_url = f"{str(tiny_url).rstrip('/')}/state"
+            self._tiny_mvp_monitor_log_handle.write(f"\n--- TinyMVP monitor launch @ {launched_at} ---\nscript={script}\nurl={monitor_url}\n")
+            self._tiny_mvp_monitor_log_handle.flush()
+            self._tiny_mvp_monitor_process = subprocess.Popen(
+                _tiny_mvp_monitor_command(settings, monitor_url),
+                cwd=str(script.parent),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                creationflags=creationflags,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self._tiny_mvp_monitor_owned = True
+            self._tiny_mvp_monitor_output_thread = threading.Thread(
+                target=self._forward_tiny_mvp_monitor_output,
+                name="TinyMVPMonitorOutput",
+                daemon=True,
+            )
+            self._tiny_mvp_monitor_output_thread.start()
+        except Exception as exc:
+            if logger:
+                logger.warning("TinyMVP monitor failed to start: %s", exc)
+            self._close_tiny_mvp_monitor_log_handle()
+            self._tiny_mvp_monitor_process = None
+            self._tiny_mvp_monitor_owned = False
+
+    def _forward_tiny_mvp_monitor_output(self):
+        process = getattr(self, "_tiny_mvp_monitor_process", None)
+        handle = getattr(self, "_tiny_mvp_monitor_log_handle", None)
+        if process is None or process.stdout is None:
+            return
+        try:
+            for line in process.stdout:
+                if handle is not None:
+                    handle.write(_redact_runtime_log_text(line))
+                    handle.flush()
+        except Exception:
+            pass
+
+    def _stop_tiny_mvp_monitor(self) -> None:
+        process = getattr(self, "_tiny_mvp_monitor_process", None)
+        if process is not None and bool(getattr(self, "_tiny_mvp_monitor_owned", False)) and process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+        self._tiny_mvp_monitor_process = None
+        self._tiny_mvp_monitor_output_thread = None
+        self._tiny_mvp_monitor_owned = False
+        self._close_tiny_mvp_monitor_log_handle()
+
+    def _close_tiny_mvp_monitor_log_handle(self) -> None:
+        handle = getattr(self, "_tiny_mvp_monitor_log_handle", None)
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        self._tiny_mvp_monitor_log_handle = None
 
     def _start_runtime_server(self, instance: BridgeInstance):
         logger = getattr(getattr(self, "context", None), "logger", None)
@@ -480,6 +701,12 @@ class Addon(BaseAddon):
                     "--poll-seconds",
                     str(poll_seconds),
                 ]
+                playback_settings = instance.settings.get("playback") if isinstance(instance.settings.get("playback"), dict) else {}
+                if _bool_setting(
+                    playback_settings.get("route_protected_mic_speech"),
+                    _bool_setting(tiny_mvp.get("route_protected_mic_speech"), False),
+                ):
+                    args.append("--route-protected-mic-speech")
                 cwd = str(script.parent)
             else:
                 args = [str(executable), str(script)]
@@ -927,7 +1154,13 @@ class Addon(BaseAddon):
             )
             self._cleanup_tiny_mvp_local_mic_wav(wav_path, settings)
             return
-        if _tiny_mvp_current_speaker_blocks_user(state, user_id):
+        protected_current_speech = _tiny_mvp_current_speaker_blocks_user(state, user_id)
+        playback = settings.get("playback") if isinstance(settings.get("playback"), dict) else {}
+        route_protected_mic_speech = _bool_setting(
+            playback.get("route_protected_mic_speech"),
+            _bool_setting(tiny_mvp.get("route_protected_mic_speech"), False),
+        )
+        if protected_current_speech and not route_protected_mic_speech:
             if logger:
                 logger.info("TinyMVP NC microphone ignored %s because the current speaker is protected.", speaker_name)
             _http_json(
@@ -955,6 +1188,7 @@ class Addon(BaseAddon):
             "duration_seconds": duration_seconds,
             "participants": participants,
             "room_context": _tiny_mvp_room_context(participants),
+            "record_route_context": bool(protected_current_speech and route_protected_mic_speech),
         }
         decision = instance.runtime_server.route_turn(payload)
         input_text = str(decision.get("input_text") or "").strip()
@@ -962,7 +1196,8 @@ class Addon(BaseAddon):
         if input_text and speech_accepted:
             _http_json("POST", f"{tiny_url}/speech", {"speaker_id": user_id, "text": input_text, "reason": "nc microphone"})
             self._record_tiny_mvp_user_turn_for_all_instances(decision, route_key)
-            self._maybe_stop_tiny_mvp_playback_for_user_speech(tiny_url, settings, duration_seconds)
+            if not protected_current_speech:
+                self._maybe_stop_tiny_mvp_playback_for_user_speech(tiny_url, settings, duration_seconds)
         target_id = _safe_instance_id(decision.get("target_bot_id") or "")
         reason = str(decision.get("reason") or "nc microphone route").strip()
         if bool(decision.get("answer")) and target_id:
@@ -975,7 +1210,7 @@ class Addon(BaseAddon):
                 f"{tiny_url}/decision",
                 {"source_id": user_id, "target_id": target_id, "answer": False, "reason": reason},
             )
-            if input_text and speech_accepted:
+            if input_text and speech_accepted and not protected_current_speech:
                 self._maybe_recover_tiny_mvp_dead_air(tiny_url, settings, reason)
             if logger:
                 logger.info("TinyMVP NC microphone no-route for %s: %s", speaker_name, reason)
@@ -1037,7 +1272,39 @@ class Addon(BaseAddon):
         trigger_mode = str(recovery.get("trigger_mode") or "no_route_after_bot_speech").strip().lower()
         if trigger_mode not in {"no_route_after_any_speech", "any_speech", "bot_or_human"}:
             return
+        silence_timeout = _float_setting(recovery.get("silence_timeout_seconds"), 10.0)
+        if silence_timeout > 0:
+            threading.Thread(
+                target=Addon._recover_tiny_mvp_dead_air_after_quiet_delay,
+                args=(tiny_url, reason, silence_timeout),
+                name="TinyMVP NC mic dead-air recovery",
+                daemon=True,
+            ).start()
+            return
         _http_json("POST", f"{tiny_url}/dead-air", {"reason": f"dead_air_recovery:{reason}"})
+
+    @staticmethod
+    def _recover_tiny_mvp_dead_air_after_quiet_delay(tiny_url: str, reason: str, silence_timeout: float) -> None:
+        timeout = max(0.0, float(silence_timeout))
+        poll_interval = min(0.25, max(0.02, timeout / 2.0 if timeout else 0.02))
+        deadline = time.time() + max(30.0, timeout + 5.0)
+        quiet_since: float | None = None
+        while time.time() < deadline:
+            try:
+                state = _http_json("GET", f"{tiny_url}/state", timeout=1.0)
+            except Exception:
+                return
+            if _tiny_mvp_room_has_active_or_pending_speaker(state):
+                quiet_since = None
+                time.sleep(poll_interval)
+                continue
+            now = time.time()
+            if quiet_since is None:
+                quiet_since = now
+            if now - quiet_since >= timeout:
+                _http_json("POST", f"{tiny_url}/dead-air", {"reason": f"dead_air_recovery:{reason}"})
+                return
+            time.sleep(poll_interval)
 
     @staticmethod
     def _cleanup_tiny_mvp_local_mic_wav(wav_path: Path, settings: dict[str, Any]) -> None:
@@ -1264,6 +1531,24 @@ def _bridge_mode(settings: dict[str, Any] | None) -> str:
     return str((settings or {}).get("bridge_mode") or "mock").strip().lower()
 
 
+def _tiny_mvp_room_script(settings: dict[str, Any] | None = None) -> Path:
+    tiny_mvp = (settings or {}).get("tiny_mvp") if isinstance(settings, dict) else {}
+    configured = ""
+    if isinstance(tiny_mvp, dict):
+        configured = str(tiny_mvp.get("room_script") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return DEFAULT_TINY_MVP_ROOM_SCRIPT
+
+
+def _tiny_mvp_room_command(settings: dict[str, Any] | None, host: str, port: int) -> list[str]:
+    return [str(sys.executable), str(_tiny_mvp_room_script(settings)), "--host", str(host), "--port", str(port)]
+
+
+def _tiny_mvp_monitor_command(settings: dict[str, Any] | None, monitor_url: str) -> list[str]:
+    return [str(sys.executable), str(_tiny_mvp_room_script(settings)), "--gui", "--monitor-url", str(monitor_url)]
+
+
 def _tiny_mvp_bridge_script(settings: dict[str, Any] | None = None) -> Path:
     tiny_mvp = (settings or {}).get("tiny_mvp") if isinstance(settings, dict) else {}
     configured = ""
@@ -1280,6 +1565,22 @@ def _tiny_mvp_bridge_script(settings: dict[str, Any] | None = None) -> Path:
     return DEFAULT_TINY_MVP_BRIDGE_SCRIPT
 
 
+def _tiny_mvp_host_port(tiny_url: str) -> tuple[str, int]:
+    url = str(tiny_url or "").strip() or "http://127.0.0.1:8788"
+    if "://" not in url:
+        url = f"http://{url}"
+    parsed = urllib.parse.urlparse(url)
+    return parsed.hostname or "127.0.0.1", parsed.port or 8788
+
+
+def _tiny_mvp_room_reachable(tiny_url: str) -> bool:
+    try:
+        _http_json("GET", f"{str(tiny_url or '').rstrip('/')}/state", timeout=0.75)
+        return True
+    except Exception:
+        return False
+
+
 def _transport_environment_issues(
     settings: dict[str, Any],
     *,
@@ -1288,6 +1589,15 @@ def _transport_environment_issues(
     if _bridge_mode(settings) != "tiny_mvp":
         return _node_bridge_environment_issues(require_install=require_install)
     issues: list[dict[str, str]] = []
+    room_script = _tiny_mvp_room_script(settings)
+    if not room_script.exists():
+        issues.append(
+            {
+                "severity": "error",
+                "scope": "tiny_mvp",
+                "message": f"TinyMVP room server script is missing: {room_script}",
+            }
+        )
     script = _tiny_mvp_bridge_script(settings)
     if not script.exists():
         issues.append(
@@ -1593,6 +1903,16 @@ def _tiny_mvp_room_context(participants: list[Any]) -> dict[str, Any]:
             if isinstance(item, dict)
         ],
     }
+
+
+def _tiny_mvp_room_has_active_or_pending_speaker(state: dict[str, Any]) -> bool:
+    if not isinstance(state, dict):
+        return False
+    return bool(
+        str(state.get("current_id") or "").strip()
+        or str(state.get("next_id") or "").strip()
+        or str(state.get("playback_owner_id") or "").strip()
+    )
 
 
 def _tiny_mvp_participant_is_muted(state: dict[str, Any], participant_id: str) -> bool:

@@ -244,10 +244,43 @@ def local_inference_responsiveness_guard(logger=print):
             _set_priority_class(pid, priority)
 
 
-def unload_models(*, base_url: str, logger=print) -> bool:
+def prepare_chat_model_lifecycle(
+    provider_id: str,
+    model_name: str,
+    *,
+    active_model_name: str = "",
+    unload_func=None,
+    load_func=None,
+    is_placeholder=None,
+    reason: str = "LM Studio chat model",
+    force_unload: bool = False,
+) -> tuple[bool, str]:
+    """Unload stale LM Studio chat models before loading the requested model."""
+    provider = str(provider_id or "").strip().lower()
+    active_name = str(active_model_name or "").strip()
+    clean_model_name = str(model_name or "").strip()
+    if provider != "lmstudio":
+        return True, active_name
+    if not clean_model_name or (callable(is_placeholder) and is_placeholder(clean_model_name)):
+        return True, active_name
+    if not callable(unload_func) or not callable(load_func):
+        return False, active_name
+
+    should_unload = bool(force_unload) or (active_name and active_name != clean_model_name) or not active_name
+    if should_unload:
+        try:
+            unload_func(reason=reason)
+        except TypeError:
+            unload_func()
+    ready = bool(load_func(clean_model_name))
+    return ready, clean_model_name if ready else active_name
+
+
+def unload_models(*, base_url: str, logger=print, reason: str = "MuseTalk warmup") -> bool:
     target = sdk_host(base_url)
     allow_local_cli_fallback = is_local_base_url(base_url)
-    logger("🧠 [LM Studio] Unloading loaded models before MuseTalk warmup...")
+    clean_reason = str(reason or "model load").strip()
+    logger(f"🧠 [LM Studio] Unloading loaded models before {clean_reason}...")
     sdk = get_sdk()
     if sdk is not None:
         try:

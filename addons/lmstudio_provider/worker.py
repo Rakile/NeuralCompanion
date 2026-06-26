@@ -197,11 +197,18 @@ def _run_request(config: dict[str, Any]) -> str:
     fallback_payload = config.get("fallback_payload") if isinstance(config.get("fallback_payload"), dict) else None
     emit_chunks = bool(config.get("emit_chunks"))
     force_non_stream = bool(config.get("force_non_stream"))
+    stream = bool(config.get("stream", payload.get("stream", False))) and not force_non_stream
     if not url:
         raise RuntimeError("LM Studio worker received an empty request URL.")
 
-    if force_non_stream:
-        response_payload = _post_json(url, payload, api_key)
+    if not stream:
+        try:
+            response_payload = _post_json(url, payload, api_key)
+        except urllib.error.HTTPError as exc:
+            error_text = _http_error_text(exc)
+            if not (native and fallback_payload and _native_reasoning_unsupported(error_text)):
+                raise RuntimeError(error_text)
+            response_payload = _post_json(url, fallback_payload, api_key)
         return _extract_native_text(response_payload) if native else _extract_openai_message(response_payload)
 
     parts: list[str] = []

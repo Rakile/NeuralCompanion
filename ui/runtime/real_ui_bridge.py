@@ -833,7 +833,34 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
             self._last_frontend_heavy_sync_at = time.monotonic()
         self._sync_backend_to_ui(force=False)
 
+    def _should_lightweight_sync_for_pipeline_telemetry(self):
+        try:
+            snapshot = self.backend._invoke_addon_service_capability(
+                "avatar_provider_registry",
+                "runtime.pipeline_snapshot",
+                {},
+                default={},
+                provider_id="musetalk",
+            )
+        except Exception:
+            return False
+        snapshot = dict(snapshot or {})
+        if not bool(snapshot.get("active")):
+            return False
+        engine_mode = str(snapshot.get("engine_mode", "") or "").strip().lower()
+        if engine_mode not in {"musetalk", "vam", "none"}:
+            return False
+        for chunk in list(snapshot.get("chunks", []) or []):
+            chunk = dict(chunk or {})
+            if str(chunk.get("playback_state", "") or "") in {"playing", "buffered"}:
+                return True
+            if str(chunk.get("status", "") or "") in {"generating_audio", "queued_for_render", "rendering"}:
+                return True
+        return False
+
     def _should_lightweight_sync_for_musetalk_preview(self):
+        if self._should_lightweight_sync_for_pipeline_telemetry():
+            return True
         try:
             if self.backend._current_avatar_mode_value() != "musetalk":
                 return False

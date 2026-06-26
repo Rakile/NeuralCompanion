@@ -42,6 +42,7 @@ def _personas() -> list[PersonaConfig]:
 def run_smoke() -> None:
     assert AR_MODE in SESSION_MODES
     assert set(SESSION_MODES).issubset(set(SESSION_MODE_DESCRIPTIONS))
+    _smoke_fresh_defaults_are_passive()
     personas = _personas()
     normal = RoleplaySessionState.from_dict({"enabled": True, "mode": "Narrator + characters"})
     normal_prompt = prompting.build_persona_system_prompt(personas[0], normal)
@@ -126,12 +127,39 @@ class _Storage:
 
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def read_json(self, relative_path: str):
+        return self._read_json(relative_path, {})
+
     def _write_json(self, relative_path: str, payload):
         path = self.root / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         import json
 
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def write_json(self, relative_path: str, payload):
+        self._write_json(relative_path, payload)
+
+    def resolve(self, relative_path: str) -> Path:
+        return self.root / relative_path
+
+
+def _smoke_fresh_defaults_are_passive() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        context = SimpleNamespace(
+            logger=None,
+            manifest=SimpleNamespace(root_dir=str(Path(__file__).resolve().parent)),
+            storage=_Storage(root),
+        )
+        storage = RoleplayStorage(context)
+        storage.ensure_defaults()
+
+        session = storage.load_session()
+        settings = storage.load_settings()
+        assert session.enabled is False
+        assert session.mode != AR_MODE
+        assert settings.get("show_current_character_visual") is False
 
 
 def _smoke_story_director_prompt_contract(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:

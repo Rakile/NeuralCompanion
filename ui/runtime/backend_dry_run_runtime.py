@@ -28,6 +28,12 @@ BASE_PERFORMANCE_PROFILE_APPLY_KEYS = {
     "model_name",
     "chunk_target_chars",
     "chunk_max_chars",
+    "musetalk_chunk_target_chars",
+    "musetalk_chunk_max_chars",
+    "musetalk_quickstart_1_target_chars",
+    "musetalk_quickstart_1_max_chars",
+    "musetalk_quickstart_2_target_chars",
+    "musetalk_quickstart_2_max_chars",
     "stream_chunk_target_chars",
     "stream_chunk_max_chars",
     "stream_first_chunk_min_chars",
@@ -275,7 +281,7 @@ class BackendDryRunRuntimeMixin:
         if not name:
             print("[QtGUI] Performance profile save cancelled.")
             return
-        current_override = self._build_current_performance_override(include_chunking=False)
+        current_override = self._build_current_performance_override(include_chunking=True)
         dry_run.save_named_performance_profile(name, latest, settings_override=current_override)
         print(f"[QtGUI] Saved performance profile: {name}")
         self.refresh_performance_profile_list()

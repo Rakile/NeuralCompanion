@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import copy
 import re
+import shutil
 import threading
 from datetime import datetime
 from html import escape
@@ -236,6 +237,8 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         self._route_flow_rendered_keys: set[str] = set()
         self._bot_editor_plain_text_fields = {"discord_bot_persona_prompt_edit"}
         self._bot_model_refresh_running = False
+        self._node_dependency_prompt_scheduled = False
+        self._node_dependency_prompt_shown = False
         self._global_live_apply_timer = QtCore.QTimer(self)
         self._global_live_apply_timer.setSingleShot(True)
         self._global_live_apply_timer.setInterval(600)
@@ -264,7 +267,15 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         self._connect_signals()
         self.refresh_from_settings()
         self.refresh_status()
+        widget.installEventFilter(self)
+        if widget.isVisible():
+            self._schedule_node_dependency_prompt()
         self._start_status_timer()
+
+    def eventFilter(self, watched, event):
+        if watched is self.widget and event.type() == QtCore.QEvent.Show:
+            self._schedule_node_dependency_prompt()
+        return super().eventFilter(watched, event)
 
     def refresh_from_settings(self):
         settings = load_settings()
@@ -274,9 +285,14 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         self._set_checked("discord_auto_start_checkbox", _get(settings, "auto_start_bridge", False))
         self._set_combo("discord_bridge_mode_combo", _get(settings, "bridge_mode", "mock"))
         self._set_text("discord_tiny_mvp_url_edit", _get(settings, "tiny_mvp.url", "http://127.0.0.1:8788"))
+        self._set_checked("discord_tiny_mvp_start_with_gui_checkbox", _get(settings, "tiny_mvp.start_with_gui", True))
         self._set_text("discord_tiny_mvp_bridge_script_edit", _get(settings, "tiny_mvp.bridge_script", ""))
         self._set_spin("discord_tiny_mvp_poll_seconds_spin", _get(settings, "tiny_mvp.poll_seconds", 0.25))
         self._set_checked("discord_tiny_mvp_capture_mic_checkbox", _get(settings, "tiny_mvp.capture_mic", False))
+        self._set_checked(
+            "discord_route_protected_mic_speech_checkbox",
+            _get(settings, "playback.route_protected_mic_speech", _get(settings, "tiny_mvp.route_protected_mic_speech", False)),
+        )
         self._set_text("discord_tiny_mvp_mic_user_id_edit", _get(settings, "tiny_mvp.mic_user_id", "rakila"))
         self._set_text("discord_tiny_mvp_mic_user_name_edit", _get(settings, "tiny_mvp.mic_user_name", "Rakila"))
         self._set_spin("discord_tiny_mvp_mic_seconds_spin", _get(settings, "tiny_mvp.mic_seconds", 6.0))
@@ -348,7 +364,7 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         self._set_combo("discord_room_router_floor_mode_combo", _get(settings, "room_router.reply_floor_mode", "first_ready_wins"))
         self._set_checked("discord_dead_air_enabled_checkbox", _get(settings, "room_router.dead_air_recovery.enabled", False))
         self._set_spin("discord_dead_air_cooldown_spin", _get(settings, "room_router.dead_air_recovery.cooldown_seconds", 0.0))
-        self._set_spin("discord_dead_air_silence_timeout_spin", _get(settings, "room_router.dead_air_recovery.silence_timeout_seconds", 0.0))
+        self._set_spin("discord_dead_air_silence_timeout_spin", _get(settings, "room_router.dead_air_recovery.silence_timeout_seconds", 10.0))
         self._set_combo("discord_dead_air_trigger_combo", _get(settings, "room_router.dead_air_recovery.trigger_mode", "no_route_after_bot_speech"))
         self._set_combo("discord_dead_air_action_combo", _get(settings, "room_router.dead_air_recovery.action_mode", "moderator_speaks_and_calls_next"))
         self._set_combo("discord_dead_air_strategy_combo", _get(settings, "room_router.dead_air_recovery.next_speaker_strategy", "llm_choose"))
@@ -397,6 +413,13 @@ class DiscordVoiceBridgeController(QtCore.QObject):
             self._show_warning("Discord Voice Bridge", f"Could not save settings: {exc}")
             return False
 
+    def _persist_start_on_launch_setting(self, checked: bool) -> None:
+        try:
+            save_local_settings({"start_on_nc_launch": bool(checked)})
+            self._set_status("Start on NC launch setting saved.")
+        except Exception as exc:
+            self._show_warning("Discord Voice Bridge", f"Could not save Start on NC launch: {exc}")
+
     def refresh_status(self):
         status = {}
         try:
@@ -440,6 +463,10 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         url.setObjectName("discord_tiny_mvp_url_edit")
         url.setPlaceholderText("http://127.0.0.1:8788")
         form.addRow("TinyMVP room URL", url)
+
+        start_gui = QtWidgets.QCheckBox("Open TinyMVP monitor window", group)
+        start_gui.setObjectName("discord_tiny_mvp_start_with_gui_checkbox")
+        form.addRow("Start With GUI", start_gui)
 
         script = QtWidgets.QLineEdit(group)
         script.setObjectName("discord_tiny_mvp_bridge_script_edit")
@@ -1039,7 +1066,7 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         dead_air_silence_timeout.setObjectName("discord_dead_air_silence_timeout_spin")
         dead_air_silence_timeout.setRange(0.0, 3600.0)
         dead_air_silence_timeout.setDecimals(1)
-        dead_air_silence_timeout.setSpecialValueText("Off")
+        dead_air_silence_timeout.setSpecialValueText("Immediate")
         add_recovery_row("Silence timeout (s)", dead_air_silence_timeout)
 
         for label, name in (
@@ -1130,6 +1157,12 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         interrupt_checkbox.setObjectName("discord_moderator_allow_interrupt_current_checkbox")
         interrupt_checkbox.setToolTip("When off, moderator Current speaker cannot be interrupted by normal playback speech-interrupt rules.")
         playback_row.addWidget(interrupt_checkbox)
+        protected_speech = QtWidgets.QCheckBox("Route protected mic speech", group)
+        protected_speech.setObjectName("discord_route_protected_mic_speech_checkbox")
+        protected_speech.setToolTip(
+            "When Current is protected, still transcribe and route microphone speech into context without stopping playback or taking the floor."
+        )
+        playback_row.addWidget(protected_speech)
         playback_row.addStretch(1)
         outer.addLayout(playback_row)
 
@@ -1222,6 +1255,9 @@ class DiscordVoiceBridgeController(QtCore.QObject):
 
     def _connect_signals(self):
         self._button("discord_bridge_save_button", self.save_settings)
+        start_on_launch = self._control("discord_start_on_launch_checkbox", QtWidgets.QCheckBox)
+        if start_on_launch is not None:
+            start_on_launch.clicked.connect(self._persist_start_on_launch_setting)
         self._button("discord_bridge_start_button", lambda: self._run_bridge_operation("start", self.addon.start_bridge_instances))
         self._button("discord_bridge_stop_button", lambda: self._run_bridge_operation("stop", self.addon.stop_bridge_instances))
         self._button("discord_bridge_restart_button", lambda: self._run_bridge_operation("restart", self.addon.restart_bridge_instances))
@@ -1939,6 +1975,63 @@ class DiscordVoiceBridgeController(QtCore.QObject):
             return
         self._run_bridge_operation("install node deps", installer)
 
+    def _schedule_node_dependency_prompt(self):
+        if self._node_dependency_prompt_scheduled or self._node_dependency_prompt_shown:
+            return
+        self._node_dependency_prompt_scheduled = True
+        QtCore.QTimer.singleShot(250, self._maybe_prompt_node_bridge_dependencies)
+
+    def _node_bridge_validation_issues(self) -> list[dict[str, str]]:
+        validator = getattr(self.addon, "validate_settings", None)
+        if not callable(validator):
+            return []
+        try:
+            return [
+                dict(item)
+                for item in list(validator(force=True) or [])
+                if str(item.get("scope") or "") == "node_bridge"
+            ]
+        except Exception:
+            return []
+
+    def _maybe_prompt_node_bridge_dependencies(self):
+        self._node_dependency_prompt_scheduled = False
+        if self._node_dependency_prompt_shown or self._operation_running:
+            return
+        issues = self._node_bridge_validation_issues()
+        if not issues:
+            return
+        messages = [str(item.get("message") or "") for item in issues]
+        joined = "\n".join(messages).lower()
+        needs_node = "node.js was not found" in joined or not shutil.which("npm")
+        needs_deps = "dependencies are not installed" in joined or "dependencies are incomplete" in joined
+        if not (needs_node or needs_deps):
+            return
+        self._node_dependency_prompt_shown = True
+        if needs_node:
+            response = QtWidgets.QMessageBox.question(
+                self.widget,
+                "Discord Voice Bridge",
+                "This addon requires Node.js/npm before its Node bridge dependencies can be installed.\n\n"
+                "Would you like to open the Node.js download page?",
+            )
+            if response == QtWidgets.QMessageBox.Yes:
+                QtGui.QDesktopServices.openUrl(QtCore.QUrl("https://nodejs.org/en/download"))
+            return
+        response = QtWidgets.QMessageBox.question(
+            self.widget,
+            "Discord Voice Bridge",
+            "This addon requires Node bridge dependencies.\n\n"
+            "Would you like to install them now? This runs npm install only inside the bundled Discord Voice Bridge node_bridge folder.",
+        )
+        if response != QtWidgets.QMessageBox.Yes:
+            return
+        installer = getattr(self.addon, "install_node_bridge_dependencies", None)
+        if not callable(installer):
+            self._show_warning("Discord Voice Bridge", "This addon build does not expose Node dependency installation.")
+            return
+        self._run_bridge_operation("install node deps", installer)
+
     def _validate_saved_settings(self) -> tuple[bool, str]:
         validator = getattr(self.addon, "validate_settings", None)
         if not callable(validator):
@@ -2035,9 +2128,11 @@ class DiscordVoiceBridgeController(QtCore.QObject):
             "bridge_mode": self._combo_value("discord_bridge_mode_combo", "mock"),
             "tiny_mvp": {
                 "url": self._text("discord_tiny_mvp_url_edit", "http://127.0.0.1:8788") or "http://127.0.0.1:8788",
+                "start_with_gui": self._checked("discord_tiny_mvp_start_with_gui_checkbox"),
                 "bridge_script": self._text("discord_tiny_mvp_bridge_script_edit", ""),
                 "poll_seconds": float(self._spin_value("discord_tiny_mvp_poll_seconds_spin", 0.25)),
                 "capture_mic": self._checked("discord_tiny_mvp_capture_mic_checkbox"),
+                "route_protected_mic_speech": self._checked("discord_route_protected_mic_speech_checkbox"),
                 "mic_user_id": self._text("discord_tiny_mvp_mic_user_id_edit", "rakila") or "rakila",
                 "mic_user_name": self._text("discord_tiny_mvp_mic_user_name_edit", "Rakila") or "Rakila",
                 "mic_seconds": float(self._spin_value("discord_tiny_mvp_mic_seconds_spin", 6.0)),
@@ -2075,6 +2170,7 @@ class DiscordVoiceBridgeController(QtCore.QObject):
                 "coordinate_bot_replies": self._checked("discord_coordinate_bot_replies_checkbox"),
                 "reply_floor_stale_seconds": float(self._spin_value("discord_reply_floor_stale_seconds_spin", 180.0)),
                 "initial_buffer_chunks": int(self._spin_value("discord_initial_buffer_chunks_spin", 2)),
+                "route_protected_mic_speech": self._checked("discord_route_protected_mic_speech_checkbox"),
             },
             "response_filter": {
                 "enabled": False,
@@ -2100,7 +2196,7 @@ class DiscordVoiceBridgeController(QtCore.QObject):
                 "dead_air_recovery": {
                     "enabled": self._checked("discord_dead_air_enabled_checkbox"),
                     "cooldown_seconds": float(self._spin_value("discord_dead_air_cooldown_spin", 0.0)),
-                    "silence_timeout_seconds": float(self._spin_value("discord_dead_air_silence_timeout_spin", 0.0)),
+                    "silence_timeout_seconds": float(self._spin_value("discord_dead_air_silence_timeout_spin", 10.0)),
                     "trigger_mode": self._combo_value("discord_dead_air_trigger_combo", "no_route_after_bot_speech"),
                     "action_mode": self._combo_value("discord_dead_air_action_combo", "moderator_speaks_and_calls_next"),
                     "next_speaker_strategy": self._combo_value("discord_dead_air_strategy_combo", "llm_choose"),
@@ -3028,14 +3124,12 @@ class DiscordVoiceBridgeController(QtCore.QObject):
                 if participant_name_conflict:
                     control.setEnabled(False)
                     control.setToolTip("This participant has a duplicate display name. Rename or alias the participant before routing.")
-        active_now_enabled = bool(enabled and bot_selected and not self._moderator_has_speaking_bot())
-        for name in (
-            "discord_moderator_announce_button",
-            "discord_moderator_call_on_button",
-        ):
-            control = self.controls.get(name)
-            if control is not None:
-                control.setEnabled(active_now_enabled)
+        announce_control = self.controls.get("discord_moderator_announce_button")
+        if announce_control is not None:
+            announce_control.setEnabled(bool(enabled and bot_selected))
+        call_control = self.controls.get("discord_moderator_call_on_button")
+        if call_control is not None:
+            call_control.setEnabled(bool(enabled and bot_selected and not self._moderator_has_speaking_bot()))
         for name in (
             "discord_moderator_clear_pending_button",
             "discord_moderator_clear_floor_button",
@@ -3429,10 +3523,12 @@ class DiscordVoiceBridgeController(QtCore.QObject):
             "discord_auto_start_checkbox": "Compatibility auto-start flag for local testing. Start on NC launch is the preferred user-facing switch.",
             "discord_bridge_mode_combo": "Bridge transport mode. HTTP / Discord launches the Node Discord bridge; TinyMVP local room launches the Python fake-room bridge for local testing without Discord.",
             "discord_tiny_mvp_group": "Settings used only when Bridge mode is TinyMVP.",
-            "discord_tiny_mvp_url_edit": "TinyMVP fake voice-room server URL. Start TinyMVP first, then Start Bridge from this tab.",
+            "discord_tiny_mvp_url_edit": "TinyMVP fake voice-room server URL. Start Bridge will start the bundled TinyMVP room first when this URL is not already reachable.",
+            "discord_tiny_mvp_start_with_gui_checkbox": "Open the TinyMVP passive monitor window when NC starts the bundled local room server.",
             "discord_tiny_mvp_bridge_script_edit": "Path to tiny_voice_bridge.py. Leave blank when TinyMVP is a sibling folder next to this NC repo.",
             "discord_tiny_mvp_poll_seconds_spin": "How often each local bridge bot polls TinyMVP room state.",
             "discord_tiny_mvp_capture_mic_checkbox": "Use NC's local microphone as the human speaker while TinyMVP mode is running. Accepted speech is routed through the normal Discord bridge runtime.",
+            "discord_route_protected_mic_speech_checkbox": "When the moderator protects Current, still route microphone speech into context without interrupting playback or taking the floor.",
             "discord_tiny_mvp_mic_user_id_edit": "Fake human participant ID used when TinyMVP microphone speech is injected into the local room.",
             "discord_tiny_mvp_mic_user_name_edit": "Display name used when TinyMVP microphone speech is injected into the local room.",
             "discord_tiny_mvp_mic_seconds_spin": "Maximum phrase length for NC microphone input in TinyMVP mode.",
@@ -3491,7 +3587,7 @@ class DiscordVoiceBridgeController(QtCore.QObject):
             "discord_room_router_floor_mode_combo": "Shared playback coordination behavior for multi-bot rooms.",
             "discord_dead_air_enabled_checkbox": "Let the selected active Moderator bot recover when a completed turn selects no next speaker.",
             "discord_dead_air_cooldown_spin": "Minimum seconds between automatic Moderator recovery turns. Zero means no cooldown.",
-            "discord_dead_air_silence_timeout_spin": "Optional quiet-room timer. When greater than zero, the capture-owner bot lets humans speak during this window, then triggers Moderator dead-air recovery if the room stays silent.",
+            "discord_dead_air_silence_timeout_spin": "Quiet-room grace period before automatic Moderator recovery runs. Set to 0 only when you want immediate recovery after a no-route turn.",
             "discord_dead_air_trigger_combo": "Choose whether recovery triggers only after bot speech or also after unrouted human speech.",
             "discord_dead_air_action_combo": "Choose whether the Moderator speaks, calls the next bot, or silently calls the next bot.",
             "discord_dead_air_strategy_combo": "Choose how the recovery system selects the next speaker after dead air.",

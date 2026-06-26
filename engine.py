@@ -388,16 +388,16 @@ Summary and memory:
 - If nothing important changed, prefer keep=false and an empty summary.
 
 Action fields:
-- The core prompt defines the JSON contract only. Enabled source-specific guidance decides when should_speak, proactive_candidate, should_generate_image, and visual_candidate are appropriate.
+- The core prompt defines the JSON contract only. Enabled source-specific behavior prompts decide when should_speak, proactive_candidate, should_generate_image, and visual_candidate are appropriate.
 - proactive_candidate should be a concise cue describing what NC should react to, ask about, or comment on, not a full final reply.
 - visual_candidate should be a concise image prompt describing the scene, concept, or mood worth generating.
 - focus_bounds may be a desktop coordinate rectangle [x, y, width, height] from source metadata or OCR regions when Companion Orb should move toward the visible thing being discussed.
 - focus_text may name readable text or a visible subject from the current PING so Companion Orb can match it against OCR regions when exact bounds are not available.
 - focus_label is a short label for the orb's target focus.
-- If the active source guidance does not strongly justify an action, prefer the action flags false and the candidate fields empty.
+- If no active source-specific behavior prompt strongly justifies an action, prefer the action flags false and the candidate fields empty.
 - Never copy, paraphrase, or continue a prior proactive_candidate or recent Assistant reply. Each proactive_candidate must be newly grounded in the current PING's visible content and current summary.
 - If the current screen/content changed but you cannot form a new comment about the new content, set should_speak=false and proactive_candidate="".
-- tags is for addon-directed latent directives such as "[start calculator]" or "[heart_rate_high]". Only emit tags when active source guidance clearly asks for them.
+- tags is for addon-directed latent directives such as "[start calculator]" or "[heart_rate_high]". Only emit tags when an active source-specific behavior prompt clearly asks for them.
 
 Action consistency rules:
 - If should_speak is true, proactive_candidate must be a non-empty string.
@@ -415,7 +415,7 @@ Examples:
 - Proactive speech example:
   {"keep": true, "emotion": "angry", "attention": "unexpected event", "summary": "A sudden change needs NC's attention.", "proactive_candidate": "I noticed something changed and want to react to it.", "visual_candidate": "", "should_speak": true, "should_generate_image": false, "focus_bounds": [], "focus_label": "unexpected event", "focus_text": "unexpected event", "tags": []}
 - Image-generation shape example:
-  {"keep": true, "emotion": "sad", "attention": "screen", "summary": "A source-specific cue suggests generating an image.", "proactive_candidate": "", "visual_candidate": "concise source-grounded image prompt", "should_speak": false, "should_generate_image": true, "focus_bounds": [], "focus_label": "", "focus_text": "", "tags": []}
+  {"keep": true, "emotion": "sad", "attention": "screen", "summary": "An enabled behavior prompt asks for an image.", "proactive_candidate": "", "visual_candidate": "concise behavior-grounded image prompt", "should_speak": false, "should_generate_image": true, "focus_bounds": [], "focus_label": "", "focus_text": "", "tags": []}
 - Addon tag example:
   {"keep": true, "emotion": "neutral", "attention": "heart rate", "summary": "Heart rate crossed the addon threshold.", "proactive_candidate": "", "visual_candidate": "", "should_speak": false, "should_generate_image": false, "focus_bounds": [], "focus_label": "", "focus_text": "", "tags": ["[start calculator]"]}
 
@@ -1041,6 +1041,8 @@ sensory_pingpong_state = {
     "last_failure_key": "",
     "fallback_request_until": 0.0,
     "fallback_request_source": "",
+    "no_json_response_format_until": 0.0,
+    "no_json_response_format_source": "",
     "invalid_response_until": 0.0,
     "invalid_response_source": "",
     "invalid_response_count": 0,
@@ -1419,11 +1421,40 @@ def _apply_chat_provider_generation_fields(params, additional_params, provider=N
     _chat_runtime.apply_generation_fields(params, additional_params, provider=provider)
 
 
+_LMSTUDIO_ACTIVE_CHAT_MODEL_NAME = ""
+
+
+def prepare_lmstudio_chat_model_for_runtime(provider=None, model=None, *, reason="LM Studio chat model", force_unload=False):
+    global _LMSTUDIO_ACTIVE_CHAT_MODEL_NAME
+    provider_id = chat_providers.normalize_provider_id(
+        provider if provider is not None else _chat_provider(),
+        fallback=chat_providers.DEFAULT_PROVIDER_ID,
+    )
+    model_name = str(model if model is not None else RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    ready, active_model_name = lmstudio_runtime.prepare_chat_model_lifecycle(
+        provider_id,
+        model_name,
+        active_model_name=_LMSTUDIO_ACTIVE_CHAT_MODEL_NAME,
+        unload_func=unload_lmstudio_models,
+        load_func=load_lmstudio_model,
+        is_placeholder=_is_model_catalog_placeholder,
+        reason=reason,
+        force_unload=force_unload,
+    )
+    _LMSTUDIO_ACTIVE_CHAT_MODEL_NAME = active_model_name
+    return ready
+
+
 def _ensure_chat_provider_model_ready(provider, model):
     provider_id = chat_providers.normalize_provider_id(provider, fallback=chat_providers.DEFAULT_PROVIDER_ID)
     model_name = str(model or "").strip()
     if provider_id == "lmstudio" and model_name and not _is_model_catalog_placeholder(model_name):
-        return load_lmstudio_model(model_name)
+        return prepare_lmstudio_chat_model_for_runtime(
+            provider_id,
+            model_name,
+            reason="LM Studio model switch",
+            force_unload=False,
+        )
     return True
 
 
@@ -1470,6 +1501,10 @@ def _is_model_catalog_placeholder(model_name):
 
 
 def _chat_completion_create(params, additional_params=None, *, stream=False):
+    request_params = params if isinstance(params, dict) else {}
+    model_name = str(request_params.get("model") or RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    if model_name:
+        _ensure_chat_provider_model_ready(_chat_provider(), model_name)
     if stream:
         return _chat_runtime.stream(params, additional_params)
     return _chat_runtime.complete(params, additional_params)
@@ -1516,8 +1551,8 @@ def _run_lms_cli(args, timeout=300):
     return lmstudio_runtime.run_lms_cli(args, timeout=timeout)
 
 
-def unload_lmstudio_models():
-    return lmstudio_runtime.unload_models(base_url=_active_lmstudio_base_url(), logger=print)
+def unload_lmstudio_models(reason="MuseTalk warmup"):
+    return lmstudio_runtime.unload_models(base_url=_active_lmstudio_base_url(), logger=print, reason=reason)
 
 
 def load_lmstudio_model(model_name):
@@ -3863,6 +3898,46 @@ def _sensory_pingpong_source_prompt_text(source_ids):
     return "\n\n".join(fragments)
 
 
+def _sensory_source_has_pingpong_guidance(source_id):
+    source_key = str(source_id or "").strip().lower()
+    if not source_key:
+        return False
+    provider = sensory.get_provider(source_key)
+    effective = _sensory_provider_effective_payload(source_key, provider=provider)
+    metadata = dict(effective.get("metadata") or {})
+    source_prompt_enabled = metadata.get("prompt_fragment_enabled", True) is not False
+    source_prompt = str(metadata.get("pingpong_prompt") or "").strip()
+    if source_prompt_enabled and source_prompt:
+        return True
+    for contributor in sensory.list_prompt_contributors(source_key):
+        if str(getattr(contributor, "prompt", "") or "").strip():
+            return True
+    return False
+
+
+def _filter_hidden_sensory_pingpong_snapshots(snapshots, *, priority=False):
+    filtered = []
+    skipped_sources = []
+    for snapshot in list(snapshots or []):
+        if not isinstance(snapshot, dict) or not _snapshot_has_payload(snapshot):
+            continue
+        if bool(priority) and _snapshot_is_manual_companion_orb_inspection(snapshot):
+            filtered.append(snapshot)
+            continue
+        source_id = str(snapshot.get("source", "") or "").strip().lower()
+        if _sensory_source_has_pingpong_guidance(source_id):
+            filtered.append(snapshot)
+        elif source_id and source_id not in skipped_sources:
+            skipped_sources.append(source_id)
+    if skipped_sources:
+        _log_companion_orb_debug_event(
+            "engine_hidden_ping_source_skipped",
+            reason="no_source_pingpong_guidance",
+            sources=list(skipped_sources),
+        )
+    return filtered
+
+
 def _screen_supervisor_prompt_contributors(source_ids):
     source_keys = {
         str(source_id or "").strip().lower()
@@ -3890,6 +3965,37 @@ def _screen_supervisor_prompt_contributors(source_ids):
 
 def _screen_supervisor_prompt_active(source_ids):
     return bool(_screen_supervisor_prompt_contributors(source_ids))
+
+
+def _sensory_behavior_prompt_contributors(source_ids):
+    source_keys = {
+        str(source_id or "").strip().lower()
+        for source_id in list(source_ids or [])
+        if str(source_id or "").strip()
+    }
+    contributors = []
+    seen = set()
+    for source_id in source_keys:
+        for contributor in sensory.list_prompt_contributors(source_id):
+            contributor_id = str(getattr(contributor, "id", "") or "").strip()
+            metadata = dict(getattr(contributor, "metadata", None) or {})
+            behavior_type = str(metadata.get("type") or "").strip().lower()
+            if behavior_type != "behavior_rule" and not contributor_id.endswith(".behavior"):
+                continue
+            prompt = str(getattr(contributor, "prompt", "") or "").strip()
+            if not prompt:
+                continue
+            contributor_source = str(getattr(contributor, "source_id", "") or source_id).strip().lower()
+            key = (contributor_id, contributor_source, prompt)
+            if key in seen:
+                continue
+            seen.add(key)
+            contributors.append(contributor)
+    return contributors
+
+
+def _sensory_behavior_prompt_active(source_ids):
+    return bool(_sensory_behavior_prompt_contributors(source_ids))
 
 
 _SCREEN_SUPERVISOR_TRIGGER_STOPWORDS = {
@@ -4057,6 +4163,12 @@ def _screen_supervisor_subject_from_tags(tags):
     return ""
 
 
+def _screen_supervisor_tag_key(tag):
+    tag_text = str(tag or "").strip().lower()
+    tag_text = tag_text.strip("[]").strip()
+    return re.sub(r"[\s-]+", "_", tag_text)
+
+
 def _compose_sensory_pingpong_prompt(source_ids, emotion_text):
     prompt_template = _sensory_pingpong_prompt_template()
     prompt_text = prompt_template.replace("__EMOTION_LIST__", emotion_text)
@@ -4148,6 +4260,7 @@ def _apply_sensory_pong_result(result, snapshots):
         for item in snapshot_list
         if isinstance(item, dict)
     ]
+    behavior_prompt_active = _sensory_behavior_prompt_active(snapshot_source_ids)
     tags = []
     for item in list(result.get("tags", []) or []):
         tag_text = _sanitize_hidden_action_text(item, limit=80)
@@ -4186,36 +4299,60 @@ def _apply_sensory_pong_result(result, snapshots):
     screen_supervisor_allow_same_subject_repeat = False
     screen_supervisor_repeat_mode = ""
     if _screen_supervisor_prompt_active(snapshot_source_ids):
-        supervisor_match_tag = "[screen_supervisor_match]"
-        has_supervisor_match = any(str(tag or "").strip().lower() == supervisor_match_tag for tag in tags)
+        supervisor_match_tag = "screen_supervisor_match"
+        has_supervisor_match = any(_screen_supervisor_tag_key(tag) == supervisor_match_tag for tag in tags)
         screen_subject_tag_identity = _screen_supervisor_subject_from_tags(tags)
         tags = [
             tag
             for tag in tags
-            if str(tag or "").strip().lower() != supervisor_match_tag
+            if _screen_supervisor_tag_key(tag) != supervisor_match_tag
             and not re.match(r"^\[?screen_subject\s*:", str(tag or "").strip(), flags=re.IGNORECASE)
         ]
         print(
             "[SupervisorDebug] model_match_tag="
             f"{has_supervisor_match} sources={snapshot_source_ids or ['?']}"
         )
+        token_trigger_matched, trigger_reason, matched_behavior = _screen_supervisor_pong_trigger_decision(
+            snapshot_source_ids,
+            summary=summary,
+            attention=attention,
+            proactive_candidate=proactive_candidate,
+        )
+        if not has_supervisor_match and not token_trigger_matched:
+            print(
+                "[SupervisorDebug] trigger_match=False "
+                f"reason=no configured behavior matched; lexical_check=False ({trigger_reason})"
+            )
+        if token_trigger_matched and not has_supervisor_match:
+            has_supervisor_match = True
+            print(
+                "[SupervisorDebug] model_match_tag missing; accepted configured trigger from PONG text "
+                f"({trigger_reason})"
+            )
         if (should_speak or proactive_candidate) and not has_supervisor_match:
             print("🤐 [Sensory] Suppressed screen comment without a matching Screen Supervisor behavior.")
             proactive_candidate = ""
             should_speak = False
-        if should_speak or proactive_candidate:
-            token_trigger_matched, trigger_reason, matched_behavior = _screen_supervisor_pong_trigger_decision(
-                snapshot_source_ids,
+        if (
+            not should_speak
+            and not proactive_candidate
+            and has_supervisor_match
+            and token_trigger_matched
+            and matched_behavior
+        ):
+            proactive_candidate = _derive_hidden_proactive_candidate(
                 summary=summary,
                 attention=attention,
-                proactive_candidate=proactive_candidate,
+                emotion=emotion,
             )
-            trigger_matched = bool(has_supervisor_match)
+            should_speak = bool(proactive_candidate)
+        if should_speak or proactive_candidate:
+            trigger_matched = bool(has_supervisor_match or token_trigger_matched)
             print(
                 f"[SupervisorDebug] trigger_match={trigger_matched} "
-                f"reason=model affirmed configured behavior; lexical_check={token_trigger_matched} ({trigger_reason})"
+                f"reason=configured behavior matched; lexical_check={token_trigger_matched} ({trigger_reason})"
             )
-            if matched_behavior and not token_trigger_matched:
+            if matched_behavior and not has_supervisor_match and not token_trigger_matched:
                 print("🤐 [Sensory] Suppressed screen comment without current visible evidence for the configured trigger.")
                 proactive_candidate = ""
                 should_speak = False
@@ -4287,9 +4424,17 @@ def _apply_sensory_pong_result(result, snapshots):
         print("🤐 [Sensory] Suppressed stale proactive candidate reused from a different hidden PONG.")
         proactive_candidate = ""
         should_speak = False
+    if (should_speak or proactive_candidate) and not behavior_prompt_active:
+        print("🤐 [Sensory] Suppressed hidden proactive reply without an active source-specific supervisor behavior.")
+        proactive_candidate = ""
+        should_speak = False
     should_generate_image = _normalize_boolish(result.get("should_generate_image", False))
     if should_generate_image and not visual_candidate:
         visual_candidate = _derive_hidden_visual_candidate(summary=summary, attention=attention, emotion=emotion)
+    if (should_generate_image or visual_candidate) and not behavior_prompt_active:
+        print("🖼️ [Sensory] Suppressed hidden visual request without an active source-specific behavior.")
+        visual_candidate = ""
+        should_generate_image = False
     keep_value = bool(result.get("keep", False))
     snapshot_source = ",".join([str((item or {}).get("source", "sensory") or "sensory") for item in snapshot_list if isinstance(item, dict)]) or "sensory"
     if _hidden_sensory_snapshots_include_source(snapshot_list, "companion_orb_target") and (
@@ -4434,7 +4579,11 @@ def _apply_sensory_pong_result(result, snapshots):
             attention=attention,
             emotion=emotion,
             source=snapshot_source,
-            allow_repeated_candidate=screen_supervisor_new_meaningful_subject,
+            allow_repeated_candidate=bool(
+                behavior_prompt_active
+                or screen_supervisor_new_meaningful_subject
+                or screen_supervisor_allow_same_subject_repeat
+            ),
             focus_bounds=focus_bounds,
             focus_label=focus_label or attention,
             focus_text=focus_text or proactive_candidate or summary,
@@ -4539,6 +4688,20 @@ def _remember_hidden_sensory_fallback_request(source_text, *, seconds=300.0):
         sensory_pingpong_state["fallback_request_until"] = time.time() + max(30.0, float(seconds or 300.0))
 
 
+def _hidden_sensory_should_skip_json_response_format(source_text):
+    now = time.time()
+    with sensory_pingpong_lock:
+        fallback_source = str(sensory_pingpong_state.get("no_json_response_format_source", "") or "")
+        fallback_until = float(sensory_pingpong_state.get("no_json_response_format_until", 0.0) or 0.0)
+    return bool(fallback_source == str(source_text or "") and fallback_until > now)
+
+
+def _remember_hidden_sensory_no_json_response_format(source_text, *, seconds=300.0):
+    with sensory_pingpong_lock:
+        sensory_pingpong_state["no_json_response_format_source"] = str(source_text or "")
+        sensory_pingpong_state["no_json_response_format_until"] = time.time() + max(30.0, float(seconds or 300.0))
+
+
 def _hidden_sensory_invalid_response_cooldown_active(source_text):
     now = time.time()
     with sensory_pingpong_lock:
@@ -4608,6 +4771,7 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, prio
     if snapshots_override is None:
         snapshots = _maybe_refresh_sensory_feedback_snapshots(force=bool(force))
         trace_id = str(trace_id or _manual_companion_orb_trace_id_from_snapshots(snapshots) or "").strip()
+    snapshots = _filter_hidden_sensory_pingpong_snapshots(snapshots, priority=priority)
     if not snapshots:
         _log_companion_orb_debug_event("engine_hidden_ping_skipped", trace_id=trace_id, reason="no_snapshots")
         return False
@@ -4621,6 +4785,7 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, prio
         _log_companion_orb_debug_event("engine_hidden_ping_skipped", trace_id=trace_id, reason="invalid_response_cooldown", source_text=source_text)
         return False
     use_fallback_request = _hidden_sensory_should_use_fallback_request(source_text)
+    skip_json_response_format = _hidden_sensory_should_skip_json_response_format(source_text)
     messages_started_at = time.monotonic()
     messages = _build_sensory_pingpong_messages(snapshots, allow_images=False if use_fallback_request else None, priority=priority)
     if not messages:
@@ -4647,7 +4812,7 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, prio
         "top_p": min(0.8, float(RUNTIME_CONFIG.get("top_p", 0.8) or 0.8)),
         "max_tokens": 150 if priority else 220,
     }
-    if not use_fallback_request:
+    if not use_fallback_request and not skip_json_response_format:
         params["response_format"] = {"type": "json_object"}
     additional_params = {
         "top_k": int(RUNTIME_CONFIG.get("top_k", 40) or 40),
@@ -4660,18 +4825,39 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, prio
         try:
             payload_text = _chat_completion_create(params, additional_params)
         except Exception as exc:
-            fallback_messages = _build_sensory_pingpong_messages(snapshots, allow_images=False, priority=priority)
-            fallback_params = dict(params)
-            fallback_params["messages"] = fallback_messages or messages
-            fallback_params.pop("response_format", None)
-            if not fallback_messages and "response_format" not in str(exc) and "json_object" not in str(exc):
-                raise
-            retried_text_only = fallback_messages != messages
-            if retried_text_only:
-                print("📡 [Sensory] Hidden PONG retrying with text-only sensory context for provider compatibility.")
-            llm_started_at = time.monotonic()
-            payload_text = _chat_completion_create(fallback_params, additional_params)
-            _remember_hidden_sensory_fallback_request(source_text)
+            error_text = str(exc)
+            response_format_error = "response_format" in error_text or "json_object" in error_text
+            if response_format_error and "response_format" in params:
+                no_format_params = dict(params)
+                no_format_params.pop("response_format", None)
+                print("📡 [Sensory] Hidden PONG retrying without JSON response_format for provider compatibility.")
+                llm_started_at = time.monotonic()
+                try:
+                    payload_text = _chat_completion_create(no_format_params, additional_params)
+                    _remember_hidden_sensory_no_json_response_format(source_text)
+                except Exception:
+                    fallback_messages = _build_sensory_pingpong_messages(snapshots, allow_images=False, priority=priority)
+                    fallback_params = dict(no_format_params)
+                    fallback_params["messages"] = fallback_messages or messages
+                    retried_text_only = fallback_messages != messages
+                    if retried_text_only:
+                        print("📡 [Sensory] Hidden PONG retrying with text-only sensory context for provider compatibility.")
+                    llm_started_at = time.monotonic()
+                    payload_text = _chat_completion_create(fallback_params, additional_params)
+                    _remember_hidden_sensory_fallback_request(source_text)
+            else:
+                fallback_messages = _build_sensory_pingpong_messages(snapshots, allow_images=False, priority=priority)
+                fallback_params = dict(params)
+                fallback_params["messages"] = fallback_messages or messages
+                fallback_params.pop("response_format", None)
+                if not fallback_messages and not response_format_error:
+                    raise
+                retried_text_only = fallback_messages != messages
+                if retried_text_only:
+                    print("📡 [Sensory] Hidden PONG retrying with text-only sensory context for provider compatibility.")
+                llm_started_at = time.monotonic()
+                payload_text = _chat_completion_create(fallback_params, additional_params)
+                _remember_hidden_sensory_fallback_request(source_text)
     except Exception as exc:
         _log_hidden_sensory_pong_failure(exc, source_text=source_text, retried_text_only=retried_text_only)
         _log_companion_orb_debug_event(
@@ -4822,14 +5008,44 @@ def _current_avatar_emotion(default="neutral"):
 StreamingReplyState = streaming_text.StreamingReplyState
 
 
+def _stream_buffer_lead_seconds_hint(text_queue=None):
+    lead_seconds = 0.0
+    try:
+        snapshot = musetalk_state.get_musetalk_pipeline_snapshot()
+        if bool(snapshot.get("active")) and bool(snapshot.get("stream_mode")):
+            for chunk in list(snapshot.get("chunks") or []):
+                if not isinstance(chunk, dict):
+                    continue
+                playback_state = str(chunk.get("playback_state") or "").strip().lower()
+                status = str(chunk.get("status") or "").strip().lower()
+                if playback_state == "buffered" or (status in {"rendered", "ready"} and playback_state == "pending"):
+                    lead_seconds += max(0.0, float(chunk.get("duration_seconds") or 0.0))
+    except Exception:
+        lead_seconds = 0.0
+    try:
+        queued_text_chunks = int(text_queue.qsize()) if text_queue is not None and hasattr(text_queue, "qsize") else 0
+    except Exception:
+        queued_text_chunks = 0
+    if queued_text_chunks > 0:
+        lead_seconds = max(lead_seconds, float(queued_text_chunks) * 0.75)
+    return max(0.0, lead_seconds)
+
+
 class StreamingChunkAssembler(streaming_text.StreamingChunkAssembler):
-    def __init__(self, target_chars, max_chars):
+    def __init__(self, target_chars, max_chars, *, config_getter=None):
+        def merged_config_getter(key, default=None):
+            if callable(config_getter):
+                value = config_getter(key, None)
+                if value is not None:
+                    return value
+            return RUNTIME_CONFIG.get(key, default)
+
         # Engine keeps the old constructor, while the cut-point logic lives in core.streaming_text.
         super().__init__(
             target_chars,
             max_chars,
             min_chunk_size=MIN_CHUNK_SIZE,
-            config_getter=lambda key, default=None: RUNTIME_CONFIG.get(key, default),
+            config_getter=merged_config_getter,
             available_emotion_tags_getter=get_available_emotion_tags,
             last_emotion_getter=get_last_emotion_tag,
             control_prefix_checker=_looks_like_control_tag_prefix,
@@ -4863,14 +5079,9 @@ def coalesce_musetalk_leading_segments(segments):
 
 
 def get_stream_chunk_limits():
-    if RUNTIME_CONFIG.get("avatar_mode", "vseeface") == "musetalk":
-        return (
-            int(RUNTIME_CONFIG.get("stream_chunk_target_chars", 80) or 80),
-            int(RUNTIME_CONFIG.get("stream_chunk_max_chars", 185) or 185),
-        )
     return (
-        int(RUNTIME_CONFIG.get("chunk_target_chars", 90) or 90),
-        int(RUNTIME_CONFIG.get("chunk_max_chars", 180) or 180),
+        int(RUNTIME_CONFIG.get("stream_chunk_target_chars", 80) or 80),
+        int(RUNTIME_CONFIG.get("stream_chunk_max_chars", 185) or 185),
     )
 
 
@@ -5245,6 +5456,8 @@ def reset_session_state():
         "last_failure_key": "",
         "fallback_request_until": 0.0,
         "fallback_request_source": "",
+        "no_json_response_format_until": 0.0,
+        "no_json_response_format_source": "",
         "invalid_response_until": 0.0,
         "invalid_response_source": "",
         "invalid_response_count": 0,
@@ -7083,7 +7296,14 @@ def _iter_queue_text_chunks(text_queue, dry_run_reply_id=None):
             yield str(item)
 
 
-def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path_override=None, replay_items=None) -> TTSController:
+def speak_async(
+    text: str,
+    text_iterable=None,
+    dry_run_reply_id=None,
+    voice_path_override=None,
+    replay_items=None,
+    preserve_text_iterable_chunks=False,
+) -> TTSController:
     global tts_model, stop_playback, audio_playing, avatar_gui, last_resumed_at, last_resume_requested_at
     ctrl = TTSController()
     stop_playback.clear()
@@ -7288,10 +7508,13 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     break
                 if ctrl.should_skip_message(replay_message_id):
                     break
-                if avatar_mode == "musetalk":
+                if bool(preserve_text_iterable_chunks) and text_iterable is not None:
+                    sub_chunks = [str(seg_text or "").strip()]
+                elif avatar_mode == "musetalk":
                     sub_chunks = intelligent_chunk_text_progressive(seg_text, start_chunk_index=muse_chunk_index)
                 else:
                     sub_chunks = intelligent_chunk_text(seg_text, chunk_target_chars, chunk_max_chars)
+                sub_chunks = [str(chunk or "").strip() for chunk in sub_chunks if str(chunk or "").strip()]
                 print(f"🧩 [{RUNTIME_CONFIG.get('avatar_mode', 'vseeface').upper()}] {len(sub_chunks)} chunk(s) for emotion '{emotion}'")
                 for sub in sub_chunks:
                     if stop_playback.is_set() or ctrl.cancel_requested.is_set(): break
@@ -8107,26 +8330,27 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     delegated_frame_paths = list(chunk_result.get("frame_paths", []) or [])
                     delegated_frame_dir = str(chunk_result.get("frame_dir", "") or "")
                     delegated_fps = max(1, int(chunk_result.get("fps", 50) or 50))
-                    musetalk_state.set_current_musetalk_frame_data({
-                        "frame_paths": delegated_frame_paths,
-                        "frame_dir": delegated_frame_dir,
-                        "fps": delegated_fps,
-                        "sync_time": 0.0,
-                        "duration_seconds": delegated_duration_seconds,
-                        "expected_frame_count": expected_frame_count,
-                        "trim_start_frames": 0,
-                        "chunk_id": chunk_result.get("chunk_id"),
-                        "text": txt,
-                        "status": "ready",
-                        "loop": False,
-                        "start_index": 0,
-                        "frame_count": expected_frame_count,
-                        "sequence_index": current_sequence,
-                        "preview_chunk_id": chunk_result.get("chunk_id"),
-                        "preview_frame_index": 0,
-                        "preview_source_index": 0,
-                        "avatar_id": chunk_result.get("avatar_id") or kind,
-                    })
+                    if kind != "none":
+                        musetalk_state.set_current_musetalk_frame_data({
+                            "frame_paths": delegated_frame_paths,
+                            "frame_dir": delegated_frame_dir,
+                            "fps": delegated_fps,
+                            "sync_time": 0.0,
+                            "duration_seconds": delegated_duration_seconds,
+                            "expected_frame_count": expected_frame_count,
+                            "trim_start_frames": 0,
+                            "chunk_id": chunk_result.get("chunk_id"),
+                            "text": txt,
+                            "status": "ready",
+                            "loop": False,
+                            "start_index": 0,
+                            "frame_count": expected_frame_count,
+                            "sequence_index": current_sequence,
+                            "preview_chunk_id": chunk_result.get("chunk_id"),
+                            "preview_frame_index": 0,
+                            "preview_source_index": 0,
+                            "avatar_id": chunk_result.get("avatar_id") or kind,
+                        })
                     if delegated_frame_paths:
                         musetalk_state.write_musetalk_preview_frame(
                             {
@@ -8242,16 +8466,45 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         _queue_story_visual_reply(txt, emotion)
                         current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
                         current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
-                        if current_state.get("chunk_id") == chunk_result.get("chunk_id"):
-                            current_state["sync_time"] = audio_start_time
-                            current_state["audio_started_at"] = audio_start_time
-                            musetalk_state.write_musetalk_preview_snapshot(current_state)
-                            preview_stream_thread = threading.Thread(
-                                target=stream_delegated_audio_progress,
-                                args=(current_state, preview_stream_stop),
-                                daemon=True,
-                            )
-                            preview_stream_thread.start()
+                        if current_state.get("chunk_id") != chunk_result.get("chunk_id"):
+                            current_state = {
+                                "frame_paths": list(chunk_result.get("frame_paths", []) or []),
+                                "frame_dir": str(chunk_result.get("frame_dir", "") or ""),
+                                "fps": max(1, int(chunk_result.get("fps", 50) or 50)),
+                                "sync_time": 0.0,
+                                "duration_seconds": delegated_playback_duration,
+                                "expected_frame_count": max(
+                                    2,
+                                    int(chunk_result.get("expected_frame_count", 0) or 0),
+                                    int(round(delegated_playback_duration * 50.0)) if delegated_playback_duration > 0 else 2,
+                                ),
+                                "trim_start_frames": 0,
+                                "chunk_id": chunk_result.get("chunk_id"),
+                                "text": txt,
+                                "status": "ready",
+                                "loop": False,
+                                "start_index": 0,
+                                "frame_count": max(
+                                    2,
+                                    int(chunk_result.get("expected_frame_count", 0) or 0),
+                                    int(round(delegated_playback_duration * 50.0)) if delegated_playback_duration > 0 else 2,
+                                ),
+                                "sequence_index": current_sequence,
+                                "preview_chunk_id": chunk_result.get("chunk_id"),
+                                "preview_frame_index": 0,
+                                "preview_source_index": 0,
+                                "avatar_id": chunk_result.get("avatar_id") or kind,
+                            }
+                            musetalk_state.set_current_musetalk_frame_data(current_state)
+                        current_state["sync_time"] = audio_start_time
+                        current_state["audio_started_at"] = audio_start_time
+                        musetalk_state.write_musetalk_preview_snapshot(current_state)
+                        preview_stream_thread = threading.Thread(
+                            target=stream_delegated_audio_progress,
+                            args=(current_state, preview_stream_stop),
+                            daemon=True,
+                        )
+                        preview_stream_thread.start()
                         musetalk_state.update_musetalk_pipeline_chunk(
                             current_sequence,
                             reply_id=pipeline_reply_id,
@@ -8438,7 +8691,12 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
 
 
 def speak_async_stream(text_queue, dry_run_reply_id=None) -> TTSController:
-    return speak_async("", text_iterable=_iter_queue_text_chunks(text_queue, dry_run_reply_id=dry_run_reply_id), dry_run_reply_id=dry_run_reply_id)
+    return speak_async(
+        "",
+        text_iterable=_iter_queue_text_chunks(text_queue, dry_run_reply_id=dry_run_reply_id),
+        dry_run_reply_id=dry_run_reply_id,
+        preserve_text_iterable_chunks=True,
+    )
 
 def safe_delete(file_path):
     return runtime_files.safe_delete(file_path, logger=print)
@@ -9000,7 +9258,15 @@ def refine_instruction_text(text, *, label="Instruction", guidance=""):
 def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
     state = StreamingReplyState()
     stream_target_chars, stream_max_chars = get_stream_chunk_limits()
-    assembler = StreamingChunkAssembler(stream_target_chars, stream_max_chars)
+    assembler = StreamingChunkAssembler(
+        stream_target_chars,
+        stream_max_chars,
+        config_getter=lambda key, default=None: (
+            _stream_buffer_lead_seconds_hint(text_queue)
+            if key == "stream_buffer_lead_seconds"
+            else RUNTIME_CONFIG.get(key, default)
+        ),
+    )
 
     def worker():
         full_parts = []
@@ -10100,7 +10366,7 @@ def create_avatar_adapter_for_mode(avatar_mode: str):
 # ENTRY POINT (Refactored for GUI)
 # ============================================================================
 def run_companion(config_override=None):
-    global avatar_gui, stop_flag, RUNTIME_CONFIG
+    global avatar_gui, stop_flag, RUNTIME_CONFIG, _LMSTUDIO_ACTIVE_CHAT_MODEL_NAME
     if config_override:
         RUNTIME_CONFIG.update(config_override)
 
@@ -10123,7 +10389,7 @@ def run_companion(config_override=None):
         print("🔁 Offline replay mode: skipping chat-provider startup check.")
         try:
             print("🔁 Offline replay mode: unloading active LM Studio models to free resources.")
-            unload_lmstudio_models()
+            unload_lmstudio_models(reason="offline replay")
         except Exception as exc:
             print(f"⚠️ Offline replay could not unload active LM Studio models: {exc}")
     else:
@@ -10136,9 +10402,16 @@ def run_companion(config_override=None):
 
     if avatar_mode == "musetalk" and not offline_replay_only:
         try:
-            unload_lmstudio_models()
+            unload_lmstudio_models(reason="MuseTalk warmup")
         except Exception as exc:
             print(f"⚠️ [LM Studio] Could not unload active models before MuseTalk warmup: {exc}")
+    elif chat_provider == "lmstudio" and not offline_replay_only:
+        prepare_lmstudio_chat_model_for_runtime(
+            chat_provider,
+            selected_model_name,
+            reason="LM Studio chat startup",
+            force_unload=True,
+        )
 
     print(f"🔌 Connecting to Avatar Engine: {avatar_mode.upper()}...")
     try:
@@ -10167,7 +10440,8 @@ def run_companion(config_override=None):
         return
 
     if avatar_mode == "musetalk" and selected_model_name and not offline_replay_only and chat_provider == "lmstudio":
-        load_lmstudio_model(selected_model_name)
+        if load_lmstudio_model(selected_model_name):
+            _LMSTUDIO_ACTIVE_CHAT_MODEL_NAME = selected_model_name
 
     if not init_tts():
         print("✗ Failed to initialize TTS. Exiting.")

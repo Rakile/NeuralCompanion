@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import threading
 import time
 from typing import Any, Iterable
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from openai import OpenAI
@@ -232,6 +234,27 @@ class Addon(BaseAddon):
                 names.append(name)
         return names
 
+    def _is_ollama_offline_error(self, exc: Exception) -> bool:
+        if isinstance(exc, (TimeoutError, ConnectionError, socket.timeout)):
+            return True
+        if isinstance(exc, URLError):
+            reason = getattr(exc, "reason", None)
+            if isinstance(reason, (TimeoutError, ConnectionError, socket.timeout, OSError)):
+                return True
+            text = str(reason or exc or "").lower()
+        else:
+            text = str(exc or "").lower()
+        return any(
+            token in text
+            for token in (
+                "timed out",
+                "connection refused",
+                "actively refused",
+                "no connection could be made",
+                "failed to establish a new connection",
+            )
+        )
+
     def _model_capabilities(self, model_name: str) -> set[str]:
         model = str(model_name or "").strip()
         if not model:
@@ -277,6 +300,8 @@ class Addon(BaseAddon):
                 print(f"🧹 [Ollama] Unloaded {unloaded} running model(s){detail}.")
             return unloaded
         except Exception as exc:
+            if self._is_ollama_offline_error(exc):
+                return 0
             if not quiet:
                 print(f"⚠️ [Ollama] Could not unload running model(s): {exc}")
             return 0

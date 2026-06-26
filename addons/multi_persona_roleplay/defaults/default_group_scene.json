@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "mode": "Narrator + characters",
   "active_persona_id": "mentor",
   "current_speaker_id": "mentor",

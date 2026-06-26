@@ -44,6 +44,13 @@
           "help": "Local TinyMVP fake voice-room server URL used when Bridge mode is TinyMVP."
         },
         {
+          "key": "tiny_mvp.start_with_gui",
+          "label": "TinyMVP start with GUI",
+          "type": "bool",
+          "default": true,
+          "help": "When NC auto-starts the bundled TinyMVP room server, open its passive monitor window by default."
+        },
+        {
           "key": "tiny_mvp.bridge_script",
           "label": "TinyMVP bridge script",
           "type": "path",
@@ -291,6 +298,13 @@
           "help": "Stops the current Discord reply, clears queued chunks, and aborts the active NC turn stream when the user starts speaking."
         },
         {
+          "key": "playback.route_protected_mic_speech",
+          "label": "Route protected mic speech",
+          "type": "bool",
+          "default": false,
+          "help": "When a moderator Current speaker is protected, still transcribe and route microphone speech into context without stopping playback or stealing the floor."
+        },
+        {
           "key": "playback.interrupt_after_seconds",
           "label": "Interrupt after continuous speech (s)",
           "type": "float",
@@ -511,7 +525,7 @@
           "key": "room_router.dead_air_recovery.cooldown_seconds",
           "label": "Dead-air recovery cooldown (s)",
           "type": "float",
-          "default": 0.0,
+          "default": 10.0,
           "min": 0.0,
           "max": 3600.0,
           "help": "Minimum time between automatic Moderator recovery turns. Use 0 for no cooldown."
@@ -520,10 +534,10 @@
           "key": "room_router.dead_air_recovery.silence_timeout_seconds",
           "label": "Dead-air silence timeout (s)",
           "type": "float",
-          "default": 0.0,
+          "default": 10.0,
           "min": 0.0,
           "max": 3600.0,
-          "help": "Optional quiet-room timer. Use 0 to disable. When the room stays silent this long, the selected Moderator/dead-air recovery action runs so humans have a window to speak before a bot is called."
+          "help": "Quiet-room grace period before automatic Moderator recovery runs. Use 0 only for immediate recovery after a no-route turn."
         },
         {
           "key": "room_router.dead_air_recovery.trigger_mode",

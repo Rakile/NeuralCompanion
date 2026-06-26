@@ -9084,7 +9084,7 @@ class MultiPersonaRoleplayController:
             self._refresh_narrator_selector()
             self._refresh_voice_persona_selector()
             self._controls["enabled"].setChecked(bool(self.session.enabled))
-            self._controls["show_character"].setChecked(bool(self.settings.get("show_current_character_visual", True)))
+            self._controls["show_character"].setChecked(bool(self.settings.get("show_current_character_visual", False)))
             self._controls["ar_mode"].setChecked(self.session.mode == AR_MODE)
             if active is not None:
                 self._populate_editor(active)
@@ -17643,7 +17643,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
                 changed = True
             if changed:
                 self.save_state()
-            show_character_visual = bool(self.settings.get("show_current_character_visual", True))
+            show_character_visual = bool(self.settings.get("show_current_character_visual", False))
         if show_character_visual and changed:
             self._request_ui_refresh()
         if show_character_visual:
@@ -17859,7 +17859,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             index = view_combo.findData(view_mode)
             view_combo.setCurrentIndex(max(0, index))
             view_combo.blockSignals(False)
-        visible = bool(self.settings.get("show_current_character_visual", True))
+        visible = bool(self.settings.get("show_current_character_visual", False))
         if visible:
             panel.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
             panel.setMinimumHeight(500)

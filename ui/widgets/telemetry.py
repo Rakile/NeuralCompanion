@@ -1,5 +1,7 @@
 """Telemetry widgets for chunk rendering and playback progress."""
 
+import time
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
@@ -10,17 +12,34 @@ class ChunkProgressTelemetryBar(QtWidgets.QWidget):
         self.mode = str(mode or "preview")
         self._snapshot = {}
         self._preview_state = {}
+        self._last_preview_reply_id = None
+        self._last_preview_progress = 0.0
         self.setMinimumHeight(26)
 
     def set_snapshot(self, snapshot, preview_state):
         self._snapshot = dict(snapshot or {})
         self._preview_state = dict(preview_state or {})
+        reply_id = self._snapshot.get("reply_id")
+        if reply_id != self._last_preview_reply_id or not self._snapshot.get("active") or not self._snapshot.get("chunks"):
+            self._last_preview_reply_id = reply_id
+            self._last_preview_progress = 0.0
         self.update()
 
     def _ordered_chunks(self):
         chunks = list((self._snapshot or {}).get("chunks", []) or [])
         chunks.sort(key=lambda item: int((item or {}).get("sequence_index", 0) or 0))
         return chunks
+
+    def _chunk_by_sequence_index(self, sequence_index):
+        try:
+            sequence_index = int(sequence_index)
+        except Exception:
+            return {}
+        for chunk in self._ordered_chunks():
+            chunk = dict(chunk or {})
+            if int(chunk.get("sequence_index", 0) or 0) == sequence_index:
+                return chunk
+        return {}
 
     def _chunk_render_progress(self, chunk):
         chunk = dict(chunk or {})
@@ -34,6 +53,20 @@ class ChunkProgressTelemetryBar(QtWidgets.QWidget):
         if status == "rendering":
             return 0.0
         return 0.0
+
+    def _chunk_audio_elapsed_progress(self, chunk):
+        chunk = dict(chunk or {})
+        if str(chunk.get("playback_state", "") or "") != "playing":
+            return 0.0
+        try:
+            started_at = float(chunk.get("audio_started_at", 0.0) or 0.0)
+            duration = float(chunk.get("duration_seconds", 0.0) or 0.0)
+        except Exception:
+            return 0.0
+        if started_at <= 0.0 or duration <= 0.0:
+            return 0.0
+        elapsed = max(0.0, time.time() - started_at)
+        return max(0.0, min(elapsed / duration, 1.0))
 
     def _chunk_stage(self, chunk):
         chunk = dict(chunk or {})
@@ -93,12 +126,20 @@ class ChunkProgressTelemetryBar(QtWidgets.QWidget):
         playback_state = str(chunk.get("playback_state", "") or "")
         if playback_state == "completed":
             return 1.0
+        if str((self._snapshot or {}).get("engine_mode", "") or "").strip().lower() == "none":
+            if playback_state == "playing":
+                return self._chunk_audio_elapsed_progress(chunk)
+            return 0.0
         state = dict(self._preview_state or {})
         try:
             active_index = int(state.get("sequence_index"))
         except Exception:
             active_index = None
         chunk_index = int(chunk.get("sequence_index", 0) or 0)
+        if active_index is not None:
+            active_chunk = self._chunk_by_sequence_index(active_index)
+            if str(active_chunk.get("playback_state", "") or "") != "playing":
+                active_index = None
         if active_index is not None:
             if chunk_index < active_index:
                 return 1.0
@@ -109,6 +150,8 @@ class ChunkProgressTelemetryBar(QtWidgets.QWidget):
             if preview_frame_index < 0 or expected_frames <= 1:
                 return 0.0
             return max(0.0, min(float(preview_frame_index) / max(expected_frames - 1, 1), 1.0))
+        if playback_state == "playing":
+            return self._chunk_audio_elapsed_progress(chunk)
         return 1.0 if playback_state == "completed" else 0.0
 
     def _segment_count(self):
@@ -130,7 +173,7 @@ class ChunkProgressTelemetryBar(QtWidgets.QWidget):
             break
         return progress
 
-    def _preview_progress(self):
+    def _raw_preview_progress(self):
         chunks = self._ordered_chunks()
         completed_progress = 0.0
         for chunk in chunks:
@@ -138,6 +181,13 @@ class ChunkProgressTelemetryBar(QtWidgets.QWidget):
                 completed_progress += 1.0
             else:
                 break
+        if str((self._snapshot or {}).get("engine_mode", "") or "").strip().lower() == "none":
+            for chunk in chunks:
+                chunk = dict(chunk or {})
+                if str(chunk.get("playback_state", "") or "") == "playing":
+                    sequence = int(chunk.get("sequence_index", 0) or 0)
+                    return max(completed_progress, float(sequence) + self._chunk_audio_elapsed_progress(chunk))
+            return completed_progress
         state = dict(self._preview_state or {})
         sequence_index = state.get("sequence_index")
         preview_frame_index = int(state.get("preview_frame_index", -1) or -1)
@@ -148,8 +198,25 @@ class ChunkProgressTelemetryBar(QtWidgets.QWidget):
             sequence_index = int(sequence_index)
         except Exception:
             return completed_progress
+        active_chunk = self._chunk_by_sequence_index(sequence_index)
+        if str(active_chunk.get("playback_state", "") or "") != "playing":
+            for chunk in chunks:
+                chunk = dict(chunk or {})
+                if str(chunk.get("playback_state", "") or "") == "playing":
+                    sequence = int(chunk.get("sequence_index", 0) or 0)
+                    return max(completed_progress, float(sequence) + self._chunk_audio_elapsed_progress(chunk))
+            return completed_progress
         intra = max(0.0, min(float(preview_frame_index) / max(expected_frames - 1, 1), 1.0))
         return max(completed_progress, float(sequence_index) + intra)
+
+    def _preview_progress(self):
+        raw_progress = self._raw_preview_progress()
+        if not bool((self._snapshot or {}).get("active")):
+            self._last_preview_progress = 0.0
+            return raw_progress
+        progress = max(raw_progress, float(self._last_preview_progress or 0.0))
+        self._last_preview_progress = progress
+        return progress
 
     def _startup_gate_fraction(self, chunk):
         chunk = dict(chunk or {})

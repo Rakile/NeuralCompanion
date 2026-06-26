@@ -12,6 +12,8 @@ from typing import Callable
 STREAM_FIRST_CHUNK_MIN_CHARS = 40
 STREAM_FORCE_FLUSH_SECONDS = 0.30
 STREAM_FORCE_FLUSH_LATER_SECONDS = 0.70
+STREAM_FLUSH_RELAX_LEAD_SECONDS = 1.0
+STREAM_FLUSH_DISABLE_LEAD_SECONDS = 2.5
 STREAM_FIRST_CHUNK_PLAN_SECONDS = 1.25
 STREAM_FIRST_CHUNK_PLAN_SYNC_MAX_SECONDS = 0.75
 STREAM_FIRST_CHUNK_IDLE_SYNC_MAX_SECONDS = 0.6
@@ -122,7 +124,7 @@ class StreamingChunkAssembler:
             return self._emergency_force_cut(working, effective_max, min_force_chars)
 
         if self.emission_count == 0:
-            target_chars = max(configured_first_min, min(self.target_chars, 48))
+            target_chars = max(configured_first_min, self.target_chars)
 
         elapsed_time = 0.0
         if self.buffer_started_at is not None:
@@ -132,6 +134,7 @@ class StreamingChunkAssembler:
             if self.emission_count == 0
             else float(self._config("stream_force_flush_later_seconds", STREAM_FORCE_FLUSH_LATER_SECONDS) or STREAM_FORCE_FLUSH_LATER_SECONDS)
         )
+        max_allowed_time = self._buffer_aware_flush_seconds(max_allowed_time)
 
         if elapsed_time > max_allowed_time and effective_max >= min_force_chars:
             return self._emergency_force_cut(working, effective_max, min_force_chars, reason_prefix="timeout")
@@ -226,6 +229,33 @@ class StreamingChunkAssembler:
             )
         return {"cut": 0, "quality": 0.0, "reason": "wait"}
 
+    def _buffer_aware_flush_seconds(self, base_seconds):
+        base = max(0.0, float(base_seconds or 0.0))
+        if base <= 0:
+            return base
+        try:
+            lead_seconds = float(self._config("stream_buffer_lead_seconds", 0.0) or 0.0)
+        except Exception:
+            lead_seconds = 0.0
+        if lead_seconds <= 0:
+            return base
+        try:
+            relax_at = float(self._config("stream_flush_relax_lead_seconds", STREAM_FLUSH_RELAX_LEAD_SECONDS) or STREAM_FLUSH_RELAX_LEAD_SECONDS)
+        except Exception:
+            relax_at = STREAM_FLUSH_RELAX_LEAD_SECONDS
+        try:
+            disable_at = float(self._config("stream_flush_disable_lead_seconds", STREAM_FLUSH_DISABLE_LEAD_SECONDS) or STREAM_FLUSH_DISABLE_LEAD_SECONDS)
+        except Exception:
+            disable_at = STREAM_FLUSH_DISABLE_LEAD_SECONDS
+        relax_at = max(0.0, relax_at)
+        disable_at = max(relax_at + 0.1, disable_at)
+        if lead_seconds >= disable_at:
+            return max(base, 60.0)
+        if lead_seconds <= relax_at:
+            return base
+        ratio = (lead_seconds - relax_at) / max(0.1, disable_at - relax_at)
+        return base * (1.0 + min(1.0, max(0.0, ratio)) * 4.0)
+
     def _best_punctuation_cut(self, working, effective_max, min_force_chars):
         strong_cut = self._find_last_boundary_cluster(working, effective_max - 1, min_force_chars - 1, ".!?\n")
         if strong_cut is not None:
@@ -311,6 +341,13 @@ class StreamingChunkAssembler:
         for index in range(effective_max - 1, min_force_chars - 1, -1):
             if working[index].isspace():
                 return {"cut": index + 1, "quality": max(quality_floor, 0.2), "reason": f"{reason_prefix}_whitespace"}
+        for index in range(min(effective_max - 1, min_force_chars - 2), self.min_chunk_size - 1, -1):
+            if working[index].isspace():
+                return {
+                    "cut": index + 1,
+                    "quality": max(quality_floor, 0.1),
+                    "reason": f"{reason_prefix}_short_whitespace",
+                }
         return {"cut": effective_max, "quality": 0.0, "reason": f"{reason_prefix}_panic"}
 
     @staticmethod

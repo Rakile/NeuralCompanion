@@ -58,7 +58,7 @@ class RoleplayStorage:
             settings = {"version": 1, "repetition_threshold": 0.8}
         settings_changed = False
         if "show_current_character_visual" not in settings:
-            settings["show_current_character_visual"] = True
+            settings["show_current_character_visual"] = False
             settings_changed = True
         if "story_sounds_enabled" not in settings:
             settings["story_sounds_enabled"] = True

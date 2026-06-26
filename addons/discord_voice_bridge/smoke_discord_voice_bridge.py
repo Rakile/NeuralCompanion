@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import copy
+import contextlib
+import io
 import json
 import os
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -15,11 +18,17 @@ if str(REPO_ROOT) not in sys.path:
 from addons.discord_voice_bridge import settings as settings_module
 from addons.discord_voice_bridge.main import (
     Addon,
+    DEFAULT_TINY_MVP_BRIDGE_SCRIPT,
+    DEFAULT_TINY_MVP_ROOM_SCRIPT,
     NODE_BRIDGE_REQUIRED_PACKAGES,
     _bridge_instance_is_running,
     _effective_bridge_settings,
     _node_bridge_environment_issues,
     _redact_runtime_log_text,
+    _tiny_mvp_monitor_command,
+    _tiny_mvp_bridge_script,
+    _tiny_mvp_room_command,
+    _tiny_mvp_room_script,
     _transport_environment_issues,
     _validate_bridge_settings,
     _voice_clone_wav_issues,
@@ -34,6 +43,9 @@ TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{20,
 def main() -> int:
     _test_validation_errors_and_success()
     _test_tiny_mvp_mode_skips_discord_and_node_requirements()
+    _test_tiny_mvp_uses_bundled_defaults()
+    _test_tiny_mvp_start_ensures_room_before_bot_bridges()
+    _test_tiny_mvp_room_gui_default_contract()
     _test_settings_secret_preservation()
     _test_instance_settings_strip_direct_tokens()
     _test_room_router_candidates_are_sanitized()
@@ -42,8 +54,12 @@ def main() -> int:
     _test_loopback_auth_fallback()
     _test_designer_ui_contract()
     _test_settings_schema_ui_exposure()
+    _test_protected_mic_speech_control_lives_with_moderator_controls()
+    _test_discord_protected_mic_speech_routes_context()
     _test_runtime_safety_filters_and_context()
     _test_runtime_interruption_contract()
+    _test_runtime_route_context_recording()
+    _test_runtime_manual_speak_chunks()
     _test_bot_history_persists_between_runtime_instances()
     _test_room_router_decisions()
     _test_session_mode_stays_isolated()
@@ -53,14 +69,23 @@ def main() -> int:
     _test_node_shared_room_router_contract()
     _test_moderator_state_machine_contract()
     _test_dead_air_recovery_contract()
+    _test_tiny_mvp_local_mic_dead_air_waits_for_quiet_timeout()
     _test_live_control_contract()
     _test_stream_chunker_keeps_word_boundaries()
+    _test_stream_chunker_timeout_prefers_short_whitespace_over_midword()
+    _test_stream_chunker_does_not_carry_vocal_tags_as_emotions()
+    _test_runtime_emotion_names_exclude_vocal_tags()
+    _test_runtime_stream_chunk_debug_line()
+    _test_runtime_stream_chunk_debug_writes_stdout()
+    _test_runtime_stream_config_reads_dynamic_buffer_lead()
     _test_runtime_live_settings_update()
     _test_global_live_settings_do_not_select_fallback_bot()
     _test_bot_chat_model_item_normalization()
     _test_runtime_reply_chat_model_override()
     _test_node_dependency_diagnostics()
+    _test_node_dependency_first_run_prompt_contract()
     _test_node_install_blocks_when_bridge_running()
+    _test_start_on_launch_persists_on_user_click()
     _test_voice_clone_wav_validation()
     print("Discord Voice Bridge smoke passed.")
     return 0
@@ -150,6 +175,39 @@ def _test_tiny_mvp_mode_skips_discord_and_node_requirements() -> None:
         assert not [item for item in validation if item["severity"] == "error"], validation
         transport = _transport_environment_issues(settings, require_install=True)
         assert not [item for item in transport if item["severity"] == "error"], transport
+
+
+def _test_tiny_mvp_uses_bundled_defaults() -> None:
+    addon_dir = Path(__file__).resolve().parent
+    assert DEFAULT_TINY_MVP_ROOM_SCRIPT == addon_dir / "tiny_mvp" / "main.py"
+    assert DEFAULT_TINY_MVP_BRIDGE_SCRIPT == addon_dir / "tiny_mvp" / "tiny_voice_bridge.py"
+    assert _tiny_mvp_room_script({}) == DEFAULT_TINY_MVP_ROOM_SCRIPT
+    assert _tiny_mvp_bridge_script({}) == DEFAULT_TINY_MVP_BRIDGE_SCRIPT
+
+
+def _test_tiny_mvp_start_ensures_room_before_bot_bridges() -> None:
+    source = (Path(__file__).resolve().parent / "main.py").read_text(encoding="utf-8")
+    body = source.split("def _start_instances_from_settings", 1)[1].split("def _start_runtime_server", 1)[0]
+    assert "_ensure_tiny_mvp_room_server(settings)" in body
+    assert body.index("_ensure_tiny_mvp_room_server(settings)") < body.index("self._start_node_bridge(instance)")
+
+
+def _test_tiny_mvp_room_gui_default_contract() -> None:
+    addon_dir = Path(__file__).resolve().parent
+    defaults = json.loads((addon_dir / "settings.example.json").read_text(encoding="utf-8"))
+    schema = json.loads((addon_dir / "settings_schema.json").read_text(encoding="utf-8"))
+    controller = (addon_dir / "controller.py").read_text(encoding="utf-8")
+    assert defaults["tiny_mvp"]["start_with_gui"] is True
+    fields = [field for group in schema["groups"] for field in group.get("fields", [])]
+    field = next(item for item in fields if item.get("key") == "tiny_mvp.start_with_gui")
+    assert field["default"] is True
+    assert "discord_tiny_mvp_start_with_gui_checkbox" in controller
+    assert "--gui" not in _tiny_mvp_room_command({}, "127.0.0.1", 8788)
+    assert "--monitor" not in _tiny_mvp_room_command({}, "127.0.0.1", 8788)
+    assert "--gui" not in _tiny_mvp_room_command({"tiny_mvp": {"start_with_gui": False}}, "127.0.0.1", 8788)
+    monitor_command = _tiny_mvp_monitor_command({}, "http://127.0.0.1:8788/state")
+    assert "--gui" in monitor_command
+    assert "--monitor-url" in monitor_command
 
 
 def _test_settings_secret_preservation() -> None:
@@ -379,9 +437,11 @@ def _test_settings_schema_ui_exposure() -> None:
         "start_on_nc_launch": ["discord_start_on_launch_checkbox"],
         "bridge_mode": ["discord_bridge_mode_combo"],
         "tiny_mvp.url": ["discord_tiny_mvp_url_edit"],
+        "tiny_mvp.start_with_gui": ["discord_tiny_mvp_start_with_gui_checkbox"],
         "tiny_mvp.bridge_script": ["discord_tiny_mvp_bridge_script_edit"],
         "tiny_mvp.poll_seconds": ["discord_tiny_mvp_poll_seconds_spin"],
         "tiny_mvp.capture_mic": ["discord_tiny_mvp_capture_mic_checkbox"],
+        "playback.route_protected_mic_speech": ["discord_route_protected_mic_speech_checkbox"],
         "tiny_mvp.mic_user_id": ["discord_tiny_mvp_mic_user_id_edit"],
         "tiny_mvp.mic_user_name": ["discord_tiny_mvp_mic_user_name_edit"],
         "tiny_mvp.mic_seconds": ["discord_tiny_mvp_mic_seconds_spin"],
@@ -477,6 +537,32 @@ def _test_settings_schema_ui_exposure() -> None:
         if not any(control in combined for control in controls):
             missing_controls.append((key, controls))
     assert not missing_controls, missing_controls
+
+
+def _test_protected_mic_speech_control_lives_with_moderator_controls() -> None:
+    controller_text = (Path(__file__).resolve().parent / "controller.py").read_text(encoding="utf-8")
+    tiny_group_start = controller_text.index('group = QtWidgets.QGroupBox("TinyMVP Local Room"')
+    tiny_group_end = controller_text.index("def _build_moderator_controls", tiny_group_start)
+    moderator_start = controller_text.index("def _build_moderator_controls")
+    control_name = "discord_route_protected_mic_speech_checkbox"
+    assert control_name not in controller_text[tiny_group_start:tiny_group_end]
+    assert control_name in controller_text[moderator_start:]
+    assert controller_text.index(control_name, moderator_start) > controller_text.index(
+        "discord_moderator_allow_interrupt_current_checkbox",
+        moderator_start,
+    )
+
+
+def _test_discord_protected_mic_speech_routes_context() -> None:
+    addon_dir = Path(__file__).resolve().parent
+    node_text = (addon_dir / "node_bridge" / "src" / "index.js").read_text(encoding="utf-8")
+    controller_text = (addon_dir / "controller.py").read_text(encoding="utf-8")
+    schema_text = (addon_dir / "settings_schema.json").read_text(encoding="utf-8")
+
+    assert "routeProtectedMicSpeech" in node_text
+    assert 'record_route_context: Boolean(routeProtectedMicSpeech && moderatorProtectsCurrentSpeaker())' in node_text
+    assert '"playback.route_protected_mic_speech"' in schema_text
+    assert "TinyMVP only" not in controller_text
 
 
 def _test_runtime_safety_filters_and_context() -> None:
@@ -631,6 +717,67 @@ def _test_runtime_interruption_contract() -> None:
     assert "turn_provider_error" not in server._active_turns, server._active_turns
     assert server._history[-1]["role"] == "user", server._history
     assert "Does this provider still have credits?" in server._history[-1]["content"], server._history
+
+
+def _test_runtime_route_context_recording() -> None:
+    settings = _base_settings()
+    server = DiscordVoiceRuntimeServer(settings=settings, logger=None)
+    server._room_router_decision = lambda _text, _payload: {  # type: ignore[method-assign]
+        "answer": False,
+        "target_bot_id": "",
+        "reason": "current_speaker_protected",
+    }
+    decision = server.route_turn(
+        {
+            "route_key": "protected_mic_1",
+            "speaker_name": "Rakila",
+            "user_id": "rakila",
+            "input_text": "I should be heard without stealing the floor.",
+            "duration_seconds": 3.0,
+            "record_route_context": True,
+        }
+    )
+    assert decision["answer"] is False, decision
+    assert decision["context_recorded"] is True, decision
+    assert server._history[-1]["role"] == "user", server._history
+    assert "Rakila: I should be heard without stealing the floor." in server._history[-1]["content"], server._history
+
+    duplicate = server.route_turn(
+        {
+            "route_key": "protected_mic_1",
+            "speaker_name": "Rakila",
+            "user_id": "rakila",
+            "input_text": "I should be heard without stealing the floor.",
+            "duration_seconds": 3.0,
+            "record_route_context": True,
+        }
+    )
+    assert duplicate["context_recorded"] is False, duplicate
+    assert duplicate["context_record_reason"] == "duplicate_user_turn", duplicate
+
+
+def _test_runtime_manual_speak_chunks() -> None:
+    settings = _base_settings()
+    server = DiscordVoiceRuntimeServer(settings=settings, logger=None)
+    server._speech_chunks_from_reply = lambda _text: ["First exact sentence.", "Second exact sentence."]  # type: ignore[method-assign]
+    server._audio_events_for_text_chunk = lambda text, index: iter(  # type: ignore[method-assign]
+        [
+            {
+                "type": "audio_chunk",
+                "ok": True,
+                "chunk_index": index,
+                "reply_text": text,
+                "reply_wav_path": f"chunk_{index}.wav",
+            }
+        ]
+    )
+    result = server.speak_text({"turn_id": "manual_1", "text": "First exact sentence. Second exact sentence."})
+    assert result["ok"] is True, result
+    assert result["reply_chunk_count"] == 2, result
+    assert [item["reply_text"] for item in result["reply_chunks"]] == ["First exact sentence.", "Second exact sentence."], result
+    assert result["reply_wav_path"] == "chunk_0.wav", result
+    assert server._history[-1]["role"] == "assistant", server._history
+    assert "First exact sentence. Second exact sentence." in server._history[-1]["content"], server._history
 
 
 def _test_bot_history_persists_between_runtime_instances() -> None:
@@ -1325,6 +1472,10 @@ def _test_moderator_state_machine_contract() -> None:
     assert "const allowedHuman = moderatorHumanCandidateAllowed(userId, stateBefore);" in set_human_block, set_human_block
     assert "|| !allowedHuman" in set_human_block, set_human_block
     moderator_decision_block = source[source.index("function moderatorDecisionForTurn"):source.index("function consumeModeratorPendingRoute")]
+    assert "const rawSpeakerBotId = safeFileSegment(turn?.speakerBotId || \"\").toLowerCase();" in moderator_decision_block, moderator_decision_block
+    assert "const speakerIsBot = Boolean(turn?.speakerIsBot === true || (turn?.speakerIsBot !== false && rawSpeakerBotId && rawSpeakerBotId !== \"default\"));" in moderator_decision_block, moderator_decision_block
+    assert "const speakerBotId = speakerIsBot ? rawSpeakerBotId : \"\";" in moderator_decision_block, moderator_decision_block
+    assert "Ignoring non-bot speakerBotId" in moderator_decision_block, moderator_decision_block
     assert "if (speakerBotId && floorTarget === speakerBotId)" in moderator_decision_block, moderator_decision_block
     assert "human_moderator_speaker_lock_self" in moderator_decision_block, moderator_decision_block
     assert "function isTerminalModeratorNoRoute" in source, source[:500]
@@ -1338,7 +1489,27 @@ def _test_dead_air_recovery_contract() -> None:
     node = (Path(__file__).resolve().parent / "node_bridge" / "src" / "index.js").read_text(encoding="utf-8")
     controller = (Path(__file__).resolve().parent / "controller.py").read_text(encoding="utf-8")
     schema_text = (Path(__file__).resolve().parent / "settings_schema.json").read_text(encoding="utf-8")
+    main_source = (Path(__file__).resolve().parent / "main.py").read_text(encoding="utf-8")
+    tiny_bridge = (Path(__file__).resolve().parent / "tiny_mvp" / "tiny_voice_bridge.py").read_text(encoding="utf-8")
+    example_settings = json.loads((Path(__file__).resolve().parent / "settings.example.json").read_text(encoding="utf-8"))
+    schema = json.loads(schema_text)
     assert "direct bot-text routing" in schema_text, schema_text[:500]
+    assert example_settings["room_router"]["dead_air_recovery"]["silence_timeout_seconds"] >= 5.0
+    silence_field = next(
+        field
+        for group in schema.get("groups", [])
+        for field in group.get("fields", [])
+        if field.get("key") == "room_router.dead_air_recovery.silence_timeout_seconds"
+    )
+    assert float(silence_field.get("default")) >= 5.0
+    assert '"room_router.dead_air_recovery.silence_timeout_seconds", 10.0' in controller
+    assert 'recovery.get("silence_timeout_seconds"), 10.0' in main_source
+    assert 'recovery.get("silence_timeout_seconds", 10.0)' in tiny_bridge
+    assert '"room_router.dead_air_recovery.silence_timeout_seconds", 10.0' in node
+    assert "announce_control.setEnabled(bool(enabled and bot_selected))" in controller
+    assert "def speak_text_direct" in tiny_bridge
+    assert "const replyChunks = Array.isArray(result.reply_chunks)" in node
+    assert "Manual Discord message chunk" in node
     assert "next_target = str(recovery.get(\"last_next_target_bot_id\") or \"none\").strip() if recovery_enabled else \"none\"" in controller
     assert "With LLM router, direct text routing, and reply-floor coordination enabled" in controller
     for key in (
@@ -1388,6 +1559,45 @@ def _test_dead_air_recovery_contract() -> None:
         'noteRoomActivity("playback_idle")',
     ):
         assert needle in node, needle
+
+
+def _test_tiny_mvp_local_mic_dead_air_waits_for_quiet_timeout() -> None:
+    import addons.discord_voice_bridge.main as bridge_main
+
+    settings = {
+        "room_router": {
+            "dead_air_recovery": {
+                "enabled": True,
+                "trigger_mode": "no_route_after_any_speech",
+                "silence_timeout_seconds": 0.05,
+            }
+        }
+    }
+    calls: list[tuple[str, str, dict | None]] = []
+    states = [
+        {"current_id": "echo", "next_id": "", "playback_owner_id": "echo"},
+        {"current_id": "echo", "next_id": "", "playback_owner_id": "echo"},
+        {"current_id": "", "next_id": "", "playback_owner_id": ""},
+        {"current_id": "", "next_id": "", "playback_owner_id": ""},
+    ]
+
+    def fake_http_json(method: str, url: str, payload: dict | None = None, *, timeout: float = 5.0) -> dict:
+        calls.append((method, url, dict(payload or {}) if payload else None))
+        if method == "GET":
+            if states:
+                return states.pop(0)
+            return {"current_id": "", "next_id": "", "playback_owner_id": ""}
+        return {"ok": True}
+
+    original_http_json = bridge_main._http_json
+    bridge_main._http_json = fake_http_json
+    try:
+        Addon._maybe_recover_tiny_mvp_dead_air("http://127.0.0.1:8788", settings, "no route")
+        assert not any(method == "POST" and url.endswith("/dead-air") for method, url, _payload in calls)
+        time.sleep(0.16)
+        assert any(method == "POST" and url.endswith("/dead-air") for method, url, _payload in calls)
+    finally:
+        bridge_main._http_json = original_http_json
 
 
 def _test_live_control_contract() -> None:
@@ -1770,6 +1980,113 @@ def _test_stream_chunker_keeps_word_boundaries() -> None:
     assert chunks[0]["text"].endswith("safe"), chunks[0]
     assert "supercalifragilis" not in chunks[0]["text"], chunks[0]
 
+    long_first_phrase = " ".join(["word"] * 32)
+    chunks = StreamingChunkAssembler(
+        220,
+        320,
+        config_getter=lambda key, default=None: {
+            "stream_first_chunk_min_chars": 80,
+            "stream_force_flush_seconds": 10.0,
+            "stream_force_flush_later_seconds": 10.0,
+        }.get(key, default),
+    ).feed(long_first_phrase)
+    assert not chunks, chunks
+
+
+def _test_stream_chunker_timeout_prefers_short_whitespace_over_midword() -> None:
+    from core.streaming_text import StreamingChunkAssembler
+
+    now = [0.0]
+    config = {
+        "stream_first_chunk_min_chars": 80,
+        "stream_force_flush_seconds": 1.0,
+        "stream_force_flush_later_seconds": 2.0,
+    }
+    assembler = StreamingChunkAssembler(
+        220,
+        320,
+        config_getter=lambda key, default=None: config.get(key, default),
+        clock=lambda: now[0],
+    )
+    assembler.emission_count = 1
+    text = ("safe " * 20).rstrip() + " unfinishedtailwithletters"
+    assert len(text) > 110, len(text)
+    assert " " not in text[109:], text[109:]
+    assert assembler.feed(text) == []
+
+    now[0] = 3.0
+    chunks = assembler.feed("")
+    assert chunks, "timeout should emit a chunk"
+    assert chunks[0]["text"].endswith("safe"), chunks[0]
+    assert "unfinishedtail" not in chunks[0]["text"], chunks[0]
+    assert "panic" not in chunks[0]["reason"], chunks[0]
+
+
+def _test_stream_chunker_does_not_carry_vocal_tags_as_emotions() -> None:
+    from core import text_tags
+    from core.streaming_text import StreamingChunkAssembler
+
+    assembler = StreamingChunkAssembler(
+        20,
+        60,
+        available_emotion_tags_getter=lambda: ["[chuckle]"],
+        last_emotion_getter=lambda text: text_tags.get_last_emotion_tag(text, ["chuckle"]),
+    )
+    first = assembler.feed("[chuckle] Hello there.", final=True)
+    assert first and first[0]["text"].startswith("[chuckle]"), first
+
+    second = assembler.feed("This next chunk should not inherit the vocal sound.", final=True)
+    assert second, second
+    assert not second[0]["text"].startswith("[chuckle]"), second
+
+
+def _test_runtime_emotion_names_exclude_vocal_tags() -> None:
+    server = DiscordVoiceRuntimeServer(settings={}, logger=None, bridge_token="", addon_context=None)
+    names = set(server._available_emotion_names({
+        "emotional_instructions": (
+            "VISUAL EMOTIONS: [neutral] [surprised] [angry]\n"
+            "VOCAL EXPRESSIONS: [laugh] [chuckle] [sigh] [groan] [gasp] [clear throat] [sniff]"
+        )
+    }))
+    assert {"neutral", "surprised", "angry"}.issubset(names), names
+    assert not (names & {"laugh", "chuckle", "sigh", "groan", "gasp", "clear throat", "sniff"}), names
+
+
+def _test_runtime_stream_chunk_debug_line() -> None:
+    line = DiscordVoiceRuntimeServer._stream_chunk_debug_line(
+        phase="stream",
+        chunk_index=2,
+        chunk_text="This is the text used for TTS.",
+        chunk_info={"reason": "strong", "chars": 31, "quality": 1.0},
+        target_chars=220,
+        max_chars=320,
+        runtime_config={
+            "stream_first_chunk_min_chars": 80,
+            "stream_force_flush_seconds": 0.31,
+            "stream_force_flush_later_seconds": 0.61,
+        },
+    )
+    assert "stream chunk phase=stream index=2" in line, line
+    assert "chars=31" in line, line
+    assert "reason=strong" in line, line
+    assert "target=220 max=320 first_min=80 flush=0.31/0.61" in line, line
+    assert "text=This is the text used for TTS." in line, line
+
+
+def _test_runtime_stream_chunk_debug_writes_stdout() -> None:
+    server = DiscordVoiceRuntimeServer(settings={}, logger=None, bridge_token="", addon_context=None)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        server._emit_stream_chunk_debug("stream chunk phase=stream index=0 chars=120")
+    output = buffer.getvalue()
+    assert "[DiscordBridgeChunk] stream chunk phase=stream index=0 chars=120" in output, output
+
+
+def _test_runtime_stream_config_reads_dynamic_buffer_lead() -> None:
+    config = {"_stream_buffer_lead_seconds_getter": lambda: 3.25}
+    assert DiscordVoiceRuntimeServer._stream_config_value(config, "stream_buffer_lead_seconds", 0.0) == 3.25
+    assert DiscordVoiceRuntimeServer._stream_config_value(config, "stream_force_flush_later_seconds", 0.7) == 0.7
+
 
 def _test_runtime_live_settings_update() -> None:
     server = DiscordVoiceRuntimeServer(
@@ -1864,6 +2181,15 @@ def _test_node_dependency_diagnostics() -> None:
         assert not dependency_errors, issues
 
 
+def _test_node_dependency_first_run_prompt_contract() -> None:
+    source = (Path(__file__).resolve().parent / "controller.py").read_text(encoding="utf-8")
+    assert "_maybe_prompt_node_bridge_dependencies" in source
+    assert "_schedule_node_dependency_prompt" in source
+    assert "This addon requires Node bridge dependencies" in source
+    assert "https://nodejs.org" in source
+    assert '_run_bridge_operation("install node deps", installer)' in source
+
+
 def _test_node_install_blocks_when_bridge_running() -> None:
     class FakeProcess:
         def poll(self):
@@ -1883,6 +2209,14 @@ def _test_node_install_blocks_when_bridge_running() -> None:
         assert "Stop the Discord bridge" in str(exc), exc
     else:
         raise AssertionError("install_node_bridge_dependencies should refuse while a bridge instance is running")
+
+
+def _test_start_on_launch_persists_on_user_click() -> None:
+    source = (Path(__file__).resolve().parent / "controller.py").read_text(encoding="utf-8")
+    assert "discord_start_on_launch_checkbox" in source
+    assert "start_on_launch.clicked.connect(self._persist_start_on_launch_setting)" in source
+    assert "def _persist_start_on_launch_setting" in source
+    assert '"start_on_nc_launch": bool(checked)' in source
 
 
 def _test_voice_clone_wav_validation() -> None:
