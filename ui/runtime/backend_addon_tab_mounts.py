@@ -68,11 +68,175 @@ class BackendAddonTabMountMixin:
             tab_index = tabs.insertTab(safe_index, widget, title)
         else:
             tab_index = tabs.addTab(widget, title)
+        self._install_addon_tab_context_menu(tabs)
         self._set_addon_tab_icon(tabs, tab_index, contribution)
         tooltip = str(getattr(contribution, "tooltip", "") or "").strip()
         if tooltip:
             tabs.setTabToolTip(tab_index, tooltip)
         return tab_index
+
+    def _install_addon_tab_context_menu(self, tabs):
+        if tabs is None or not hasattr(tabs, "tabBar"):
+            return
+        try:
+            tab_bar = tabs.tabBar()
+        except Exception:
+            tab_bar = None
+        if tab_bar is None:
+            return
+        try:
+            if bool(tab_bar.property("_nc_addon_tab_context_menu_installed")):
+                return
+            tab_bar.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+            tab_bar.customContextMenuRequested.connect(
+                lambda pos, tab_widget=tabs: self._show_addon_tab_context_menu(tab_widget, pos)
+            )
+            tab_bar.setProperty("_nc_addon_tab_context_menu_installed", True)
+        except Exception:
+            pass
+
+    def _show_addon_tab_context_menu(self, tabs, position):
+        if tabs is None or not hasattr(tabs, "tabBar"):
+            return
+        try:
+            tab_bar = tabs.tabBar()
+            tab_index = int(tab_bar.tabAt(position))
+        except Exception:
+            return
+        labels = self._addon_tab_context_menu_action_labels(tabs, tab_index)
+        if not labels:
+            return
+        menu = QtWidgets.QMenu(tab_bar)
+        for label in labels:
+            if label == "Hide tab button":
+                action = menu.addAction(label)
+                action.triggered.connect(
+                    lambda _checked=False, tab_widget=tabs, index=tab_index: self._hide_addon_tab_button_at(
+                        tab_widget,
+                        index,
+                    )
+                )
+            elif label == "Unhide hidden tab buttons":
+                if menu.actions():
+                    menu.addSeparator()
+                action = menu.addAction(label)
+                action.triggered.connect(
+                    lambda _checked=False, tab_widget=tabs: self._restore_hidden_addon_tab_buttons(tab_widget)
+                )
+        try:
+            menu.exec(tab_bar.mapToGlobal(position))
+        except Exception:
+            pass
+
+    def _addon_tab_context_menu_action_labels(self, tabs, tab_index):
+        labels = []
+        if self._can_hide_addon_tab_button_at(tabs, tab_index):
+            labels.append("Hide tab button")
+        if self._hidden_addon_tab_indices(tabs):
+            labels.append("Unhide hidden tab buttons")
+        return labels
+
+    def _is_addon_tab_index(self, tabs, tab_index):
+        if tabs is None or not hasattr(tabs, "count"):
+            return False
+        try:
+            index = int(tab_index)
+        except Exception:
+            return False
+        if index < 0 or index >= tabs.count():
+            return False
+        try:
+            widget = tabs.widget(index)
+        except Exception:
+            widget = None
+        if widget is None or not hasattr(widget, "property"):
+            return False
+        for property_name in ("addon_tab_id", "addon_id"):
+            try:
+                if str(widget.property(property_name) or "").strip():
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _tab_visible(self, tabs, tab_index):
+        try:
+            if hasattr(tabs, "isTabVisible"):
+                return bool(tabs.isTabVisible(int(tab_index)))
+        except Exception:
+            pass
+        return True
+
+    def _set_tab_visible(self, tabs, tab_index, visible):
+        try:
+            if hasattr(tabs, "setTabVisible"):
+                tabs.setTabVisible(int(tab_index), bool(visible))
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _visible_tab_indices(self, tabs):
+        if tabs is None or not hasattr(tabs, "count"):
+            return []
+        visible = []
+        for index in range(tabs.count()):
+            if self._tab_visible(tabs, index):
+                visible.append(index)
+        return visible
+
+    def _hidden_addon_tab_indices(self, tabs):
+        if tabs is None or not hasattr(tabs, "count"):
+            return []
+        hidden = []
+        for index in range(tabs.count()):
+            if self._is_addon_tab_index(tabs, index) and not self._tab_visible(tabs, index):
+                hidden.append(index)
+        return hidden
+
+    def _can_hide_addon_tab_button_at(self, tabs, tab_index):
+        if not self._is_addon_tab_index(tabs, tab_index):
+            return False
+        if not self._tab_visible(tabs, tab_index):
+            return False
+        return len(self._visible_tab_indices(tabs)) > 1
+
+    def _hide_addon_tab_button_at(self, tabs, tab_index):
+        if not self._can_hide_addon_tab_button_at(tabs, tab_index):
+            return False
+        try:
+            index = int(tab_index)
+            current_index = int(tabs.currentIndex())
+            if current_index == index:
+                replacement = next(
+                    (
+                        candidate
+                        for candidate in self._visible_tab_indices(tabs)
+                        if candidate != index and candidate > index
+                    ),
+                    None,
+                )
+                if replacement is None:
+                    replacement = next(
+                        (
+                            candidate
+                            for candidate in reversed(self._visible_tab_indices(tabs))
+                            if candidate != index
+                        ),
+                        None,
+                    )
+                if replacement is not None:
+                    tabs.setCurrentIndex(int(replacement))
+            return self._set_tab_visible(tabs, index, False)
+        except Exception:
+            return False
+
+    def _restore_hidden_addon_tab_buttons(self, tabs):
+        restored = 0
+        for index in self._hidden_addon_tab_indices(tabs):
+            if self._set_tab_visible(tabs, index, True):
+                restored += 1
+        return restored
 
     def _mount_simple_addon_tabs(
         self,

@@ -232,6 +232,13 @@ class BackendConsoleChatMixin:
     def _on_right_tab_changed(self, index):
         if not hasattr(self, "right_tabs"):
             return
+        split_controller = getattr(self, "_nc_console_chat_split_controller", None)
+        if split_controller is not None and split_controller.split_enabled():
+            if self.console_auto_scroll:
+                QtCore.QTimer.singleShot(0, lambda w=self.console_edit: self._force_scroll_to_bottom(w))
+            if self.chat_auto_scroll:
+                QtCore.QTimer.singleShot(0, lambda w=self.chat_edit: self._force_scroll_to_bottom(w))
+            return
         tab_text = str(self.right_tabs.tabText(index) or "").strip().lower()
         if tab_text == "system console" and self.console_auto_scroll:
             QtCore.QTimer.singleShot(0, lambda w=self.console_edit: self._force_scroll_to_bottom(w))

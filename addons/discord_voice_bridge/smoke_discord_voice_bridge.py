@@ -53,6 +53,9 @@ def main() -> int:
     _test_runtime_log_redaction()
     _test_loopback_auth_fallback()
     _test_designer_ui_contract()
+    _test_manifest_icon_path()
+    _test_settings_tabs_are_visually_joined_and_iconized()
+    _test_command_buttons_match_tab_button_style()
     _test_settings_schema_ui_exposure()
     _test_protected_mic_speech_control_lives_with_moderator_controls()
     _test_discord_protected_mic_speech_routes_context()
@@ -425,6 +428,144 @@ def _test_designer_ui_contract() -> None:
     }
     missing_labels = sorted(label for label in required_tab_labels if f"<string>{label}</string>" not in ui_text)
     assert not missing_labels, missing_labels
+
+
+def _test_manifest_icon_path() -> None:
+    addon_dir = Path(__file__).resolve().parent
+    manifest = json.loads((addon_dir / "addon.json").read_text(encoding="utf-8"))
+    ui_entry = manifest["ui"][0]
+    icon_path = ui_entry.get("icon_path")
+    assert icon_path == "../../ui_icons/side_tabs/discord_chatt.png", icon_path
+    resolved = (addon_dir / icon_path).resolve()
+    assert resolved.is_file(), resolved
+    assert resolved.suffix.lower() == ".png", resolved
+
+
+def _test_settings_tabs_are_visually_joined_and_iconized() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6 import QtCore, QtWidgets
+    from addons.discord_voice_bridge.controller import DiscordVoiceBridgeController
+
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        app = QtWidgets.QApplication([])
+
+    tabs = QtWidgets.QTabWidget()
+    tabs.setObjectName("discord_bridge_settings_tabs")
+    for object_name, title in (
+        ("discord_bridge_general_tab", "General"),
+        ("discord_bridge_discord_tab", "Discord"),
+        ("discord_bridge_capture_tab", "Capture"),
+        ("discord_bridge_playback_tab", "Playback"),
+        ("discord_bridge_filter_tab", "Filter"),
+        ("discord_bridge_persona_tab", "Persona"),
+        ("discord_bridge_bots_tab", "Bots"),
+        ("discord_bridge_runtime_tab", "Runtime"),
+        ("discord_bridge_status_tab", "Status"),
+        ("discord_bridge_moderator_tab", "Moderator"),
+    ):
+        page = QtWidgets.QWidget()
+        page.setObjectName(object_name)
+        tabs.addTab(page, title)
+
+    controller = DiscordVoiceBridgeController(context=None, addon=None)
+    controller.controls = {"discord_bridge_settings_tabs": tabs}
+    controller._apply_tab_polish()
+
+    assert tabs.iconSize() == QtCore.QSize(36, 36), tabs.iconSize()
+    assert tabs.tabBar() is not None
+    tab_bar = tabs.tabBar()
+    assert not tab_bar.drawBase()
+    assert bool(tab_bar.property("_discord_icon_over_text"))
+    assert bool(tab_bar.property("_discord_mprc_tab_style"))
+    for index in range(tabs.count()):
+        size = tab_bar.tabSizeHint(index)
+        text_width = tab_bar.fontMetrics().horizontalAdvance(tabs.tabText(index))
+        assert size.width() >= text_width + 14, (tabs.tabText(index), size, text_width)
+        assert size.height() >= 68, (tabs.tabText(index), size)
+        metadata = tab_bar.tabData(index)
+        assert isinstance(metadata, dict), (tabs.tabText(index), metadata)
+        assert str(metadata.get("accent") or "").startswith("#"), (tabs.tabText(index), metadata)
+    total_width = sum(tab_bar.tabSizeHint(index).width() for index in range(tabs.count()))
+    tabs.resize(total_width + 80, 120)
+    tabs.show()
+    app.processEvents()
+    for index in range(tabs.count() - 1):
+        current_rect = tab_bar.tabRect(index)
+        next_rect = tab_bar.tabRect(index + 1)
+        assert current_rect.right() < next_rect.left(), (index, current_rect, next_rect)
+    style = tabs.styleSheet()
+    assert "nc-discord-settings-tabs-polish" in style, style
+    assert "QTabWidget#discord_bridge_settings_tabs::pane" in style, style
+    assert "min-height: 68px" in style, style
+    assert "padding: 0px" in style, style
+    assert "border-radius: 9px" in style, style
+    assert "margin-bottom: 2px" in style, style
+    for index in range(tabs.count()):
+        assert not tabs.tabIcon(index).isNull(), tabs.tabText(index)
+
+
+def _test_command_buttons_match_tab_button_style() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6 import QtCore, QtWidgets
+    from addons.discord_voice_bridge.controller import DiscordVoiceBridgeController
+
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        app = QtWidgets.QApplication([])
+
+    root = QtWidgets.QWidget()
+    layout = QtWidgets.QVBoxLayout(root)
+    row = QtWidgets.QHBoxLayout()
+    layout.addLayout(row)
+    controls = {}
+    for name, text in (
+        ("discord_bridge_save_button", "Save Settings"),
+        ("discord_bridge_start_button", "Start Bridge"),
+        ("discord_bridge_stop_button", "Stop Bridge"),
+        ("discord_bridge_restart_button", "Restart Bridge"),
+        ("discord_bridge_refresh_button", "Refresh Status"),
+    ):
+        button = QtWidgets.QPushButton(text, root)
+        button.setObjectName(name)
+        row.addWidget(button)
+        controls[name] = button
+
+    tabs = QtWidgets.QTabWidget(root)
+    tabs.setObjectName("discord_bridge_settings_tabs")
+    page = QtWidgets.QWidget()
+    page.setObjectName("discord_bridge_general_tab")
+    tabs.addTab(page, "General")
+    controls["discord_bridge_settings_tabs"] = tabs
+    layout.addWidget(tabs)
+
+    controller = DiscordVoiceBridgeController(context=None, addon=None)
+    controller.widget = root
+    controller.controls = controls
+    controller._apply_tab_polish()
+
+    called = []
+    controller._button("discord_bridge_save_button", lambda: called.append("saved"))
+    controller.controls["discord_bridge_save_button"].click()
+    assert called == ["saved"], called
+
+    for name, text in (
+        ("discord_bridge_save_button", "Save Settings"),
+        ("discord_bridge_start_button", "Start Bridge"),
+        ("discord_bridge_stop_button", "Stop Bridge"),
+        ("discord_bridge_restart_button", "Restart Bridge"),
+        ("discord_bridge_refresh_button", "Refresh Status"),
+    ):
+        button = controller.controls.get(name)
+        assert isinstance(button, QtWidgets.QToolButton), (name, type(button))
+        assert button.text() == text, (name, button.text())
+        assert not button.isHidden(), name
+        assert bool(button.property("_discord_command_card_button")), name
+        assert bool(button.property("_discord_mprc_tab_style")), name
+        assert button.iconSize() == QtCore.QSize(36, 36), (name, button.iconSize())
+        assert button.minimumHeight() >= 68, (name, button.minimumHeight())
+        assert button.minimumWidth() >= button.fontMetrics().horizontalAdvance(text) + 14, (name, button.minimumWidth())
+        assert not button.icon().isNull(), name
 
 
 def _test_settings_schema_ui_exposure() -> None:

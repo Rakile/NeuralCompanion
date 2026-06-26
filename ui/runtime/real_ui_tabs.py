@@ -359,15 +359,20 @@ class MainUiRealTabAdoptionMixin:
             self._remove_disabled_static_addon_placeholders()
             self._adopted_runtime_tabs = adopted_report
             frontend_left_tabs = self._ui_object("left_tabs")
+            addon_context_menu_installer = getattr(self.backend, "_install_addon_tab_context_menu", None)
             if frontend_left_tabs is not None:
                 self.backend.tabs = frontend_left_tabs
                 setattr(self.backend, "left_tabs", frontend_left_tabs)
+                if callable(addon_context_menu_installer):
+                    addon_context_menu_installer(frontend_left_tabs)
             for target_name in ui_mount_targets():
                 if target_name == "left_tabs":
                     continue
                 frontend_tabs = self._ui_object(target_name)
                 if frontend_tabs is not None:
                     setattr(self.backend, target_name, frontend_tabs)
+                    if callable(addon_context_menu_installer):
+                        addon_context_menu_installer(frontend_tabs)
             if frontend_left_tabs is not None and hasattr(frontend_left_tabs, "currentChanged"):
                 frontend_left_tabs.currentChanged.connect(self._on_frontend_left_tab_changed)
             frontend_right_tabs = self._ui_object("right_tabs")

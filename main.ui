@@ -3363,6 +3363,19 @@ QToolButton:checked { background: #3a1d3d; }</string>
                  </property>
                 </widget>
                </item>
+               <item>
+                <widget class="QPushButton" name="console_chat_split_toggle_button">
+                 <property name="toolTip">
+                  <string>Show System Console and Chat side by side.</string>
+                 </property>
+                 <property name="text">
+                  <string>Split: Off</string>
+                 </property>
+                 <property name="checkable">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
               </layout>
              </item>
              <item>
@@ -3469,6 +3482,19 @@ QToolButton:checked { background: #3a1d3d; }</string>
                 <widget class="QPushButton" name="chat_clear_button">
                  <property name="text">
                   <string>Clear</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="chat_console_split_toggle_button">
+                 <property name="toolTip">
+                  <string>Show System Console and Chat side by side.</string>
+                 </property>
+                 <property name="text">
+                  <string>Split: Off</string>
+                 </property>
+                 <property name="checkable">
+                  <bool>true</bool>
                  </property>
                 </widget>
                </item>

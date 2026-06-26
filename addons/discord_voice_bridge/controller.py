@@ -18,6 +18,301 @@ from addons.discord_voice_bridge.settings import load_settings, redacted_setting
 ADDON_DIR = Path(__file__).resolve().parent
 
 
+class _DiscordVoiceSettingsTabBar(QtWidgets.QTabBar):
+    """Draw Discord settings tabs as compact MPRC-style icon cards."""
+
+    _MIN_WIDTH = 68
+    _HEIGHT = 68
+    _HORIZONTAL_PADDING = 7
+    _TOP_PADDING = 5
+    _TITLE_HEIGHT = 20
+    _ICON_TEXT_GAP = 1
+
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setProperty("_discord_icon_over_text", True)
+        self.setProperty("_discord_mprc_tab_style", True)
+        self.setDrawBase(False)
+        self.setExpanding(False)
+        self.setUsesScrollButtons(True)
+        self.setElideMode(QtCore.Qt.ElideNone)
+        self.setIconSize(QtCore.QSize(36, 36))
+
+    def tabSizeHint(self, index: int) -> QtCore.QSize:
+        text_width = self.fontMetrics().horizontalAdvance(self.tabText(index))
+        icon_width = 0 if self.tabIcon(index).isNull() else self.iconSize().width()
+        width = max(self._MIN_WIDTH, max(text_width, icon_width) + (self._HORIZONTAL_PADDING * 2))
+        return QtCore.QSize(width, self._HEIGHT)
+
+    def _tab_metadata(self, index: int) -> dict[str, Any]:
+        try:
+            data = self.tabData(index)
+        except Exception:
+            return {}
+        return dict(data) if isinstance(data, dict) else {}
+
+    def _tab_accent(self, index: int) -> QtGui.QColor:
+        color = str(self._tab_metadata(index).get("accent") or "#60a5fa").strip()
+        accent = QtGui.QColor(color)
+        return accent if accent.isValid() else QtGui.QColor("#60a5fa")
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        title_font = QtGui.QFont(self.font())
+        title_font.setBold(True)
+        for index in range(self.count()):
+            rect = self.tabRect(index).adjusted(0, 0, -1, -2)
+            if not event.rect().intersects(rect):
+                continue
+            selected = index == self.currentIndex()
+            enabled = self.isTabEnabled(index)
+            accent = self._tab_accent(index)
+            border = accent if selected else QtGui.QColor("#36506d")
+            background = QtGui.QColor("#1c2d43" if selected else "#111b28")
+            path = QtGui.QPainterPath()
+            path.addRoundedRect(QtCore.QRectF(rect), 9, 9)
+            painter.fillPath(path, background)
+            painter.setPen(QtGui.QPen(border, 1))
+            painter.drawPath(path)
+
+            content = rect.adjusted(self._HORIZONTAL_PADDING, self._TOP_PADDING, -self._HORIZONTAL_PADDING, -5)
+            title_rect = QtCore.QRect(content.left(), content.top(), content.width(), self._TITLE_HEIGHT)
+            painter.setFont(title_font)
+            painter.setPen(accent if enabled else QtGui.QColor("#728095"))
+            painter.drawText(
+                title_rect,
+                QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter | QtCore.Qt.TextSingleLine,
+                self.tabText(index),
+            )
+
+            icon = self.tabIcon(index)
+            if not icon.isNull():
+                icon_size = self.iconSize()
+                icon_top = title_rect.bottom() + self._ICON_TEXT_GAP
+                icon_rect = QtCore.QRect(
+                    content.center().x() - (icon_size.width() // 2),
+                    icon_top,
+                    icon_size.width(),
+                    icon_size.height(),
+                )
+                icon_mode = QtGui.QIcon.Normal if enabled else QtGui.QIcon.Disabled
+                icon_state = QtGui.QIcon.On if selected else QtGui.QIcon.Off
+                icon.paint(painter, icon_rect, QtCore.Qt.AlignCenter, icon_mode, icon_state)
+        painter.end()
+
+
+class _DiscordVoiceCommandButton(QtWidgets.QToolButton):
+    """Draw top command buttons with the same card language as the settings tabs."""
+
+    _MIN_WIDTH = 68
+    _HEIGHT = 68
+    _HORIZONTAL_PADDING = 7
+    _TOP_PADDING = 5
+    _TITLE_HEIGHT = 20
+    _ICON_TEXT_GAP = 1
+
+    def __init__(self, text: str, icon: QtGui.QIcon, accent: str, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._accent = QtGui.QColor(str(accent or "#60a5fa"))
+        if not self._accent.isValid():
+            self._accent = QtGui.QColor("#60a5fa")
+        self.setProperty("_discord_command_card_button", True)
+        self.setProperty("_discord_mprc_tab_style", True)
+        self.setText(str(text or ""))
+        self.setIcon(icon)
+        self.setIconSize(QtCore.QSize(36, 36))
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+        self.setAutoRaise(False)
+        font = QtGui.QFont(self.font())
+        font.setBold(True)
+        self.setFont(font)
+        self.setMinimumSize(self.sizeHint())
+        self.setMaximumHeight(self._HEIGHT)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+
+    def sizeHint(self) -> QtCore.QSize:
+        text_width = self.fontMetrics().horizontalAdvance(self.text())
+        icon_width = 0 if self.icon().isNull() else self.iconSize().width()
+        width = max(self._MIN_WIDTH, text_width + (self._HORIZONTAL_PADDING * 2), icon_width + (self._HORIZONTAL_PADDING * 2))
+        return QtCore.QSize(width, self._HEIGHT)
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        if not event.rect().intersects(rect):
+            painter.end()
+            return
+
+        enabled = self.isEnabled()
+        active = self.isDown() or self.underMouse()
+        accent = self._accent if enabled else QtGui.QColor("#728095")
+        border = accent if active else QtGui.QColor("#36506d")
+        background = QtGui.QColor("#1c2d43" if active else "#111b28")
+        if not enabled:
+            background = QtGui.QColor("#0f1722")
+            border = QtGui.QColor("#2b4058")
+
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(QtCore.QRectF(rect), 9, 9)
+        painter.fillPath(path, background)
+        painter.setPen(QtGui.QPen(border, 1))
+        painter.drawPath(path)
+
+        content = rect.adjusted(self._HORIZONTAL_PADDING, self._TOP_PADDING, -self._HORIZONTAL_PADDING, -5)
+        title_rect = QtCore.QRect(content.left(), content.top(), content.width(), self._TITLE_HEIGHT)
+        painter.setFont(self.font())
+        painter.setPen(accent)
+        painter.drawText(
+            title_rect,
+            QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter | QtCore.Qt.TextSingleLine,
+            self.text(),
+        )
+
+        icon = self.icon()
+        if not icon.isNull():
+            icon_size = self.iconSize()
+            icon_top = title_rect.bottom() + self._ICON_TEXT_GAP
+            icon_rect = QtCore.QRect(
+                content.center().x() - (icon_size.width() // 2),
+                icon_top,
+                icon_size.width(),
+                icon_size.height(),
+            )
+            icon_mode = QtGui.QIcon.Normal if enabled else QtGui.QIcon.Disabled
+            icon_state = QtGui.QIcon.On if self.isDown() else QtGui.QIcon.Off
+            icon.paint(painter, icon_rect, QtCore.Qt.AlignCenter, icon_mode, icon_state)
+        painter.end()
+
+
+def _discord_settings_tab_icon(kind: str, color: str) -> QtGui.QIcon:
+    pixmap = QtGui.QPixmap(50, 50)
+    pixmap.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(pixmap)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    accent = QtGui.QColor(str(color or "#60a5fa"))
+    if not accent.isValid():
+        accent = QtGui.QColor("#60a5fa")
+    painter.setPen(QtGui.QPen(accent, 3))
+    painter.setBrush(QtGui.QColor(17, 27, 40))
+    painter.drawRoundedRect(4, 4, 42, 42, 10, 10)
+    painter.setBrush(accent)
+    painter.setPen(QtGui.QPen(accent, 3))
+
+    key = str(kind or "").strip().lower()
+    if key == "save":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRoundedRect(13, 12, 24, 26, 4, 4)
+        painter.drawLine(18, 12, 18, 21)
+        painter.drawLine(18, 21, 31, 21)
+        painter.drawLine(31, 12, 31, 21)
+        painter.drawRoundedRect(17, 29, 16, 8, 2, 2)
+    elif key == "start":
+        points = [
+            QtCore.QPointF(18, 14),
+            QtCore.QPointF(18, 36),
+            QtCore.QPointF(35, 25),
+        ]
+        painter.drawPolygon(QtGui.QPolygonF(points))
+    elif key == "stop":
+        painter.drawRoundedRect(15, 15, 20, 20, 4, 4)
+    elif key == "restart":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawArc(12, 12, 26, 26, 35 * 16, 280 * 16)
+        painter.drawLine(36, 14, 37, 24)
+        painter.drawLine(36, 14, 27, 15)
+    elif key == "refresh":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawArc(12, 12, 26, 18, 20 * 16, 180 * 16)
+        painter.drawLine(36, 16, 37, 25)
+        painter.drawLine(36, 16, 29, 16)
+        painter.drawArc(12, 20, 26, 18, 200 * 16, 180 * 16)
+        painter.drawLine(14, 34, 13, 25)
+        painter.drawLine(14, 34, 21, 34)
+    elif key == "general":
+        painter.drawLine(14, 16, 36, 16)
+        painter.drawLine(14, 25, 36, 25)
+        painter.drawLine(14, 34, 36, 34)
+        painter.drawEllipse(18, 13, 6, 6)
+        painter.drawEllipse(28, 22, 6, 6)
+        painter.drawEllipse(21, 31, 6, 6)
+    elif key == "discord":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRoundedRect(12, 16, 26, 20, 6, 6)
+        painter.drawLine(18, 16, 16, 12)
+        painter.drawLine(32, 16, 34, 12)
+        painter.drawEllipse(18, 24, 4, 4)
+        painter.drawEllipse(28, 24, 4, 4)
+        painter.drawArc(20, 24, 10, 8, 200 * 16, 140 * 16)
+    elif key == "capture":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRoundedRect(19, 10, 12, 23, 6, 6)
+        painter.drawArc(14, 19, 22, 18, 180 * 16, 180 * 16)
+        painter.drawLine(25, 37, 25, 42)
+        painter.drawLine(18, 42, 32, 42)
+    elif key == "playback":
+        points = [
+            QtCore.QPointF(18, 14),
+            QtCore.QPointF(18, 36),
+            QtCore.QPointF(35, 25),
+        ]
+        painter.drawPolygon(QtGui.QPolygonF(points))
+    elif key == "filter":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawLine(13, 14, 37, 14)
+        painter.drawLine(37, 14, 28, 25)
+        painter.drawLine(28, 25, 28, 37)
+        painter.drawLine(28, 37, 21, 33)
+        painter.drawLine(21, 33, 21, 25)
+        painter.drawLine(21, 25, 13, 14)
+    elif key == "persona":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawEllipse(18, 11, 14, 14)
+        painter.drawArc(13, 25, 24, 18, 20 * 16, 140 * 16)
+    elif key == "bots":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRoundedRect(13, 16, 24, 20, 6, 6)
+        painter.drawLine(25, 16, 25, 10)
+        painter.drawEllipse(23, 8, 4, 4)
+        painter.drawEllipse(19, 24, 3, 3)
+        painter.drawEllipse(29, 24, 3, 3)
+        painter.drawLine(20, 31, 30, 31)
+    elif key == "runtime":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRoundedRect(12, 13, 26, 9, 3, 3)
+        painter.drawRoundedRect(12, 28, 26, 9, 3, 3)
+        painter.drawEllipse(17, 16, 3, 3)
+        painter.drawEllipse(17, 31, 3, 3)
+        painter.drawLine(24, 18, 34, 18)
+        painter.drawLine(24, 33, 34, 33)
+    elif key == "status":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawEllipse(13, 13, 24, 24)
+        painter.drawLine(25, 23, 25, 33)
+        painter.drawLine(25, 18, 25, 18)
+    elif key == "moderator":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        points = [
+            QtCore.QPointF(25, 11),
+            QtCore.QPointF(37, 16),
+            QtCore.QPointF(34, 34),
+            QtCore.QPointF(25, 40),
+            QtCore.QPointF(16, 34),
+            QtCore.QPointF(13, 16),
+        ]
+        painter.drawPolygon(QtGui.QPolygonF(points))
+        painter.drawLine(19, 26, 24, 31)
+        painter.drawLine(24, 31, 32, 22)
+    else:
+        painter.drawRoundedRect(14, 13, 22, 24, 5, 5)
+        painter.drawLine(18, 20, 32, 20)
+        painter.drawLine(18, 27, 32, 27)
+
+    painter.end()
+    return QtGui.QIcon(pixmap)
+
+
 def _plain_text_scroll_state(view: QtWidgets.QPlainTextEdit | None) -> dict[str, Any]:
     if view is None:
         return {}
@@ -262,6 +557,7 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         self._build_advanced_visibility_controls()
         self._hide_deprecated_response_filter_controls()
         self._collect_controls(widget)
+        self._apply_tab_polish()
         self._populate_choices()
         self._apply_tooltips()
         self._connect_signals()
@@ -276,6 +572,284 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         if watched is self.widget and event.type() == QtCore.QEvent.Show:
             self._schedule_node_dependency_prompt()
         return super().eventFilter(watched, event)
+
+    def _apply_tab_polish(self) -> None:
+        self._apply_command_button_polish()
+        tabs = self._control("discord_bridge_settings_tabs", QtWidgets.QTabWidget)
+        if tabs is None:
+            return
+
+        self._ensure_settings_tab_bar(tabs)
+        tabs.setIconSize(QtCore.QSize(36, 36))
+        tabs.setUsesScrollButtons(True)
+        tab_bar = tabs.tabBar()
+        if tab_bar is not None:
+            tab_bar.setDrawBase(False)
+            tab_bar.setExpanding(False)
+            tab_bar.setUsesScrollButtons(True)
+
+        self._apply_settings_tab_icons(tabs)
+        style = """
+/* nc-discord-settings-tabs-polish:start */
+QTabWidget#discord_bridge_settings_tabs::tab-bar {
+    left: 0px;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar {
+    background: #122033;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar::scroller {
+    width: 32px;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar QToolButton {
+    background: #1b2b40;
+    color: #d8e2ee;
+    border: 1px solid #416184;
+    border-radius: 8px;
+    width: 20px;
+    min-width: 20px;
+    max-width: 20px;
+    padding: 0px;
+    margin: 8px 1px 8px 1px;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar QToolButton:hover {
+    background: #243956;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar::tab {
+    background: transparent;
+    color: #d8e2ee;
+    font-weight: 700;
+    border: none;
+    min-width: 0px;
+    min-height: 68px;
+    padding: 0px;
+    margin-right: 5px;
+    margin-bottom: 2px;
+    border-radius: 9px;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar::tab:!selected {
+    background: transparent;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar::tab:selected {
+    background: transparent;
+    color: #f2f6fb;
+    border: none;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar::tab:hover {
+    background: transparent;
+}
+QTabWidget#discord_bridge_settings_tabs QTabBar::tab:selected:hover {
+    background: transparent;
+}
+QTabWidget#discord_bridge_settings_tabs::pane {
+    top: 0px;
+    background: #122033;
+    border: 1px solid #2d4561;
+    border-top-color: #36506d;
+    border-radius: 10px;
+    padding: 10px;
+}
+QTabWidget#discord_bridge_settings_tabs QStackedWidget {
+    background: transparent;
+    padding: 6px;
+}
+/* nc-discord-settings-tabs-polish:end */
+""".strip()
+        start = "/* nc-discord-settings-tabs-polish:start */"
+        end = "/* nc-discord-settings-tabs-polish:end */"
+        existing = str(tabs.styleSheet() or "").strip()
+        if start in existing and end in existing:
+            before, rest = existing.split(start, 1)
+            _old, after = rest.split(end, 1)
+            existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+        next_style = f"{existing}\n{style}".strip() if existing else style
+        if str(tabs.styleSheet() or "") != next_style:
+            tabs.setStyleSheet(next_style)
+
+    def _apply_command_button_polish(self) -> None:
+        specs = {
+            "discord_bridge_save_button": ("save", "#38bdf8"),
+            "discord_bridge_start_button": ("start", "#22c55e"),
+            "discord_bridge_stop_button": ("stop", "#fb7185"),
+            "discord_bridge_restart_button": ("restart", "#f97316"),
+            "discord_bridge_refresh_button": ("refresh", "#60a5fa"),
+        }
+        for name, (icon_key, accent) in specs.items():
+            current = self.controls.get(name)
+            if isinstance(current, _DiscordVoiceCommandButton):
+                current.setIcon(_discord_settings_tab_icon(icon_key, accent))
+                current.setMinimumSize(current.sizeHint())
+                continue
+            if not isinstance(current, QtWidgets.QAbstractButton):
+                continue
+
+            parent = current.parentWidget()
+            button = _DiscordVoiceCommandButton(
+                str(current.text() or ""),
+                _discord_settings_tab_icon(icon_key, accent),
+                accent,
+                parent,
+            )
+            button.setObjectName(name)
+            button.setToolTip(str(current.toolTip() or ""))
+            button.setEnabled(current.isEnabled())
+            button.setVisible(not current.isHidden())
+            button.setCheckable(current.isCheckable())
+            button.setChecked(current.isChecked() if current.isCheckable() else False)
+
+            replaced = self._replace_widget_in_parent_layout(current, button)
+            if not replaced and parent is not None:
+                button.setParent(parent)
+            self.controls[name] = button
+            current.setParent(None)
+            current.deleteLater()
+
+    def _replace_widget_in_parent_layout(self, old_widget: QtWidgets.QWidget, new_widget: QtWidgets.QWidget) -> bool:
+        parent = old_widget.parentWidget()
+        layout = parent.layout() if parent is not None else None
+        if layout is None:
+            return False
+        return self._replace_widget_in_layout(layout, old_widget, new_widget)
+
+    def _replace_widget_in_layout(
+        self,
+        layout: QtWidgets.QLayout,
+        old_widget: QtWidgets.QWidget,
+        new_widget: QtWidgets.QWidget,
+    ) -> bool:
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is None:
+                continue
+            if item.widget() is old_widget:
+                layout.removeWidget(old_widget)
+                if isinstance(layout, QtWidgets.QBoxLayout):
+                    layout.insertWidget(index, new_widget)
+                else:
+                    layout.addWidget(new_widget)
+                return True
+            child_layout = item.layout()
+            if child_layout is not None and self._replace_widget_in_layout(child_layout, old_widget, new_widget):
+                return True
+        return False
+
+    def _ensure_settings_tab_bar(self, tabs: QtWidgets.QTabWidget) -> None:
+        if isinstance(tabs.tabBar(), _DiscordVoiceSettingsTabBar):
+            return
+
+        previous_bar = tabs.tabBar()
+        current_index = tabs.currentIndex()
+        entries: list[dict[str, Any]] = []
+        for index in range(tabs.count()):
+            entries.append(
+                {
+                    "widget": tabs.widget(index),
+                    "text": tabs.tabText(index),
+                    "icon": tabs.tabIcon(index),
+                    "tooltip": tabs.tabToolTip(index),
+                    "enabled": tabs.isTabEnabled(index),
+                    "data": previous_bar.tabData(index) if previous_bar is not None else None,
+                }
+            )
+
+        while tabs.count():
+            tabs.removeTab(0)
+
+        tab_bar = _DiscordVoiceSettingsTabBar(tabs)
+        tabs.setTabBar(tab_bar)
+        for entry in entries:
+            widget = entry["widget"]
+            icon = entry["icon"]
+            text = str(entry["text"] or "")
+            if isinstance(icon, QtGui.QIcon) and not icon.isNull():
+                index = tabs.addTab(widget, icon, text)
+            else:
+                index = tabs.addTab(widget, text)
+            tooltip = str(entry["tooltip"] or "")
+            if tooltip:
+                tabs.setTabToolTip(index, tooltip)
+            tabs.setTabEnabled(index, bool(entry["enabled"]))
+            tab_bar.setTabData(index, entry["data"])
+
+        if entries:
+            tabs.setCurrentIndex(min(max(0, current_index), len(entries) - 1))
+
+    def _apply_settings_tab_icons(self, tabs: QtWidgets.QTabWidget) -> None:
+        tab_specs = {
+            "discord_bridge_general_tab": (
+                "general",
+                "#38bdf8",
+                "General bridge behavior and local test room defaults.",
+            ),
+            "discord_bridge_discord_tab": (
+                "discord",
+                "#5865f2",
+                "Discord token, guild, voice channel, and answer mode.",
+            ),
+            "discord_bridge_capture_tab": (
+                "capture",
+                "#22c55e",
+                "Voice capture timing, saved WAV, and microphone ownership.",
+            ),
+            "discord_bridge_playback_tab": (
+                "playback",
+                "#f97316",
+                "Reply playback, queueing, and interruption behavior.",
+            ),
+            "discord_bridge_filter_tab": (
+                "filter",
+                "#facc15",
+                "Response filtering and room routing rules.",
+            ),
+            "discord_bridge_persona_tab": (
+                "persona",
+                "#a78bfa",
+                "Discord-only persona prompt and voice clone settings.",
+            ),
+            "discord_bridge_bots_tab": (
+                "bots",
+                "#06b6d4",
+                "Configured bot instances and per-bot overrides.",
+            ),
+            "discord_bridge_runtime_tab": (
+                "runtime",
+                "#14b8a6",
+                "Local NC runtime endpoint, cleanup, and RAG context.",
+            ),
+            "discord_bridge_status_tab": (
+                "status",
+                "#60a5fa",
+                "Bridge status, diagnostics, validation, and live controls.",
+            ),
+            "discord_bridge_moderator_tab": (
+                "moderator",
+                "#fb7185",
+                "Human moderator controls for room routing and speech flow.",
+            ),
+        }
+        tab_bar = tabs.tabBar()
+        for index in range(tabs.count()):
+            page = tabs.widget(index)
+            object_name = str(page.objectName() if page is not None else "")
+            spec = tab_specs.get(object_name)
+            if spec is None:
+                continue
+            icon_key, accent, tooltip = spec
+            icon = _discord_settings_tab_icon(icon_key, accent)
+            if not icon.isNull():
+                tabs.setTabIcon(index, icon)
+            if tab_bar is not None:
+                tab_bar.setTabData(index, {"accent": accent, "icon": icon_key})
+            if not str(tabs.tabToolTip(index) or "").strip():
+                tabs.setTabToolTip(index, tooltip)
+
+    def _standard_tab_icon(self, icon_key) -> QtGui.QIcon:
+        widget_style = self.widget.style() if isinstance(self.widget, QtWidgets.QWidget) else None
+        app = QtWidgets.QApplication.instance()
+        app_style = app.style() if app is not None else None
+        style = widget_style or app_style
+        if style is None:
+            return QtGui.QIcon()
+        return style.standardIcon(icon_key)
 
     def refresh_from_settings(self):
         settings = load_settings()
@@ -1192,6 +1766,7 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         layout.addStretch(1)
         tabs.addTab(tab, "Moderator")
         self.controls["discord_bridge_moderator_tab"] = tab
+        self._apply_tab_polish()
 
     def _build_validation_summary(self):
         tab = self.controls.get("discord_bridge_status_tab")
@@ -3744,7 +4319,7 @@ class DiscordVoiceBridgeController(QtCore.QObject):
         self._refresh_bot_chat_runtime_controls()
 
     def _button(self, name: str, handler):
-        button = self._control(name, QtWidgets.QPushButton)
+        button = self._control(name, QtWidgets.QAbstractButton)
         if button is not None:
             button.clicked.connect(handler)
 

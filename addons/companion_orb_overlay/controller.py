@@ -6,7 +6,7 @@ import uuid
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from core import companion_orb_reply_styles
-from ui.widgets.basic import NoWheelComboBox, NoWheelTabWidget
+from ui.widgets.basic import NoWheelComboBox, NoWheelTabBar, NoWheelTabWidget
 
 from addons.ai_presence_mode.controller import (
     AIPresenceModeController,
@@ -98,6 +98,132 @@ SUPERVISOR_DEFAULT_REPEAT_INTERVAL = 3
 
 def _new_supervisor_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+class _CompanionOrbSensoryTabBar(NoWheelTabBar):
+    """Draw Companion Orb awareness tabs as MPRC-style icon cards."""
+
+    _MIN_WIDTH = 68
+    _HEIGHT = 68
+    _HORIZONTAL_PADDING = 7
+    _TOP_PADDING = 5
+    _TITLE_HEIGHT = 20
+    _ICON_TEXT_GAP = 1
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setProperty("_companion_orb_mprc_tab_style", True)
+        self.setDrawBase(False)
+        self.setExpanding(False)
+        self.setUsesScrollButtons(True)
+        self.setElideMode(QtCore.Qt.ElideNone)
+        self.setIconSize(QtCore.QSize(36, 36))
+
+    def tabSizeHint(self, index):
+        text_width = self.fontMetrics().horizontalAdvance(self.tabText(index))
+        icon_width = 0 if self.tabIcon(index).isNull() else self.iconSize().width()
+        width = max(self._MIN_WIDTH, max(text_width, icon_width) + (self._HORIZONTAL_PADDING * 2))
+        return QtCore.QSize(width, self._HEIGHT)
+
+    def _tab_metadata(self, index):
+        try:
+            data = self.tabData(index)
+        except Exception:
+            return {}
+        return dict(data) if isinstance(data, dict) else {}
+
+    def _tab_accent(self, index):
+        color = str(self._tab_metadata(index).get("accent") or "#38bdf8").strip()
+        accent = QtGui.QColor(color)
+        return accent if accent.isValid() else QtGui.QColor("#38bdf8")
+
+    def paintEvent(self, event):
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        title_font = QtGui.QFont(self.font())
+        title_font.setBold(True)
+        for index in range(self.count()):
+            rect = self.tabRect(index).adjusted(0, 0, -1, -2)
+            if not event.rect().intersects(rect):
+                continue
+            selected = index == self.currentIndex()
+            enabled = self.isTabEnabled(index)
+            accent = self._tab_accent(index)
+            border = accent if selected else QtGui.QColor("#36506d")
+            background = QtGui.QColor("#1c2d43" if selected else "#111b28")
+
+            path = QtGui.QPainterPath()
+            path.addRoundedRect(QtCore.QRectF(rect), 9, 9)
+            painter.fillPath(path, background)
+            painter.setPen(QtGui.QPen(border, 1))
+            painter.drawPath(path)
+
+            content = rect.adjusted(self._HORIZONTAL_PADDING, self._TOP_PADDING, -self._HORIZONTAL_PADDING, -5)
+            title_rect = QtCore.QRect(content.left(), content.top(), content.width(), self._TITLE_HEIGHT)
+            painter.setFont(title_font)
+            painter.setPen(accent if enabled else QtGui.QColor("#728095"))
+            painter.drawText(
+                title_rect,
+                QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter | QtCore.Qt.TextSingleLine,
+                self.tabText(index),
+            )
+
+            icon = self.tabIcon(index)
+            if not icon.isNull():
+                icon_size = self.iconSize()
+                icon_top = title_rect.bottom() + self._ICON_TEXT_GAP
+                icon_rect = QtCore.QRect(
+                    content.center().x() - (icon_size.width() // 2),
+                    icon_top,
+                    icon_size.width(),
+                    icon_size.height(),
+                )
+                icon_mode = QtGui.QIcon.Normal if enabled else QtGui.QIcon.Disabled
+                icon_state = QtGui.QIcon.On if selected else QtGui.QIcon.Off
+                icon.paint(painter, icon_rect, QtCore.Qt.AlignCenter, icon_mode, icon_state)
+        painter.end()
+
+
+def _companion_orb_sensory_tab_icon(kind: str, color: str) -> QtGui.QIcon:
+    pixmap = QtGui.QPixmap(50, 50)
+    pixmap.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(pixmap)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    accent = QtGui.QColor(str(color or "#38bdf8"))
+    if not accent.isValid():
+        accent = QtGui.QColor("#38bdf8")
+    painter.setPen(QtGui.QPen(accent, 3))
+    painter.setBrush(QtGui.QColor(17, 27, 40))
+    painter.drawRoundedRect(4, 4, 42, 42, 10, 10)
+    painter.setBrush(accent)
+    painter.setPen(QtGui.QPen(accent, 3))
+
+    key = str(kind or "").strip().lower()
+    if key == "noticed":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawEllipse(11, 17, 28, 16)
+        painter.drawEllipse(21, 21, 8, 8)
+        painter.drawLine(15, 38, 35, 38)
+    elif key == "capture":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRoundedRect(12, 12, 26, 26, 5, 5)
+        painter.drawLine(25, 8, 25, 17)
+        painter.drawLine(25, 33, 25, 42)
+        painter.drawLine(8, 25, 17, 25)
+        painter.drawLine(33, 25, 42, 25)
+        painter.drawEllipse(22, 22, 6, 6)
+    elif key == "personality":
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawEllipse(18, 11, 14, 14)
+        painter.drawArc(13, 25, 24, 17, 20 * 16, 140 * 16)
+        painter.drawRoundedRect(30, 10, 10, 8, 3, 3)
+    else:
+        painter.drawRoundedRect(14, 13, 22, 24, 5, 5)
+        painter.drawLine(18, 20, 32, 20)
+        painter.drawLine(18, 27, 32, 27)
+
+    painter.end()
+    return QtGui.QIcon(pixmap)
 
 
 COMPANION_ORB_TOOLTIPS = {
@@ -1243,8 +1369,134 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         tabs.setTabToolTip(0, "Source guidance and declared background-awareness payload for Companion Orb Target.")
         tabs.setTabToolTip(1, "Capture and target settings that decide what the orb sees.")
         tabs.setTabToolTip(2, "Response settings that decide when the orb comments, moves, or takes a snapshot.")
+        self._apply_companion_orb_sensory_tab_style(tabs)
         layout.addWidget(tabs)
         return group
+
+    def _apply_companion_orb_sensory_tab_style(self, tabs):
+        if tabs is None:
+            return
+        if not isinstance(tabs.tabBar(), _CompanionOrbSensoryTabBar):
+            previous_bar = tabs.tabBar()
+            current_index = tabs.currentIndex()
+            entries = []
+            for index in range(tabs.count()):
+                entries.append(
+                    {
+                        "widget": tabs.widget(index),
+                        "text": tabs.tabText(index),
+                        "icon": tabs.tabIcon(index),
+                        "tooltip": tabs.tabToolTip(index),
+                        "enabled": tabs.isTabEnabled(index),
+                        "data": previous_bar.tabData(index) if previous_bar is not None else None,
+                    }
+                )
+            while tabs.count():
+                tabs.removeTab(0)
+            tab_bar = _CompanionOrbSensoryTabBar(tabs)
+            tabs.setTabBar(tab_bar)
+            for entry in entries:
+                widget = entry["widget"]
+                icon = entry["icon"]
+                text = str(entry["text"] or "")
+                if isinstance(icon, QtGui.QIcon) and not icon.isNull():
+                    index = tabs.addTab(widget, icon, text)
+                else:
+                    index = tabs.addTab(widget, text)
+                tooltip = str(entry["tooltip"] or "")
+                if tooltip:
+                    tabs.setTabToolTip(index, tooltip)
+                tabs.setTabEnabled(index, bool(entry["enabled"]))
+                tab_bar.setTabData(index, entry["data"])
+            if entries:
+                tabs.setCurrentIndex(min(max(0, current_index), len(entries) - 1))
+
+        tabs.setIconSize(QtCore.QSize(36, 36))
+        tabs.setUsesScrollButtons(True)
+        tab_bar = tabs.tabBar()
+        if tab_bar is not None:
+            tab_bar.setDrawBase(False)
+            tab_bar.setExpanding(False)
+            tab_bar.setUsesScrollButtons(True)
+
+        specs = {
+            "What the orb noticed": ("noticed", "#38bdf8"),
+            "Capture target": ("capture", "#22c55e"),
+            "Orb personality rules": ("personality", "#a78bfa"),
+        }
+        for index in range(tabs.count()):
+            title = str(tabs.tabText(index) or "")
+            icon_key, accent = specs.get(title, ("fallback", "#60a5fa"))
+            tabs.setTabIcon(index, _companion_orb_sensory_tab_icon(icon_key, accent))
+            if tab_bar is not None:
+                tab_bar.setTabData(index, {"accent": accent, "icon": icon_key})
+
+        style = """
+/* nc-companion-orb-sensory-tabs-polish:start */
+QTabWidget#companion_orb_sensory_tabs::tab-bar {
+    left: 0px;
+}
+QTabWidget#companion_orb_sensory_tabs QTabBar {
+    background: #122033;
+}
+QTabWidget#companion_orb_sensory_tabs QTabBar::scroller {
+    width: 32px;
+}
+QTabWidget#companion_orb_sensory_tabs QTabBar QToolButton {
+    background: #1b2b40;
+    color: #d8e2ee;
+    border: 1px solid #416184;
+    border-radius: 8px;
+    width: 20px;
+    min-width: 20px;
+    max-width: 20px;
+    padding: 0px;
+    margin: 8px 1px 8px 1px;
+}
+QTabWidget#companion_orb_sensory_tabs QTabBar QToolButton:hover {
+    background: #243956;
+}
+QTabWidget#companion_orb_sensory_tabs QTabBar::tab {
+    background: transparent;
+    color: #d8e2ee;
+    font-weight: 700;
+    border: none;
+    min-width: 0px;
+    min-height: 68px;
+    padding: 0px;
+    margin-right: 5px;
+    margin-bottom: 2px;
+    border-radius: 9px;
+}
+QTabWidget#companion_orb_sensory_tabs QTabBar::tab:selected,
+QTabWidget#companion_orb_sensory_tabs QTabBar::tab:hover {
+    background: transparent;
+    border: none;
+}
+QTabWidget#companion_orb_sensory_tabs::pane {
+    top: 0px;
+    background: #122033;
+    border: 1px solid #2d4561;
+    border-top-color: #36506d;
+    border-radius: 10px;
+    padding: 10px;
+}
+QTabWidget#companion_orb_sensory_tabs QStackedWidget {
+    background: transparent;
+    padding: 6px;
+}
+/* nc-companion-orb-sensory-tabs-polish:end */
+""".strip()
+        start = "/* nc-companion-orb-sensory-tabs-polish:start */"
+        end = "/* nc-companion-orb-sensory-tabs-polish:end */"
+        existing = str(tabs.styleSheet() or "").strip()
+        if start in existing and end in existing:
+            before, rest = existing.split(start, 1)
+            _old, after = rest.split(end, 1)
+            existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+        next_style = f"{existing}\n{style}".strip() if existing else style
+        if str(tabs.styleSheet() or "") != next_style:
+            tabs.setStyleSheet(next_style)
 
     def _build_companion_orb_source_tab(self):
         widget = QtWidgets.QWidget()

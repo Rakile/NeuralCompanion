@@ -19,6 +19,8 @@ def _bind_ui_shell_console_chat_local_controls(window):
     chat_autoscroll_button = _ui_shell_find_object(window, "chat_autoscroll_button")
     console_clear_button = _ui_shell_find_object(window, "console_clear_button")
     chat_clear_button = _ui_shell_find_object(window, "chat_clear_button")
+    console_split_button = _ui_shell_find_object(window, "console_chat_split_toggle_button")
+    chat_split_button = _ui_shell_find_object(window, "chat_console_split_toggle_button")
     chat_font_size_combo = _ui_shell_find_object(window, "chat_font_size_combo")
     chat_edit_mode_button = _ui_shell_find_object(window, "chat_edit_mode_button")
     chat_apply_edit_button = _ui_shell_find_object(window, "chat_apply_edit_button")
@@ -75,6 +77,15 @@ def _bind_ui_shell_console_chat_local_controls(window):
         console_clear_button.clicked.connect(lambda: (console_edit.clear(), update_console_status()) if console_edit is not None else None)
     if chat_clear_button is not None and hasattr(chat_clear_button, "clicked"):
         chat_clear_button.clicked.connect(lambda: (chat_edit.clear(), update_chat_status()) if chat_edit is not None else None)
+    try:
+        from ui.runtime.console_chat_split import install_console_chat_split
+
+        split_controller = install_console_chat_split(window)
+        if split_controller is not None:
+            console_split_button = _ui_shell_find_object(window, "console_chat_split_toggle_button")
+            chat_split_button = _ui_shell_find_object(window, "chat_console_split_toggle_button")
+    except Exception:
+        pass
 
     if console_autoscroll_button is not None and hasattr(console_autoscroll_button, "clicked"):
         console_autoscroll_button.clicked.connect(
@@ -145,6 +156,8 @@ def _bind_ui_shell_console_chat_local_controls(window):
                 ("console_autoscroll_button", console_autoscroll_button),
                 ("chat_clear_button", chat_clear_button),
                 ("chat_autoscroll_button", chat_autoscroll_button),
+                ("console_chat_split_toggle_button", console_split_button),
+                ("chat_console_split_toggle_button", chat_split_button),
                 ("chat_font_size_combo", chat_font_size_combo),
                 ("chat_edit_mode_button", chat_edit_mode_button),
                 ("chat_apply_edit_button", chat_apply_edit_button),

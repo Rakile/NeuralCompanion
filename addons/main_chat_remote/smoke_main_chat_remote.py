@@ -297,6 +297,17 @@ def _copy_manager_smoke_addon(app_root: Path) -> None:
         shutil.copy2(source_dir / file_name, target_dir / file_name)
 
 
+def _manifest_icon_path_smoke() -> None:
+    addon_dir = ROOT / "addons" / "main_chat_remote"
+    manifest = json.loads((addon_dir / "addon.json").read_text(encoding="utf-8"))
+    ui_entry = manifest["ui"][0]
+    icon_path = ui_entry.get("icon_path")
+    assert icon_path == "../../ui_icons/side_tabs/desktop_bridge.png", icon_path
+    resolved = (addon_dir / icon_path).resolve()
+    assert resolved.is_file(), resolved
+    assert resolved.suffix.lower() == ".png", resolved
+
+
 def _addon_manager_smoke(root: Path) -> None:
     main_source = (ROOT / "addons" / "main_chat_remote" / "main.py").read_text(encoding="utf-8")
     assert "context.ui.register_manifest_tab(" in main_source
@@ -1946,6 +1957,7 @@ def _read_ws_pong(sock: socket.socket, buffer: bytearray, expected: bytes, *, ma
 
 
 def main() -> int:
+    _manifest_icon_path_smoke()
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         context = _Context(root)

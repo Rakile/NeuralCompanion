@@ -1,5 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
+from ui.runtime.console_chat_split import install_console_chat_split
+
 
 def configure_real_ui_binding_dependencies(namespace):
     """Inject qt_app-owned constants used by the extracted real-UI binding mixin."""
@@ -40,6 +42,10 @@ class MainUiRealBindingMixin:
             return ""
 
     def _bind_basic_runtime_mirrors(self):
+            try:
+                install_console_chat_split(self.window)
+            except Exception:
+                pass
             bindings = {
                 "console_autoscroll_button": getattr(self.backend, "toggle_console_autoscroll", None),
                 "console_clear_button": getattr(self.backend, "clear_console", None),

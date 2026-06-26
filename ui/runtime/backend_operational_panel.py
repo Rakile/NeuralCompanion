@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtWidgets
 
+from ui.runtime.console_chat_split import install_console_chat_split
 from ui.widgets.basic import NoWheelComboBox, NoWheelTabWidget
 from ui.widgets.telemetry import PipelineTelemetryWidget
 
@@ -68,6 +69,9 @@ class BackendOperationalPanelMixin:
         self.console_clear_button = QtWidgets.QPushButton("Clear")
         self.console_clear_button.clicked.connect(self.clear_console)
         console_header.addWidget(self.console_clear_button)
+        self.console_chat_split_toggle_button = QtWidgets.QPushButton("Split: Off")
+        self.console_chat_split_toggle_button.setObjectName("console_chat_split_toggle_button")
+        console_header.addWidget(self.console_chat_split_toggle_button)
         self.console_edit = QtWidgets.QPlainTextEdit()
         self.console_edit.setObjectName("console_edit")
         self.console_edit.setReadOnly(True)
@@ -125,6 +129,9 @@ class BackendOperationalPanelMixin:
         self.chat_clear_button = QtWidgets.QPushButton("Clear")
         self.chat_clear_button.clicked.connect(self.clear_chat)
         chat_header.addWidget(self.chat_clear_button)
+        self.chat_console_split_toggle_button = QtWidgets.QPushButton("Split: Off")
+        self.chat_console_split_toggle_button.setObjectName("chat_console_split_toggle_button")
+        chat_header.addWidget(self.chat_console_split_toggle_button)
         self.chat_edit = QtWidgets.QTextEdit()
         self.chat_edit.setObjectName("chat_edit")
         self.chat_edit.setReadOnly(True)
@@ -165,6 +172,7 @@ class BackendOperationalPanelMixin:
         chat_layout.addLayout(chat_input_row)
         self.chat_tab = chat_tab
         self.right_tabs.addTab(chat_tab, "Chat")
+        self._nc_console_chat_split_controller = install_console_chat_split(self)
 
         controls = QtWidgets.QGridLayout()
         self.btn_regenerate = self._make_action_button("Regenerate", lambda: self.trigger_control_action("regenerate_response"))

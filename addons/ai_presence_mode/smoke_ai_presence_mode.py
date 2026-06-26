@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from PySide6 import QtCore
+from PySide6 import QtCore, QtWidgets
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -222,6 +222,7 @@ def main():
     )
     assert blank_ocr_match["kind"] == "fallback"
     assert blank_ocr_match["screen_bounds"] == [0, -78, 787, 528]
+    _test_companion_orb_sensory_tabs_use_icon_card_style()
 
     style_bridge = VisualPresenceBridge()
     style_bridge.apply_settings({"ai_presence_enabled": True, "ai_presence_visual_style": "blue_flame_smoke"})
@@ -721,6 +722,42 @@ def main():
     assert held_target == first_target
     assert first_target.x() < moved_target.x() < 200.0
     print("AI Presence and Companion Orb smoke checks passed.")
+
+
+def _test_companion_orb_sensory_tabs_use_icon_card_style():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        app = QtWidgets.QApplication([])
+
+    controller = CompanionOrbOverlaySettingsController(context=None)
+    group = controller._build_companion_orb_sensory_tabs()
+    tabs = group.findChild(QtWidgets.QTabWidget, "companion_orb_sensory_tabs")
+    assert tabs is not None
+    assert tabs.iconSize() == QtCore.QSize(36, 36), tabs.iconSize()
+    assert [tabs.tabText(index) for index in range(tabs.count())] == [
+        "What the orb noticed",
+        "Capture target",
+        "Orb personality rules",
+    ]
+    tab_bar = tabs.tabBar()
+    assert tab_bar is not None
+    assert bool(tab_bar.property("_companion_orb_mprc_tab_style"))
+    assert not tab_bar.drawBase()
+    for index in range(tabs.count()):
+        size = tab_bar.tabSizeHint(index)
+        text_width = tab_bar.fontMetrics().horizontalAdvance(tabs.tabText(index))
+        assert size.width() >= text_width + 14, (tabs.tabText(index), size, text_width)
+        assert size.height() >= 68, (tabs.tabText(index), size)
+        assert not tabs.tabIcon(index).isNull(), tabs.tabText(index)
+        metadata = tab_bar.tabData(index)
+        assert isinstance(metadata, dict), (tabs.tabText(index), metadata)
+        assert str(metadata.get("accent") or "").startswith("#"), (tabs.tabText(index), metadata)
+    style = str(tabs.styleSheet() or "")
+    assert "nc-companion-orb-sensory-tabs-polish" in style, style
+    assert "min-height: 68px" in style, style
+    assert "border-radius: 9px" in style, style
+    controller.shutdown()
 
 
 if __name__ == "__main__":

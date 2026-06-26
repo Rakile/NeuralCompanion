@@ -29,6 +29,7 @@
       "area": "top_level",
       "order": 930,
       "tooltip": "Local bridge status and controls for the phone remote.",
+      "icon_path": "../../ui_icons/side_tabs/desktop_bridge.png",
       "metadata": {
         "runtime_role": "main_chat_remote"
       }

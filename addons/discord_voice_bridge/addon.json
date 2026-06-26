@@ -15,6 +15,7 @@
       "area": "top_level",
       "order": 128,
       "tooltip": "Configure Discord voice bots, capture, playback, response filtering, and bridge diagnostics.",
+      "icon_path": "../../ui_icons/side_tabs/discord_chatt.png",
       "ui_path": "ui/discord_voice_bridge.ui"
     }
   ],
