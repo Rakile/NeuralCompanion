@@ -1523,6 +1523,8 @@ async function maybeQueueDeadAirRecovery(decision, turn, routeKey, source, optio
   if (!writeRoutedTextTurn(moderatorId, {
     route_key: recoveryKey,
     target_bot_id: moderatorId,
+    accepted_human_intervention_route_key: String(routeKey || ""),
+    accepted_human_intervention_target_bot_id: moderatorId,
     source_bot_id: safeFileSegment(turn?.speakerBotId || "").toLowerCase(),
     source_user_id: String(turn?.userId || "dead_air_recovery"),
     speaker_name: "Moderator Control",
@@ -1647,6 +1649,8 @@ function queueRecoveryNextTarget(targetBotId, options = {}) {
   if (!writeRoutedTextTurn(target, {
     route_key: routeKey,
     target_bot_id: target,
+    accepted_human_intervention_route_key: String(options?.sourceRouteKey || ""),
+    accepted_human_intervention_target_bot_id: target,
     source_bot_id: moderatorEnforcerBotId(),
     source_user_id: "dead_air_recovery",
     speaker_name: "Moderator",
@@ -3040,6 +3044,8 @@ function writeRoutedTurnForSelectedTarget(decision, turn, routeKey, routeStarted
     writeRoutedTextTurn(target, {
       route_key: routeKey,
       target_bot_id: target,
+      accepted_human_intervention_route_key: String(routeKey || ""),
+      accepted_human_intervention_target_bot_id: target,
       source_bot_id: safeFileSegment(turn?.speakerBotId || "").toLowerCase(),
       source_user_id: String(turn?.userId || ""),
       speaker_name: String(turn?.speakerName || turn?.userId || "Discord user"),
@@ -3129,6 +3135,8 @@ async function processRoutedTextInbox() {
         routedPayloadCreatedAtMs: Number(payload.created_at_ms || 0),
         routedPayloadRouteKey: String(payload.route_key || ""),
         routedPayloadTargetBotId: botInstanceId,
+        acceptedHumanInterventionRouteKey: String(payload.accepted_human_intervention_route_key || payload.route_key || ""),
+        acceptedHumanInterventionTargetBotId: safeFileSegment(payload.accepted_human_intervention_target_bot_id || payload.target_bot_id || botInstanceId).toLowerCase(),
         prepareAhead: prepareRoutedBotRepliesAhead,
         deadAirRecovery: Boolean(payload.dead_air_recovery),
         recoveryActionMode: String(payload.recovery_action_mode || ""),
@@ -3386,7 +3394,21 @@ function routedTurnInvalidatedByHumanIntervention(turnState) {
   if (!turnState?.routedText) {
     return false;
   }
-  return latestHumanInterventionMs() > Number(turnState.humanInterventionMarkerMs || 0);
+  const marker = readJsonFile(humanInterventionPath);
+  const acceptedRouteKey = String(marker?.accepted_route_key || "").trim();
+  const acceptedTarget = safeFileSegment(marker?.target_bot_id || "").toLowerCase();
+  const turnAcceptedRouteKey = String(turnState.acceptedHumanInterventionRouteKey || "").trim();
+  const turnAcceptedTarget = safeFileSegment(turnState.acceptedHumanInterventionTargetBotId || turnState.routedTargetBotId || "").toLowerCase();
+  if (
+    acceptedRouteKey
+    && turnAcceptedRouteKey
+    && acceptedRouteKey === turnAcceptedRouteKey
+    && (!acceptedTarget || !turnAcceptedTarget || acceptedTarget === turnAcceptedTarget)
+  ) {
+    return false;
+  }
+  const markerMs = Number(marker?.created_at_ms || 0);
+  return markerMs > Number(turnState.humanInterventionMarkerMs || 0);
 }
 
 function routedTurnInvalidatedByModeratorOverride(turnState) {
@@ -4766,6 +4788,8 @@ async function handleHttpNcTurn(turn) {
     recoveryNextTargetBotId: safeFileSegment(turn.recoveryNextTargetBotId || "").toLowerCase(),
     manualCallOn: Boolean(turn.manualCallOn),
     acceptedSpeechInterrupt: Boolean(turn.acceptedSpeechInterrupt),
+    acceptedHumanInterventionRouteKey: String(turn.acceptedHumanInterventionRouteKey || turn.routedPayloadRouteKey || turn.routeKey || ""),
+    acceptedHumanInterventionTargetBotId: safeFileSegment(turn.acceptedHumanInterventionTargetBotId || turn.routedPayloadTargetBotId || turn.routedTargetBotId || "").toLowerCase(),
     routeKey: String(turn.routeKey || ""),
     humanInterventionMarkerMs: latestHumanInterventionMs(),
     initialPlaybackBufferReleased: initialReplyBufferChunks <= 1,
