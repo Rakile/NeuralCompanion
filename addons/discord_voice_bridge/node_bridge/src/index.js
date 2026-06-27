@@ -2129,13 +2129,22 @@ function moderatorHasFloorControl(state = readModeratorState()) {
   }
   return Boolean(
     moderatorCurrentHumanRoute(state)
-    || safeFileSegment(state?.current_bot_id || "").toLowerCase()
+    || moderatorConcreteBotRouteId(state?.current_bot_id)
     || moderatorPendingHumanRoute(state)
-    || safeFileSegment(state?.pending_route?.target_bot_id || "").toLowerCase()
-    || safeFileSegment(state?.floor_target_bot_id || "").toLowerCase()
+    || moderatorConcreteBotRouteId(state?.pending_route?.target_bot_id)
+    || moderatorConcreteBotRouteId(state?.floor_target_bot_id)
     || String(state?.floor_speaker_user_id || "").trim()
     || (Array.isArray(state?.only_bot_ids) && state.only_bot_ids.length > 0)
   );
+}
+
+function moderatorConcreteBotRouteId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const target = safeFileSegment(raw).toLowerCase();
+  return ["auto", "default", "none", "room"].includes(target) ? "" : target;
 }
 
 function moderatorHasProtectedCurrentSpeaker(state = readModeratorState()) {
@@ -2144,10 +2153,10 @@ function moderatorHasProtectedCurrentSpeaker(state = readModeratorState()) {
   }
   return Boolean(
     moderatorCurrentHumanRoute(state)
-    || safeFileSegment(state?.current_bot_id || "").toLowerCase()
+    || moderatorConcreteBotRouteId(state?.current_bot_id)
     || moderatorPendingHumanRoute(state)
-    || safeFileSegment(state?.pending_route?.target_bot_id || "").toLowerCase()
-    || safeFileSegment(state?.floor_target_bot_id || "").toLowerCase()
+    || moderatorConcreteBotRouteId(state?.pending_route?.target_bot_id)
+    || moderatorConcreteBotRouteId(state?.floor_target_bot_id)
     || String(state?.floor_speaker_user_id || "").trim()
   );
 }
@@ -2155,10 +2164,10 @@ function moderatorHasProtectedCurrentSpeaker(state = readModeratorState()) {
 function moderatorHasRoutedSpeakerFlow(state = readModeratorState()) {
   return Boolean(
     moderatorCurrentHumanRoute(state)
-    || safeFileSegment(state?.current_bot_id || "").toLowerCase()
+    || moderatorConcreteBotRouteId(state?.current_bot_id)
     || moderatorPendingHumanRoute(state)
-    || safeFileSegment(state?.pending_route?.target_bot_id || "").toLowerCase()
-    || safeFileSegment(state?.floor_target_bot_id || "").toLowerCase()
+    || moderatorConcreteBotRouteId(state?.pending_route?.target_bot_id)
+    || moderatorConcreteBotRouteId(state?.floor_target_bot_id)
     || String(state?.floor_speaker_user_id || "").trim()
   );
 }
@@ -2176,6 +2185,31 @@ function moderatorProtectsRoutingFlow(state = readModeratorState()) {
   return Boolean(
     !moderatorAllowsCurrentInterruption(state)
     && moderatorHasRoutedSpeakerFlow(state)
+  );
+}
+
+function turnIsCurrentOrPendingHumanSpeaker(turn, state = readModeratorState()) {
+  const userId = String(turn?.userId || "").trim();
+  if (!userId) {
+    return false;
+  }
+  const current = moderatorCurrentHumanRoute(state);
+  if (current?.userId && current.userId === userId) {
+    return true;
+  }
+  const pending = moderatorPendingHumanRoute(state);
+  if (pending?.userId && pending.userId === userId) {
+    return true;
+  }
+  return String(state?.floor_speaker_user_id || "").trim() === userId;
+}
+
+function shouldRecordProtectedMicContext(turn, state = readModeratorState()) {
+  return Boolean(
+    routeProtectedMicSpeech
+    && !turn?.speakerIsBot
+    && moderatorProtectsRoutingFlow(state)
+    && !turnIsCurrentOrPendingHumanSpeaker(turn, state)
   );
 }
 
@@ -2711,7 +2745,7 @@ async function requestRoomRouteDecision(turn, routeKey) {
       participants: currentParticipantSnapshot(),
       room_context: readRoomContext(),
       candidate_bots: roomRouterCandidatesForTurn(turn),
-      record_route_context: Boolean(routeProtectedMicSpeech && moderatorProtectsRoutingFlow()),
+      record_route_context: shouldRecordProtectedMicContext(turn),
       routing_policy: {
         human_to_bot_routing: roomRouterHumanToBotRouting,
         bot_to_bot_routing: roomRouterBotToBotRouting,

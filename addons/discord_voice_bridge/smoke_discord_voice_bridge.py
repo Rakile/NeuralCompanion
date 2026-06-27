@@ -701,7 +701,10 @@ def _test_discord_protected_mic_speech_routes_context() -> None:
     schema_text = (addon_dir / "settings_schema.json").read_text(encoding="utf-8")
 
     assert "routeProtectedMicSpeech" in node_text
-    assert 'record_route_context: Boolean(routeProtectedMicSpeech && moderatorProtectsRoutingFlow())' in node_text
+    assert "function shouldRecordProtectedMicContext" in node_text
+    assert "function turnIsCurrentOrPendingHumanSpeaker" in node_text
+    assert "record_route_context: shouldRecordProtectedMicContext(turn)" in node_text
+    assert "function moderatorConcreteBotRouteId" in node_text
     assert "function moderatorHasRoutedSpeakerFlow" in node_text
     assert "function moderatorProtectsRoutingFlow" in node_text
     assert "function moderatorBlocksSpeechInterruption" in node_text
@@ -1283,8 +1286,9 @@ def _test_node_shared_room_router_contract() -> None:
     assert "acceptedRouteKey !== routeKey" in source, source[:500]
     assert "return Boolean(!targetBotId || !acceptedTarget || targetBotId === acceptedTarget);" in source, source[:500]
     assert "humanInterventionExtra: routeKey" in source, source[:500]
+    assert "function moderatorConcreteBotRouteId" in source, source[:500]
     assert "function moderatorProtectsCurrentSpeaker" in source, source[:500]
-    assert 'safeFileSegment(state?.current_bot_id || "").toLowerCase()' in source, source[:500]
+    assert 'moderatorConcreteBotRouteId(state?.current_bot_id)' in source, source[:500]
     assert "function markBotCurrentForTurn" in source, source[:500]
     assert "function clearCurrentBotIfTurnHasNoPlayback" in source, source[:500]
     assert "current_bot_turn_id: turnId" in source, source[:500]

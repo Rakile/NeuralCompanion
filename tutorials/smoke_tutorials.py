@@ -7,6 +7,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 TUTORIALS_DIR = ROOT / "tutorials"
+PRESETS_DIR = ROOT / "presets"
 
 TEXT_EXTENSIONS = {
     ".json",
@@ -93,6 +94,16 @@ def _load_tutorial(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _load_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - printed by smoke script
+        raise AssertionError(f"{path.name}: invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise AssertionError(f"{path.name}: top-level payload must be an object")
+    return payload
+
+
 def _target_exists(target: str, corpus: str) -> bool:
     if target in KNOWN_VIRTUAL_TARGETS:
         return True
@@ -127,6 +138,14 @@ def main() -> int:
     corpus = _repo_text()
     seen_ids: dict[str, str] = {}
     seen_orders: dict[int, str] = {}
+
+    tutorial_preset_path = PRESETS_DIR / "Tutorial_Persona.json"
+    if tutorial_preset_path.exists():
+        tutorial_preset = _load_json(tutorial_preset_path)
+        if bool(tutorial_preset.get("limit_response_length", False)):
+            errors.append("Tutorial_Persona.json: first-run preset must not enable response length limiting")
+        if int(tutorial_preset.get("max_response_tokens", 600) or 600) < 600:
+            errors.append("Tutorial_Persona.json: first-run max_response_tokens must stay at least 600")
 
     for path in sorted(TUTORIALS_DIR.glob("*.json")):
         payload = _load_tutorial(path)
