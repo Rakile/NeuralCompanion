@@ -701,7 +701,15 @@ def _test_discord_protected_mic_speech_routes_context() -> None:
     schema_text = (addon_dir / "settings_schema.json").read_text(encoding="utf-8")
 
     assert "routeProtectedMicSpeech" in node_text
-    assert 'record_route_context: Boolean(routeProtectedMicSpeech && moderatorProtectsCurrentSpeaker())' in node_text
+    assert 'record_route_context: Boolean(routeProtectedMicSpeech && moderatorProtectsRoutingFlow())' in node_text
+    assert "function moderatorHasRoutedSpeakerFlow" in node_text
+    assert "function moderatorProtectsRoutingFlow" in node_text
+    assert "function moderatorBlocksSpeechInterruption" in node_text
+    assert "moderatorBlocksSpeechInterruption()" in node_text
+    assert "protected mic context while waiting for pending bot route" in node_text
+    assert "isProtectedMicContextOnlyDecision(decision)" in node_text
+    assert "&& !isProtectedMicContextOnlyDecision(decision)" in node_text
+    assert "Protected mic speech recorded without consuming moderator routing." in node_text
     assert '"playback.route_protected_mic_speech"' in schema_text
     assert "TinyMVP only" not in controller_text
 
@@ -863,11 +871,11 @@ def _test_runtime_interruption_contract() -> None:
 def _test_runtime_route_context_recording() -> None:
     settings = _base_settings()
     server = DiscordVoiceRuntimeServer(settings=settings, logger=None)
-    server._room_router_decision = lambda _text, _payload: {  # type: ignore[method-assign]
-        "answer": False,
-        "target_bot_id": "",
-        "reason": "current_speaker_protected",
-    }
+
+    def _fail_if_protected_speech_routes(_text, _payload):
+        raise AssertionError("protected mic speech should be recorded without running the room router")
+
+    server._room_router_decision = _fail_if_protected_speech_routes  # type: ignore[method-assign]
     decision = server.route_turn(
         {
             "route_key": "protected_mic_1",
@@ -879,6 +887,9 @@ def _test_runtime_route_context_recording() -> None:
         }
     )
     assert decision["answer"] is False, decision
+    assert decision["target_bot_id"] == "", decision
+    assert decision["reason"] == "current_speaker_protected", decision
+    assert decision["protected_mic_context_only"] is True, decision
     assert decision["context_recorded"] is True, decision
     assert server._history[-1]["role"] == "user", server._history
     assert "Rakila: I should be heard without stealing the floor." in server._history[-1]["content"], server._history
@@ -1084,6 +1095,12 @@ def _test_room_router_decisions() -> None:
         "reason": "The utterance hands the turn to one or more non-human speakers without preferring a single bot.",
     }
     assert server._room_router_false_negative_invitation(false_nonhuman_invitation, policy) is True
+    false_whole_room_question = {
+        "answer": False,
+        "target_bot_id": "",
+        "reason": "The moderator is asking the whole room for opinions.",
+    }
+    assert server._room_router_false_negative_invitation(false_whole_room_question, policy) is True
 
     settings["room_router"]["allow_open_room_invitation_routing"] = False
     policy = server._room_router_policy(settings["room_router"])
@@ -1263,6 +1280,9 @@ def _test_node_shared_room_router_contract() -> None:
     assert "const referenceMs = routedPayloadReferenceMs(payload);" in source, source[:500]
     assert "referenceMs < markerMs" in source, source[:500]
     assert "function shouldIgnoreSharedRouteInterrupt" in source, source[:500]
+    assert "acceptedRouteKey !== routeKey" in source, source[:500]
+    assert "return Boolean(!targetBotId || !acceptedTarget || targetBotId === acceptedTarget);" in source, source[:500]
+    assert "humanInterventionExtra: routeKey" in source, source[:500]
     assert "function moderatorProtectsCurrentSpeaker" in source, source[:500]
     assert 'safeFileSegment(state?.current_bot_id || "").toLowerCase()' in source, source[:500]
     assert "function markBotCurrentForTurn" in source, source[:500]

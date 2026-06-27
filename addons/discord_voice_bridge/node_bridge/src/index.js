@@ -427,6 +427,10 @@ function captureSpeechTurn(connection, userId, guildId) {
     }
     interruptPauseRequested = true;
     const pauseReason = `speech from user ${userId} reached ${durationSeconds.toFixed(1)}s after failed ${continuousInterruptThresholdSeconds.toFixed(1)}s probe`;
+    if (moderatorBlocksSpeechInterruption()) {
+      console.log(`[DiscordBridgeModerator] Speech probe pause blocked: moderator routing flow is protected (${pauseReason})`);
+      return;
+    }
     const pendingInterrupt = pendingPlaybackInterrupt(pauseReason);
     if (pendingInterrupt) {
       pendingInterruptByUserId.set(String(userId), pendingInterrupt);
@@ -464,7 +468,7 @@ function captureSpeechTurn(connection, userId, guildId) {
       interruptHardCommitted = true;
       pendingInterruptByUserId.delete(String(userId));
       const reason = `valid ${durationSeconds.toFixed(1)}s speech probe from user ${userId}`;
-      const shouldInterrupt = !moderatorProtectsCurrentSpeaker();
+      const shouldInterrupt = !moderatorBlocksSpeechInterruption();
       if (shouldInterrupt) {
         emitPlaybackControl("interrupt", reason);
       }
@@ -472,7 +476,7 @@ function captureSpeechTurn(connection, userId, guildId) {
         ? interruptCurrentReply(reason, { abortActiveRequest: true, sendCancel: true })
         : false;
       if (!shouldInterrupt) {
-        console.log(`[DiscordBridgeModerator] Continuous speech probe did not interrupt: current speaker is protected (${reason}).`);
+        console.log(`[DiscordBridgeModerator] Continuous speech probe did not interrupt: moderator routing flow is protected (${reason}).`);
       }
       console.log(
         `[DiscordBridgeDecision] Continuous speech probe accepted: user=${userId}, interrupted=${interrupted}, text=${previewText(probe.input_text || "")}`
@@ -678,8 +682,8 @@ async function handleCapturedSpeech(turn) {
     const route = await routeCapturedSpeech(turn);
     if (route.acceptedSpeech) {
       const reason = `accepted speech after route: ${route.reason || "room_router"}`;
-      if (moderatorProtectsCurrentSpeaker()) {
-        console.log(`[DiscordBridgeModerator] Accepted speech did not interrupt after routing: current speaker is protected (${reason}).`);
+      if (moderatorBlocksSpeechInterruption()) {
+        console.log(`[DiscordBridgeModerator] Accepted speech did not interrupt after routing: moderator routing flow is protected (${reason}).`);
       } else {
         emitPlaybackControl("interrupt", reason, {
           route_key: String(route.decision?.route_key || turn.routeKey || ""),
@@ -1370,6 +1374,14 @@ async function chooseDeadAirRecoveryTarget(turn, routeKey, moderatorId, decision
 }
 
 async function maybeQueueDeadAirRecovery(decision, turn, routeKey, source, options = {}) {
+  if (isProtectedMicContextOnlyDecision(decision)) {
+    appendModeratorRecoveryStatus({
+      last_reason: "current_speaker_protected",
+      cooldown_remaining_ms: 0,
+      last_error: ""
+    });
+    return false;
+  }
   if (decision?.moderator_override) {
     appendModeratorRecoveryStatus({
       last_reason: String(decision?.reason || "moderator_override"),
@@ -2140,12 +2152,37 @@ function moderatorHasProtectedCurrentSpeaker(state = readModeratorState()) {
   );
 }
 
+function moderatorHasRoutedSpeakerFlow(state = readModeratorState()) {
+  return Boolean(
+    moderatorCurrentHumanRoute(state)
+    || safeFileSegment(state?.current_bot_id || "").toLowerCase()
+    || moderatorPendingHumanRoute(state)
+    || safeFileSegment(state?.pending_route?.target_bot_id || "").toLowerCase()
+    || safeFileSegment(state?.floor_target_bot_id || "").toLowerCase()
+    || String(state?.floor_speaker_user_id || "").trim()
+  );
+}
+
 function moderatorProtectsCurrentSpeaker(state = readModeratorState()) {
   return Boolean(
     state?.enabled !== false
     && !moderatorAllowsCurrentInterruption(state)
     && hasActiveBotPlayback()
     && moderatorHasProtectedCurrentSpeaker(state)
+  );
+}
+
+function moderatorProtectsRoutingFlow(state = readModeratorState()) {
+  return Boolean(
+    !moderatorAllowsCurrentInterruption(state)
+    && moderatorHasRoutedSpeakerFlow(state)
+  );
+}
+
+function moderatorBlocksSpeechInterruption(state = readModeratorState()) {
+  return Boolean(
+    moderatorProtectsCurrentSpeaker(state)
+    || (routeProtectedMicSpeech && moderatorProtectsRoutingFlow(state))
   );
 }
 
@@ -2293,6 +2330,19 @@ function moderatorDecisionForTurn(turn, routeKey) {
       consumeModeratorPendingRoute(routeKey);
       pendingTarget = "";
     } else if (!base.speaker_is_bot && (inputText || turn?.filePath || Number(turn?.durationSeconds || 0) > 0)) {
+      if (routeProtectedMicSpeech && moderatorProtectsRoutingFlow(state)) {
+        console.log(
+          `[DiscordBridgeModerator] Capturing protected mic context while waiting for pending bot route ${pendingTarget}.`
+        );
+        return {
+          ...base,
+          answer: false,
+          target_bot_id: "",
+          reason: "current_speaker_protected",
+          protected_mic_context_only: true,
+          speech_accepted: Boolean(inputText)
+        };
+      }
       console.log(
         `[DiscordBridgeModerator] Human speech paused pending bot route ${pendingTarget}; sending utterance through normal room router.`
       );
@@ -2661,7 +2711,7 @@ async function requestRoomRouteDecision(turn, routeKey) {
       participants: currentParticipantSnapshot(),
       room_context: readRoomContext(),
       candidate_bots: roomRouterCandidatesForTurn(turn),
-      record_route_context: Boolean(routeProtectedMicSpeech && moderatorProtectsCurrentSpeaker()),
+      record_route_context: Boolean(routeProtectedMicSpeech && moderatorProtectsRoutingFlow()),
       routing_policy: {
         human_to_bot_routing: roomRouterHumanToBotRouting,
         bot_to_bot_routing: roomRouterBotToBotRouting,
@@ -3183,6 +3233,10 @@ function markAcceptedHumanRoute(decision, turn, routeKey) {
   if (turn?.speakerBotId || turn?.speakerIsBot) {
     return;
   }
+  if (isProtectedMicContextOnlyDecision(decision)) {
+    console.log("[DiscordBridgeDecision] Protected mic speech recorded without consuming moderator routing.");
+    return;
+  }
   const inputText = String(decision?.input_text || turn?.inputText || "").trim();
   if (decision?.speech_accepted === false || !inputText) {
     return;
@@ -3194,6 +3248,11 @@ function markAcceptedHumanRoute(decision, turn, routeKey) {
     target_bot_id: String(decision?.target_bot_id || "")
   });
   discardPendingRoutedTextTurns(`${reason} (${routeKey || "no_route_key"})`);
+}
+
+function isProtectedMicContextOnlyDecision(decision) {
+  return Boolean(decision?.protected_mic_context_only)
+    || String(decision?.reason || "").trim() === "current_speaker_protected";
 }
 
 function markHumanIntervention(reason, extra = {}) {
@@ -3264,7 +3323,7 @@ function processPlaybackControlInbox() {
       sendCancel: true,
       broadcastControl: false,
       discardRoutedTurns: !isRouteTarget,
-      humanInterventionExtra: isRouteTarget
+      humanInterventionExtra: routeKey
         ? { accepted_route_key: routeKey, target_bot_id: routeTargetBotId }
         : {}
     });
@@ -3274,10 +3333,22 @@ function processPlaybackControlInbox() {
 function shouldIgnoreSharedRouteInterrupt(payload) {
   const targetBotId = safeFileSegment(payload?.target_bot_id || "").toLowerCase();
   const routeKey = String(payload?.route_key || "").trim();
-  if (!targetBotId || targetBotId !== botInstanceId || !routeKey) {
+  if (!routeKey || !activeReplyProgress?.routedText) {
     return false;
   }
-  return Boolean(activeReplyProgress?.routedText && String(activeReplyProgress.routeKey || "") === routeKey);
+  if (targetBotId && targetBotId === botInstanceId && String(activeReplyProgress.routeKey || "") === routeKey) {
+    return true;
+  }
+  const acceptedRouteKey = String(activeReplyProgress.acceptedHumanInterventionRouteKey || "").trim();
+  if (acceptedRouteKey !== routeKey) {
+    return false;
+  }
+  const acceptedTarget = safeFileSegment(
+    activeReplyProgress.acceptedHumanInterventionTargetBotId
+    || activeReplyProgress.routedTargetBotId
+    || ""
+  ).toLowerCase();
+  return Boolean(!targetBotId || !acceptedTarget || targetBotId === acceptedTarget);
 }
 
 function latestHumanInterventionMs() {
@@ -3635,7 +3706,11 @@ function routeDecisionForThisBot(decision) {
   const target = safeFileSegment(decision?.target_bot_id || "").toLowerCase();
   const speakerBotId = safeFileSegment(decision?.speaker_bot_id || "").toLowerCase();
   const reason = String(decision?.reason || "room_router").trim();
-  const acceptedSpeech = Boolean(decision?.speech_accepted !== false && String(decision?.input_text || "").trim());
+  const acceptedSpeech = Boolean(
+    decision?.speech_accepted !== false
+    && String(decision?.input_text || "").trim()
+    && !isProtectedMicContextOnlyDecision(decision)
+  );
   if (!answer || !target) {
     return { shouldProceed: false, reason, decision, acceptedSpeech };
   }
@@ -4628,7 +4703,7 @@ function attachSpeechCapture(connection, guildId) {
     }
     const protectedMicSpeechAllowed = !speakerIsBot
       && routeProtectedMicSpeech
-      && moderatorProtectsCurrentSpeaker()
+      && moderatorProtectsRoutingFlow()
       && !moderatorHumanMuted(userId);
     if (!speakerIsBot && !moderatorAllowsHumanSpeaker(userId) && !protectedMicSpeechAllowed) {
       const floor = moderatorHumanFloor();
@@ -4636,7 +4711,7 @@ function attachSpeechCapture(connection, guildId) {
       const pending = moderatorPendingHumanRoute();
       const reason = moderatorHumanMuted(userId)
         ? "participant is muted"
-        : moderatorProtectsCurrentSpeaker()
+        : moderatorBlocksSpeechInterruption()
           ? "current speaker is protected by moderator"
           : current
             ? `current speaker is ${current.name || current.userId || "unknown"}`
@@ -5137,8 +5212,8 @@ function handleSkippedNcTurn(event, turnState = {}) {
   const reason = String(event?.reason || "unknown");
   const speechAccepted = Boolean(event?.speech_accepted || turnState.acceptedSpeechInterrupt);
   if (speechAccepted) {
-    if (moderatorProtectsCurrentSpeaker()) {
-      console.log(`[DiscordBridgeModerator] Skipped accepted speech did not interrupt: current speaker is protected (${reason}).`);
+    if (moderatorBlocksSpeechInterruption()) {
+      console.log(`[DiscordBridgeModerator] Skipped accepted speech did not interrupt: moderator routing flow is protected (${reason}).`);
       return;
     }
     const interruptReason = `accepted speech skipped reply: ${reason}`;
@@ -5162,8 +5237,8 @@ function maybeInterruptForAcceptedReply(turnState, event = {}) {
   if (!interruptReplyOnUserSpeech || turnState.interruptedPlayback || !inputText) {
     return false;
   }
-  if (moderatorProtectsCurrentSpeaker()) {
-    console.log("[DiscordBridgeModerator] Accepted speech did not interrupt: current speaker is protected.");
+  if (moderatorBlocksSpeechInterruption()) {
+    console.log("[DiscordBridgeModerator] Accepted speech did not interrupt: moderator routing flow is protected.");
     if (turnState.latestTranscript) {
       turnState.latestTranscript.replyDecisionPending = false;
     }
@@ -5249,8 +5324,8 @@ function interruptCurrentReply(reason, options = {}) {
   if (!hasPlayback && (!abortActiveRequest || !activeNcAbortController)) {
     return false;
   }
-  if (respectModeratorProtection && moderatorProtectsCurrentSpeaker()) {
-    console.log(`[DiscordBridgeModerator] Reply interruption blocked: current speaker is protected (${reason})`);
+  if (respectModeratorProtection && moderatorBlocksSpeechInterruption()) {
+    console.log(`[DiscordBridgeModerator] Reply interruption blocked: moderator routing flow is protected (${reason})`);
     return false;
   }
   const immunityRemainingMs = playbackImmunityRemainingMs();
@@ -6004,8 +6079,8 @@ function pendingPlaybackInterrupt(reason) {
   if (!interruptReplyOnUserSpeech || !hasPlayback || !turnId) {
     return null;
   }
-  if (moderatorProtectsCurrentSpeaker()) {
-    console.log(`[DiscordBridgeModerator] Reply interruption blocked: current speaker is protected (${reason})`);
+  if (moderatorBlocksSpeechInterruption()) {
+    console.log(`[DiscordBridgeModerator] Reply interruption blocked: moderator routing flow is protected (${reason})`);
     return null;
   }
   const immunityRemainingMs = playbackImmunityRemainingMs();

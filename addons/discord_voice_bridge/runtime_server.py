@@ -576,6 +576,41 @@ class DiscordVoiceRuntimeServer:
             self._speaker_input_text(input_text, speaker_name=speaker_name, user_id=user_id),
             captured_at,
         )
+        record_route_context = self._settings_bool((payload or {}).get("record_route_context"), False)
+        if record_route_context:
+            record_result = self.record_user_turn(
+                {
+                    "route_key": route_key,
+                    "context_input_text": context_input_text,
+                    "input_text": input_text,
+                    "speaker_name": speaker_name,
+                    "user_id": user_id,
+                    "captured_at": captured_at,
+                }
+            )
+            decision = {
+                "ok": True,
+                "answer": False,
+                "target_bot_id": "",
+                "reason": "current_speaker_protected",
+                "route_key": route_key,
+                "input_text": input_text,
+                "context_input_text": context_input_text,
+                "speech_accepted": True,
+                "speaker_name": speaker_name,
+                "user_id": user_id,
+                "context_recorded": bool(record_result.get("recorded")),
+                "context_record_reason": str(record_result.get("reason") or ""),
+                "protected_mic_context_only": True,
+            }
+            self._remember_route_decision(decision)
+            self._debug(
+                "room route context-only: route=%s speaker=%s reason=current_speaker_protected recorded=%s",
+                route_key or "?",
+                speaker_name or user_id or "?",
+                decision["context_recorded"],
+            )
+            return decision
         decision = self._room_router_decision(context_input_text, payload)
         decision.update(
             {
@@ -588,21 +623,7 @@ class DiscordVoiceRuntimeServer:
                 "user_id": user_id,
             }
         )
-        if self._settings_bool((payload or {}).get("record_route_context"), False):
-            record_result = self.record_user_turn(
-                {
-                    "route_key": route_key,
-                    "context_input_text": context_input_text,
-                    "input_text": input_text,
-                    "speaker_name": speaker_name,
-                    "user_id": user_id,
-                    "captured_at": captured_at,
-                }
-            )
-            decision["context_recorded"] = bool(record_result.get("recorded"))
-            decision["context_record_reason"] = str(record_result.get("reason") or "")
-        else:
-            decision["context_recorded"] = False
+        decision["context_recorded"] = False
         self._remember_route_decision(decision)
         self._debug(
             "room route decision: route=%s speaker=%s candidates=%s answer=%s target=%s reason=%s policy=%s",
@@ -1850,15 +1871,27 @@ class DiscordVoiceRuntimeServer:
             "bot group",
             "bots and the user",
             "the room",
+            "whole room",
+            "entire room",
             "room participants",
             "the group",
+            "whole group",
+            "entire group",
             "all participants",
+            "everyone",
+            "anyone",
         )
         open_room_tokens = (
             "the room",
+            "whole room",
+            "entire room",
             "room participants",
             "the group",
+            "whole group",
+            "entire group",
             "all participants",
+            "everyone",
+            "anyone",
             "all bots",
             "candidate bots",
             "non-human speakers",
