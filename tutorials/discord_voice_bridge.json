@@ -1,0 +1,136 @@
+{
+  "id": "discord_voice_bridge",
+  "order": 25,
+  "title": "25. Discord Voice Bridge",
+  "description": "Set up the Discord Voice Bridge addon for either a real Discord voice channel or the bundled TinyMVP local test room.",
+  "steps": [
+    {
+      "title": "Open Discord Voice",
+      "body": "Discord Voice Bridge lets one or more NC bot personas listen and speak in a Discord voice channel, or in the local TinyMVP test room. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
+      "tab": "Discord Voice",
+      "target": "discord_voice_bridge_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" }
+      ]
+    },
+    {
+      "title": "Enable the Addon",
+      "body": "Enable Discord Voice Bridge only when you want NC to launch bridge processes. Start on NC launch is optional; leave it off until your settings are known-good.",
+      "tab": "Discord Voice",
+      "target": "discord_enabled_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "General" }
+      ]
+    },
+    {
+      "title": "Choose Real Discord or TinyMVP",
+      "body": "Bridge mode decides where the bots connect. Use HTTP / Discord for a real Discord voice channel. Use TinyMVP local room for local testing without Discord accounts, tokens, or a live server.",
+      "tab": "Discord Voice",
+      "target": "discord_bridge_mode_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "General" }
+      ]
+    },
+    {
+      "title": "Install Node Dependencies",
+      "body": "Real Discord mode needs the bundled Node bridge dependencies. If NC warns that dependencies are missing, accept the install prompt or use Install / Update Node Deps from the Status tab. TinyMVP mode does not need a Discord token.",
+      "tab": "Discord Voice",
+      "target": "discord_install_node_deps_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "Status" }
+      ]
+    },
+    {
+      "title": "Enter Discord Connection Details",
+      "body": "For real Discord, create a Discord bot, invite it to your server, then enter the token source, guild ID, and voice channel ID here. Keep tokens local and do not commit settings.local.json.",
+      "tab": "Discord Voice",
+      "target": "discord_voice_channel_id_edit",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "Discord" }
+      ]
+    },
+    {
+      "title": "Use Lean Capture Settings",
+      "body": "For speech recognition, 16000 Hz mono WAV capture is usually enough and keeps files smaller. Keep low-information filtering enabled so short noise clips do not steer the room.",
+      "tab": "Discord Voice",
+      "target": "discord_wav_sample_rate_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "Capture" }
+      ]
+    },
+    {
+      "title": "Protect Turn Taking",
+      "body": "Playback and interruption settings decide when human speech interrupts a bot and when protected speech is only recorded into context. For a first test, keep coordinated bot replies enabled and avoid changing advanced timing while a bot is speaking.",
+      "tab": "Discord Voice",
+      "target": "discord_interrupt_reply_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "Playback" }
+      ]
+    },
+    {
+      "title": "Configure Routing",
+      "body": "Shared Room Router decides who should answer next. LLM router mode is the normal multi-bot path. Group and open-room invitations let the conversation continue when someone asks the room instead of one named bot.",
+      "tab": "Discord Voice",
+      "target": "discord_room_router_mode_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "Filter" }
+      ]
+    },
+    {
+      "title": "Create Bot Personas",
+      "body": "Use the Bots tab to create one row per bot persona. Each bot can have its own Discord token, voice clone WAV, system prompt, and optional chat model. Start with one bot, then add more after the first bridge works.",
+      "tab": "Discord Voice",
+      "target": "discord_bots_json_edit",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "Bots" }
+      ]
+    },
+    {
+      "title": "Try TinyMVP Locally",
+      "body": "TinyMVP local room is the safest first test for routing and moderation. Enable Open TinyMVP monitor window if you want a passive local room view when Start Bridge launches TinyMVP.",
+      "tab": "Discord Voice",
+      "target": "discord_tiny_mvp_group",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "General" }
+      ]
+    },
+    {
+      "title": "Save Before Starting",
+      "body": "Save Settings writes the ignored local settings file used by the bridge launcher. Save before pressing Start Bridge, especially after editing bots, tokens, mode, or TinyMVP settings.",
+      "tab": "Discord Voice",
+      "target": "discord_bridge_save_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" }
+      ]
+    },
+    {
+      "title": "Start and Watch Status",
+      "body": "Press Start Bridge and watch Status. You should see bot rows become running and connected. If something fails, Copy Diagnostics gives a redacted report that is safer to share than raw local settings.",
+      "tab": "Discord Voice",
+      "target": "discord_bridge_start_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" }
+      ]
+    },
+    {
+      "title": "Use the Moderator Panel Later",
+      "body": "After normal routing works, use Moderator controls to set current and next speakers, allow only one speaker, route protected mic speech, or enforce Discord mute with a selected moderator bot. Leave hard moderation off until basic routing is stable.",
+      "tab": "Discord Voice",
+      "target": "discord_moderator_group",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Discord Voice" },
+        { "type": "open_tab", "tab_widget": "discord_bridge_settings_tabs", "value": "Moderator" }
+      ]
+    }
+  ]
+}
