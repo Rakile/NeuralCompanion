@@ -31,6 +31,7 @@ Demo mode includes:
 - A Multi Persona Story scene with narrator and character segments, choices, memory counts, story audio chunks, and Chromecast status.
 - A Visual Reply storyboard scene.
 - A local animated MuseTalk-style avatar preview.
+- Buddy Chat status with per-persona provider demo data.
 
 Exit demo mode before connecting to a real Main Chat Remote backend.
 
@@ -55,6 +56,7 @@ Exit demo mode before connecting to a real Main Chat Remote backend.
 - Visual Reply generate, snapshot, show, hide, and clear controls.
 - MuseTalk frame stream display with newest-frame fallback when stream loading fails or stalls.
 - Feature-aware controls for desktop STT, Visual Reply, and MuseTalk availability.
+- Buddy Chat status display, including enabled state, active persona count, shared provider mode, and per-persona provider override count. Provider URLs, API keys, and local voice paths are not exposed to the phone.
 - Offline Demo mode for reviewing the phone UI without a running backend.
 
 WebRTC-grade MuseTalk video and internet relay/auth support remain backend and transport work, not phone-only UI work.

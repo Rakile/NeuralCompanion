@@ -235,6 +235,42 @@ class _AddonCapabilities:
                     "auto_image_count": 1,
                 },
             }
+        if name == "buddy_chat.status":
+            return {
+                "available": True,
+                "enabled": True,
+                "reply_mode": "main_answer",
+                "llm_mode": "per_persona",
+                "persona_count": 2,
+                "active_persona_count": 2,
+                "max_speakers": 2,
+                "shared_provider": {
+                    "provider_id": "lmstudio",
+                    "model": "shared-model",
+                    "base_url": "http://192.168.2.50:1234/v1",
+                    "api_key": "secret",
+                },
+                "personas": [
+                    {
+                        "id": "alex",
+                        "display_name": "Alex",
+                        "enabled": True,
+                        "provider_id": "inherit",
+                        "model": "",
+                        "base_url": "",
+                        "api_key": "",
+                    },
+                    {
+                        "id": "mira",
+                        "display_name": "Mira",
+                        "enabled": True,
+                        "provider_id": "lmstudio",
+                        "model": "remote-model",
+                        "base_url": "http://192.168.2.46:1234/v1",
+                        "api_key": "secret",
+                    },
+                ],
+            }
         if name == "mprc.remote_send":
             return {"accepted": True, "message": "MPRC text queued.", "text": data.get("text")}
         if name == "mprc.remote_choice":
@@ -2097,6 +2133,14 @@ def main() -> int:
             assert phone_state["state"]["visual"]["service_available"] is True
             assert phone_state["state"]["musetalk"]["stream_url_path"] == "/api/musetalk/stream"
             assert phone_state["state"]["features"]["mprc_story_mode"] is True
+            assert phone_state["state"]["features"]["buddy_chat"] is True
+            assert phone_state["state"]["buddy_chat"]["enabled"] is True
+            assert phone_state["state"]["buddy_chat"]["llm_mode"] == "per_persona"
+            assert phone_state["state"]["buddy_chat"]["active_persona_count"] == 2
+            assert phone_state["state"]["buddy_chat"]["shared_provider"]["provider_id"] == "lmstudio"
+            assert phone_state["state"]["buddy_chat"]["personas"][1]["provider_id"] == "lmstudio"
+            assert "api_key" not in json.dumps(phone_state["state"]["buddy_chat"])
+            assert "192.168.2.46" not in json.dumps(phone_state["state"]["buddy_chat"])
             assert phone_state["state"]["mprc"]["available"] is True
             assert phone_state["state"]["mprc"]["session"]["scene_title"] == "Smoke Scene"
             assert phone_state["state"]["mprc"]["segments"][1]["speaker_name"] == "Guide"

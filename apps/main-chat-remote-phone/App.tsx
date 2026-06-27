@@ -54,7 +54,7 @@ function tabBadge(tab: MainTab, state: RemoteState | null, sessionActive: boolea
     return state?.mprc?.available ? `Turn ${Number(state.mprc.session?.turn_index ?? 0)}` : 'Off';
   }
   if (tab === 'settings') {
-    return 'Ready';
+    return state?.buddy_chat?.enabled ? 'Buddy' : 'Ready';
   }
   return state?.runtime_status?.running || state?.engine?.running ? 'Ready' : 'Idle';
 }

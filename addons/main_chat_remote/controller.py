@@ -793,6 +793,7 @@ class MainChatRemoteController:
             chat_session = self._safe_service_call(self.chat_replay, "snapshot_chat_session", {})
             replayable = self._safe_service_call(self.chat_replay, "replayable_chat_entries", [])
             mprc = self.mprc_snapshot(phone_safe=True)
+            buddy_chat = self.buddy_chat_snapshot(phone_safe=True)
             return {
                 "runtime_status": runtime_status,
                 "runtime_settings": self._runtime_settings_summary(runtime_config),
@@ -808,6 +809,7 @@ class MainChatRemoteController:
                 "visual": self.visual_snapshot(phone_safe=True),
                 "musetalk": self.musetalk_snapshot(phone_safe=True),
                 "mprc": mprc,
+                "buddy_chat": buddy_chat,
                 "remote": self._phone_status_snapshot(),
                 "features": {
                     "text_send": True,
@@ -819,6 +821,7 @@ class MainChatRemoteController:
                     "musetalk_frame_feed": True,
                     "musetalk_frame_stream": True,
                     "mprc_story_mode": bool(dict(mprc or {}).get("available", False)),
+                    "buddy_chat": bool(dict(buddy_chat or {}).get("available", False)),
                 },
             }
 
@@ -864,6 +867,61 @@ class MainChatRemoteController:
             snapshot = dict(result)
             snapshot.setdefault("available", True)
         return self._phone_safe_payload(snapshot) if phone_safe else snapshot
+
+    def buddy_chat_snapshot(self, *, phone_safe: bool = False) -> dict[str, Any]:
+        invoker = getattr(self.addon_capabilities, "invoke", None)
+        if not callable(invoker):
+            snapshot = {
+                "available": False,
+                "message": "Buddy Chat addon is unavailable.",
+            }
+        else:
+            result = invoker("buddy_chat.status", {})
+            if not isinstance(result, dict):
+                snapshot = {
+                    "available": False,
+                    "message": "Buddy Chat addon is unavailable.",
+                }
+            else:
+                snapshot = self._buddy_chat_phone_safe_status(result) if phone_safe else dict(result)
+                snapshot.setdefault("available", True)
+        return self._phone_safe_payload(snapshot) if phone_safe else snapshot
+
+    @staticmethod
+    def _buddy_chat_phone_safe_status(payload: dict[str, Any]) -> dict[str, Any]:
+        source = dict(payload or {})
+        shared_provider = dict(source.get("shared_provider") or {})
+        safe_personas = []
+        for item in list(source.get("personas") or []):
+            if not isinstance(item, dict):
+                continue
+            safe_personas.append(
+                {
+                    "id": str(item.get("id") or ""),
+                    "display_name": str(item.get("display_name") or ""),
+                    "enabled": bool(item.get("enabled", False)),
+                    "source": str(item.get("source") or ""),
+                    "provider_id": str(item.get("provider_id") or "inherit"),
+                    "model": str(item.get("model") or ""),
+                    "voice_enabled": bool(item.get("voice_enabled", False)),
+                }
+            )
+        return {
+            "available": bool(source.get("available", True)),
+            "enabled": bool(source.get("enabled", False)),
+            "reply_mode": str(source.get("reply_mode") or ""),
+            "llm_mode": str(source.get("llm_mode") or ""),
+            "persona_count": int(source.get("persona_count", len(safe_personas)) or 0),
+            "active_persona_count": int(source.get("active_persona_count", 0) or 0),
+            "max_speakers": int(source.get("max_speakers", 1) or 1),
+            "per_persona_provider_count": int(source.get("per_persona_provider_count", 0) or 0),
+            "shared_provider": {
+                "provider_id": str(shared_provider.get("provider_id") or "inherit"),
+                "model": str(shared_provider.get("model") or ""),
+            },
+            "personas": safe_personas,
+            "message": str(source.get("message") or ""),
+        }
 
     def remote_mprc_action(self, action: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         action_key = str(action or "").strip().lower()

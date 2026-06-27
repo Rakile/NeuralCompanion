@@ -17,6 +17,13 @@ export function RuntimeBar({ state, disabled, onStart, onStop }: Props) {
   const runtime = state?.runtime_status;
   const engine = state?.engine;
   const running = Boolean(engine?.running ?? runtime?.running);
+  const buddy = state?.buddy_chat;
+  const buddyAvailable = buddy?.available !== false && state?.features?.buddy_chat !== false;
+  const buddyLabel = buddyAvailable
+    ? buddy?.enabled
+      ? `Buddies ${Number(buddy.active_persona_count ?? 0) || 'On'}`
+      : 'Buddies Off'
+    : '';
   useEffect(() => {
     if (disabled) {
       setBusy(false);
@@ -44,6 +51,7 @@ export function RuntimeBar({ state, disabled, onStart, onStop }: Props) {
       <Text style={styles.item}>{runtime?.model_name || 'model'}</Text>
       <Text style={styles.item}>{runtime?.tts_backend || 'tts'}</Text>
       <Text style={styles.item}>{runtime?.microphone_state || 'mic'}</Text>
+      {buddyLabel ? <Text style={[styles.item, buddy?.enabled ? styles.running : undefined]}>{buddyLabel}</Text> : null}
       <Pressable disabled={disabled || running || busy} style={[styles.button, (disabled || running || busy) && styles.disabled]} onPress={() => trigger(onStart)}>
         <Text style={styles.buttonText}>Start</Text>
       </Pressable>

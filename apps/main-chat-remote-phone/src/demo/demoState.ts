@@ -310,6 +310,40 @@ export function createInitialDemoRemoteState(): RemoteState {
         auto_image_count: 1,
       },
     },
+    buddy_chat: {
+      available: true,
+      enabled: true,
+      reply_mode: 'main_answer',
+      llm_mode: 'per_persona',
+      persona_count: 2,
+      active_persona_count: 2,
+      max_speakers: 2,
+      per_persona_provider_count: 1,
+      shared_provider: {
+        provider_id: 'main',
+        model: 'story-demo-model',
+      },
+      personas: [
+        {
+          id: 'mara',
+          display_name: 'Mara',
+          enabled: true,
+          source: 'buddy_chat',
+          provider_id: 'inherit',
+          model: '',
+          voice_enabled: true,
+        },
+        {
+          id: 'nox',
+          display_name: 'Nox',
+          enabled: true,
+          source: 'buddy_chat',
+          provider_id: 'lmstudio',
+          model: 'remote-lan-demo',
+          voice_enabled: true,
+        },
+      ],
+    },
     features: {
       main_chat_text: true,
       runtime_status: true,
@@ -320,6 +354,7 @@ export function createInitialDemoRemoteState(): RemoteState {
       musetalk_frame_feed: true,
       musetalk_frame_stream: true,
       mprc_story_mode: true,
+      buddy_chat: true,
     },
   };
 }

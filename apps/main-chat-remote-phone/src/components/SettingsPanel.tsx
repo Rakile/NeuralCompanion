@@ -104,14 +104,37 @@ function RuntimeSummary({ state }: { state: RemoteState | null }) {
   const runtime = state?.runtime_status;
   const settings = state?.runtime_settings;
   const visualProvider = String(state?.visual?.settings?.provider_label || state?.visual?.settings?.provider_value || 'visual');
+  const buddy = state?.buddy_chat;
+  const buddyProvider = String(buddy?.shared_provider?.provider_id || 'main');
+  const buddyModel = String(buddy?.shared_provider?.model || '').trim();
+  const buddyPersonas = Number(buddy?.active_persona_count ?? 0);
+  const buddyMode = String(buddy?.llm_mode || 'main');
   return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>Runtime Settings</Text>
-      <Text style={styles.diag}>LLM: {settings?.chat_provider || runtime?.chat_provider || 'unknown'} {settings?.model_name || runtime?.model_name ? `/ ${settings?.model_name || runtime?.model_name}` : ''}</Text>
-      <Text style={styles.diag}>STT: {settings?.stt_backend || 'unknown'} {settings?.stt_model_size ? `/ ${settings.stt_model_size}` : ''}</Text>
-      <Text style={styles.diag}>TTS: {settings?.tts_backend || runtime?.tts_backend || 'unknown'}</Text>
-      <Text style={styles.diag}>Visual Reply: {settings?.visual_reply_provider || visualProvider}</Text>
-    </View>
+    <>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Runtime Settings</Text>
+        <Text style={styles.diag}>LLM: {settings?.chat_provider || runtime?.chat_provider || 'unknown'} {settings?.model_name || runtime?.model_name ? `/ ${settings?.model_name || runtime?.model_name}` : ''}</Text>
+        <Text style={styles.diag}>STT: {settings?.stt_backend || 'unknown'} {settings?.stt_model_size ? `/ ${settings.stt_model_size}` : ''}</Text>
+        <Text style={styles.diag}>TTS: {settings?.tts_backend || runtime?.tts_backend || 'unknown'}</Text>
+        <Text style={styles.diag}>Visual Reply: {settings?.visual_reply_provider || visualProvider}</Text>
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Buddy Chat</Text>
+        {buddy?.available === false ? (
+          <Text style={styles.detail}>{buddy.message || 'Buddy Chat is not available on the desktop.'}</Text>
+        ) : (
+          <>
+            <Text style={styles.diag}>Status: {buddy?.enabled ? 'Enabled' : 'Disabled'}</Text>
+            <Text style={styles.diag}>Mode: {buddyMode === 'per_persona' ? 'Per-persona providers' : buddyMode === 'buddy' ? 'Shared buddy provider' : 'Main LLM Runtime'}</Text>
+            <Text style={styles.diag}>Personas: {buddyPersonas} active / {Number(buddy?.persona_count ?? 0)} total</Text>
+            <Text style={styles.diag}>Shared provider: {buddyProvider}{buddyModel ? ` / ${buddyModel}` : ''}</Text>
+            {Number(buddy?.per_persona_provider_count ?? 0) > 0 ? (
+              <Text style={styles.diag}>Persona overrides: {Number(buddy?.per_persona_provider_count ?? 0)}</Text>
+            ) : null}
+          </>
+        )}
+      </View>
+    </>
   );
 }
 

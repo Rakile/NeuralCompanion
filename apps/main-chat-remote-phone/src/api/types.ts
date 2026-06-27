@@ -198,6 +198,33 @@ export type MprcState = {
   };
 };
 
+export type BuddyChatPersonaState = {
+  id?: string;
+  display_name?: string;
+  enabled?: boolean;
+  source?: string;
+  provider_id?: string;
+  model?: string;
+  voice_enabled?: boolean;
+};
+
+export type BuddyChatState = {
+  available?: boolean;
+  enabled?: boolean;
+  reply_mode?: string;
+  llm_mode?: string;
+  persona_count?: number;
+  active_persona_count?: number;
+  max_speakers?: number;
+  per_persona_provider_count?: number;
+  shared_provider?: {
+    provider_id?: string;
+    model?: string;
+  };
+  personas?: BuddyChatPersonaState[];
+  message?: string;
+};
+
 export type RemoteState = {
   status_line?: string;
   runtime_status?: RuntimeStatus;
@@ -209,6 +236,7 @@ export type RemoteState = {
   visual?: VisualState;
   musetalk?: MuseTalkState;
   mprc?: MprcState;
+  buddy_chat?: BuddyChatState;
   features?: Record<string, boolean>;
 };
 

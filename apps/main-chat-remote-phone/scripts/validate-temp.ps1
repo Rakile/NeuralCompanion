@@ -99,9 +99,12 @@ const { createInitialDemoRemoteState, advanceDemoMuseTalkFrame, appendDemoChatTu
 
 const state = createInitialDemoRemoteState();
 assert.equal(state.features.main_chat_text, true);
+assert.equal(state.features.buddy_chat, true);
 assert.ok((state.chat.messages || []).length >= 4);
 assert.ok((state.mprc.segments || []).length >= 3);
 assert.ok(state.mprc.visual.latest_prompt.includes("Visual Reply"));
+assert.equal(state.buddy_chat.enabled, true);
+assert.equal(state.buddy_chat.llm_mode, "per_persona");
 assert.ok((state.musetalk.feed || []).length >= 3);
 
 const advanced = advanceDemoMuseTalkFrame(state);
