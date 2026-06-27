@@ -30,7 +30,7 @@
     },
     {
       "title": "Pick the Chat Model",
-      "body": "Make sure LM Studio is open, has a model loaded, and that the model appears here. If the list is empty, refresh models after LM Studio is ready.",
+      "body": "Make sure LM Studio is open and its local server is running with a model loaded. If this list says No Models or looks empty, press Refresh after LM Studio is ready, then choose the model you want to use.",
       "target": "model_combo",
       "actions": [
         { "type": "show_dock", "target": "SystemShapingDock" },

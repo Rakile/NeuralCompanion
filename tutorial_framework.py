@@ -939,6 +939,42 @@ class TutorialOverlay(QtWidgets.QWidget):
                 return clamp_rect(rect.left() - width - margin, candidate_y, width, panel_height)
             return clamp_rect(rect.left() - panel_width - margin, candidate_y)
 
+        if isinstance(self.current_target_widget, QtWidgets.QComboBox):
+            combo_gap = max(margin * 3, 56)
+            combo_x = rect.right() + combo_gap
+            right_available_width = parent_rect.width() - combo_x - margin
+            if right_available_width >= min_side_width:
+                combo_rect = clamp_rect(combo_x, rect.top(), min(panel_width, right_available_width), panel_height)
+                self._set_panel_geometry(combo_rect.x(), combo_rect.y(), combo_rect.width(), combo_rect.height())
+                return
+            popup_height = min(260, max(80, self.current_target_widget.count() * 28 + 12))
+            popup_rect = QtCore.QRect(rect.left(), rect.bottom() + 6, rect.width(), popup_height)
+            combo_candidates = [
+                right_side_rect(rect.top()),
+                left_side_rect(rect.top()),
+                clamp_rect(rect.left(), popup_rect.bottom() + margin),
+                clamp_rect(rect.left(), rect.top() - panel_height - margin),
+                right_side_rect(rect.center().y() - panel_height // 2),
+                left_side_rect(rect.center().y() - panel_height // 2),
+                clamp_rect(parent_rect.width() - panel_width - margin, margin),
+                clamp_rect(parent_rect.width() - panel_width - margin, parent_rect.height() - panel_height - margin),
+                clamp_rect(margin, margin),
+                clamp_rect(margin, parent_rect.height() - panel_height - margin),
+            ]
+
+            def combo_overlap_area(candidate_rect):
+                total = 0
+                for blocked_rect in (rect.adjusted(-12, -12, 12, 12), popup_rect):
+                    overlap = candidate_rect.intersected(blocked_rect)
+                    if not overlap.isNull():
+                        total += max(0, overlap.width()) * max(0, overlap.height())
+                return total
+
+            best_combo_rect = min(combo_candidates, key=lambda candidate: (combo_overlap_area(candidate), abs(candidate.top() - rect.top())))
+            if combo_overlap_area(best_combo_rect) == 0:
+                self._set_panel_geometry(best_combo_rect.x(), best_combo_rect.y(), best_combo_rect.width(), best_combo_rect.height())
+                return
+
         target_center = rect.center()
         centered_x = target_center.x() - panel_width // 2
         centered_y = target_center.y() - panel_height // 2

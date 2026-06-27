@@ -80,7 +80,7 @@ def _widget_area(widget: Any) -> int:
 
 
 def _step_errors(overlay: Any, tutorial_id: str, step_index: int) -> list[str]:
-    from PySide6 import QtWidgets
+    from PySide6 import QtCore, QtWidgets
 
     errors: list[str] = []
     step = dict((overlay.steps or [])[step_index] or {})
@@ -102,6 +102,20 @@ def _step_errors(overlay: Any, tutorial_id: str, step_index: int) -> list[str]:
         target_is_broad = bool(main_area and target_area > (main_area * 0.35))
         if not target_is_broad and not panel_rect.isNull() and panel_rect.intersects(highlight_rect.adjusted(-10, -10, 10, 10)):
             errors.append(f"{tutorial_id} step {step_index + 1} target {target_name!r}: tutorial panel overlaps target")
+        if isinstance(widget, QtWidgets.QComboBox) and not panel_rect.isNull() and widget.count() > 1:
+            popup_height = min(260, max(80, widget.count() * 28 + 12))
+            popup_rect = QtCore.QRect(
+                highlight_rect.left(),
+                highlight_rect.bottom() + 6,
+                highlight_rect.width(),
+                popup_height,
+            )
+            if panel_rect.intersects(popup_rect):
+                errors.append(f"{tutorial_id} step {step_index + 1} target {target_name!r}: tutorial panel overlaps combo popup space")
+            main_width = overlay.main_window.rect().width() if getattr(overlay, "main_window", None) is not None else 0
+            has_wide_right_space = main_width - (highlight_rect.right() + 56) - 18 >= 360
+            if has_wide_right_space and panel_rect.left() > highlight_rect.right() and panel_rect.left() - highlight_rect.right() < 48:
+                errors.append(f"{tutorial_id} step {step_index + 1} target {target_name!r}: tutorial panel is too close to combo popup")
     except Exception as exc:
         errors.append(f"{tutorial_id} step {step_index + 1} target {target_name!r}: panel geometry check failed: {exc}")
     return errors
