@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/readme_images/git_front.png" alt="NeuralCompanion feature overview" width="100%">
+</p>
+
 # Neural Companion
 
 Neural Companion is a local Windows desktop AI companion for realtime chat,
