@@ -19,6 +19,8 @@ It is designed for users who want a configurable AI companion that can talk,
 listen, roleplay, use local or API models, drive avatars, and grow through
 addons.
 
+[Skip the feature tour and jump to Requirements and Install](#requirements)
+
 ## What It Can Do
 
 - Chat through local or API providers such as LM Studio, OpenAI, xAI/Grok,
