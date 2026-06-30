@@ -1030,6 +1030,10 @@ avatar_gui = None
 tts_model = None
 tts_backend_name = None
 _shutdown_avatar_engine_lock = threading.RLock()
+_ua_musetalk_idle_stream_lock = threading.RLock()
+_ua_musetalk_idle_stream_stop = None
+_ua_musetalk_idle_stream_thread = None
+_ua_musetalk_idle_stream_key = ""
 recognizer = sr.Recognizer()
 conversation_history = []
 sent_tokenize = None
@@ -1956,6 +1960,85 @@ def prime_musetalk_preview_frame(playback_state):
             "runtime_config": RUNTIME_CONFIG,
         },
     )
+
+
+def stop_ua_companion_orb_musetalk_idle_stream():
+    global _ua_musetalk_idle_stream_stop, _ua_musetalk_idle_stream_thread, _ua_musetalk_idle_stream_key
+    with _ua_musetalk_idle_stream_lock:
+        stop_event = _ua_musetalk_idle_stream_stop
+        thread = _ua_musetalk_idle_stream_thread
+        _ua_musetalk_idle_stream_stop = None
+        _ua_musetalk_idle_stream_thread = None
+        _ua_musetalk_idle_stream_key = ""
+    if stop_event is not None:
+        stop_event.set()
+    if thread is not None and thread is not threading.current_thread() and thread.is_alive():
+        thread.join(timeout=0.2)
+
+
+def _ua_companion_orb_musetalk_idle_stream_key(state):
+    state = dict(state or {})
+    frame_paths = list(state.get("frame_paths", []) or [])
+    return "|".join(
+        [
+            str(state.get("chunk_id") or ""),
+            str(state.get("sync_time") or ""),
+            str(state.get("frame_dir") or ""),
+            str(len(frame_paths)),
+            str(state.get("start_index") or 0),
+            str(state.get("avatar_id") or ""),
+        ]
+    )
+
+
+def start_ua_companion_orb_musetalk_idle_stream(playback_state=None):
+    global _ua_musetalk_idle_stream_stop, _ua_musetalk_idle_stream_thread, _ua_musetalk_idle_stream_key
+    if _env_flag("NC_MUSETALK_DISABLE_PREVIEW_STREAM_THREAD"):
+        stop_ua_companion_orb_musetalk_idle_stream()
+        return False
+    if not bool(RUNTIME_CONFIG.get("ua_companion_orb_send_musetalk_face_mask", False)):
+        stop_ua_companion_orb_musetalk_idle_stream()
+        return False
+    state = dict(playback_state or getattr(musetalk_state, "current_musetalk_frame_data", {}) or {})
+    if not bool(state.get("loop", False)):
+        stop_ua_companion_orb_musetalk_idle_stream()
+        return False
+    if not list(state.get("frame_paths", []) or []) and not str(state.get("frame_dir", "") or "").strip():
+        stop_ua_companion_orb_musetalk_idle_stream()
+        return False
+    if stop_flag.is_set():
+        stop_ua_companion_orb_musetalk_idle_stream()
+        return False
+
+    stream_key = _ua_companion_orb_musetalk_idle_stream_key(state)
+    with _ua_musetalk_idle_stream_lock:
+        existing_thread = _ua_musetalk_idle_stream_thread
+        if _ua_musetalk_idle_stream_key == stream_key and existing_thread is not None and existing_thread.is_alive():
+            return True
+        old_stop = _ua_musetalk_idle_stream_stop
+        old_thread = _ua_musetalk_idle_stream_thread
+        _ua_musetalk_idle_stream_stop = None
+        _ua_musetalk_idle_stream_thread = None
+        _ua_musetalk_idle_stream_key = ""
+
+    if old_stop is not None:
+        old_stop.set()
+    if old_thread is not None and old_thread is not threading.current_thread() and old_thread.is_alive():
+        old_thread.join(timeout=0.2)
+
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=stream_musetalk_preview_frames,
+        args=(state, stop_event),
+        daemon=True,
+        name="nc-ua-musetalk-idle-stream",
+    )
+    with _ua_musetalk_idle_stream_lock:
+        _ua_musetalk_idle_stream_stop = stop_event
+        _ua_musetalk_idle_stream_thread = thread
+        _ua_musetalk_idle_stream_key = stream_key
+    thread.start()
+    return True
 
 
 # ============================================================================
@@ -5112,6 +5195,7 @@ def get_text_chunk_limits():
 
 
 def clear_avatar_stream_state():
+    stop_ua_companion_orb_musetalk_idle_stream()
     expression_state.reset_current_expression_data()
     musetalk_state.reset_musetalk_pipeline_data()
     musetalk_state.set_current_musetalk_frame_data({
@@ -5211,6 +5295,7 @@ def set_musetalk_idle_state():
     expression_state.reset_current_expression_data()
     musetalk_state.set_current_musetalk_frame_data(idle_payload)
     prime_musetalk_preview_frame(idle_payload)
+    start_ua_companion_orb_musetalk_idle_stream(idle_payload)
     schedule_musetalk_runtime_cleanup()
 
 
@@ -5225,6 +5310,7 @@ def set_musetalk_idle_state_for_avatar(avatar_id):
     current_status = str(current_state.get("status", "") or "").strip().lower()
     current_frame_paths = list(current_state.get("frame_paths", []) or [])
     if current_status == "idle" and current_avatar_id == target_avatar_id and current_frame_paths:
+        start_ua_companion_orb_musetalk_idle_stream(current_state)
         return
 
     idle_payload = avatar_gui.get_idle_payload(avatar_id=target_avatar_id)
@@ -5235,6 +5321,7 @@ def set_musetalk_idle_state_for_avatar(avatar_id):
     expression_state.reset_current_expression_data()
     musetalk_state.set_current_musetalk_frame_data(idle_payload)
     prime_musetalk_preview_frame(idle_payload)
+    start_ua_companion_orb_musetalk_idle_stream(idle_payload)
     schedule_musetalk_runtime_cleanup()
 
 
@@ -5255,6 +5342,7 @@ def transition_musetalk_to_local_idle(advance_to_next_frame=True):
         expression_state.reset_current_expression_data()
         musetalk_state.set_current_musetalk_frame_data(idle_payload)
         prime_musetalk_preview_frame(idle_payload)
+        start_ua_companion_orb_musetalk_idle_stream(idle_payload)
         schedule_musetalk_runtime_cleanup()
         return
     set_musetalk_idle_state()
@@ -5278,6 +5366,7 @@ def play_musetalk_avatar_transition(from_avatar_id, to_avatar_id):
     expression_state.reset_current_expression_data()
     musetalk_state.set_current_musetalk_frame_data(payload)
     prime_musetalk_preview_frame(musetalk_state.current_musetalk_frame_data)
+    stop_ua_companion_orb_musetalk_idle_stream()
 
     def _finish_transition():
         time.sleep(duration_seconds)
@@ -5366,6 +5455,7 @@ def loop_current_musetalk_state():
         "avatar_id": current_state.get("avatar_id"),
     })
     prime_musetalk_preview_frame(musetalk_state.current_musetalk_frame_data)
+    start_ua_companion_orb_musetalk_idle_stream(musetalk_state.current_musetalk_frame_data)
     schedule_musetalk_runtime_cleanup(keep_frame_dirs=[frame_dir] if frame_dir else None)
 
 
@@ -5401,6 +5491,7 @@ def freeze_current_musetalk_frame():
         "avatar_id": current_state.get("avatar_id"),
     })
     prime_musetalk_preview_frame(musetalk_state.current_musetalk_frame_data)
+    start_ua_companion_orb_musetalk_idle_stream(musetalk_state.current_musetalk_frame_data)
     if current_state.get("frame_dir"):
         schedule_musetalk_runtime_cleanup(keep_frame_dirs=[current_state.get("frame_dir")])
 
@@ -8428,6 +8519,7 @@ def speak_async(
                             current_state["sync_time"] = audio_start_time
                             current_state["audio_started_at"] = audio_start_time
                             musetalk_state.write_musetalk_preview_snapshot(current_state)
+                            stop_ua_companion_orb_musetalk_idle_stream()
                             if not _env_flag("NC_MUSETALK_DISABLE_PREVIEW_STREAM_THREAD"):
                                 preview_stream_thread = threading.Thread(
                                     target=stream_musetalk_preview_frames,
