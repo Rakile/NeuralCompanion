@@ -151,36 +151,43 @@ class RealUiSyncFrontendMixin:
                     front.editingFinished.connect(lambda name=object_name: self._sync_single_line_edit_to_backend(name))
 
     def _addon_sync_widget_names(self, kind=None):
-            callback = getattr(self.backend, "_invoke_all_addon_capabilities", None)
-            if not callable(callback):
-                return set()
-            wanted_kind = str(kind or "").strip()
-            try:
-                results = callback(
-                    "real_ui.sync_widget_names",
-                    {"bridge": self, "kind": wanted_kind},
-                )
-            except Exception:
-                return set()
-            names = set()
-            for result in list(results or []):
-                if isinstance(result, dict):
-                    values = result.get(wanted_kind) if wanted_kind else result.values()
-                    if wanted_kind:
-                        iterable = values if isinstance(values, (list, tuple, set)) else [values]
-                    else:
-                        iterable = []
-                        for value in values:
-                            iterable.extend(value if isinstance(value, (list, tuple, set)) else [value])
-                elif isinstance(result, (list, tuple, set)):
-                    iterable = result
+        cache = getattr(self, "_addon_sync_widget_name_cache", None)
+        if cache is None:
+            cache = {}
+            self._addon_sync_widget_name_cache = cache
+        callback = getattr(self.backend, "_invoke_all_addon_capabilities", None)
+        if not callable(callback):
+            return set()
+        wanted_kind = str(kind or "").strip()
+        if wanted_kind in cache:
+            return set(cache.get(wanted_kind) or set())
+        try:
+            results = callback(
+                "real_ui.sync_widget_names",
+                {"bridge": self, "kind": wanted_kind},
+            )
+        except Exception:
+            return set()
+        names = set()
+        for result in list(results or []):
+            if isinstance(result, dict):
+                values = result.get(wanted_kind) if wanted_kind else result.values()
+                if wanted_kind:
+                    iterable = values if isinstance(values, (list, tuple, set)) else [values]
                 else:
-                    iterable = [result]
-                for name in iterable:
-                    text = str(name or "").strip()
-                    if text:
-                        names.add(text)
-            return names
+                    iterable = []
+                    for value in values:
+                        iterable.extend(value if isinstance(value, (list, tuple, set)) else [value])
+            elif isinstance(result, (list, tuple, set)):
+                iterable = result
+            else:
+                iterable = [result]
+            for name in iterable:
+                text = str(name or "").strip()
+                if text:
+                    names.add(text)
+        cache[wanted_kind] = set(names)
+        return names
 
     def _combo_sync_names(self):
             return tuple(

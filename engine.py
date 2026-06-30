@@ -849,6 +849,10 @@ RUNTIME_CONFIG = {
     "companion_orb_shaders_enabled": True,
     "companion_orb_sensory_target_enabled": False,
     "companion_orb_full_screen_context_enabled": False,
+    "companion_orb_supervisor_enabled": False,
+    "companion_orb_supervisor_prompt_template": "",
+    "companion_orb_supervisor_personas": [],
+    "companion_orb_supervisor_selected_persona_id": "",
     "companion_orb_target_mode": "window",
     "companion_orb_target_region_width": 640,
     "companion_orb_target_region_height": 420,
@@ -3863,6 +3867,22 @@ def _sensory_metadata_lines(raw, *, name_key="field", description_key="descripti
     return lines
 
 
+def _sensory_source_matches(contributor_source, source_keys):
+    contributor_source = str(contributor_source or "").strip().lower()
+    source_keys = {
+        str(source_id or "").strip().lower()
+        for source_id in list(source_keys or [])
+        if str(source_id or "").strip()
+    }
+    if not source_keys:
+        return True
+    if contributor_source in source_keys:
+        return True
+    if contributor_source == "screen" and any("screen" in key for key in source_keys):
+        return True
+    return False
+
+
 def _sensory_pingpong_source_prompt_text(source_ids):
     fragments = []
     seen = set()
@@ -3888,7 +3908,9 @@ def _sensory_pingpong_source_prompt_text(source_ids):
             if full_fragment and full_fragment not in seen:
                 seen.add(full_fragment)
                 fragments.append(f"Source prompt for {label}:\n{full_fragment}")
-        for contributor in sensory.list_prompt_contributors(source_id):
+        for contributor in sensory.list_prompt_contributors():
+            if not _sensory_source_matches(getattr(contributor, "source_id", ""), normalized_source_ids):
+                continue
             contributor_label = str(getattr(contributor, "label", source_id) or source_id)
             fragment = str(getattr(contributor, "prompt", "") or "").strip()
             if not fragment or fragment in seen:
@@ -3952,13 +3974,7 @@ def _screen_supervisor_prompt_contributors(source_ids):
         prompt = str(getattr(contributor, "prompt", "") or "").strip()
         if not prompt:
             continue
-        contributor_source = str(getattr(contributor, "source_id", "") or "").strip().lower()
-        source_matches = (
-            not source_keys
-            or contributor_source in source_keys
-            or (contributor_source == "screen" and any("screen" in key for key in source_keys))
-        )
-        if source_matches:
+        if _sensory_source_matches(getattr(contributor, "source_id", ""), source_keys):
             contributors.append(contributor)
     return contributors
 
@@ -3975,22 +3991,23 @@ def _sensory_behavior_prompt_contributors(source_ids):
     }
     contributors = []
     seen = set()
-    for source_id in source_keys:
-        for contributor in sensory.list_prompt_contributors(source_id):
-            contributor_id = str(getattr(contributor, "id", "") or "").strip()
-            metadata = dict(getattr(contributor, "metadata", None) or {})
-            behavior_type = str(metadata.get("type") or "").strip().lower()
-            if behavior_type != "behavior_rule" and not contributor_id.endswith(".behavior"):
-                continue
-            prompt = str(getattr(contributor, "prompt", "") or "").strip()
-            if not prompt:
-                continue
-            contributor_source = str(getattr(contributor, "source_id", "") or source_id).strip().lower()
-            key = (contributor_id, contributor_source, prompt)
-            if key in seen:
-                continue
-            seen.add(key)
-            contributors.append(contributor)
+    for contributor in sensory.list_prompt_contributors():
+        if not _sensory_source_matches(getattr(contributor, "source_id", ""), source_keys):
+            continue
+        contributor_id = str(getattr(contributor, "id", "") or "").strip()
+        metadata = dict(getattr(contributor, "metadata", None) or {})
+        behavior_type = str(metadata.get("type") or "").strip().lower()
+        if behavior_type != "behavior_rule" and not contributor_id.endswith(".behavior"):
+            continue
+        prompt = str(getattr(contributor, "prompt", "") or "").strip()
+        if not prompt:
+            continue
+        contributor_source = str(getattr(contributor, "source_id", "") or "").strip().lower()
+        key = (contributor_id, contributor_source, prompt)
+        if key in seen:
+            continue
+        seen.add(key)
+        contributors.append(contributor)
     return contributors
 
 

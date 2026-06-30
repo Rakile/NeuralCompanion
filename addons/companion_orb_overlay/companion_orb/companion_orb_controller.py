@@ -20,7 +20,7 @@ from .companion_orb_bridge import CompanionOrbBridge
 from .external_runtime_client import ExternalOrbRuntimeClient
 from . import snapshot_ocr
 from .sensory_source import COMPANION_ORB_TARGET_METADATA, COMPANION_ORB_TARGET_PINGPONG_PROMPT, PROVIDER_ID
-from .window_target_resolver import resolve_target_at, target_bounds, target_is_available
+from .window_target_resolver import refresh_window_target, resolve_target_at, target_bounds
 
 
 VALID_DISPLAY_MODES = {"off", "docked", "interaction", "always"}
@@ -365,6 +365,7 @@ class CompanionOrbController(QtCore.QObject):
         self._snapshot_cloak_count = 0
         self._snapshot_restore_visible = False
         self._debug_lock = threading.Lock()
+        self._snapshot_capture_lock = threading.Lock()
         self._debug_last_timer_enabled: bool | None = None
         self._debug_last_move_log_at = 0.0
         self._debug_last_move_signature = ""
@@ -668,6 +669,10 @@ class CompanionOrbController(QtCore.QObject):
             self._handle_external_orb_menu_request(payload)
         elif event_type == "orb.position_changed":
             self._handle_external_orb_position_changed(payload)
+        elif event_type == "orb.pointer_reached":
+            self._handle_external_orb_pointer_reached(payload)
+        elif event_type == "orb.playful_nudge":
+            self._handle_external_orb_playful_nudge(payload)
         elif event_type in {"orb.ready", "orb.cloak_changed"}:
             self._debug_event("external_runtime_event", event_type=event_type, payload=payload)
 
@@ -713,6 +718,16 @@ class CompanionOrbController(QtCore.QObject):
         reason = str(payload.get("reason") or "external_drag_drop").strip() or "external_drag_drop"
         self._mark_user_interaction()
         self._inspect_drop_target(point, reason=reason)
+
+    def _handle_external_orb_pointer_reached(self, payload: dict[str, Any]) -> None:
+        point = self._event_point(payload, "point") or self._event_point(payload, "center") or QtGui.QCursor.pos()
+        self._debug_event("external_pointer_reached", point=point, payload=payload)
+        self._capture_pointer_snapshot(point)
+
+    def _handle_external_orb_playful_nudge(self, payload: dict[str, Any]) -> None:
+        point = self._event_point(payload, "point") or self._event_point(payload, "center") or QtGui.QCursor.pos()
+        self._debug_event("external_playful_nudge", point=point, payload=payload)
+        self._announce_harassment()
 
     def _stop_external_runtime(self) -> None:
         runtime = self._external_runtime
@@ -775,6 +790,7 @@ class CompanionOrbController(QtCore.QObject):
     def apply_runtime_config(self, runtime_config):
         previous_include_process_name = bool(self._last_runtime_config.get("companion_orb_include_process_name", True))
         previous_debug_enabled = bool(self._last_runtime_config.get("companion_orb_debug_enabled", False))
+        previous_target_mode = str(self._last_runtime_config.get("companion_orb_target_mode", "window") or "window").strip().lower()
         self._last_runtime_config = dict(runtime_config or {})
         self.bridge.apply_settings(self._last_runtime_config)
         self._apply_timer_intervals()
@@ -793,6 +809,9 @@ class CompanionOrbController(QtCore.QObject):
         ):
             self.bridge.set_target_info(self._target_for_output(self._target_info))
             self._send_external_runtime({"type": "target_info", "target": self._target_for_output(self._target_info)})
+        target_mode = str(self._last_runtime_config.get("companion_orb_target_mode", "window") or "window").strip().lower()
+        if target_mode != previous_target_mode:
+            self._refresh_target_for_mode_change(target_mode)
         self._apply_window_settings()
         self._refresh_visibility()
         self._sync_drift_timer()
@@ -2349,6 +2368,78 @@ class CompanionOrbController(QtCore.QObject):
         self._publish_target_event({}, cleared=True)
         self._log("Companion Orb target cleared.")
 
+    def _store_target_info(self, target: dict[str, Any]) -> None:
+        self._target_info = dict(target or {})
+        self.bridge.set_target_info(self._target_for_output(self._target_info))
+        self._send_external_runtime({"type": "target_info", "target": self._target_for_output(self._target_info)})
+        self._save_runtime_setting("companion_orb_target_info", dict(self._target_info))
+        self._publish_target_event(self._target_for_output(self._target_info))
+
+    def _target_region_size(self) -> tuple[int, int]:
+        width = int(self._last_runtime_config.get("companion_orb_target_region_width", 640) or 640)
+        height = int(self._last_runtime_config.get("companion_orb_target_region_height", 420) or 420)
+        return width, height
+
+    def _resolve_current_orb_target_for_mode(self, mode: str) -> dict[str, Any]:
+        width, height = self._target_region_size()
+        target = self._resolve_target_at(self._orb_center_global(), width=width, height=height, mode=mode)
+        if str(mode or "").strip().lower() == "window" and str((target or {}).get("target_type") or "") != "window":
+            return {}
+        return dict(target or {}) if target_bounds(target) else {}
+
+    def _refresh_target_for_mode_change(self, mode: str) -> None:
+        if not self._target_info:
+            return
+        target = self._resolve_current_orb_target_for_mode(mode)
+        if not target:
+            self._debug_event("target_mode_reselect_skipped", reason="no_target_under_orb", mode=str(mode or ""))
+            return
+        if self._target_signature(target) != self._target_signature(self._target_info):
+            self._store_target_info(target)
+            self._debug_event(
+                "target_mode_reselected",
+                console=True,
+                mode=str(mode or ""),
+                target=self._target_for_output(target),
+                bounds=target_bounds(target),
+            )
+
+    def _capture_target_for_current_mode(self) -> tuple[dict[str, Any], str]:
+        mode = str(self._last_runtime_config.get("companion_orb_target_mode", "window") or "window").strip().lower()
+        target = dict(self._target_info or {})
+        if mode == "region":
+            region_target = self._resolve_current_orb_target_for_mode("region")
+            if region_target:
+                if self._target_signature(region_target) != self._target_signature(target):
+                    self._store_target_info(region_target)
+                return region_target, ""
+            return {}, "missing_target"
+        if not target:
+            return {}, "missing_target"
+        if str(target.get("target_type") or "").strip().lower() == "window":
+            refreshed = refresh_window_target(target)
+            if refreshed and target_bounds(refreshed):
+                if self._target_signature(refreshed) != self._target_signature(target):
+                    self._store_target_info(refreshed)
+                return dict(refreshed), ""
+            fallback = self._resolve_current_orb_target_for_mode("window")
+            if fallback:
+                self._store_target_info(fallback)
+                self._debug_event(
+                    "target_window_replaced",
+                    console=True,
+                    target=self._target_for_output(fallback),
+                    bounds=target_bounds(fallback),
+                )
+                return fallback, ""
+            self.clear_target()
+            return {}, "target_lost"
+        fallback = self._resolve_current_orb_target_for_mode("window")
+        if fallback:
+            self._store_target_info(fallback)
+            return fallback, ""
+        return {}, "target_lost"
+
     @QtCore.Slot()
     def reset_position(self):
         self._custom_position = []
@@ -2991,8 +3082,16 @@ class CompanionOrbController(QtCore.QObject):
         if target_info:
             self._set_comment_focus({"target": target_info, "label": target_title or "pointer focus", "duration_seconds": 10.0})
         self._publish_harassment_event(message, target_title)
-        self._queue_llm_harassment_candidate(message, target_title, target_info)
+        if self._nudge_should_defer_to_pointer_snapshot():
+            self._debug_event("companion_orb_harassment_deferred_to_snapshot", message=message, target_title=target_title)
+            return
+        if self._queue_llm_harassment_candidate(message, target_title, target_info):
+            self._debug_event("companion_orb_harassment_queued_hidden", message=message, target_title=target_title)
+            return
         self._speak_harassment_message(message)
+
+    def _nudge_should_defer_to_pointer_snapshot(self) -> bool:
+        return bool(self._last_runtime_config.get("companion_orb_snapshot_on_pointer_reached", False))
 
     def _tts_runtime_ready(self) -> bool:
         try:
@@ -3121,18 +3220,18 @@ class CompanionOrbController(QtCore.QObject):
         except Exception:
             pass
 
-    def _queue_llm_harassment_candidate(self, message: str, target_title: str = "", target_info: dict[str, Any] | None = None):
+    def _queue_llm_harassment_candidate(self, message: str, target_title: str = "", target_info: dict[str, Any] | None = None) -> bool:
         try:
             import engine
 
             if getattr(engine, "tts_model", None) is None:
-                return
+                return False
             runtime_config = getattr(engine, "RUNTIME_CONFIG", {}) or {}
             if not bool(runtime_config.get("sensory_allow_hidden_proactive_speech", False)):
-                return
+                return False
             queue_candidate = getattr(engine, "_queue_hidden_proactive_candidate", None)
             if callable(queue_candidate):
-                queue_candidate(
+                return bool(queue_candidate(
                     str(message or ""),
                     summary="Companion Orb started playful pointer harassment.",
                     attention=str(target_title or "pointer"),
@@ -3141,9 +3240,10 @@ class CompanionOrbController(QtCore.QObject):
                     focus_bounds=target_bounds(target_info),
                     focus_label=str(target_title or "pointer"),
                     focus_duration_seconds=COMMENT_FOCUS_DEFAULT_SECONDS,
-                )
+                ))
         except Exception:
             pass
+        return False
 
     def _speak_harassment_message(self, message: str):
         if not self._tts_runtime_ready():
@@ -3224,10 +3324,11 @@ class CompanionOrbController(QtCore.QObject):
         self._last_drop_inspection_at = now
         width = int(self._last_runtime_config.get("companion_orb_target_region_width", 640) or 640)
         height = int(self._last_runtime_config.get("companion_orb_target_region_height", 420) or 420)
-        target = resolve_target_at(point.x(), point.y(), region_width=width, region_height=height, mode="region")
+        mode = str(self._last_runtime_config.get("companion_orb_target_mode", "window") or "window")
+        target = self._resolve_target_at(point, width=width, height=height, mode=mode)
         bounds = target_bounds(target)
         if not bounds:
-            self._debug_event("drop_inspection_rejected", console=True, point=point, reason=reason, width=width, height=height)
+            self._debug_event("drop_inspection_rejected", console=True, point=point, reason=reason, width=width, height=height, mode=mode)
             return
         self._manual_inspection_id += 1
         inspection_id = int(self._manual_inspection_id)
@@ -3834,23 +3935,20 @@ class CompanionOrbController(QtCore.QObject):
                     "content_text": f"Companion Orb full-screen context capture failed: {exc}",
                     "metadata": {"target_available": False, "reason": "full_screen_capture_failed"},
                 }
-        target = dict(self._target_info or {})
+        target, target_reason = self._capture_target_for_current_mode()
         if not target:
-            self._debug_event("sensory_capture_skipped", reason="missing_target")
+            reason = str(target_reason or "missing_target")
+            self._debug_event("sensory_capture_skipped", console=(reason == "target_lost"), reason=reason)
+            content_text = (
+                "Companion Orb target lost. Select a new target before using targeted hidden sensory feedback."
+                if reason == "target_lost"
+                else "Companion Orb Target is selected, but no orb target has been selected yet."
+            )
             return {
                 "captured_at": time.time(),
                 "source": PROVIDER_ID,
-                "content_text": "Companion Orb Target is selected, but no orb target has been selected yet.",
-                "metadata": {"target_available": False, "reason": "missing_target"},
-            }
-        if not target_is_available(target):
-            self.clear_target()
-            self._debug_event("sensory_capture_skipped", console=True, reason="target_lost", target=self._target_for_output(target))
-            return {
-                "captured_at": time.time(),
-                "source": PROVIDER_ID,
-                "content_text": "Companion Orb target lost. Select a new target before using targeted hidden sensory feedback.",
-                "metadata": {"target_available": False, "reason": "target_lost"},
+                "content_text": content_text,
+                "metadata": {"target_available": False, "reason": reason},
             }
         bounds = target_bounds(target)
         if not bounds:
@@ -3873,7 +3971,34 @@ class CompanionOrbController(QtCore.QObject):
                 "metadata": {"target_available": False, "reason": "capture_failed", "target": self._target_for_output(target)},
             }
 
+    def _begin_snapshot_capture(self, *, trace_id: str = "", reason: str = "", bounds=None) -> bool:
+        if self._snapshot_capture_lock.acquire(blocking=False):
+            return True
+        self._drop_trace_event(
+            "snapshot_capture_busy_skipped",
+            trace_id,
+            console=True,
+            reason=str(reason or "snapshot_capture_busy"),
+            bounds=list(bounds or []),
+        )
+        return False
+
+    def _end_snapshot_capture(self) -> None:
+        try:
+            self._snapshot_capture_lock.release()
+        except RuntimeError:
+            pass
+
     def _capture_full_screen_context(self, capture_context=None):
+        trace_id = str((capture_context or {}).get("drop_trace_id") or self._active_drop_trace_id or "")
+        if not self._begin_snapshot_capture(trace_id=trace_id, reason="full_screen_context"):
+            raise RuntimeError("Companion Orb snapshot capture already in progress.")
+        try:
+            return self._capture_full_screen_context_unlocked(capture_context)
+        finally:
+            self._end_snapshot_capture()
+
+    def _capture_full_screen_context_unlocked(self, capture_context=None):
         from PIL import ImageGrab
 
         output_root = Path(str((capture_context or {}).get("output_dir") or (self.context.app_root / "runtime" / "sensory_feedback")))
@@ -4037,6 +4162,15 @@ class CompanionOrbController(QtCore.QObject):
         return image.crop(crop), [int(value) for value in crop]
 
     def _capture_target_region(self, bounds, target, capture_context=None):
+        trace_id = str((capture_context or {}).get("drop_trace_id") or self._active_drop_trace_id or "")
+        if not self._begin_snapshot_capture(trace_id=trace_id, reason="target_region", bounds=bounds):
+            raise RuntimeError("Companion Orb snapshot capture already in progress.")
+        try:
+            return self._capture_target_region_unlocked(bounds, target, capture_context)
+        finally:
+            self._end_snapshot_capture()
+
+    def _capture_target_region_unlocked(self, bounds, target, capture_context=None):
         from PIL import ImageGrab
 
         output_root = Path(str((capture_context or {}).get("output_dir") or (self.context.app_root / "runtime" / "sensory_feedback")))

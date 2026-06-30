@@ -55,6 +55,8 @@ def _emit_event(payload: dict[str, Any]) -> None:
 
 DROP_ANCHOR_HOVER_SECONDS = 18.0
 POLL_DRAG_THRESHOLD_PX = 4.0
+POINTER_SNAPSHOT_COOLDOWN_SECONDS = 10.0
+PLAYFUL_NUDGE_EVENT_COOLDOWN_SECONDS = 18.0
 
 
 class ExternalCompanionOrb(QtCore.QObject):
@@ -93,6 +95,10 @@ class ExternalCompanionOrb(QtCore.QObject):
         self.poll_drag_active = False
         self.right_button_was_down = False
         self.left_button_was_down = False
+        self.last_user_interaction_at = time.monotonic()
+        self.last_pointer_snapshot_at = 0.0
+        self.last_playful_nudge_at = 0.0
+        self.playful_nudge_active = False
         self.cloaked = False
         self.visible_before_cloak = False
 
@@ -456,6 +462,8 @@ class ExternalCompanionOrb(QtCore.QObject):
                 bool(self.settings.get("companion_orb_movement_enabled", True))
                 or self._focus_ready()
                 or bool(self.settings.get("companion_orb_mouse_near_fade", False))
+                or bool(self.settings.get("companion_orb_avoid_mouse", False))
+                or bool(self.settings.get("companion_orb_harassment_enabled", False))
             )
         )
         if should_run:
@@ -468,6 +476,8 @@ class ExternalCompanionOrb(QtCore.QObject):
         else:
             self.last_tick_at = 0.0
             self.drift_timer.stop()
+            self.playful_nudge_active = False
+            self._apply_mouse_near_opacity(reset=True)
 
     def _set_comment_focus(self, payload: dict[str, Any]) -> None:
         target = payload.get("target")
@@ -573,6 +583,60 @@ class ExternalCompanionOrb(QtCore.QObject):
         except Exception:
             return 18
 
+    def _harassment_delay_seconds(self) -> float:
+        try:
+            return max(5.0, min(300.0, float(self.settings.get("companion_orb_harassment_timer_seconds", 45) or 45)))
+        except Exception:
+            return 45.0
+
+    def _harassment_ready(self) -> bool:
+        if not bool(self.settings.get("companion_orb_harassment_enabled", False)):
+            self.playful_nudge_active = False
+            return False
+        if self.drag_offset is not None or self.poll_drag_active or self._focus_ready():
+            return False
+        return (time.monotonic() - self.last_user_interaction_at) >= self._harassment_delay_seconds()
+
+    def _harassment_target(self) -> QtCore.QPointF:
+        window = self.window
+        cursor = QtGui.QCursor.pos()
+        if window is None:
+            return QtCore.QPointF(float(cursor.x()), float(cursor.y()))
+        t = time.monotonic()
+        orbit_x = math.sin(t * 0.82) * 68.0 + math.sin(t * 0.31 + 1.4) * 22.0
+        orbit_y = math.cos(t * 0.70 + 0.8) * 46.0 + math.sin(t * 0.43) * 14.0
+        target_x = float(cursor.x()) + orbit_x - window.width() * 0.5
+        target_y = float(cursor.y()) + orbit_y - window.height() * 0.5
+        return self._clamp_top_left_to_screen(QtCore.QPointF(target_x, target_y))
+
+    def _mouse_fade_distance(self) -> float:
+        try:
+            return max(24.0, min(420.0, float(self.settings.get("companion_orb_mouse_near_fade_distance", 120) or 120)))
+        except Exception:
+            return 120.0
+
+    def _apply_mouse_near_opacity(self, *, reset: bool = False) -> None:
+        window = self.window
+        if window is None:
+            return
+        opacity = 1.0
+        if not reset and bool(self.settings.get("companion_orb_mouse_near_fade", False)):
+            cursor = QtGui.QCursor.pos()
+            center = window.frameGeometry().center()
+            distance = math.hypot(float(center.x() - cursor.x()), float(center.y() - cursor.y()))
+            fade_distance = self._mouse_fade_distance()
+            try:
+                near_opacity = max(0.05, min(1.0, float(self.settings.get("companion_orb_mouse_near_opacity", 0.28) or 0.28)))
+            except Exception:
+                near_opacity = 0.28
+            if distance < fade_distance:
+                mix = max(0.0, min(1.0, distance / fade_distance))
+                opacity = near_opacity + (1.0 - near_opacity) * mix
+        try:
+            window.setWindowOpacity(opacity)
+        except Exception:
+            pass
+
     def _clamped_float_setting(self, key: str, default: float, minimum: float, maximum: float) -> float:
         try:
             value = float(self.settings.get(key, default))
@@ -666,6 +730,7 @@ class ExternalCompanionOrb(QtCore.QObject):
         base = self.base_position or self._home_position()
         self.base_position = QtCore.QPoint(base)
         speed = self._movement_speed()
+        harassment_ready = self._harassment_ready()
         if self._focus_ready():
             if self._focus_matches_drop_region():
                 target = self._drop_anchor_target()
@@ -684,7 +749,19 @@ class ExternalCompanionOrb(QtCore.QObject):
             target_y = target.y()
             focus_pull = self._focus_pull() if self._aware_motion_enabled() else 0.65
             smoothing = self._time_scaled_blend(0.11 + focus_pull * 0.05, frame_scale)
+            self.playful_nudge_active = False
+        elif harassment_ready:
+            target = self._harassment_target()
+            target_x = target.x()
+            target_y = target.y()
+            smoothing = self._time_scaled_blend(0.11, frame_scale)
+            if not self.playful_nudge_active:
+                self.playful_nudge_active = True
+                self._emit_playful_nudge()
         else:
+            if self.playful_nudge_active:
+                self.playful_nudge_active = False
+                self.return_timer.start(max(250, min(30000, int(float(self.settings.get("companion_orb_return_home_delay", 2.5) or 2.5) * 1000))))
             amount = float(self._movement_range()) if bool(self.settings.get("companion_orb_movement_enabled", True)) else 0.0
             t = now * speed
             target_x = float(base.x()) + math.sin(t * 0.42) * amount + math.sin(t * 0.17 + 1.9) * amount * 0.34
@@ -698,6 +775,18 @@ class ExternalCompanionOrb(QtCore.QObject):
                 speed=speed,
             )
             smoothing = self._time_scaled_blend(smoothing, frame_scale)
+        if bool(self.settings.get("companion_orb_avoid_mouse", False)) and not harassment_ready and not self._focus_ready():
+            cursor = QtGui.QCursor.pos()
+            center_x = target_x + window.width() * 0.5
+            center_y = target_y + window.height() * 0.5
+            dx = center_x - float(cursor.x())
+            dy = center_y - float(cursor.y())
+            distance = max(1.0, math.hypot(dx, dy))
+            fade_distance = self._mouse_fade_distance()
+            if distance < fade_distance:
+                push = (fade_distance - distance) / fade_distance
+                target_x += (dx / distance) * push * min(90.0, fade_distance * 0.32)
+                target_y += (dy / distance) * push * min(90.0, fade_distance * 0.32)
         current = self.current_point
         if current is None:
             current = QtCore.QPointF(float(window.x()), float(window.y()))
@@ -705,6 +794,9 @@ class ExternalCompanionOrb(QtCore.QObject):
         next_y = current.y() + (target_y - current.y()) * smoothing
         self.current_point = QtCore.QPointF(next_x, next_y)
         window.move(QtCore.QPoint(int(round(next_x)), int(round(next_y))))
+        if harassment_ready:
+            self._maybe_emit_pointer_reached()
+        self._apply_mouse_near_opacity()
 
     def _start_motion_to(self, target: QtCore.QPoint) -> None:
         if self.window is None:
@@ -888,6 +980,8 @@ class ExternalCompanionOrb(QtCore.QObject):
         self.current_point = QtCore.QPointF(float(target.x()), float(target.y()))
         self.move_start = None
         self.move_target = None
+        self.last_user_interaction_at = time.monotonic()
+        self.playful_nudge_active = False
 
     def _emit_position_changed(self) -> None:
         _emit_event(
@@ -895,6 +989,45 @@ class ExternalCompanionOrb(QtCore.QObject):
                 "type": "orb.position_changed",
                 "top_left": self._window_top_left_payload(),
                 "center": self._window_center_payload(),
+            }
+        )
+
+    def _emit_playful_nudge(self) -> None:
+        now = time.monotonic()
+        if now - self.last_playful_nudge_at < PLAYFUL_NUDGE_EVENT_COOLDOWN_SECONDS:
+            return
+        self.last_playful_nudge_at = now
+        _emit_event(
+            {
+                "type": "orb.playful_nudge",
+                "point": [int(QtGui.QCursor.pos().x()), int(QtGui.QCursor.pos().y())],
+                "center": self._window_center_payload(),
+                "top_left": self._window_top_left_payload(),
+            }
+        )
+
+    def _maybe_emit_pointer_reached(self) -> None:
+        if not bool(self.settings.get("companion_orb_snapshot_on_pointer_reached", False)):
+            return
+        window = self.window
+        if window is None:
+            return
+        cursor = QtGui.QCursor.pos()
+        center = window.frameGeometry().center()
+        reach_distance = max(48.0, min(150.0, float(window.width()) * 0.36))
+        distance = math.hypot(float(center.x() - cursor.x()), float(center.y() - cursor.y()))
+        if distance > reach_distance:
+            return
+        now = time.monotonic()
+        if now - self.last_pointer_snapshot_at < POINTER_SNAPSHOT_COOLDOWN_SECONDS:
+            return
+        self.last_pointer_snapshot_at = now
+        _emit_event(
+            {
+                "type": "orb.pointer_reached",
+                "point": [int(cursor.x()), int(cursor.y())],
+                "center": self._window_center_payload(),
+                "top_left": self._window_top_left_payload(),
             }
         )
 

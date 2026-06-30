@@ -71,6 +71,25 @@ def target_is_available(target: dict[str, Any] | None) -> bool:
         return bool(target_bounds(payload))
 
 
+def refresh_window_target(target: dict[str, Any] | None) -> dict[str, Any] | None:
+    payload = dict(target or {})
+    if str(payload.get("target_type") or "").strip().lower() != "window":
+        return payload if target_bounds(payload) else None
+    if not sys.platform.startswith("win"):
+        return payload if target_bounds(payload) else None
+    try:
+        hwnd = int(str(payload.get("window_id") or "0"), 0)
+    except Exception:
+        return None
+    refreshed = _windows_target_from_hwnd(hwnd)
+    if not refreshed:
+        return None
+    if payload.get("selected_at"):
+        refreshed["selected_at"] = payload.get("selected_at")
+    refreshed["refreshed_at"] = _now_iso()
+    return refreshed
+
+
 def _resolve_windows_target_at(x: int, y: int) -> dict[str, Any] | None:
     try:
         import ctypes
@@ -79,10 +98,26 @@ def _resolve_windows_target_at(x: int, y: int) -> dict[str, Any] | None:
         return None
 
     user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
 
     class POINT(ctypes.Structure):
         _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+    point = POINT(int(x), int(y))
+    hwnd = user32.WindowFromPoint(point)
+    if not hwnd:
+        return None
+    return _windows_target_from_hwnd(hwnd)
+
+
+def _windows_target_from_hwnd(hwnd: int) -> dict[str, Any] | None:
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return None
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
 
     class RECT(ctypes.Structure):
         _fields_ = [
@@ -95,12 +130,8 @@ def _resolve_windows_target_at(x: int, y: int) -> dict[str, Any] | None:
     GA_ROOT = 2
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
-    point = POINT(int(x), int(y))
-    hwnd = user32.WindowFromPoint(point)
-    if not hwnd:
-        return None
     root = user32.GetAncestor(hwnd, GA_ROOT) or hwnd
-    if not root or not user32.IsWindowVisible(root):
+    if not root or not user32.IsWindow(root) or not user32.IsWindowVisible(root):
         return None
 
     rect = RECT()

@@ -438,6 +438,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         self._reply_style_prompt_combo: NoWheelComboBox | None = None
         self._reply_style_prompt_edit: QtWidgets.QPlainTextEdit | None = None
         self._reply_style_prompt_status: QtWidgets.QLabel | None = None
+        self._refresh_companion_orb_supervisor_designer = None
         self._syncing_reply_style_prompt = False
         self._register_companion_orb_supervisor_contributor()
 
@@ -808,6 +809,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
                     self._sync_checkbox("companion_orb_sensory_target_enabled", True)
                 self._set_companion_orb_source_included(True)
             self._publish_companion_orb_supervisor()
+            self._refresh_companion_orb_supervisor_designer_if_available()
         elif key == "sensory_pingpong_enabled":
             self._notify_host_settings_changed()
         if key in {
@@ -817,12 +819,6 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
             "sensory_pingpong_enabled",
         }:
             self._save_session()
-
-    def refresh_from_runtime(self):
-        super().refresh_from_runtime()
-        self._sync_reply_style_prompt_editor_from_runtime(
-            _runtime_config().get("companion_orb_response_style", "friendly")
-        )
 
     def build_tab(self):
         scroll, card_layout = self._build_card_shell(
@@ -1332,6 +1328,9 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
 
     def refresh_from_runtime(self):
         super().refresh_from_runtime()
+        self._sync_reply_style_prompt_editor_from_runtime(
+            _runtime_config().get("companion_orb_response_style", "friendly")
+        )
         source_checkbox = self._controls.get("companion_orb_sensory_target_enabled")
         if source_checkbox is not None and hasattr(source_checkbox, "setChecked"):
             checked = bool(_runtime_config().get("companion_orb_sensory_target_enabled", False)) or self._companion_orb_source_included()
@@ -1344,6 +1343,16 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
             widget = self._controls.get(key)
             if widget is not None and hasattr(widget, "text"):
                 swatch.setStyleSheet(self._color_swatch_style(widget.text()))
+        self._refresh_companion_orb_supervisor_designer_if_available()
+        self._register_companion_orb_supervisor_contributor()
+
+    def _refresh_companion_orb_supervisor_designer_if_available(self):
+        refresher = getattr(self, "_refresh_companion_orb_supervisor_designer", None)
+        if callable(refresher):
+            try:
+                refresher()
+            except RuntimeError:
+                self._refresh_companion_orb_supervisor_designer = None
 
     def import_session_state(self, session):
         result = super().import_session_state(session)
@@ -1998,12 +2007,14 @@ QTabWidget#companion_orb_sensory_tabs QStackedWidget {
                     template_edit,
                     template_reset_button,
                 ):
-                    control.setEnabled(enabled)
-                delete_persona_button.setEnabled(enabled and len(personas) > 1)
+                    control.setEnabled(True)
+                delete_persona_button.setEnabled(len(personas) > 1)
                 rebuild_behavior_rows()
                 refresh_preview()
             finally:
                 sync["active"] = False
+
+        self._refresh_companion_orb_supervisor_designer = refresh_from_state
 
         def on_persona_changed():
             if sync["active"]:

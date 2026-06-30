@@ -461,6 +461,7 @@ class MultiPersonaRoleplayController:
         self.storage.ensure_defaults()
         self.personas: list[PersonaConfig] = self.storage.load_personas()
         self.session: RoleplaySessionState = self.storage.load_session()
+        self._last_session_export_state: dict[str, Any] = self._session_export_payload_unlocked()
         self.visual_styles = self.storage.load_visual_styles()
         self.settings = self.storage.load_settings()
         self._ensure_remote_settings_defaults()
@@ -703,6 +704,8 @@ class MultiPersonaRoleplayController:
     def invoke_capability_threadsafe(self, capability: str, payload: dict[str, Any] | None = None):
         name = str(capability or "").strip().lower()
         data = dict(payload or {})
+        if name.startswith("real_ui."):
+            return None
         with self._state_lock:
             if self._shutting_down:
                 return None
@@ -850,6 +853,7 @@ class MultiPersonaRoleplayController:
                 return
             self.storage.save_personas(self.personas)
             self.storage.save_session(self.session)
+            self._last_session_export_state = self._session_export_payload_unlocked()
 
     def _remote_host(self) -> str:
         return str(self.settings.get("remote_host") or "0.0.0.0").strip() or "0.0.0.0"
@@ -1501,14 +1505,25 @@ class MultiPersonaRoleplayController:
             return {"accepted": False, "message": "MPRC Chromecast bridge is unavailable.", "cast": self.remote_chromecast_snapshot()}
         return dict(bridge.action(dict(payload or {})) or {})
 
-    def export_session_state(self) -> dict[str, Any]:
-        with self._state_lock:
-            return {
-                self.STATE_KEY: {
-                    "session": self.session.to_dict(),
-                    "active_persona_id": self.session.active_persona_id,
-                }
+    def _session_export_payload_unlocked(self) -> dict[str, Any]:
+        return {
+            self.STATE_KEY: {
+                "session": self.session.to_dict(),
+                "active_persona_id": self.session.active_persona_id,
             }
+        }
+
+    def export_session_state(self) -> dict[str, Any]:
+        acquired = self._state_lock.acquire(blocking=False)
+        if not acquired:
+            return copy.deepcopy(getattr(self, "_last_session_export_state", {}) or {})
+        try:
+            if self._shutting_down:
+                return copy.deepcopy(getattr(self, "_last_session_export_state", {}) or {})
+            self._last_session_export_state = self._session_export_payload_unlocked()
+            return copy.deepcopy(self._last_session_export_state)
+        finally:
+            self._state_lock.release()
 
     def import_session_state(self, payload: dict[str, Any] | None):
         data = dict(payload or {}).get(self.STATE_KEY)
@@ -1519,6 +1534,7 @@ class MultiPersonaRoleplayController:
                 self.session = RoleplaySessionState.from_dict(data.get("session"))
                 self._ensure_session_persona()
                 self.save_state()
+                self._last_session_export_state = self._session_export_payload_unlocked()
             self._request_ui_refresh()
 
     def current_tts_backend(self) -> str:

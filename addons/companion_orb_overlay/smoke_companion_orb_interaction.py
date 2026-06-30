@@ -54,6 +54,10 @@ def main() -> None:
         '"type": "orb.dropped"': "external runtime emits drop events",
         '"type": "orb.request_menu"': "external runtime emits menu request events",
         '"type": "orb.position_changed"': "external runtime emits position-change events",
+        '"type": "orb.pointer_reached"': "external runtime emits pointer reach events for Snapshot at pointer",
+        '"type": "orb.playful_nudge"': "external runtime emits playful nudge events for main-process speech/context handling",
+        "companion_orb_harassment_enabled": "external runtime honors playful nudge enablement",
+        "companion_orb_snapshot_on_pointer_reached": "external runtime honors snapshot-at-pointer enablement",
         'if msg_type == "cloak":': "external runtime supports main-process snapshot cloaking",
     }
     missing = [
@@ -92,6 +96,11 @@ def main() -> None:
         "def _handle_external_orb_drop": "main controller handles external drop events",
         "def _handle_external_orb_menu_request": "main controller handles external menu request events",
         "def _handle_external_orb_position_changed": "main controller handles external position-change events",
+        "def _handle_external_orb_pointer_reached": "main controller handles external pointer-reached events",
+        "def _handle_external_orb_playful_nudge": "main controller handles external playful-nudge events",
+        "_snapshot_capture_lock": "main controller serializes orb screenshot/OCR capture work",
+        "snapshot_capture_busy_skipped": "main controller skips overlapping orb screenshot/OCR capture work",
+        "acquire(blocking=False)": "main controller does not block worker threads while another capture is active",
         '"type": "cloak"': "main controller can cloak the external orb during snapshots",
     }
     missing_controller = [
@@ -101,6 +110,26 @@ def main() -> None:
     ]
     if missing_controller:
         raise AssertionError("Missing Companion Orb main controller event bridge support: " + ", ".join(missing_controller))
+
+    announce_start = main_controller.index("def _announce_harassment")
+    announce_end = main_controller.index("def _tts_runtime_ready", announce_start)
+    announce_body = main_controller[announce_start:announce_end]
+    required_nudge_order = [
+        "_nudge_should_defer_to_pointer_snapshot",
+        "_queue_llm_harassment_candidate",
+        "_speak_harassment_message",
+    ]
+    missing_nudge_order = [item for item in required_nudge_order if item not in announce_body]
+    if missing_nudge_order:
+        raise AssertionError(
+            "Companion Orb playful nudge is missing single-route arbitration: "
+            + ", ".join(missing_nudge_order)
+        )
+    positions = [announce_body.index(item) for item in required_nudge_order]
+    if positions != sorted(positions):
+        raise AssertionError("Companion Orb playful nudge must defer to snapshot, then hidden queue, then direct speech fallback")
+    if "return bool(queue_candidate(" not in main_controller:
+        raise AssertionError("Companion Orb hidden harassment queue must report whether it accepted the nudge")
 
     print("Companion Orb interaction smoke passed.")
 
