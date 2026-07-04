@@ -295,6 +295,7 @@ class RealUiSyncMirrorMixin:
                 "btn_skip_user",
                 "console_autoscroll_button",
                 "chat_autoscroll_button",
+                "chat_timestamp_toggle_button",
                 "btn_push_to_talk",
                 "btn_model_refresh",
                 "btn_musetalk_avatar_pack_refresh",

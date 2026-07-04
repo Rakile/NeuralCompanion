@@ -4,6 +4,7 @@ from ui.widgets.basic import NoWheelTabWidget
 
 
 from ui.runtime.engine_access import engine_module as _engine
+from core.sensory_source_selection import normalize_companion_orb_target_source_selection
 
 
 def _sensory():
@@ -152,7 +153,7 @@ class BackendSensoryConfigMixin:
                 selected_values if selected_values is not None else _engine().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
             )
         )
-        enabled = bool(_engine().RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False)) or COMPANION_ORB_PROVIDER_ID in selected
+        enabled = bool(_engine().RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False))
         try:
             checkbox.blockSignals(True)
             checkbox.setChecked(enabled)
@@ -330,12 +331,11 @@ class BackendSensoryConfigMixin:
                     break
         source_value = selected_value if selected_value is not None else _engine().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
         requested = self._parse_sensory_feedback_source_values(source_value)
-        if (
-            bool(_engine().RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False))
-            and _sensory().get_provider(COMPANION_ORB_PROVIDER_ID) is not None
-            and COMPANION_ORB_PROVIDER_ID not in requested
-        ):
-            requested.append(COMPANION_ORB_PROVIDER_ID)
+        requested = normalize_companion_orb_target_source_selection(
+            requested,
+            bool(_engine().RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False)),
+        )
+        if self._sensory_feedback_config_value(requested) != str(_engine().RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"):
             _engine().update_runtime_config("sensory_feedback_source", self._sensory_feedback_config_value(requested))
         entries = []
         for provider in self._sensory_provider_summaries():

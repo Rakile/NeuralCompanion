@@ -5096,10 +5096,6 @@ QTabWidget QTabBar::tab:selected {
                     widget.update()
                 except Exception:
                     pass
-                try:
-                    widget.repaint()
-                except Exception:
-                    pass
 
     def _frontend_runtime_group_specs(self):
             return (
@@ -5504,6 +5500,7 @@ QGroupBox#{object_name}::indicator {{
             except Exception:
                 pass
             self._sync_frontend_runtime_tab_stack_height()
+            self._frontend_runtime_selected_index = index
 
     def _ensure_frontend_runtime_tab_selection(self):
             stack = getattr(self, "_frontend_runtime_tab_stack", None)
@@ -5513,7 +5510,10 @@ QGroupBox#{object_name}::indicator {{
                 current = int(stack.currentIndex())
             except Exception:
                 current = 0
-            self._select_frontend_runtime_tab(current if current >= 0 else 0)
+            current = current if current >= 0 else 0
+            if getattr(self, "_frontend_runtime_selected_index", None) == current:
+                return True
+            self._select_frontend_runtime_tab(current)
             return True
 
     def _ensure_frontend_runtime_group_tabs(self):

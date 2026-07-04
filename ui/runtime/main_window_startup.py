@@ -154,6 +154,7 @@ class MainWindowStartupMixin:
 
         self.refresh_resources()
         self.restore_session()
+        QtCore.QTimer.singleShot(0, self._maybe_prompt_resume_last_chat_context)
         self._install_visual_presence_overlay()
         self._install_visual_presence_shortcut()
         self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)

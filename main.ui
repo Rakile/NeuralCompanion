@@ -3458,6 +3458,13 @@ QToolButton:checked { background: #3a1d3d; }</string>
                 </widget>
                </item>
                <item>
+                <widget class="QPushButton" name="chat_timestamp_toggle_button">
+                 <property name="text">
+                  <string>Timestamps: Off</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
                 <widget class="QPushButton" name="chat_apply_edit_button">
                  <property name="text">
                   <string>Apply Edit</string>

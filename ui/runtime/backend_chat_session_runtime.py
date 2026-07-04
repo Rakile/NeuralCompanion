@@ -4,6 +4,7 @@ import sys
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
+from core import long_term_memory
 from ui.runtime.engine_access import engine_module as _engine
 
 
@@ -57,6 +58,8 @@ class BackendChatSessionRuntimeMixin:
             "chat_quick_load_button",
             "btn_search_long_term_memory_archive",
             "btn_review_long_term_memory_archive",
+            "btn_export_session_memory",
+            "btn_rebuild_long_term_memory_embeddings",
         )
         widgets = []
         for name in names:
@@ -91,6 +94,8 @@ class BackendChatSessionRuntimeMixin:
         names = (
             "btn_search_long_term_memory_archive",
             "btn_review_long_term_memory_archive",
+            "btn_export_session_memory",
+            "btn_rebuild_long_term_memory_embeddings",
         )
         widgets = []
         for name in names:
@@ -105,6 +110,54 @@ class BackendChatSessionRuntimeMixin:
                 widget.setEnabled(not bool(locked))
             except Exception:
                 pass
+
+    def _long_term_memory_embedding_lock_message(self, event=None):
+        event = dict(event or {})
+        try:
+            status = _engine().long_term_memory_embedding_status()
+        except Exception:
+            status = {}
+        if not event and not bool((status or {}).get("writes_blocked", False)):
+            return ""
+        expected_model = str(event.get("session_model") or (status or {}).get("session_model") or "unknown")
+        expected_context = int(event.get("session_context_length") or (status or {}).get("session_context_length") or 0)
+        current_model = str(event.get("current_model") or (status or {}).get("model") or "unknown")
+        current_context = int(event.get("current_context_length") or (status or {}).get("context_length") or 0)
+        return (
+            "Can't save Long-Term Memory embeddings because the selected semantic model/context "
+            "does not match this saved chat session.\n\n"
+            "Conversation Memory can still be saved normally.\n\n"
+            f"This chat session expects:\n{expected_model} at context {expected_context}\n\n"
+            f"Currently selected:\n{current_model} at context {current_context}\n\n"
+            "Switch back to the expected embedding model/context, rebuild embeddings with the "
+            "currently selected model, or disable Long-Term Memory embeddings."
+        )
+
+    def _show_long_term_memory_embedding_locked_warning(self, event=None):
+        message = self._long_term_memory_embedding_lock_message(event)
+        if not message:
+            return False
+        QtWidgets.QMessageBox.warning(self, "Long-Term Memory embeddings locked", message)
+        return True
+
+    def _maybe_show_long_term_memory_embedding_blocked_event(self):
+        event_func = getattr(_engine(), "long_term_memory_embedding_blocked_event", None)
+        if not callable(event_func):
+            return
+        try:
+            event = dict(event_func() or {})
+        except Exception:
+            return
+        try:
+            event_id = int(event.get("id") or 0)
+        except Exception:
+            event_id = 0
+        if event_id <= 0:
+            return
+        if event_id == int(getattr(self, "_last_long_term_memory_embedding_blocked_event_id", 0) or 0):
+            return
+        self._last_long_term_memory_embedding_blocked_event_id = event_id
+        self._show_long_term_memory_embedding_locked_warning(event)
 
     def _chat_overflow_policy_value_from_label(self, label):
         text = str(label or "").strip().lower()
@@ -233,11 +286,13 @@ class BackendChatSessionRuntimeMixin:
         else:
             unsummarized_text = "Un-summarized messages: 0."
         progress_text = f"Summarized messages: {summarized_turns}/{total_turns}. {unsummarized_text}"
+        active_path = str(config.get("active_chat_context_path", "") or "").strip()
         active_name = str(config.get("active_chat_context_name", "") or "").strip()
         memory_id = str((payload or {}).get("memory_id") or config.get("continuity_memory_id", "") or "").strip()
-        target = active_name or memory_id or "unsaved chat"
+        target = active_name if active_path else "unsaved chat"
+        if not target:
+            target = memory_id or "unsaved chat"
         auto_enabled = bool(config.get("continuity_memory_auto_summarize", config.get("continuity_memory_update_on_save", False)))
-        active_path = str(config.get("active_chat_context_path", "") or "").strip()
         try:
             batch_size = max(1, min(10000, int(config.get("continuity_memory_auto_turns", getattr(getattr(engine, "continuity_memory", None), "DEFAULT_UPDATE_BATCH_TURNS", 120)) or 120)))
         except Exception:
@@ -275,6 +330,7 @@ class BackendChatSessionRuntimeMixin:
 
     def _refresh_long_term_memory_hint(self):
         self._refresh_continuity_memory_hint()
+        self._refresh_long_term_memory_archive_hint()
 
     def _refresh_long_term_memory_archive_hint(self):
         if not hasattr(self, "long_term_memory_archive_hint"):
@@ -299,7 +355,8 @@ class BackendChatSessionRuntimeMixin:
                     "Long-Term Memory archive is waiting for a saved or loaded chat context."
                 )
                 return
-            store = engine.initialize_long_term_memory_store()
+            auto_archive_enabled = bool(config.get("long_term_memory_auto_archive_enabled", False))
+            store = engine.initialize_long_term_memory_store(create=auto_archive_enabled)
             active_records = engine.list_long_term_memory_records(limit=1000)
             deleted_records = engine.list_long_term_memory_records(status="deleted", include_deleted=True, limit=1000)
             active_chunks = engine.list_long_term_memory_chunks(limit=1000)
@@ -321,20 +378,35 @@ class BackendChatSessionRuntimeMixin:
             archive_interval = max(1, min(10000, int(config.get("long_term_memory_archive_batch_turns", 120) or 120)))
         except Exception:
             archive_interval = 120
-        if pending_turns >= archive_interval:
+        if not auto_archive_enabled:
+            archive_progress = "Messages until next archive: Long-Term Memory archiving is off."
+        elif pending_turns >= archive_interval:
             archive_progress = "Messages until next archive: 0 (eligible on the next completed reply)."
         else:
             archive_progress = f"Messages until next archive: {archive_interval - pending_turns}"
-        archive_flush = "Save Chat Context archives all pending messages immediately, even one."
+        archive_flush = (
+            "Save Chat Context archives pending messages only when Long-Term Memory archiving is enabled."
+            if auto_archive_enabled
+            else "Save Chat Context will not archive Long-Term Memory while archiving is off."
+        )
         embedding_text = "Embeddings off."
         if bool((embedding_status or {}).get("enabled", False)):
             warning = str((embedding_status or {}).get("warning", "") or "").strip()
+            mismatch = bool((embedding_status or {}).get("session_mismatch", False))
             embedding_text = (
                 f"Embeddings: {int((embedding_status or {}).get('model_embeddings', 0) or 0)} indexed for "
                 f"{str((embedding_status or {}).get('model', '') or 'selected model')} "
                 f"at context {int((embedding_status or {}).get('context_length', 0) or 0)}; "
                 f"{int((embedding_status or {}).get('missing_for_model', 0) or 0)} missing."
             )
+            if mismatch:
+                embedding_text += (
+                    "\nEMBEDDINGS LOCKED: selected semantic model/context differs from this saved chat session. "
+                    "NC will not write new archive embeddings with the selected model. "
+                    f"Session expects {str((embedding_status or {}).get('session_model', '') or 'unknown')} "
+                    f"at context {int((embedding_status or {}).get('session_context_length', 0) or 0)}. "
+                    "Switch back or rebuild embeddings for the selected model."
+                )
             if warning:
                 embedding_text += f"\nEmbedding warning: {warning}"
         self.long_term_memory_archive_hint.setText(
@@ -347,6 +419,7 @@ class BackendChatSessionRuntimeMixin:
             f"{embedding_text}\n"
             f"Storage: {path}"
         )
+        self._maybe_show_long_term_memory_embedding_blocked_event()
 
     def _continuity_memory_text(self):
         try:
@@ -623,6 +696,15 @@ class BackendChatSessionRuntimeMixin:
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(value))))
         self.save_session()
 
+    def on_long_term_memory_recall_image_limit_changed(self, value):
+        _update_runtime_config("long_term_memory_recall_image_limit", long_term_memory.normalize_image_recall_limit(value, default=1))
+        self.save_session()
+
+    def on_long_term_memory_auto_archive_enabled_changed(self, checked):
+        _update_runtime_config("long_term_memory_auto_archive_enabled", bool(checked))
+        self._refresh_long_term_memory_archive_hint()
+        self.save_session()
+
     def on_long_term_memory_archive_batch_turns_changed(self, value):
         _update_runtime_config("long_term_memory_archive_batch_turns", max(1, min(10000, int(value))))
         self._refresh_long_term_memory_archive_hint()
@@ -766,7 +848,7 @@ class BackendChatSessionRuntimeMixin:
             result = None
             error = None
             try:
-                result = _engine().rebuild_long_term_memory_embeddings(limit=500)
+                result = _engine().rebuild_long_term_memory_embeddings(limit=500, clear_existing=True)
             except Exception as exc:
                 error = exc
             bridge.finished.emit(result, error)
@@ -788,6 +870,7 @@ class BackendChatSessionRuntimeMixin:
             (
                 "Embedding build complete.\n\n"
                 f"Selected items: {int(result.get('selected', 0) or 0)}\n"
+                f"Cleared old embeddings: {int(result.get('cleared_embeddings', 0) or 0)}\n"
                 f"Embedded: {int(result.get('embedded', 0) or 0)}\n"
                 f"Failed: {int(result.get('failed', 0) or 0)}"
             ),
@@ -978,7 +1061,7 @@ class BackendChatSessionRuntimeMixin:
         try:
             records = _engine().list_long_term_memory_records(limit=200)
             chunks = _engine().list_long_term_memory_chunks(limit=50)
-            store = _engine().initialize_long_term_memory_store()
+            store = _engine().initialize_long_term_memory_store(create=False)
         except Exception as exc:
             QtWidgets.QMessageBox.warning(self, "Long-Term Memory Archive", f"Could not load archive records:\n{exc}")
             return
@@ -1022,6 +1105,37 @@ class BackendChatSessionRuntimeMixin:
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         dialog.exec()
+
+    def export_session_memory_report(self):
+        try:
+            default_path = ""
+            default_func = getattr(_engine(), "_session_memory_export_default_path", None)
+            if callable(default_func):
+                default_path = str(default_func())
+            selected_path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+                self,
+                "Export Session Memory",
+                default_path,
+                "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)",
+            )
+            selected_path = str(selected_path or "").strip()
+            if not selected_path:
+                return
+            result = _engine().export_session_memory_report(selected_path)
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, "Export Session Memory", f"Could not export session memory:\n{exc}")
+            return
+        QtWidgets.QMessageBox.information(
+            self,
+            "Export Session Memory",
+            (
+                "Session memory export complete.\n\n"
+                f"File: {result.get('path', '')}\n"
+                f"Conversation messages: {int(result.get('messages', 0) or 0)}\n"
+                f"Archived chunks: {int(result.get('chunks', 0) or 0)}\n"
+                f"Extracted records: {int(result.get('records', 0) or 0)}"
+            ),
+        )
 
     def search_long_term_memory_archive(self):
         query, accepted = QtWidgets.QInputDialog.getText(

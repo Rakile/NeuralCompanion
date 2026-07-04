@@ -4,6 +4,7 @@ import traceback
 from PySide6 import QtCore
 
 
+from core import long_term_memory
 from ui.runtime.engine_access import engine_module as _engine
 
 
@@ -116,6 +117,8 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("continuity_memory_max_chars", max(500, int(self.long_term_memory_max_chars_spin.value())) if hasattr(self, "long_term_memory_max_chars_spin") else 3000)
         _update_runtime_config("long_term_memory_retrieval_enabled", bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False)
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6)
+        _update_runtime_config("long_term_memory_recall_image_limit", long_term_memory.normalize_image_recall_limit(self.long_term_memory_recall_image_limit_spin.value(), default=1) if hasattr(self, "long_term_memory_recall_image_limit_spin") else long_term_memory.normalize_image_recall_limit(runtime_config.get("long_term_memory_recall_image_limit", 1), default=1))
+        _update_runtime_config("long_term_memory_auto_archive_enabled", bool(self.long_term_memory_auto_archive_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") else False)
         _update_runtime_config("long_term_memory_archive_batch_turns", max(1, min(10000, int(self.long_term_memory_archive_batch_turns_spin.value()))) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120))
         _update_runtime_config("long_term_memory_embedding_enabled", bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else False)
         embedding_model_widget = getattr(self, "long_term_memory_embedding_model_edit", None)
@@ -173,6 +176,8 @@ class BackendEngineLifecycleMixin:
             "continuity_memory_max_chars": max(500, int(self.long_term_memory_max_chars_spin.value())) if hasattr(self, "long_term_memory_max_chars_spin") else 3000,
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False,
             "long_term_memory_retrieval_max_items": max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6,
+            "long_term_memory_recall_image_limit": long_term_memory.normalize_image_recall_limit(self.long_term_memory_recall_image_limit_spin.value(), default=1) if hasattr(self, "long_term_memory_recall_image_limit_spin") else long_term_memory.normalize_image_recall_limit(runtime_config.get("long_term_memory_recall_image_limit", 1), default=1),
+            "long_term_memory_auto_archive_enabled": bool(self.long_term_memory_auto_archive_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") else False,
             "long_term_memory_archive_batch_turns": max(1, min(10000, int(self.long_term_memory_archive_batch_turns_spin.value()))) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120),
             "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else False,
             "long_term_memory_embedding_model": embedding_model,

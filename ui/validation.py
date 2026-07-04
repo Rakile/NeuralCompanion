@@ -80,6 +80,7 @@ UI_VALIDATION_REQUIRED_GROUPS = (
             ("chat_quick_save_button", "QPushButton"),
             ("chat_quick_load_button", "QPushButton"),
             ("chat_edit_mode_button", "QPushButton"),
+            ("chat_timestamp_toggle_button", "QPushButton"),
             ("chat_apply_edit_button", "QPushButton"),
             ("chat_cancel_edit_button", "QPushButton"),
             ("chat_autoscroll_button", "QPushButton"),

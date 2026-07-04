@@ -4,6 +4,24 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
+_REPLAY_TOOLTIP_MAX_CHARS = 4000
+_REPLAY_SIGNATURE_EDGE_CHARS = 160
+
+
+def _bounded_text(value, limit):
+    text = str(value or "")
+    if len(text) <= int(limit):
+        return text
+    return text[: int(limit)] + "\n..."
+
+
+def _replay_content_signature(content):
+    text = str(content or "")
+    edge = int(_REPLAY_SIGNATURE_EDGE_CHARS)
+    if len(text) <= edge * 2:
+        return text
+    return (len(text), text[:edge], text[-edge:])
+
 
 class ChatSessionPlayerController(QtCore.QObject):
     def __init__(self, context=None):
@@ -241,7 +259,18 @@ class ChatSessionPlayerController(QtCore.QObject):
             replayable = list(self.replay_service.replayable_chat_entries() or [])
         else:
             replayable = list(self.replay_service.replayable_assistant_entries() or [])
-        return payload, replayable
+        normalized = []
+        for entry in replayable:
+            if not isinstance(entry, dict):
+                continue
+            normalized.append(
+                {
+                    "replay_index": int(entry.get("replay_index", 0) or 0),
+                    "preview": str(entry.get("preview", "") or ""),
+                    "content": str(entry.get("content", "") or ""),
+                }
+            )
+        return payload, normalized
 
     def _selected_replay_index(self):
         item = self.chat_player_message_list.currentItem() if hasattr(self, "chat_player_message_list") else None
@@ -254,21 +283,35 @@ class ChatSessionPlayerController(QtCore.QObject):
 
     def _rebuild_message_list(self, replayable):
         selected_index = self._selected_replay_index() or self._selected_replay_index_from_state(replayable)
-        self.chat_player_message_list.clear()
-        for entry in replayable:
-            replay_index = int(entry.get("replay_index", 0) or 0)
-            preview = str(entry.get("preview", "") or "").strip()
-            item = QtWidgets.QListWidgetItem(f"#{replay_index:02d}  {preview}")
-            item.setData(QtCore.Qt.UserRole, replay_index)
-            item.setToolTip(str(entry.get("content", "") or ""))
-            self.chat_player_message_list.addItem(item)
-        if replayable:
-            target = selected_index if selected_index is not None else int(replayable[-1].get("replay_index", 1) or 1)
-            for row in range(self.chat_player_message_list.count()):
-                item = self.chat_player_message_list.item(row)
-                if int(item.data(QtCore.Qt.UserRole) or 0) == int(target):
-                    self.chat_player_message_list.setCurrentRow(row)
-                    break
+        widget = self.chat_player_message_list
+        previous_updates = widget.updatesEnabled()
+        previous_signals = widget.blockSignals(True)
+        widget.setUpdatesEnabled(False)
+        try:
+            while widget.count() > len(replayable):
+                widget.takeItem(widget.count() - 1)
+            for row, entry in enumerate(replayable):
+                replay_index = int(entry.get("replay_index", 0) or 0)
+                preview = str(entry.get("preview", "") or "").strip()
+                text = f"#{replay_index:02d}  {preview}"
+                item = widget.item(row)
+                if item is None:
+                    item = QtWidgets.QListWidgetItem(text)
+                    widget.addItem(item)
+                elif item.text() != text:
+                    item.setText(text)
+                item.setData(QtCore.Qt.UserRole, replay_index)
+                item.setToolTip(_bounded_text(entry.get("content", ""), _REPLAY_TOOLTIP_MAX_CHARS))
+            if replayable:
+                target = selected_index if selected_index is not None else int(replayable[-1].get("replay_index", 1) or 1)
+                for row in range(widget.count()):
+                    item = widget.item(row)
+                    if int(item.data(QtCore.Qt.UserRole) or 0) == int(target):
+                        widget.setCurrentRow(row)
+                        break
+        finally:
+            widget.setUpdatesEnabled(previous_updates)
+            widget.blockSignals(previous_signals)
 
     def _selected_replay_index_from_state(self, replayable):
         try:
@@ -297,7 +340,10 @@ class ChatSessionPlayerController(QtCore.QObject):
                 f"Runtime state: {runtime_text}"
             )
 
-        signature = tuple((int(entry.get("replay_index", 0) or 0), str(entry.get("content", "") or "")) for entry in replayable)
+        signature = tuple(
+            (int(entry.get("replay_index", 0) or 0), _replay_content_signature(entry.get("content", "")))
+            for entry in replayable
+        )
         if signature != self._last_replay_signature:
             self._last_replay_signature = signature
             if hasattr(self, "chat_player_message_list"):

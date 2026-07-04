@@ -51,6 +51,7 @@ import app_help
 from core import companion_orb_reply_styles
 from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, continuity_memory, conversation_history as conversation_history_runtime, lmstudio_runtime, long_term_memory, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
+from core import visual_reply_history
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
@@ -701,6 +702,7 @@ RUNTIME_CONFIG = {
     "manual_action_hotkeys": dict(DEFAULT_MANUAL_ACTION_HOTKEYS),
     "ui_action_hotkeys": dict(DEFAULT_UI_ACTION_HOTKEYS),
     "input_message_role": "user",
+    "chat_message_timestamps_enabled": False,
     "stream_mode": False,
     "offline_replay_only": False,
     "chat_context_window_messages": 20,
@@ -722,6 +724,8 @@ RUNTIME_CONFIG = {
     "continuity_memory_max_chars": continuity_memory.DEFAULT_MAX_CHARS,
     "long_term_memory_retrieval_enabled": False,
     "long_term_memory_retrieval_max_items": 6,
+    "long_term_memory_recall_image_limit": 1,
+    "long_term_memory_auto_archive_enabled": False,
     "long_term_memory_archive_batch_turns": long_term_memory.DEFAULT_EXTRACTION_TURNS,
     "long_term_memory_embedding_enabled": False,
     "long_term_memory_embedding_base_url": "http://127.0.0.1:1234/v1",
@@ -1036,6 +1040,8 @@ _ua_musetalk_idle_stream_thread = None
 _ua_musetalk_idle_stream_key = ""
 recognizer = sr.Recognizer()
 conversation_history = []
+_pending_visual_reply_history_links = []
+_pending_visual_reply_history_links_lock = threading.Lock()
 sent_tokenize = None
 PENDING_GUI_ACTION = None
 _musetalk_cleanup_lock = threading.Lock()
@@ -2559,6 +2565,18 @@ def _snapshot_has_payload(snapshot):
     return bool((image_path and os.path.isfile(image_path)) or message or content)
 
 
+def _sensory_snapshot_can_reuse_without_fresh_capture(snapshot):
+    if not isinstance(snapshot, dict):
+        return False
+    metadata = snapshot.get("metadata") if isinstance(snapshot.get("metadata"), dict) else {}
+    cache_policy = str(metadata.get("cache_policy", "") or "").strip().lower()
+    if cache_policy in {"one_shot", "no_reuse", "transient"}:
+        return False
+    if _normalize_boolish(metadata.get("hidden_response_one_shot", False)):
+        return False
+    return True
+
+
 def _coerce_hidden_focus_bounds(bounds):
     try:
         values = [int(value) for value in list(bounds or [])[:4]]
@@ -2707,20 +2725,24 @@ def _maybe_refresh_sensory_feedback_snapshots(force=False):
                         manual_priority_snapshot = dict(snapshot)
                         snapshots = [manual_priority_snapshot]
                         break
-                elif has_current_payload:
+                elif has_current_payload and _sensory_snapshot_can_reuse_without_fresh_capture(current_snapshot):
                     snapshots.append(current_snapshot)
                     if _snapshot_is_manual_companion_orb_inspection(current_snapshot):
                         manual_priority_snapshot = dict(current_snapshot)
                         snapshots = [manual_priority_snapshot]
                         break
+                elif has_current_payload:
+                    _sensory_feedback_state.pop(source, None)
             except Exception as exc:
                 print(f"⚠️ [Sensory] Capture failed for {source}: {exc}")
-                if has_current_payload:
+                if has_current_payload and _sensory_snapshot_can_reuse_without_fresh_capture(current_snapshot):
                     snapshots.append(current_snapshot)
                     if _snapshot_is_manual_companion_orb_inspection(current_snapshot):
                         manual_priority_snapshot = dict(current_snapshot)
                         snapshots = [manual_priority_snapshot]
                         break
+                elif has_current_payload:
+                    _sensory_feedback_state.pop(source, None)
         for stale_source in list(_sensory_feedback_state.keys()):
             if stale_source not in active_sources:
                 _sensory_feedback_state.pop(stale_source, None)
@@ -2736,6 +2758,22 @@ def _data_url_for_local_image(image_path: str):
     mime_type = mimetypes.guess_type(path)[0] or "image/jpeg"
     payload = base64.b64encode(Path(path).read_bytes()).decode("ascii")
     return f"data:{mime_type};base64,{payload}"
+
+
+def _data_url_for_memory_asset(asset: dict):
+    if not isinstance(asset, dict):
+        return ""
+    blob = asset.get("blob")
+    if not blob:
+        return ""
+    try:
+        payload = bytes(blob)
+    except Exception:
+        return ""
+    if not payload:
+        return ""
+    mime_type = str(asset.get("mime_type", "") or "").strip() or "image/png"
+    return f"data:{mime_type};base64,{base64.b64encode(payload).decode('ascii')}"
 
 
 def _infer_model_supports_images(model_name):
@@ -4524,6 +4562,10 @@ def _apply_sensory_pong_result(result, snapshots):
         print("🤐 [Sensory] Suppressed stale proactive candidate reused from a different hidden PONG.")
         proactive_candidate = ""
         should_speak = False
+    if (should_speak or proactive_candidate) and not _spotify_sense_hidden_action_allowed(snapshot_list):
+        print("🤐 [Sensory] Suppressed Spotify hidden proactive reply without a cooldown-approved Spotify snapshot.")
+        proactive_candidate = ""
+        should_speak = False
     if (should_speak or proactive_candidate) and not behavior_prompt_active:
         print("🤐 [Sensory] Suppressed hidden proactive reply without an active source-specific supervisor behavior.")
         proactive_candidate = ""
@@ -4750,6 +4792,23 @@ def _apply_sensory_pong_result(result, snapshots):
     if should_generate_image and visual_candidate and not _hidden_sensory_visual_generation_allowed():
         print("🖼️ [Sensory] Hidden PONG requested visual generation, but Vision policy currently blocks auto-generation.")
     return True
+
+
+def _spotify_sense_hidden_action_allowed(snapshots):
+    saw_spotify = False
+    for item in list(snapshots or []):
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source", "") or "").strip().lower()
+        if source != "spotify_sense":
+            continue
+        saw_spotify = True
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        if _normalize_boolish(metadata.get("hidden_response_allowed", False)) or _normalize_boolish(
+            metadata.get("should_speak_recommended", False)
+        ):
+            return True
+    return not saw_spotify
 
 
 def _mark_hidden_sensory_ping_attempt(source_text):
@@ -5038,18 +5097,156 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, prio
         elapsed_ms=round((time.monotonic() - cycle_started_at) * 1000.0, 1),
     )
     return applied
+def _current_visual_reply_data_snapshot():
+    try:
+        from addons.visual_reply import state as visual_reply_state
+
+        return dict(getattr(visual_reply_state, "current_visual_reply_data", {}) or {})
+    except Exception:
+        return {}
+
+
+def _attach_visual_reply_image_to_assistant_history(
+    request_id: str,
+    image_path: str,
+    *,
+    source_text: str = "",
+    prompt_text: str = "",
+):
+    return visual_reply_history.attach_visual_reply_image_to_assistant_history(
+        conversation_history,
+        request_id,
+        image_path,
+        source_text=source_text,
+        prompt_text=prompt_text,
+    )
+
+
+def _wait_for_visual_reply_history_link(
+    request_id: str,
+    image_path: str,
+    *,
+    source_text: str = "",
+    prompt_text: str = "",
+    timeout_seconds: float = 2.0,
+):
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds or 0.0))
+    while True:
+        if _attach_visual_reply_image_to_assistant_history(
+            request_id,
+            image_path,
+            source_text=source_text,
+            prompt_text=prompt_text,
+        ):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def _link_completed_visual_reply_to_history(request_id: str, *, source_text: str = "", prompt_text: str = ""):
+    request_text = str(request_id or "").strip()
+    state_snapshot = _current_visual_reply_data_snapshot()
+    if request_text and str(state_snapshot.get("request_id", "") or "").strip() != request_text:
+        return False
+    image_path = str(state_snapshot.get("image_path", "") or "").strip()
+    if not image_path:
+        return False
+    linked = _wait_for_visual_reply_history_link(
+        request_text,
+        image_path,
+        source_text=source_text,
+        prompt_text=prompt_text,
+    )
+    if linked:
+        _refresh_long_term_memory_assets_for_current_chat()
+    else:
+        _remember_pending_visual_reply_history_link(
+            request_text,
+            image_path,
+            source_text=source_text,
+            prompt_text=prompt_text,
+        )
+    return linked
+
+
+def _remember_pending_visual_reply_history_link(
+    request_id: str,
+    image_path: str,
+    *,
+    source_text: str = "",
+    prompt_text: str = "",
+):
+    request_text = str(request_id or "").strip()
+    image_text = str(image_path or "").strip()
+    if not image_text:
+        return False
+    item = {
+        "request_id": request_text,
+        "image_path": image_text,
+        "source_text": str(source_text or ""),
+        "prompt_text": str(prompt_text or ""),
+    }
+    key = (request_text, image_text)
+    with _pending_visual_reply_history_links_lock:
+        for existing in list(_pending_visual_reply_history_links or []):
+            existing_key = (
+                str((existing or {}).get("request_id", "") or "").strip(),
+                str((existing or {}).get("image_path", "") or "").strip(),
+            )
+            if existing_key == key:
+                return False
+        _pending_visual_reply_history_links.append(item)
+    return True
+
+
+def _reconcile_pending_visual_reply_history_links():
+    with _pending_visual_reply_history_links_lock:
+        pending = list(_pending_visual_reply_history_links or [])
+    if not pending:
+        return 0
+    result = visual_reply_history.reconcile_pending_visual_reply_image_links(
+        conversation_history,
+        pending,
+    )
+    linked_count = int(result.get("linked", 0) or 0)
+    with _pending_visual_reply_history_links_lock:
+        _pending_visual_reply_history_links[:] = list(result.get("pending") or [])
+    if linked_count > 0:
+        _refresh_long_term_memory_assets_for_current_chat()
+    return linked_count
+
+
+def _append_assistant_history_turn(content: str, *, origin: str = "assistant_reply"):
+    turn = {"role": "assistant", "content": str(content or ""), "origin": str(origin or "assistant_reply")}
+    turn = _stamp_chat_turn(turn)
+    conversation_history.append(turn)
+    _reconcile_pending_visual_reply_history_links()
+    return turn
+
+
 def request_visual_reply_generation(prompt: str, *, source_text: str = "", keep_current_image: bool = False):
     prompt_text = str(prompt or "").strip()
     if not prompt_text:
         return False
     if not _visual_reply_enabled():
         return False
+    source_text = str(source_text or "")
+    request_id = _next_visual_reply_request_id()
+
     def worker():
-        _perform_visual_reply_generation(
+        generated = _perform_visual_reply_generation(
             prompt_text,
             source_text=source_text,
+            request_id=request_id,
             keep_current_image=keep_current_image,
         )
+        if generated:
+            _link_completed_visual_reply_to_history(
+                request_id,
+                source_text=source_text,
+                prompt_text=prompt_text,
+            )
 
     threading.Thread(target=worker, daemon=True).start()
     return True
@@ -5629,11 +5826,15 @@ def _sanitize_chat_turn(entry):
     if origin not in {"input", "assistant_reply"}:
         origin = "assistant_reply" if role == "assistant" else "input"
     turn = {"role": role, "content": content, "origin": origin}
+    created_at = conversation_history_runtime.coerce_turn_created_at(entry.get("created_at"))
+    if created_at is not None:
+        turn["created_at"] = created_at
     if attachment_image_path:
         turn["attachment_image_path"] = attachment_image_path
         attachment_source = str(entry.get("attachment_source", "image") or "image").strip().lower()
         if attachment_source:
             turn["attachment_source"] = attachment_source
+    visual_reply_history.preserve_visual_reply_image_fields(turn, entry)
     return turn
 
 
@@ -5699,6 +5900,11 @@ def queue_user_image_turn(image_path, *, content=None, source="clipboard"):
 
 
 def export_chat_session_state():
+    _reconcile_pending_visual_reply_history_links()
+    embedding_model = str(RUNTIME_CONFIG.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3")
+    embedding_context_length = int(RUNTIME_CONFIG.get("long_term_memory_embedding_context_length", 8192) or 8192)
+    session_model = str(RUNTIME_CONFIG.get("long_term_memory_embedding_session_model", "") or "").strip() or embedding_model
+    session_context_length = int(RUNTIME_CONFIG.get("long_term_memory_embedding_session_context_length", 0) or 0) or embedding_context_length
     return {
         "version": 1,
         "saved_at": time.time(),
@@ -5710,11 +5916,15 @@ def export_chat_session_state():
         "continuity_memory_max_chars": int(RUNTIME_CONFIG.get("continuity_memory_max_chars", continuity_memory.DEFAULT_MAX_CHARS) or continuity_memory.DEFAULT_MAX_CHARS),
         "long_term_memory_retrieval_enabled": bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
         "long_term_memory_retrieval_max_items": int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
+        "long_term_memory_recall_image_limit": long_term_memory.normalize_image_recall_limit(RUNTIME_CONFIG.get("long_term_memory_recall_image_limit", 1), default=1),
+        "long_term_memory_auto_archive_enabled": bool(RUNTIME_CONFIG.get("long_term_memory_auto_archive_enabled", False)),
         "long_term_memory_archive_batch_turns": int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", long_term_memory.DEFAULT_EXTRACTION_TURNS) or long_term_memory.DEFAULT_EXTRACTION_TURNS),
         "long_term_memory_embedding_enabled": bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
-        "long_term_memory_embedding_model": str(RUNTIME_CONFIG.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"),
-        "long_term_memory_embedding_context_length": int(RUNTIME_CONFIG.get("long_term_memory_embedding_context_length", 8192) or 8192),
+        "long_term_memory_embedding_model": embedding_model,
+        "long_term_memory_embedding_context_length": embedding_context_length,
         "long_term_memory_embedding_base_url": str(RUNTIME_CONFIG.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"),
+        "long_term_memory_embedding_session_model": session_model,
+        "long_term_memory_embedding_session_context_length": session_context_length,
         "conversation_history": [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn],
         "assistant_memory": json.loads(json.dumps(assistant_memory or _default_assistant_memory())),
         "sensory_hidden_history": [item for item in (_sanitize_sensory_hidden_event(entry) for entry in list(sensory_hidden_history or [])) if item],
@@ -6091,13 +6301,26 @@ def clear_continuity_memory():
     return {"path": str(path), "memory_id": memory_id}
 
 
-def initialize_long_term_memory_store():
-    _configure_active_long_term_memory_store(_active_continuity_memory_id())
-    path = long_term_memory.init_store()
-    return {"path": str(path), "schema_version": long_term_memory.SCHEMA_VERSION}
+def _long_term_memory_store_exists(path=None):
+    try:
+        target = Path(path) if path else Path(long_term_memory.default_db_path())
+        return target.exists()
+    except Exception:
+        return False
+
+
+def initialize_long_term_memory_store(*, create=True):
+    path = _configure_active_long_term_memory_store(_active_continuity_memory_id())
+    if create:
+        path = long_term_memory.init_store()
+    exists = _long_term_memory_store_exists(path)
+    return {"path": str(path), "schema_version": long_term_memory.SCHEMA_VERSION, "exists": exists}
 
 
 _LONG_TERM_MEMORY_EMBEDDING_LOAD_CACHE = {}
+_LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT_LOCK = threading.Lock()
+_LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT_ID = 0
+_LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT = {}
 
 
 def _long_term_memory_embedding_config():
@@ -6113,6 +6336,37 @@ def _long_term_memory_embedding_config():
         "model": model_name,
         "context_length": context_length,
         "index_model": long_term_memory.embedding_model_key(model_name, context_length),
+    }
+
+
+def set_long_term_memory_embedding_session_baseline(model=None, context_length=None):
+    config = _long_term_memory_embedding_config()
+    RUNTIME_CONFIG["long_term_memory_embedding_session_model"] = str(
+        model if model is not None else config.get("model", "")
+    ).strip()
+    RUNTIME_CONFIG["long_term_memory_embedding_session_context_length"] = long_term_memory.embedding_context_length(
+        context_length if context_length is not None else config.get("context_length")
+    )
+
+
+def long_term_memory_embedding_session_mismatch():
+    config = _long_term_memory_embedding_config()
+    session_model = str(RUNTIME_CONFIG.get("long_term_memory_embedding_session_model", "") or "").strip()
+    try:
+        session_context = int(RUNTIME_CONFIG.get("long_term_memory_embedding_session_context_length", 0) or 0)
+    except Exception:
+        session_context = 0
+    if not session_model or not session_context:
+        return {"mismatch": False, "session_model": "", "session_context_length": 0}
+    current_model = str(config.get("model", "") or "").strip()
+    current_context = int(config.get("context_length") or long_term_memory.DEFAULT_EMBEDDING_CONTEXT_TOKENS)
+    mismatch = session_model != current_model or session_context != current_context
+    return {
+        "mismatch": mismatch,
+        "session_model": session_model,
+        "session_context_length": session_context,
+        "current_model": current_model,
+        "current_context_length": current_context,
     }
 
 
@@ -6307,10 +6561,56 @@ def _long_term_memory_embedding_enabled():
     return bool(config.get("enabled")) and bool(config.get("model")) and bool(config.get("base_url"))
 
 
-def _embed_long_term_memory_target(target):
+def _long_term_memory_embedding_write_blocked():
+    if not _long_term_memory_embedding_enabled():
+        return False
+    mismatch = long_term_memory_embedding_session_mismatch()
+    return bool(mismatch.get("mismatch"))
+
+
+def _record_long_term_memory_embedding_blocked_attempt(reason="long_term_memory_archive"):
+    if not _long_term_memory_embedding_write_blocked():
+        return {}
+    global _LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT_ID, _LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT
+    config = _long_term_memory_embedding_config()
+    mismatch = long_term_memory_embedding_session_mismatch()
+    payload = {
+        "reason": str(reason or "long_term_memory_archive"),
+        "session_model": str(mismatch.get("session_model") or ""),
+        "session_context_length": int(mismatch.get("session_context_length") or 0),
+        "current_model": str(mismatch.get("current_model") or config.get("model") or ""),
+        "current_context_length": int(mismatch.get("current_context_length") or config.get("context_length") or 0),
+        "created_at": time.time(),
+    }
+    with _LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT_LOCK:
+        _LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT_ID += 1
+        payload["id"] = _LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT_ID
+        _LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT = dict(payload)
+    _notify_continuity_memory_updated({"long_term_memory_embedding_blocked": True})
+    return payload
+
+
+def long_term_memory_embedding_blocked_event():
+    with _LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT_LOCK:
+        return dict(_LONG_TERM_MEMORY_EMBEDDING_BLOCKED_EVENT)
+
+
+def _embed_long_term_memory_target(target, *, allow_session_mismatch=False):
     if not _long_term_memory_embedding_enabled():
         return None
     config = _long_term_memory_embedding_config()
+    if not bool(allow_session_mismatch) and _long_term_memory_embedding_write_blocked():
+        mismatch = long_term_memory_embedding_session_mismatch()
+        _record_long_term_memory_embedding_blocked_attempt("long_term_memory_embedding_target")
+        print(
+            "🧠 [Memory] Embedding skipped: selected semantic model/context differs "
+            f"from this chat session. Session expects {mismatch.get('session_model') or 'unknown'} "
+            f"at context {mismatch.get('session_context_length') or 0}; selected "
+            f"{mismatch.get('current_model') or config.get('model')} at context "
+            f"{mismatch.get('current_context_length') or config.get('context_length')}. "
+            "Switch back or rebuild embeddings for the selected model."
+        )
+        return None
     text = str((target or {}).get("text", "") or "").strip()
     if not text:
         return None
@@ -6359,8 +6659,21 @@ def _embed_long_term_memory_chunk(chunk):
 
 def long_term_memory_embedding_status(*, include_lmstudio=False):
     config = _long_term_memory_embedding_config()
-    status = long_term_memory.embedding_status(model=config["index_model"])
+    if _long_term_memory_store_exists():
+        status = long_term_memory.embedding_status(model=config["index_model"])
+    else:
+        status = {
+            "total_embeddings": 0,
+            "model_embeddings": 0,
+            "missing_for_model": 0,
+            "model": config["index_model"],
+        }
     status.update(config)
+    mismatch = long_term_memory_embedding_session_mismatch()
+    status["session_mismatch"] = bool(mismatch.get("mismatch"))
+    status["session_model"] = str(mismatch.get("session_model", "") or "")
+    status["session_context_length"] = int(mismatch.get("session_context_length", 0) or 0)
+    status["writes_blocked"] = bool(status["session_mismatch"])
     if bool(config.get("enabled")) and bool(include_lmstudio):
         lmstudio_status = _lmstudio_embedding_model_status(config)
         status["lmstudio"] = lmstudio_status
@@ -6374,13 +6687,16 @@ def long_term_memory_embedding_status(*, include_lmstudio=False):
     return status
 
 
-def rebuild_long_term_memory_embeddings(*, limit=200):
+def rebuild_long_term_memory_embeddings(*, limit=200, clear_existing=False):
     if not _long_term_memory_embedding_enabled():
         raise RuntimeError("Enable Long-Term Memory embeddings and choose an embedding model first.")
     config = _long_term_memory_embedding_config()
     load_result = _ensure_lmstudio_embedding_model_loaded(config, force=True)
     if load_result and load_result.get("warning"):
         print(f"🧠 [Memory] Embedding model warning: {load_result.get('warning')}")
+    cleared = 0
+    if clear_existing:
+        cleared = long_term_memory.delete_all_embeddings()
     targets = long_term_memory.list_embedding_targets(
         model=config["index_model"],
         context_length=config["context_length"],
@@ -6390,7 +6706,7 @@ def rebuild_long_term_memory_embeddings(*, limit=200):
     failed = []
     for target in targets:
         try:
-            result = _embed_long_term_memory_target(target)
+            result = _embed_long_term_memory_target(target, allow_session_mismatch=bool(clear_existing))
             if result:
                 embedded.append(result)
             else:
@@ -6398,11 +6714,14 @@ def rebuild_long_term_memory_embeddings(*, limit=200):
         except Exception as exc:
             failed.append({**dict(target or {}), "error": str(exc)})
     print(f"🧠 [Memory] Embedded {len(embedded)} Long-Term Memory item(s); failed {len(failed)}.")
+    if clear_existing:
+        set_long_term_memory_embedding_session_baseline(config["model"], config["context_length"])
     return {
         "model": config["model"],
         "index_model": config["index_model"],
         "context_length": config["context_length"],
         "base_url": config["base_url"],
+        "cleared_embeddings": cleared,
         "selected": len(targets),
         "embedded": len(embedded),
         "failed": len(failed),
@@ -6450,6 +6769,8 @@ def list_long_term_memory_records(
     limit=100,
     offset=0,
 ):
+    if not _long_term_memory_store_exists():
+        return []
     return long_term_memory.list_memories(
         status=status,
         memory_type=memory_type,
@@ -6470,6 +6791,8 @@ def search_long_term_memory_records(
     limit=100,
     offset=0,
 ):
+    if not _long_term_memory_store_exists():
+        return []
     return long_term_memory.search_memories(
         query,
         status=status,
@@ -6482,6 +6805,8 @@ def search_long_term_memory_records(
 
 
 def get_long_term_memory_record(memory_id):
+    if not _long_term_memory_store_exists():
+        return None
     return long_term_memory.get_memory(memory_id)
 
 
@@ -6509,6 +6834,8 @@ def list_long_term_memory_chunks(
     limit=100,
     offset=0,
 ):
+    if not _long_term_memory_store_exists():
+        return []
     return long_term_memory.list_archived_chunks(
         status=status,
         source_chat_id=source_chat_id,
@@ -6527,6 +6854,8 @@ def search_long_term_memory_chunks(
     limit=100,
     offset=0,
 ):
+    if not _long_term_memory_store_exists():
+        return []
     return long_term_memory.search_archived_chunks(
         query,
         status=status,
@@ -6545,21 +6874,219 @@ def delete_long_term_memory_chunk(chunk_id, *, hard=False):
     return deleted
 
 
+def _session_memory_export_default_path():
+    name = str(RUNTIME_CONFIG.get("active_chat_context_name", "") or "").strip()
+    if not name:
+        name = str(RUNTIME_CONFIG.get("continuity_memory_id", "") or "").strip()
+    safe_name = continuity_memory.normalize_memory_id(name, fallback="unsaved_chat")
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    return runtime_paths.RUNTIME_DIR / "memory_exports" / f"{safe_name}_memory_export_{stamp}.md"
+
+
+def _format_session_memory_export_assets(target_kind, target_id):
+    try:
+        assets = long_term_memory.list_assets_for_target(
+            target_kind,
+            target_id,
+            include_blob=False,
+        )
+    except Exception:
+        assets = []
+    lines = []
+    for asset_index, asset in enumerate(list(assets or []), start=1):
+        metadata = dict((asset or {}).get("metadata") or {})
+        link_metadata = dict((asset or {}).get("link_metadata") or {})
+        lines.extend([
+            f"    Asset {asset_index}: {asset.get('asset_id') or asset.get('id') or ''}",
+            f"      Role: {asset.get('role', '')}",
+            f"      Relation: {asset.get('relation', '')}",
+            f"      Source message: {asset.get('source_message_index', '')}",
+            f"      Origin: {asset.get('origin', '')}",
+            f"      Source: {asset.get('source', '')}",
+            f"      MIME: {asset.get('mime_type', '')}",
+            f"      SHA256: {asset.get('sha256', '')}",
+        ])
+        original_path = str(metadata.get("original_path") or link_metadata.get("original_path") or "").strip()
+        if original_path:
+            lines.append(f"      Original path: {original_path}")
+    return lines
+
+
+def export_session_memory_report(path=None):
+    """Write a readable dump of the active session memory without binary image blobs."""
+    output_path = Path(path) if path else _session_memory_export_default_path()
+    if not output_path.suffix:
+        output_path = output_path.with_suffix(".md")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    config = dict(RUNTIME_CONFIG or {})
+    memory_id = _active_continuity_memory_id()
+    active_name = str(config.get("active_chat_context_name", "") or "").strip()
+    active_path = str(config.get("active_chat_context_path", "") or "").strip()
+    store = initialize_long_term_memory_store(create=False)
+    payload = continuity_memory_snapshot() or {}
+    history = list(conversation_history or [])
+    records = list_long_term_memory_records(limit=100000)
+    chunks = list_long_term_memory_chunks(limit=100000)
+
+    lines = [
+        "# Session Memory Export",
+        "",
+        f"Exported: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Chat context: {active_name or '(unsaved chat)'}",
+        f"Chat context path: {active_path or '(none)'}",
+        f"Continuity memory id: {memory_id}",
+        f"Long-Term Memory store: {str((store or {}).get('path', '') or '')}",
+        "",
+        "## Conversation Memory",
+        "",
+        f"Summary characters: {len(str((payload or {}).get('summary', '') or ''))}",
+        f"Summarized messages: {int((payload or {}).get('source_turn_count', 0) or 0)}",
+        "",
+        str((payload or {}).get("summary", "") or "").strip() or "(empty)",
+        "",
+        "## Long-Term Memory Archive",
+        "",
+        f"Raw archived chunks: {len(chunks)}",
+        f"Extracted records: {len(records)}",
+        "",
+    ]
+
+    if chunks:
+        lines.extend(["### Raw Archived Chat Chunks", ""])
+        for index, chunk in enumerate(chunks, start=1):
+            chunk_id = str(chunk.get("id", "") or "")
+            tags = ", ".join(list(chunk.get("tags") or []))
+            lines.extend([
+                f"#### Chunk {index}: {chunk_id}",
+                "",
+                f"Source: {chunk.get('source_chat_id', '')} messages {chunk.get('source_message_start', '')}-{chunk.get('source_message_end', '')}",
+                f"Status: {chunk.get('status', '')}",
+                f"Created: {chunk.get('created_at', '')}",
+                f"Updated: {chunk.get('updated_at', '')}",
+                f"Tags: {tags or '(none)'}",
+                "",
+                "```text",
+                str(chunk.get("text", "") or "").strip(),
+                "```",
+            ])
+            asset_lines = _format_session_memory_export_assets("chunk", chunk_id)
+            if asset_lines:
+                lines.extend(["", "Linked image assets:", *asset_lines])
+            lines.append("")
+    else:
+        lines.extend(["No raw archived chat chunks.", ""])
+
+    if records:
+        lines.extend(["### Extracted Memory Records", ""])
+        for index, record in enumerate(records, start=1):
+            record_id = str(record.get("id", "") or "")
+            tags = ", ".join(list(record.get("tags") or []))
+            lines.extend([
+                f"#### Record {index}: {record.get('title', '') or record_id}",
+                "",
+                f"ID: {record_id}",
+                f"Type: {record.get('type', '')}",
+                f"Status: {record.get('status', '')}",
+                f"Importance: {float(record.get('importance', 0.0) or 0.0):.2f}",
+                f"Confidence: {float(record.get('confidence', 0.0) or 0.0):.2f}",
+                f"Source: {record.get('source_chat_id', '')} messages {record.get('source_message_start', '')}-{record.get('source_message_end', '')}",
+                f"Created: {record.get('created_at', '')}",
+                f"Updated: {record.get('updated_at', '')}",
+                f"Tags: {tags or '(none)'}",
+                "",
+                "Summary:",
+                str(record.get("summary", "") or "").strip() or "(empty)",
+                "",
+                "Content:",
+                str(record.get("content", "") or "").strip() or "(empty)",
+            ])
+            asset_lines = _format_session_memory_export_assets("record", record_id)
+            if asset_lines:
+                lines.extend(["", "Linked image assets:", *asset_lines])
+            lines.append("")
+    else:
+        lines.extend(["No extracted memory records.", ""])
+
+    lines.extend([
+        "## Recent Chat Messages",
+        "",
+        f"Messages currently loaded: {len(history)}",
+        "",
+    ])
+    if history:
+        for index, turn in enumerate(history, start=1):
+            if not isinstance(turn, dict):
+                continue
+            role = str(turn.get("role", "") or "unknown").strip() or "unknown"
+            content = str(turn.get("content", "") or "").strip()
+            created_at = conversation_history_runtime.format_turn_timestamp(turn)
+            lines.extend([
+                f"### Message {index}: {role}",
+                "",
+                f"Created: {created_at or 'unknown'}",
+                "",
+                content or "(empty)",
+                "",
+            ])
+            asset_markers = []
+            for field_name in (
+                "attachment_image_path",
+                "generated_image_path",
+                "visual_reply_image_path",
+                "assistant_visual_reply_image_path",
+            ):
+                value = str(turn.get(field_name, "") or "").strip()
+                if value:
+                    asset_markers.append(f"- {field_name}: {value}")
+            for field_name in ("generated_image_paths", "visual_reply_image_paths", "assistant_visual_reply_image_paths"):
+                values = turn.get(field_name)
+                if isinstance(values, (list, tuple)):
+                    for value in values:
+                        text = str(value or "").strip()
+                        if text:
+                            asset_markers.append(f"- {field_name}: {text}")
+            if asset_markers:
+                lines.extend(["Image references:", *asset_markers, ""])
+    else:
+        lines.append("No chat messages are currently loaded.")
+
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    print(f"🧠 [Memory] Session memory export written: {output_path}")
+    return {
+        "path": str(output_path),
+        "memory_id": memory_id,
+        "summary_chars": len(str((payload or {}).get("summary", "") or "")),
+        "records": len(records),
+        "chunks": len(chunks),
+        "messages": len(history),
+    }
+
+
 def retrieve_long_term_memory(query, *, record_limit=6, chunk_limit=4, source_chat_id=""):
+    if not _long_term_memory_store_exists():
+        return []
     query_vector = None
     embedding_model = ""
     if _long_term_memory_embedding_enabled():
         config = _long_term_memory_embedding_config()
-        embedding_model = config["index_model"]
-        try:
-            query_vector = _lmstudio_embedding(
-                query,
-                model=config["model"],
-                base_url=config["base_url"],
-                context_length=config["context_length"],
+        mismatch = long_term_memory_embedding_session_mismatch()
+        if bool(mismatch.get("mismatch")):
+            print(
+                "🧠 [Memory] Semantic retrieval skipped: selected embedding model/context differs "
+                "from this chat session. Switch back or rebuild archive embeddings."
             )
-        except Exception as exc:
-            print(f"🧠 [Memory] Semantic retrieval skipped: {exc}")
+        else:
+            embedding_model = config["index_model"]
+            try:
+                query_vector = _lmstudio_embedding(
+                    query,
+                    model=config["model"],
+                    base_url=config["base_url"],
+                    context_length=config["context_length"],
+                )
+            except Exception as exc:
+                print(f"🧠 [Memory] Semantic retrieval skipped: {exc}")
     return long_term_memory.retrieve_memories(
         query,
         record_limit=record_limit,
@@ -6582,11 +7109,68 @@ def _latest_user_query_from_history(history):
 
 
 def build_long_term_memory_context(history):
+    context, _asset_messages = build_long_term_memory_recall(history, include_asset_messages=False)
+    return context
+
+
+def _build_long_term_memory_asset_messages(results, *, max_assets=1):
+    if not _current_model_supports_images():
+        return []
+    normalized_limit = long_term_memory.normalize_image_recall_limit(max_assets, default=1)
+    if normalized_limit == 0:
+        return []
+    messages = []
+    used_asset_ids = set()
+    for item in list(results or []):
+        kind = "memory record" if item.get("kind") == "record" else "raw chat chunk"
+        source = str(item.get("source_chat_id", "") or "")
+        start = item.get("source_message_start")
+        end = item.get("source_message_end")
+        source_text = f"{source} messages {start}-{end}" if source else f"messages {start}-{end}"
+        for asset in list(item.get("assets") or []):
+            if normalized_limit > -1 and len(messages) >= normalized_limit:
+                return messages
+            if str(asset.get("kind", "") or "") != "image":
+                continue
+            asset_id = str(asset.get("asset_id") or asset.get("id") or "").strip()
+            if asset_id and asset_id in used_asset_ids:
+                continue
+            data_url = _data_url_for_memory_asset(asset)
+            if not data_url:
+                continue
+            if asset_id:
+                used_asset_ids.add(asset_id)
+            role = str(asset.get("role", "") or "").strip() or "unknown"
+            origin = str(asset.get("origin", "") or "").strip() or str(asset.get("source", "") or "").strip()
+            relation = str(asset.get("relation", "") or "").strip()
+            print(
+                "🧠 [Memory] Attached Long-Term Memory image asset to recall message: "
+                f"{long_term_memory.asset_debug_label(asset)}; memory_source={source_text}"
+            )
+            message_text = (
+                "Hidden Long-Term Memory image recall. This image was retrieved from older chat memory. "
+                "Use it only when relevant to the current user request; current conversation and explicit user corrections override it.\n"
+                f"Memory source: {source_text}.\n"
+                f"Asset: {asset_id or 'image'}; role={role}; origin={origin}; relation={relation}."
+            )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": message_text},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            )
+    return messages
+
+
+def build_long_term_memory_recall(history, *, include_asset_messages=True):
     if not bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)):
-        return ""
+        return "", []
     query = _latest_user_query_from_history(history)
     if not query:
-        return ""
+        return "", []
     try:
         max_items = max(1, min(12, int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6)))
     except Exception:
@@ -6595,7 +7179,29 @@ def build_long_term_memory_context(history):
     chunk_limit = max(1, min(4, max_items // 2))
     results = retrieve_long_term_memory(query, record_limit=record_limit, chunk_limit=chunk_limit)
     if not results:
-        return ""
+        return "", []
+    query_requests_images = long_term_memory.query_requests_image_recall(query)
+    model_supports_images = _current_model_supports_images()
+    image_limit = long_term_memory.normalize_image_recall_limit(
+        RUNTIME_CONFIG.get("long_term_memory_recall_image_limit", 1),
+        default=1,
+    )
+    attach_blobs = bool(include_asset_messages) and query_requests_images and model_supports_images and image_limit != 0
+    results = long_term_memory.attach_assets_to_retrieval_results(results, include_blob=attach_blobs)
+    linked_asset_count = sum(len(list(item.get("assets") or [])) for item in list(results or []))
+    if linked_asset_count and include_asset_messages and not attach_blobs:
+        if not query_requests_images:
+            reason = "latest user query did not request image recall"
+        elif not model_supports_images:
+            reason = "current chat model does not support image inputs"
+        elif image_limit == 0:
+            reason = "long-term memory recalled images to attach is 0"
+        else:
+            reason = "image recall payload disabled"
+        print(
+            "🧠 [Memory] Long-Term Memory linked image asset(s) found but not attached: "
+            f"count={linked_asset_count}; reason={reason}."
+        )
     lines = [
         "Relevant Long-Term Memory archive recall. These are retrieved older memory records and raw chat snippets. "
         "Use them only when relevant to the current user request. Current conversation and explicit user corrections override old memory.",
@@ -6612,7 +7218,12 @@ def build_long_term_memory_context(history):
         lines.append(f"{index}. [{kind}] {title}")
         lines.append(f"   Source: {source_text}")
         lines.append(f"   Recall: {snippet}")
-    return "\n".join(lines).strip()
+        asset_count = len(list(item.get("assets") or []))
+        if asset_count:
+            lines.append(f"   Linked image assets: {asset_count}")
+    context_text = "\n".join(lines).strip()
+    asset_messages = _build_long_term_memory_asset_messages(results, max_assets=image_limit) if attach_blobs else []
+    return context_text, asset_messages
 
 
 def _active_long_term_memory_source_chat_id():
@@ -6627,6 +7238,10 @@ def _active_long_term_memory_source_chat_id():
 
 def _long_term_memory_archive_enabled():
     return bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)) or bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False))
+
+
+def _long_term_memory_archive_write_enabled():
+    return bool(RUNTIME_CONFIG.get("long_term_memory_auto_archive_enabled", False))
 
 
 def _long_term_memory_archive_batch_turns():
@@ -6648,8 +7263,47 @@ def _long_term_memory_last_archived_turn(source_chat_id):
     return last
 
 
+def _refresh_long_term_memory_assets_for_current_chat(*, source_chat_id="", history=None, batch_size=None):
+    if not _long_term_memory_archive_write_enabled():
+        return 0
+    source_history = conversation_history if history is None else history
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(source_history or [])) if turn]
+    turns = long_term_memory.sanitize_history_turns(sanitized_history)
+    if not turns:
+        return 0
+    resolved_source = str(source_chat_id or _active_long_term_memory_source_chat_id() or "unsaved_chat")
+    normalized_source = long_term_memory.normalize_memory_id(resolved_source, fallback="unsaved_chat")
+    try:
+        size = _long_term_memory_archive_batch_turns() if batch_size is None else max(1, min(10000, int(batch_size)))
+    except Exception:
+        size = _long_term_memory_archive_batch_turns()
+    linked = 0
+    for start in range(0, len(turns), size):
+        batch_turns = turns[start:start + size]
+        if not batch_turns:
+            continue
+        chunk_text = long_term_memory.format_history_segment(batch_turns)
+        chunk_id = long_term_memory.chunk_id_for_segment(
+            normalized_source,
+            batch_turns[0]["index"],
+            batch_turns[-1]["index"],
+            chunk_text,
+        )
+        existing = long_term_memory.get_archived_chunk(chunk_id)
+        if existing and str(existing.get("status", "") or "") == "active":
+            linked += int(
+                long_term_memory.ensure_history_chunk_assets(
+                    existing,
+                    batch_turns,
+                    source_chat_id=normalized_source,
+                )
+                or 0
+            )
+    return linked
+
+
 def sync_long_term_memory_archive_from_current_chat(*, batch_size=None, source_chat_id="", flush_partial=False, history=None):
-    if not _long_term_memory_archive_enabled():
+    if not _long_term_memory_archive_write_enabled():
         return {"enabled": False, "archived_chunks": 0, "embedded": 0, "pending_turns": 0}
     source_history = conversation_history if history is None else history
     sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(source_history or [])) if turn]
@@ -6660,6 +7314,11 @@ def sync_long_term_memory_archive_from_current_chat(*, batch_size=None, source_c
     normalized_source = long_term_memory.normalize_memory_id(resolved_source, fallback="unsaved_chat")
     archived_through = _long_term_memory_last_archived_turn(normalized_source)
     pending_turns = [turn for turn in turns if int((turn or {}).get("index") or 0) > archived_through]
+    refreshed_assets = _refresh_long_term_memory_assets_for_current_chat(
+        source_chat_id=normalized_source,
+        history=source_history,
+        batch_size=batch_size,
+    )
     if not pending_turns:
         return {
             "enabled": True,
@@ -6668,6 +7327,7 @@ def sync_long_term_memory_archive_from_current_chat(*, batch_size=None, source_c
             "total_turns": int(turns[-1]["index"]),
             "archived_chunks": 0,
             "embedded": 0,
+            "refreshed_assets": refreshed_assets,
             "pending_turns": 0,
         }
     try:
@@ -6694,6 +7354,9 @@ def sync_long_term_memory_archive_from_current_chat(*, batch_size=None, source_c
         }
     archived_chunks = []
     embedded_count = 0
+    embeddings_blocked = bool(_long_term_memory_embedding_enabled() and _long_term_memory_embedding_write_blocked())
+    if embeddings_blocked:
+        _record_long_term_memory_embedding_blocked_attempt("long_term_memory_archive_sync")
     for start in range(0, len(ready_turns), size):
         batch_turns = ready_turns[start:start + size]
         chunk_text = long_term_memory.format_history_segment(batch_turns)
@@ -6704,14 +7367,22 @@ def sync_long_term_memory_archive_from_current_chat(*, batch_size=None, source_c
             chunk_text,
         )
         existing = long_term_memory.get_archived_chunk(chunk_id)
-        chunk = existing if existing and str(existing.get("status", "") or "") == "active" else long_term_memory.archive_history_chunk(
-            batch_turns,
-            source_chat_id=normalized_source,
-            tags=["raw_chat", "auto_save"],
-        )
+        if existing and str(existing.get("status", "") or "") == "active":
+            chunk = existing
+            long_term_memory.ensure_history_chunk_assets(
+                chunk,
+                batch_turns,
+                source_chat_id=normalized_source,
+            )
+        else:
+            chunk = long_term_memory.archive_history_chunk(
+                batch_turns,
+                source_chat_id=normalized_source,
+                tags=["raw_chat", "auto_save"],
+            )
         if chunk:
             archived_chunks.append(chunk)
-            if _long_term_memory_embedding_enabled():
+            if _long_term_memory_embedding_enabled() and not embeddings_blocked:
                 embedded_count += len(_embed_long_term_memory_chunk(chunk) or [])
     print(
         f"🧠 [Memory] Long-Term archive sync on save: {len(archived_chunks)} chunk(s), "
@@ -6724,6 +7395,8 @@ def sync_long_term_memory_archive_from_current_chat(*, batch_size=None, source_c
         "total_turns": int(turns[-1]["index"]),
         "archived_chunks": len(archived_chunks),
         "embedded": embedded_count,
+        "embeddings_blocked": embeddings_blocked,
+        "refreshed_assets": refreshed_assets,
         "pending_turns": deferred_count,
         "next_batch_turns": (size - deferred_count) if deferred_count else 0,
         "chunks": archived_chunks,
@@ -6755,7 +7428,7 @@ def _run_long_term_memory_auto_archive(batch_size):
 
 def maybe_start_long_term_memory_auto_archive():
     global _long_term_memory_auto_archive_running
-    if not _long_term_memory_archive_enabled():
+    if not _long_term_memory_archive_write_enabled():
         return False
     if bool(RUNTIME_CONFIG.get("quick_chat_context_active", False)):
         return False
@@ -6873,12 +7546,21 @@ def extract_long_term_memory_records_from_current_chat(
         chunk_text,
     )
     existing_chunk = long_term_memory.get_archived_chunk(chunk_id)
+    embeddings_blocked = bool(_long_term_memory_embedding_enabled() and _long_term_memory_embedding_write_blocked())
     if existing_chunk and str(existing_chunk.get("status", "") or "") == "active":
         print(
             f"🧠 [Memory] Long-Term Memory extract skipped: raw chunk already archived "
             f"for {len(selected_turns)} chat turn(s)."
         )
-        _embed_long_term_memory_chunk(existing_chunk)
+        long_term_memory.ensure_history_chunk_assets(
+            existing_chunk,
+            selected_turns,
+            source_chat_id=resolved_source,
+        )
+        if embeddings_blocked:
+            _record_long_term_memory_embedding_blocked_attempt("long_term_memory_manual_extract")
+        else:
+            _embed_long_term_memory_chunk(existing_chunk)
         return {
             "source_chat_id": long_term_memory.normalize_memory_id(resolved_source),
             "selected_turns": len(selected_turns),
@@ -6887,13 +7569,17 @@ def extract_long_term_memory_records_from_current_chat(
             "stored_records": 0,
             "records": [],
             "skipped_existing_chunk": True,
+            "embeddings_blocked": embeddings_blocked,
         }
     archived_chunk = long_term_memory.archive_history_chunk(
         selected_turns,
         source_chat_id=resolved_source,
         tags=["raw_chat", "manual_extract"],
     )
-    _embed_long_term_memory_chunk(archived_chunk)
+    if embeddings_blocked:
+        _record_long_term_memory_embedding_blocked_attempt("long_term_memory_manual_extract")
+    else:
+        _embed_long_term_memory_chunk(archived_chunk)
     messages = long_term_memory.build_extraction_messages(
         selected_turns,
         source_chat_id=resolved_source,
@@ -6946,7 +7632,8 @@ def extract_long_term_memory_records_from_current_chat(
                 "created_at": (existing or {}).get("created_at", ""),
             }
         )
-        _embed_long_term_memory_record(record)
+        if not embeddings_blocked:
+            _embed_long_term_memory_record(record)
         stored_records.append(record)
     print(
         f"🧠 [Memory] Extracted {len(stored_records)} Long-Term Memory record(s) "
@@ -6959,6 +7646,7 @@ def extract_long_term_memory_records_from_current_chat(
         "chunks": [archived_chunk] if archived_chunk else [],
         "stored_records": len(stored_records),
         "records": stored_records,
+        "embeddings_blocked": embeddings_blocked,
     }
 
 
@@ -7165,6 +7853,9 @@ def replace_chat_conversation_history(raw_history, *, allow_pending_loaded_user=
                 "content": str(last_turn.get("content", "") or ""),
                 "origin": str(last_turn.get("origin", "input") or "input"),
             }
+            created_at = conversation_history_runtime.coerce_turn_created_at(last_turn.get("created_at"))
+            if created_at is not None:
+                pending_loaded_input_turn["created_at"] = created_at
             attachment_image_path = str(last_turn.get("attachment_image_path", "") or "").strip()
             if attachment_image_path:
                 pending_loaded_input_turn["attachment_image_path"] = attachment_image_path
@@ -7177,6 +7868,16 @@ def import_chat_session_state(payload):
     if not isinstance(payload, dict):
         raise ValueError("Chat session payload must be a JSON object")
     reset_chat_runtime_state()
+    set_long_term_memory_embedding_session_baseline(
+        payload.get(
+            "long_term_memory_embedding_session_model",
+            payload.get("long_term_memory_embedding_model", RUNTIME_CONFIG.get("long_term_memory_embedding_model")),
+        ),
+        payload.get(
+            "long_term_memory_embedding_session_context_length",
+            payload.get("long_term_memory_embedding_context_length", RUNTIME_CONFIG.get("long_term_memory_embedding_context_length")),
+        ),
+    )
     memory_id = continuity_memory.normalize_memory_id(payload.get("continuity_memory_id"))
     if not memory_id:
         memory_id = _active_continuity_memory_id()
@@ -7413,6 +8114,7 @@ def speak_async(
     preserve_text_iterable_chunks=False,
 ) -> TTSController:
     global tts_model, stop_playback, audio_playing, avatar_gui, last_resumed_at, last_resume_requested_at
+    speak_started_at = time.monotonic()
     ctrl = TTSController()
     stop_playback.clear()
     manual_pause_active.clear()
@@ -7701,7 +8403,6 @@ def speak_async(
                             f"🌊 [Stream] First audio chunk generated: file={os.path.basename(path)} chars={len(sub.strip())}"
                         )
                         dry_run.record_reply_event(dry_run_reply_id, "first_audio_chunk_at")
-                        first_wav_logged = True
                     if pipeline_telemetry_enabled:
                         musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
@@ -7711,6 +8412,8 @@ def speak_async(
                             duration_seconds=estimated_duration_seconds,
                             expected_frame_count=estimated_frame_count,
                         )
+                    if text_iterable is not None and not first_wav_logged:
+                        first_wav_logged = True
                     if avatar_mode == "none":
                         chunk_result = {
                             "ok": True,
@@ -8945,8 +9648,19 @@ def _display_input_turn_content(turn):
     return content
 
 
+def _stamp_chat_turn(turn):
+    item = dict(turn or {})
+    if conversation_history_runtime.coerce_turn_created_at(item.get("created_at")) is None:
+        item["created_at"] = time.time()
+    return item
+
+
+def _chat_message_timestamps_enabled():
+    return bool(RUNTIME_CONFIG.get("chat_message_timestamps_enabled", False))
+
+
 def _append_chat_turn(turn):
-    conversation_history.append(dict(turn))
+    conversation_history.append(_stamp_chat_turn(turn))
 
 
 def _set_pending_loaded_input_turn(turn):
@@ -8968,6 +9682,9 @@ def _consume_pending_loaded_input_turn():
         "content": loaded_content,
         "origin": str(pending_loaded_input_turn.get("origin", "input") or "input"),
     }
+    created_at = conversation_history_runtime.coerce_turn_created_at(pending_loaded_input_turn.get("created_at"))
+    if created_at is not None:
+        resumed_turn["created_at"] = created_at
     attachment_image_path = str(pending_loaded_input_turn.get("attachment_image_path", "") or "").strip()
     if attachment_image_path:
         resumed_turn["attachment_image_path"] = attachment_image_path
@@ -9051,6 +9768,7 @@ def _build_chat_message_from_turn(turn):
     return conversation_history_runtime.build_chat_message_from_turn(
         turn,
         data_url_for_local_image=_data_url_for_local_image,
+        include_timestamp=_chat_message_timestamps_enabled(),
     )
 
 
@@ -9145,10 +9863,13 @@ def build_llm_request():
     if memory_context:
         print("🧠 [Memory] Injected Continuity Memory.")
         messages.append({"role": "system", "content": memory_context})
-    long_term_memory_context = build_long_term_memory_context(model_history_window)
+    long_term_memory_context, long_term_memory_asset_messages = build_long_term_memory_recall(model_history_window)
     if long_term_memory_context:
         print("🧠 [Memory] Injected Long-Term Memory retrieval.")
         messages.append({"role": "system", "content": long_term_memory_context})
+    if long_term_memory_asset_messages:
+        print(f"🧠 [Memory] Injected {len(long_term_memory_asset_messages)} Long-Term Memory image asset(s).")
+        messages.extend(long_term_memory_asset_messages)
     visual_instruction = _visual_reply_generation_instruction()
     if visual_instruction:
         messages.append({"role": "system", "content": visual_instruction})
@@ -10060,7 +10781,7 @@ def run_conversation_flow(source):
                         print(f"💬 You (assistant): {display_content}")
                     else:
                         print(f"💬 You: {display_content}")
-                    conversation_history.append(input_turn)
+                    _append_chat_turn(input_turn)
 
                 elif action.type == ConversationActionType.START_LLM_STREAM:
                     if addon_user_text_command and not addon_user_text_command_uses_llm and not addon_user_text_command_consumed:
@@ -10072,7 +10793,7 @@ def run_conversation_flow(source):
                                 _pop_last_proactive_placeholder(user_text)
                         if response_text:
                             last_assistant_text = response_text
-                            conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
+                            _append_assistant_history_turn(response_text)
                             assistant_history_added = True
                             _apply_stored_chat_history_limit()
                             maybe_start_continuity_memory_auto_update()
@@ -10111,7 +10832,7 @@ def run_conversation_flow(source):
                         continue
 
                     last_assistant_text = response_text
-                    conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
+                    _append_assistant_history_turn(response_text)
                     assistant_history_added = True
                     _apply_stored_chat_history_limit()
                     maybe_start_continuity_memory_auto_update()
@@ -10192,7 +10913,7 @@ def run_conversation_flow(source):
                         print("------------------------------------------------------------------------------------------------------")
                         print("------------------------------------------------------------------------------------------------------")
                         last_assistant_text = response_text
-                        conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
+                        _append_assistant_history_turn(response_text)
                         _apply_stored_chat_history_limit()
                         maybe_start_continuity_memory_auto_update()
                         maybe_start_long_term_memory_auto_archive()
@@ -10333,7 +11054,7 @@ def run_conversation_flow(source):
                             conversation_history[-1]["content"] = final_assistant
                             print(f"   [History Update] Truncated to: \"{final_assistant}\"")
                         elif final_assistant.strip():
-                            conversation_history.append({"role": "assistant", "content": final_assistant, "origin": "assistant_reply"})
+                            _append_assistant_history_turn(final_assistant)
                             maybe_start_continuity_memory_auto_update()
                             maybe_start_long_term_memory_auto_archive()
                             assistant_history_added = True
@@ -10388,7 +11109,7 @@ def run_conversation_flow(source):
                         print("------------------------------------------------------------------------------------------------------")
                         print("------------------------------------------------------------------------------------------------------")
                         last_assistant_text = response_text
-                        conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
+                        _append_assistant_history_turn(response_text)
                         _apply_stored_chat_history_limit()
                         maybe_start_continuity_memory_auto_update()
                         maybe_start_long_term_memory_auto_archive()

@@ -641,7 +641,12 @@ class CompanionOrbController(QtCore.QObject):
         self._proxy.snapshot_context_requested.emit(dict(payload or {}))
 
     def _external_runtime_enabled(self) -> bool:
-        return bool(self._last_runtime_config.get("companion_orb_external_runtime_enabled", True))
+        if not bool(self._last_runtime_config.get("companion_orb_external_runtime_enabled", True)):
+            return False
+        if not bool(self._last_runtime_config.get("companion_orb_enabled", False)):
+            return False
+        mode = str(self._last_runtime_config.get("companion_orb_display_mode", "off") or "off").strip().lower()
+        return mode != "off"
 
     def _ensure_external_runtime(self) -> bool:
         if self._external_runtime is None:

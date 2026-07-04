@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import mimetypes
 import re
 import sqlite3
 import time
@@ -19,7 +20,7 @@ from typing import Any
 from core import runtime_paths
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MEMORY_DIR = runtime_paths.RUNTIME_DIR / "long_term_memory"
 DEFAULT_DB_PATH = MEMORY_DIR / "memory.sqlite3"
 _ACTIVE_DB_PATH = DEFAULT_DB_PATH
@@ -211,6 +212,38 @@ def init_store(path: Any = None) -> Path:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS long_term_memory_assets (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL DEFAULT 'image',
+                origin TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
+                mime_type TEXT NOT NULL DEFAULT '',
+                sha256 TEXT NOT NULL DEFAULT '',
+                blob BLOB NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS long_term_memory_asset_links (
+                id TEXT PRIMARY KEY,
+                asset_id TEXT NOT NULL,
+                target_kind TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                source_chat_id TEXT NOT NULL DEFAULT '',
+                source_message_index INTEGER,
+                role TEXT NOT NULL DEFAULT '',
+                relation TEXT NOT NULL DEFAULT '',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_status ON long_term_memory(status)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_type ON long_term_memory(type)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_source_chat ON long_term_memory(source_chat_id)")
@@ -221,6 +254,13 @@ def init_store(path: Any = None) -> Path:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_embeddings_target ON long_term_memory_embeddings(target_kind, target_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_embeddings_model ON long_term_memory_embeddings(model)")
         connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ltm_embeddings_unique ON long_term_memory_embeddings(target_kind, target_id, model)")
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ltm_assets_sha_kind ON long_term_memory_assets(kind, sha256)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_asset_links_target ON long_term_memory_asset_links(target_kind, target_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_asset_links_asset ON long_term_memory_asset_links(asset_id)")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_ltm_asset_links_unique "
+            "ON long_term_memory_asset_links(asset_id, target_kind, target_id, source_message_index, relation)"
+        )
         connection.execute(
             "INSERT OR REPLACE INTO memory_meta(key, value) VALUES (?, ?)",
             ("schema_version", str(SCHEMA_VERSION)),
@@ -265,6 +305,94 @@ def _row_to_chunk(row: sqlite3.Row | None) -> dict[str, Any] | None:
         "created_at": str(row["created_at"] or ""),
         "updated_at": str(row["updated_at"] or ""),
         "status": str(row["status"] or ""),
+    }
+
+
+def _loads_metadata(value: Any) -> dict[str, Any]:
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except Exception:
+        parsed = {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _metadata_json(value: Any) -> str:
+    if not isinstance(value, dict):
+        value = {}
+    try:
+        return json.dumps(value, ensure_ascii=True, sort_keys=True)
+    except Exception:
+        return "{}"
+
+
+def _normalize_asset_kind(value: Any) -> str:
+    kind = normalize_memory_id(value, fallback="image")
+    return kind or "image"
+
+
+def _normalize_asset_relation(value: Any) -> str:
+    relation = normalize_memory_id(value, fallback="attached_to_turn")
+    return relation or "attached_to_turn"
+
+
+def _asset_id(kind: Any, sha256: Any) -> str:
+    normalized_kind = _normalize_asset_kind(kind)
+    digest = re.sub(r"[^a-fA-F0-9]+", "", str(sha256 or "").strip().lower())[:32]
+    if not digest:
+        digest = hashlib.sha1(str(sha256 or normalized_kind).encode("utf-8", errors="replace")).hexdigest()[:32]
+    return normalize_memory_id(f"asset_{normalized_kind}_{digest}", fallback=f"asset_{digest}")
+
+
+def _asset_link_id(asset_id: Any, target_kind: Any, target_id: Any, source_message_index: Any, relation: Any) -> str:
+    payload = (
+        f"{str(asset_id or '')}:"
+        f"{normalize_memory_id(target_kind, fallback='target')}:"
+        f"{normalize_memory_id(target_id, fallback='unknown')}:"
+        f"{_optional_int(source_message_index) or 0}:"
+        f"{_normalize_asset_relation(relation)}"
+    )
+    digest = hashlib.sha1(payload.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return normalize_memory_id(f"asset_link_{digest}", fallback=f"asset_link_{digest}")
+
+
+def _mime_type_for_path(path: Any) -> str:
+    guessed, _encoding = mimetypes.guess_type(str(path or ""))
+    return str(guessed or "application/octet-stream")
+
+
+def _row_to_asset(row: sqlite3.Row | None, *, include_blob: bool = True) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    payload = {
+        "id": str(row["id"] or ""),
+        "kind": str(row["kind"] or ""),
+        "origin": str(row["origin"] or ""),
+        "source": str(row["source"] or ""),
+        "mime_type": str(row["mime_type"] or ""),
+        "sha256": str(row["sha256"] or ""),
+        "metadata": _loads_metadata(row["metadata_json"]),
+        "created_at": str(row["created_at"] or ""),
+        "updated_at": str(row["updated_at"] or ""),
+    }
+    if include_blob:
+        payload["blob"] = bytes(row["blob"] or b"")
+    return payload
+
+
+def _row_to_asset_link(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": str(row["id"] or ""),
+        "asset_id": str(row["asset_id"] or ""),
+        "target_kind": str(row["target_kind"] or ""),
+        "target_id": str(row["target_id"] or ""),
+        "source_chat_id": str(row["source_chat_id"] or ""),
+        "source_message_index": row["source_message_index"],
+        "role": str(row["role"] or ""),
+        "relation": str(row["relation"] or ""),
+        "metadata": _loads_metadata(row["metadata_json"]),
+        "created_at": str(row["created_at"] or ""),
     }
 
 
@@ -544,6 +672,28 @@ def embedding_status(*, model: Any = "", path: Any = None) -> dict[str, Any]:
     }
 
 
+def delete_embeddings(*, model: Any = "", path: Any = None) -> int:
+    normalized_model = str(model or "").strip()
+    if not normalized_model:
+        return 0
+    init_store(path)
+    with _connect(path) as connection:
+        cursor = connection.execute(
+            "DELETE FROM long_term_memory_embeddings WHERE model = ?",
+            (normalized_model,),
+        )
+        connection.commit()
+        return int(cursor.rowcount or 0)
+
+
+def delete_all_embeddings(*, path: Any = None) -> int:
+    init_store(path)
+    with _connect(path) as connection:
+        cursor = connection.execute("DELETE FROM long_term_memory_embeddings")
+        connection.commit()
+        return int(cursor.rowcount or 0)
+
+
 def memory_record(
     *,
     memory_id: Any = "",
@@ -606,6 +756,63 @@ def compact_text(value: Any, limit: int = 900) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def query_requests_image_recall(query: Any) -> bool:
+    text = str(query or "").strip().lower()
+    if not text:
+        return False
+    image_terms = (
+        "image",
+        "picture",
+        "photo",
+        "screenshot",
+        "visual",
+        "generated",
+        "generate",
+        "drew",
+        "drawn",
+        "created",
+        "look at",
+        "looks like",
+        "see in",
+        "shown",
+        "showed",
+    )
+    return any(term in text for term in image_terms)
+
+
+def normalize_image_recall_limit(value: Any, default: int = 1) -> int:
+    try:
+        normalized = int(value)
+    except Exception:
+        return int(default)
+    if normalized == -1:
+        return -1
+    if normalized < -1:
+        return int(default)
+    return normalized
+
+
+def asset_debug_label(asset: dict[str, Any]) -> str:
+    if not isinstance(asset, dict):
+        return "asset=(invalid)"
+    asset_id = str(asset.get("asset_id") or asset.get("id") or "").strip() or "(unknown)"
+    role = str(asset.get("role") or "").strip() or "unknown"
+    origin = str(asset.get("origin") or "").strip() or str(asset.get("source") or "").strip() or "unknown"
+    source = str(asset.get("source") or "").strip() or "unknown"
+    relation = str(asset.get("relation") or "").strip() or "unknown"
+    mime_type = str(asset.get("mime_type") or "").strip() or "unknown"
+    source_index = asset.get("source_message_index")
+    blob = asset.get("blob")
+    try:
+        byte_count = len(blob) if blob is not None else 0
+    except Exception:
+        byte_count = 0
+    return (
+        f"asset={asset_id} role={role} origin={origin} source={source} "
+        f"relation={relation} mime={mime_type} message={source_index} bytes={byte_count}"
+    )
 
 
 def text_hash(value: Any) -> str:
@@ -721,6 +928,86 @@ def _semantic_rank_score(entry: dict[str, Any]) -> float:
     return score
 
 
+def _turn_asset_entry(
+    *,
+    image_path: Any,
+    source: Any = "image",
+    role: Any = "",
+    origin: Any = "",
+    relation: Any = "",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    path_text = str(image_path or "").strip()
+    if not path_text:
+        return None
+    role_text = str(role or "").strip().lower()
+    source_text = compact_text(source or "image").lower() or "image"
+    origin_text = normalize_memory_id(origin, fallback="")
+    if not origin_text:
+        origin_text = "assistant_visual_reply" if role_text == "assistant" else "user_attachment"
+    relation_text = _normalize_asset_relation(
+        relation or ("generated_by_reply" if role_text == "assistant" else "attached_to_turn")
+    )
+    payload = {
+        "kind": "image",
+        "path": path_text,
+        "origin": origin_text,
+        "source": source_text,
+        "relation": relation_text,
+        "metadata": dict(metadata or {}),
+    }
+    payload["metadata"].setdefault("original_path", path_text)
+    return payload
+
+
+def _image_assets_from_turn(turn: dict[str, Any], role: str) -> list[dict[str, Any]]:
+    assets: list[dict[str, Any]] = []
+    attachment = _turn_asset_entry(
+        image_path=turn.get("attachment_image_path"),
+        source=turn.get("attachment_source", "image"),
+        role=role,
+    )
+    if attachment:
+        assets.append(attachment)
+    generated_candidates = [
+        ("generated_image_path", "generated_image"),
+        ("visual_reply_image_path", "generated_image"),
+        ("assistant_visual_reply_image_path", "generated_image"),
+    ]
+    for field_name, source in generated_candidates:
+        entry = _turn_asset_entry(
+            image_path=turn.get(field_name),
+            source=turn.get(f"{field_name}_source", source),
+            role=role,
+            origin="assistant_visual_reply",
+            relation="generated_by_reply",
+            metadata={"field": field_name},
+        )
+        if entry and all(entry["path"] != existing["path"] for existing in assets):
+            assets.append(entry)
+    list_candidates = [
+        ("generated_image_paths", "generated_image"),
+        ("visual_reply_image_paths", "generated_image"),
+        ("assistant_visual_reply_image_paths", "generated_image"),
+    ]
+    for field_name, source in list_candidates:
+        raw_paths = turn.get(field_name)
+        if not isinstance(raw_paths, (list, tuple)):
+            continue
+        for raw_path in raw_paths:
+            entry = _turn_asset_entry(
+                image_path=raw_path,
+                source=source,
+                role=role,
+                origin="assistant_visual_reply",
+                relation="generated_by_reply",
+                metadata={"field": field_name},
+            )
+            if entry and all(entry["path"] != existing["path"] for existing in assets):
+                assets.append(entry)
+    return assets
+
+
 def sanitize_history_turns(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     sanitized: list[dict[str, Any]] = []
     for index, turn in enumerate(list(history or []), start=1):
@@ -730,10 +1017,19 @@ def sanitize_history_turns(history: list[dict[str, Any]]) -> list[dict[str, Any]
         if role not in {"user", "assistant", "system"}:
             continue
         content = compact_text(turn.get("content", ""))
+        attachment_image_path = str(turn.get("attachment_image_path", "") or "").strip()
+        if attachment_image_path:
+            attachment_source = compact_text(turn.get("attachment_source", "image")).lower() or "image"
+            marker = f"[Image attached: {attachment_source}]"
+            content = f"{content} {marker}".strip() if content else marker
+        assets = _image_assets_from_turn(turn, role)
         if not content:
             continue
         label = "User" if role == "user" else ("Assistant" if role == "assistant" else "System")
-        sanitized.append({"index": index, "role": role, "label": label, "content": content})
+        payload = {"index": index, "role": role, "label": label, "content": content}
+        if assets:
+            payload["assets"] = assets
+        sanitized.append(payload)
     return sanitized
 
 
@@ -773,6 +1069,239 @@ def chunk_id_for_segment(source_chat_id: Any, source_message_start: Any, source_
     end = _optional_int(source_message_end) or 0
     digest = hashlib.sha1(str(text or "").encode("utf-8", errors="replace")).hexdigest()[:16]
     return normalize_memory_id(f"chunk_{source}_{start}_{end}_{digest}", fallback=f"chunk_{digest}")
+
+
+def upsert_image_asset(
+    image_path: Any,
+    *,
+    origin: Any = "user_attachment",
+    source: Any = "image",
+    metadata: dict[str, Any] | None = None,
+    path: Any = None,
+) -> dict[str, Any] | None:
+    file_path = Path(str(image_path or "").strip())
+    if not file_path.is_file():
+        return None
+    blob = file_path.read_bytes()
+    sha256 = hashlib.sha256(blob).hexdigest()
+    asset_id = _asset_id("image", sha256)
+    now = _now_iso()
+    metadata_payload = dict(metadata or {})
+    metadata_payload.setdefault("original_path", str(file_path))
+    init_store(path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO long_term_memory_assets(
+                id, kind, origin, source, mime_type, sha256, blob,
+                metadata_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(kind, sha256) DO UPDATE SET
+                origin=excluded.origin,
+                source=excluded.source,
+                mime_type=excluded.mime_type,
+                metadata_json=excluded.metadata_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                asset_id,
+                "image",
+                normalize_memory_id(origin, fallback="user_attachment"),
+                compact_text(source or "image").lower() or "image",
+                _mime_type_for_path(file_path),
+                sha256,
+                sqlite3.Binary(blob),
+                _metadata_json(metadata_payload),
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM long_term_memory_assets WHERE kind = ? AND sha256 = ?",
+            ("image", sha256),
+        ).fetchone()
+    return _row_to_asset(row)
+
+
+def link_asset_to_target(
+    asset_id: Any,
+    *,
+    target_kind: Any,
+    target_id: Any,
+    source_chat_id: Any = "",
+    source_message_index: Any = None,
+    role: Any = "",
+    relation: Any = "attached_to_turn",
+    metadata: dict[str, Any] | None = None,
+    path: Any = None,
+) -> dict[str, Any] | None:
+    asset = str(asset_id or "").strip()
+    if not asset:
+        return None
+    target_kind_text = normalize_memory_id(target_kind, fallback="chunk")
+    target_id_text = str(target_id or "").strip()
+    if not target_id_text:
+        return None
+    relation_text = _normalize_asset_relation(relation)
+    index_value = _optional_int(source_message_index)
+    link_id = _asset_link_id(asset, target_kind_text, target_id_text, index_value, relation_text)
+    now = _now_iso()
+    init_store(path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO long_term_memory_asset_links(
+                id, asset_id, target_kind, target_id, source_chat_id,
+                source_message_index, role, relation, metadata_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(asset_id, target_kind, target_id, source_message_index, relation) DO UPDATE SET
+                source_chat_id=excluded.source_chat_id,
+                role=excluded.role,
+                metadata_json=excluded.metadata_json
+            """,
+            (
+                link_id,
+                asset,
+                target_kind_text,
+                target_id_text,
+                normalize_memory_id(source_chat_id, fallback=""),
+                index_value,
+                str(role or "").strip().lower(),
+                relation_text,
+                _metadata_json(metadata or {}),
+                now,
+            ),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM long_term_memory_asset_links WHERE id = ?",
+            (link_id,),
+        ).fetchone()
+    return _row_to_asset_link(row)
+
+
+def list_assets_for_target(target_kind: Any, target_id: Any, *, path: Any = None, include_blob: bool = True) -> list[dict[str, Any]]:
+    init_store(path)
+    target_kind_text = normalize_memory_id(target_kind, fallback="chunk")
+    target_id_text = str(target_id or "").strip()
+    if not target_id_text:
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                links.id AS link_id,
+                links.asset_id,
+                links.target_kind,
+                links.target_id,
+                links.source_chat_id,
+                links.source_message_index,
+                links.role,
+                links.relation,
+                links.metadata_json AS link_metadata_json,
+                links.created_at AS link_created_at,
+                assets.id,
+                assets.kind,
+                assets.origin,
+                assets.source,
+                assets.mime_type,
+                assets.sha256,
+                assets.blob,
+                assets.metadata_json,
+                assets.created_at,
+                assets.updated_at
+            FROM long_term_memory_asset_links links
+            JOIN long_term_memory_assets assets ON assets.id = links.asset_id
+            WHERE links.target_kind = ? AND links.target_id = ?
+            ORDER BY links.source_message_index, links.created_at, links.id
+            """,
+            (target_kind_text, target_id_text),
+        ).fetchall()
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        payload = {
+            "link_id": str(row["link_id"] or ""),
+            "asset_id": str(row["asset_id"] or ""),
+            "target_kind": str(row["target_kind"] or ""),
+            "target_id": str(row["target_id"] or ""),
+            "source_chat_id": str(row["source_chat_id"] or ""),
+            "source_message_index": row["source_message_index"],
+            "role": str(row["role"] or ""),
+            "relation": str(row["relation"] or ""),
+            "link_metadata": _loads_metadata(row["link_metadata_json"]),
+            "link_created_at": str(row["link_created_at"] or ""),
+            "id": str(row["id"] or ""),
+            "kind": str(row["kind"] or ""),
+            "origin": str(row["origin"] or ""),
+            "source": str(row["source"] or ""),
+            "mime_type": str(row["mime_type"] or ""),
+            "sha256": str(row["sha256"] or ""),
+            "metadata": _loads_metadata(row["metadata_json"]),
+            "created_at": str(row["created_at"] or ""),
+            "updated_at": str(row["updated_at"] or ""),
+        }
+        if include_blob:
+            payload["blob"] = bytes(row["blob"] or b"")
+        results.append(payload)
+    return results
+
+
+def ensure_history_chunk_assets(
+    chunk: dict[str, Any] | None,
+    turns: list[dict[str, Any]],
+    *,
+    source_chat_id: Any = "",
+    path: Any = None,
+) -> int:
+    if not chunk:
+        return 0
+    chunk_id = str(chunk.get("id", "") or "").strip()
+    if not chunk_id:
+        return 0
+    source = normalize_memory_id(source_chat_id or chunk.get("source_chat_id"), fallback="unsaved_chat")
+    linked = 0
+    for turn in list(turns or []):
+        if not isinstance(turn, dict):
+            continue
+        index_value = _optional_int(turn.get("index"))
+        role = str(turn.get("role", "") or "").strip().lower()
+        for asset_spec in list(turn.get("assets") or []):
+            if not isinstance(asset_spec, dict):
+                continue
+            if str(asset_spec.get("kind", "image") or "image").strip().lower() != "image":
+                continue
+            image_path = str(asset_spec.get("path", "") or "").strip()
+            if not image_path:
+                continue
+            metadata = dict(asset_spec.get("metadata") or {})
+            metadata.setdefault("turn_index", index_value)
+            metadata.setdefault("missing_policy", "skip_asset_preserve_text_marker")
+            asset = upsert_image_asset(
+                image_path,
+                origin=asset_spec.get("origin", "user_attachment"),
+                source=asset_spec.get("source", "image"),
+                metadata=metadata,
+                path=path,
+            )
+            if not asset:
+                continue
+            link = link_asset_to_target(
+                asset.get("id", ""),
+                target_kind="chunk",
+                target_id=chunk_id,
+                source_chat_id=source,
+                source_message_index=index_value,
+                role=role,
+                relation=asset_spec.get("relation", "attached_to_turn"),
+                metadata=metadata,
+                path=path,
+            )
+            if link:
+                linked += 1
+    return linked
 
 
 def archive_history_chunk(
@@ -825,7 +1354,9 @@ def archive_history_chunk(
             ),
         )
         connection.commit()
-    return get_archived_chunk(chunk_id, path=path)
+    chunk = get_archived_chunk(chunk_id, path=path)
+    ensure_history_chunk_assets(chunk, selected, source_chat_id=source, path=path)
+    return chunk
 
 
 def build_extraction_messages(
@@ -1379,6 +1910,34 @@ def retrieve_memories(
     return results
 
 
+def attach_assets_to_retrieval_results(
+    results: list[dict[str, Any]],
+    *,
+    include_blob: bool = True,
+    path: Any = None,
+) -> list[dict[str, Any]]:
+    """Return retrieved memory items with any linked durable assets included."""
+    hydrated: list[dict[str, Any]] = []
+    for item in list(results or []):
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item)
+        kind = str(payload.get("kind", "") or "").strip()
+        target_id = str(payload.get("id", "") or "").strip()
+        target_kind = "record" if kind == "record" else "chunk" if kind == "chunk" else ""
+        if target_kind and target_id:
+            payload["assets"] = list_assets_for_target(
+                target_kind,
+                target_id,
+                path=path,
+                include_blob=include_blob,
+            )
+        else:
+            payload["assets"] = []
+        hydrated.append(payload)
+    return hydrated
+
+
 def _filter_clauses(
     *,
     status: Any = "active",
@@ -1460,6 +2019,8 @@ __all__ = [
     "db_path_for_memory_id",
     "default_db_path",
     "delete_archived_chunk",
+    "delete_all_embeddings",
+    "delete_embeddings",
     "delete_memory",
     "embedding_context_length",
     "embedding_context_length_from_model_key",
@@ -1470,10 +2031,13 @@ __all__ = [
     "embedding_targets_for_chunk",
     "embedding_text_for_chunk",
     "embedding_text_for_record",
+    "ensure_history_chunk_assets",
     "format_history_segment",
     "get_archived_chunk",
     "get_memory",
     "init_store",
+    "link_asset_to_target",
+    "list_assets_for_target",
     "list_archived_chunks",
     "list_memories",
     "memory_record",
@@ -1492,6 +2056,7 @@ __all__ = [
     "set_memory_status",
     "split_embedding_text",
     "update_memory",
+    "upsert_image_asset",
     "upsert_embedding",
     "upsert_memory",
 ]

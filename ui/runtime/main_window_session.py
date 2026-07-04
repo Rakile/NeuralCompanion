@@ -9,6 +9,8 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 from addons.visual_reply.session_schema import group_visual_reply_session, with_flat_visual_reply_settings
+from core import long_term_memory
+from core.sensory_source_selection import normalize_companion_orb_target_source_selection
 from core.chat_runtime_session_schema import group_chat_runtime_session, with_flat_chat_runtime_settings
 from core.chunking_session_schema import group_chunking_session, with_flat_chunking_settings
 from core.dry_run_session_schema import group_dry_run_session, with_flat_dry_run_settings
@@ -32,6 +34,298 @@ MUSE_VRAM_MODE_LABELS = OrderedDict(UI_SHELL_MUSE_VRAM_MODE_LABELS)
 
 
 class MainWindowSessionMixin:
+    _PERSISTED_TAB_ORDER_ALIASES = {
+        "addons": "left_tabs",
+        "host": "host_settings_tabs",
+    }
+    _PERSISTED_TAB_ORDER_OBJECTS = {
+        value: key for key, value in _PERSISTED_TAB_ORDER_ALIASES.items()
+    }
+    _PERSISTED_HIDDEN_TAB_ALIASES = {
+        "addons": "left_tabs",
+    }
+    _PERSISTED_HIDDEN_TAB_OBJECTS = {
+        value: key for key, value in _PERSISTED_HIDDEN_TAB_ALIASES.items()
+    }
+
+    def _session_ui_layout(self, session, *, create=False):
+        if not isinstance(session, dict):
+            return {}
+        ui = session.get("ui")
+        if not isinstance(ui, dict):
+            if not create:
+                return {}
+            ui = {}
+            session["ui"] = ui
+        layout = ui.get("layout")
+        if not isinstance(layout, dict):
+            if not create:
+                return {}
+            layout = {}
+            ui["layout"] = layout
+        return layout
+
+    def _tab_order_widget(self, object_name):
+        return getattr(self, str(object_name or ""), None)
+
+    def _persisted_tab_identity(self, tabs, index):
+        label = ""
+        try:
+            label = str(tabs.tabBar().tabData(int(index)) or "").strip()
+        except Exception:
+            label = ""
+        if not label:
+            try:
+                label = str(tabs.tabToolTip(int(index)) or "").strip()
+            except Exception:
+                label = ""
+        if not label:
+            try:
+                label = str(tabs.tabText(int(index)) or "").strip()
+            except Exception:
+                label = ""
+        try:
+            widget = tabs.widget(int(index))
+        except Exception:
+            widget = None
+        if widget is not None:
+            try:
+                addon_id = str(widget.property("addon_id") or "").strip()
+                addon_tab_id = str(widget.property("addon_tab_id") or "").strip()
+            except Exception:
+                addon_id = ""
+                addon_tab_id = ""
+            if addon_id and addon_tab_id:
+                return f"addon:{addon_id}:{addon_tab_id}"
+            try:
+                object_name = str(tabs.objectName() or "").strip()
+            except Exception:
+                object_name = ""
+            if object_name == "host_settings_tabs" and label:
+                return f"label:{label}"
+            try:
+                widget_name = str(widget.objectName() or "").strip()
+            except Exception:
+                widget_name = ""
+            if widget_name:
+                return f"widget:{widget_name}"
+        if label:
+            return f"label:{label}"
+        return ""
+
+    def _current_persisted_tab_order(self, object_name):
+        tabs = self._tab_order_widget(object_name)
+        if tabs is None or not hasattr(tabs, "count"):
+            return []
+        order = []
+        seen = set()
+        try:
+            count = int(tabs.count())
+        except Exception:
+            return []
+        for index in range(count):
+            identity = self._persisted_tab_identity(tabs, index)
+            if not identity or identity in seen:
+                continue
+            seen.add(identity)
+            order.append(identity)
+        return order
+
+    def _tab_visible_for_persistence(self, tabs, index):
+        try:
+            if hasattr(tabs, "isTabVisible"):
+                return bool(tabs.isTabVisible(int(index)))
+        except Exception:
+            pass
+        return True
+
+    def _set_tab_visible_for_persistence(self, tabs, index, visible):
+        try:
+            if hasattr(tabs, "setTabVisible"):
+                tabs.setTabVisible(int(index), bool(visible))
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _current_persisted_hidden_tabs(self, object_name):
+        tabs = self._tab_order_widget(object_name)
+        if tabs is None or not hasattr(tabs, "count"):
+            return []
+        hidden = []
+        seen = set()
+        try:
+            count = int(tabs.count())
+        except Exception:
+            return []
+        for index in range(count):
+            if self._tab_visible_for_persistence(tabs, index):
+                continue
+            identity = self._persisted_tab_identity(tabs, index)
+            if not identity or identity in seen:
+                continue
+            seen.add(identity)
+            hidden.append(identity)
+        return hidden
+
+    def _save_persisted_tab_orders(self, session):
+        tab_order = {}
+        for alias, object_name in self._PERSISTED_TAB_ORDER_ALIASES.items():
+            order = self._current_persisted_tab_order(object_name)
+            if order:
+                tab_order[alias] = order
+        layout = self._session_ui_layout(session, create=bool(tab_order))
+        if tab_order:
+            layout["tab_order"] = tab_order
+        elif isinstance(layout, dict):
+            layout.pop("tab_order", None)
+
+    def _save_persisted_hidden_tabs(self, session):
+        hidden_tabs = {}
+        for alias, object_name in self._PERSISTED_HIDDEN_TAB_ALIASES.items():
+            hidden = self._current_persisted_hidden_tabs(object_name)
+            if hidden:
+                hidden_tabs[alias] = hidden
+        layout = self._session_ui_layout(session, create=bool(hidden_tabs))
+        if hidden_tabs:
+            layout["hidden_tabs"] = hidden_tabs
+        elif isinstance(layout, dict):
+            layout.pop("hidden_tabs", None)
+
+    def _restore_persisted_tab_orders(self, session):
+        layout = self._session_ui_layout(session)
+        raw_orders = layout.get("tab_order") if isinstance(layout, dict) else None
+        if not isinstance(raw_orders, dict):
+            self._persisted_tab_orders = {}
+            return
+        restored = {}
+        for alias, object_name in self._PERSISTED_TAB_ORDER_ALIASES.items():
+            raw_order = raw_orders.get(alias)
+            if not isinstance(raw_order, list):
+                continue
+            restored[object_name] = [
+                str(item or "").strip()
+                for item in raw_order
+                if str(item or "").strip()
+            ]
+        self._persisted_tab_orders = restored
+
+    def _restore_persisted_hidden_tabs(self, session):
+        layout = self._session_ui_layout(session)
+        raw_hidden_tabs = layout.get("hidden_tabs") if isinstance(layout, dict) else None
+        if not isinstance(raw_hidden_tabs, dict):
+            self._persisted_hidden_tabs = {}
+            return
+        restored = {}
+        for alias, object_name in self._PERSISTED_HIDDEN_TAB_ALIASES.items():
+            raw_hidden = raw_hidden_tabs.get(alias)
+            if not isinstance(raw_hidden, list):
+                continue
+            restored[object_name] = {
+                str(item or "").strip()
+                for item in raw_hidden
+                if str(item or "").strip()
+            }
+        self._persisted_hidden_tabs = restored
+
+    def _apply_persisted_tab_order(self, object_name):
+        tabs = self._tab_order_widget(object_name)
+        if tabs is None or not hasattr(tabs, "tabBar") or not hasattr(tabs, "count"):
+            return
+        desired = list(getattr(self, "_persisted_tab_orders", {}).get(str(object_name or ""), []) or [])
+        if not desired:
+            return
+        tab_bar = tabs.tabBar()
+        previous_suspend = bool(getattr(self, "_suspend_tab_order_save", False))
+        self._suspend_tab_order_save = True
+        try:
+            insert_at = 0
+            for identity in desired:
+                current_index = -1
+                try:
+                    count = int(tabs.count())
+                except Exception:
+                    count = 0
+                for index in range(count):
+                    if self._persisted_tab_identity(tabs, index) == identity:
+                        current_index = index
+                        break
+                if current_index < 0:
+                    continue
+                if current_index != insert_at and tab_bar is not None:
+                    try:
+                        tab_bar.moveTab(current_index, insert_at)
+                    except Exception:
+                        continue
+                insert_at += 1
+        finally:
+            self._suspend_tab_order_save = previous_suspend
+
+    def _apply_persisted_tab_orders(self):
+        for object_name in self._PERSISTED_TAB_ORDER_OBJECTS:
+            self._apply_persisted_tab_order(object_name)
+
+    def _apply_persisted_hidden_tabs_for(self, object_name):
+        tabs = self._tab_order_widget(object_name)
+        if tabs is None or not hasattr(tabs, "count"):
+            return
+        desired = set(getattr(self, "_persisted_hidden_tabs", {}).get(str(object_name or ""), set()) or set())
+        if not desired:
+            return
+        visible_count = 0
+        first_hidden_index = -1
+        try:
+            count = int(tabs.count())
+        except Exception:
+            count = 0
+        for index in range(count):
+            identity = self._persisted_tab_identity(tabs, index)
+            should_hide = bool(identity and identity in desired)
+            if should_hide and self._set_tab_visible_for_persistence(tabs, index, False):
+                if first_hidden_index < 0:
+                    first_hidden_index = index
+            if self._tab_visible_for_persistence(tabs, index):
+                visible_count += 1
+        if count > 0 and visible_count <= 0 and first_hidden_index >= 0:
+            self._set_tab_visible_for_persistence(tabs, first_hidden_index, True)
+
+    def _apply_persisted_hidden_tabs(self):
+        for object_name in self._PERSISTED_HIDDEN_TAB_OBJECTS:
+            self._apply_persisted_hidden_tabs_for(object_name)
+
+    def _install_persisted_tab_order(self, object_name, tabs):
+        if tabs is None or not hasattr(tabs, "tabBar"):
+            return
+        tab_bar = tabs.tabBar()
+        if tab_bar is None:
+            return
+        try:
+            if bool(tab_bar.property("_nc_tab_order_persistence_installed")):
+                return
+        except Exception:
+            pass
+        try:
+            tab_bar.setMovable(True)
+        except Exception:
+            pass
+        try:
+            tab_bar.tabMoved.connect(
+                lambda _from, _to, name=str(object_name or ""): self._on_persisted_tab_moved(name)
+            )
+            tab_bar.setProperty("_nc_tab_order_persistence_installed", True)
+        except Exception:
+            pass
+
+    def _on_persisted_tab_moved(self, object_name):
+        if bool(getattr(self, "_suspend_tab_order_save", False)):
+            return
+        if str(object_name or "") not in self._PERSISTED_TAB_ORDER_OBJECTS:
+            return
+        try:
+            self.save_session()
+        except Exception:
+            pass
+
     def _addon_session_surface_specs(self):
         manager = getattr(self, "_addon_manager", None)
         if manager is None:
@@ -343,6 +637,26 @@ class MainWindowSessionMixin:
         except Exception:
             preserved_main_ui_real_layout = None
         session_model_name = self._session_model_name()
+        active_chat_context_path = str(RUNTIME_CONFIG.get("active_chat_context_path", "") or "")
+        active_chat_context_name = str(RUNTIME_CONFIG.get("active_chat_context_name", "") or "")
+        last_chat_context_path = active_chat_context_path or str(getattr(self, "_last_chat_context_path", "") or "")
+        last_chat_context_name = active_chat_context_name or str(getattr(self, "_last_chat_context_name", "") or "")
+        companion_orb_sensory_target_enabled = (
+            bool(self.companion_orb_sensory_target_checkbox.isChecked())
+            if hasattr(self, "companion_orb_sensory_target_checkbox")
+            else bool(RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False))
+        )
+        sensory_feedback_source = (
+            self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText())
+            if hasattr(self, "sensory_feedback_source_combo")
+            else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off")
+        )
+        sensory_feedback_source = ",".join(
+            normalize_companion_orb_target_source_selection(
+                sensory_feedback_source,
+                companion_orb_sensory_target_enabled,
+            )
+        ) or "off"
         session = {
             "first_run": bool(self.first_run),
             "ui_theme_preset": self.current_app_theme_preset(),
@@ -364,6 +678,7 @@ class MainWindowSessionMixin:
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
             "chat_font_size": int(self.chat_font_size_combo.currentData() or 12) if hasattr(self, "chat_font_size_combo") else 12,
+            "chat_message_timestamps_enabled": bool(RUNTIME_CONFIG.get("chat_message_timestamps_enabled", False)),
             "chat_runtime_expanded": self.chat_runtime_section.isExpanded() if hasattr(self, "chat_runtime_section") else True,
             "stt_runtime_expanded": self.stt_runtime_section.isExpanded() if hasattr(self, "stt_runtime_section") else True,
             "tts_runtime_expanded": self.tts_runtime_section.isExpanded() if hasattr(self, "tts_runtime_section") else True,
@@ -380,9 +695,11 @@ class MainWindowSessionMixin:
             "spellcheck_enabled": bool(self.spellcheck_enabled_checkbox.isChecked()) if hasattr(self, "spellcheck_enabled_checkbox") else bool(RUNTIME_CONFIG.get("spellcheck_enabled", True)),
             "spellcheck_language": str(self.spellcheck_language_combo.currentText() or "en_US").strip() if hasattr(self, "spellcheck_language_combo") else str(RUNTIME_CONFIG.get("spellcheck_language", "en_US") or "en_US"),
             **self._ai_presence_session_settings(),
-            "continuity_memory_id": str(RUNTIME_CONFIG.get("continuity_memory_id", "") or ""),
-            "active_chat_context_path": str(RUNTIME_CONFIG.get("active_chat_context_path", "") or ""),
-            "active_chat_context_name": str(RUNTIME_CONFIG.get("active_chat_context_name", "") or ""),
+            "continuity_memory_id": "",
+            "active_chat_context_path": "",
+            "active_chat_context_name": "",
+            "last_chat_context_path": last_chat_context_path,
+            "last_chat_context_name": last_chat_context_name,
             "continuity_memory_enabled": bool(self.long_term_memory_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_enabled_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_enabled", RUNTIME_CONFIG.get("long_term_memory_enabled", False))),
             "continuity_memory_auto_summarize": bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", RUNTIME_CONFIG.get("long_term_memory_update_on_save", False)))),
             "continuity_memory_auto_turns": int(self.continuity_memory_auto_turns_spin.value()) if hasattr(self, "continuity_memory_auto_turns_spin") else int(RUNTIME_CONFIG.get("continuity_memory_auto_turns", 120) or 120),
@@ -390,6 +707,8 @@ class MainWindowSessionMixin:
             "continuity_memory_max_chars": int(self.long_term_memory_max_chars_spin.value()) if hasattr(self, "long_term_memory_max_chars_spin") else int(RUNTIME_CONFIG.get("continuity_memory_max_chars", RUNTIME_CONFIG.get("long_term_memory_max_chars", 3000)) or 3000),
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
             "long_term_memory_retrieval_max_items": int(self.long_term_memory_retrieval_max_items_spin.value()) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
+            "long_term_memory_recall_image_limit": long_term_memory.normalize_image_recall_limit(self.long_term_memory_recall_image_limit_spin.value(), default=1) if hasattr(self, "long_term_memory_recall_image_limit_spin") else long_term_memory.normalize_image_recall_limit(RUNTIME_CONFIG.get("long_term_memory_recall_image_limit", 1), default=1),
+            "long_term_memory_auto_archive_enabled": bool(self.long_term_memory_auto_archive_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_auto_archive_enabled", False)),
             "long_term_memory_archive_batch_turns": int(self.long_term_memory_archive_batch_turns_spin.value()) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", 120) or 120),
             "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
             "long_term_memory_embedding_model": (
@@ -405,12 +724,12 @@ class MainWindowSessionMixin:
             "long_term_memory_embedding_base_url": str(self.long_term_memory_embedding_base_url_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_base_url_edit") else str(RUNTIME_CONFIG.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"),
             "limit_response_length": self.limit_response_checkbox.isChecked() if hasattr(self, "limit_response_checkbox") else False,
             "max_response_tokens": int(self.max_response_tokens_spin.value()) if hasattr(self, "max_response_tokens_spin") else DEFAULT_MAX_RESPONSE_TOKENS,
-            "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
+            "sensory_feedback_source": sensory_feedback_source,
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
             "sensory_allow_hidden_proactive_speech": bool(self.sensory_allow_hidden_proactive_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_proactive_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech", False)),
             "sensory_allow_hidden_visual_generation": bool(self.sensory_allow_hidden_visual_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_visual_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_visual_generation", False)),
-            "companion_orb_sensory_target_enabled": bool(self.companion_orb_sensory_target_checkbox.isChecked()) if hasattr(self, "companion_orb_sensory_target_checkbox") else bool(RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False)),
+            "companion_orb_sensory_target_enabled": companion_orb_sensory_target_enabled,
             "companion_orb_full_screen_context_enabled": bool(RUNTIME_CONFIG.get("companion_orb_full_screen_context_enabled", False)),
             "companion_orb_include_process_name": bool(RUNTIME_CONFIG.get("companion_orb_include_process_name", True)),
             "companion_orb_target_info": dict(RUNTIME_CONFIG.get("companion_orb_target_info", {}) or {}),
@@ -446,6 +765,8 @@ class MainWindowSessionMixin:
                 else ""
             ),
         }
+        self._save_persisted_tab_orders(session)
+        self._save_persisted_hidden_tabs(session)
         self._save_addon_session_surface_visibility(session)
         if isinstance(preserved_main_ui_real_layout, dict):
             session["main_ui_real_layout"] = preserved_main_ui_real_layout
@@ -498,6 +819,49 @@ class MainWindowSessionMixin:
         self.setGeometry(x, y, width, height)
         self.move(x, y)
 
+    def _maybe_prompt_resume_last_chat_context(self):
+        if bool(getattr(self, "_resume_last_chat_context_prompted", False)):
+            return
+        self._resume_last_chat_context_prompted = True
+        active_path = str(RUNTIME_CONFIG.get("active_chat_context_path", "") or "").strip()
+        if active_path:
+            return
+        raw_path = str(getattr(self, "_last_chat_context_path", "") or "").strip()
+        if not raw_path:
+            return
+        target = Path(raw_path)
+        if not target.exists():
+            self._last_chat_context_path = ""
+            self._last_chat_context_name = ""
+            self.save_session()
+            return
+        display_name = str(getattr(self, "_last_chat_context_name", "") or "").strip() or target.stem
+        choice = QtWidgets.QMessageBox.question(
+            self,
+            "Load Previous Chat Session",
+            f"Load previous chat session '{display_name}'?\n\n"
+            "Choose Yes to resume it now. Choose No to start a fresh empty conversation.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.Yes,
+        )
+        if choice == QtWidgets.QMessageBox.Yes:
+            loader = getattr(self, "_load_chat_context_from_path", None)
+            if callable(loader):
+                try:
+                    loader(str(target))
+                    return
+                except Exception as exc:
+                    QtWidgets.QMessageBox.warning(self, "Load Previous Chat Session", f"Could not load previous chat session:\n{exc}")
+            return
+        self._last_chat_context_path = ""
+        self._last_chat_context_name = ""
+        reset = getattr(self, "reset_chat_session", None)
+        if callable(reset):
+            reset()
+        else:
+            engine.reset_session_state()
+        self.save_session()
+
     def restore_session(self):
         if not SESSION_PATH.exists():
             return
@@ -527,6 +891,8 @@ class MainWindowSessionMixin:
                 )
             )
         )
+        self._restore_persisted_tab_orders(session)
+        self._restore_persisted_hidden_tabs(session)
         previous_suspend = bool(getattr(self, "_suspend_session_save", False))
         self._suspend_session_save = True
         self._restoring_session = True
@@ -690,6 +1056,9 @@ class MainWindowSessionMixin:
                 if index >= 0:
                     self.chat_font_size_combo.setCurrentIndex(index)
                 self._apply_chat_font_size(size, update_combo=False)
+            update_runtime_config("chat_message_timestamps_enabled", bool(session.get("chat_message_timestamps_enabled", False)))
+            if hasattr(self, "_update_chat_timestamp_button"):
+                self._update_chat_timestamp_button()
             if "chat_runtime_expanded" in session and hasattr(self, "chat_runtime_section"):
                 self.chat_runtime_section.setExpanded(bool(session.get("chat_runtime_expanded", True)))
             if "stt_runtime_expanded" in session and hasattr(self, "stt_runtime_section"):
@@ -755,15 +1124,10 @@ class MainWindowSessionMixin:
                 self.spellcheck_language_combo.setCurrentText(language)
                 self.on_spellcheck_language_changed(language)
             self._restore_ai_presence_session_settings(session)
-            continuity_memory_id = session.get("continuity_memory_id")
-            if continuity_memory_id is not None:
-                update_runtime_config("continuity_memory_id", str(continuity_memory_id or ""))
-            active_chat_context_path = session.get("active_chat_context_path")
-            if active_chat_context_path is not None:
-                update_runtime_config("active_chat_context_path", str(active_chat_context_path or ""))
-            active_chat_context_name = session.get("active_chat_context_name")
-            if active_chat_context_name is not None:
-                update_runtime_config("active_chat_context_name", str(active_chat_context_name or ""))
+            last_chat_context_path = session.get("last_chat_context_path", session.get("active_chat_context_path", ""))
+            last_chat_context_name = session.get("last_chat_context_name", session.get("active_chat_context_name", ""))
+            self._last_chat_context_path = str(last_chat_context_path or "").strip()
+            self._last_chat_context_name = str(last_chat_context_name or "").strip()
             continuity_memory_enabled = session.get("continuity_memory_enabled", session.get("long_term_memory_enabled"))
             if continuity_memory_enabled is not None and hasattr(self, "long_term_memory_enabled_checkbox"):
                 self.long_term_memory_enabled_checkbox.setChecked(bool(continuity_memory_enabled))
@@ -795,6 +1159,15 @@ class MainWindowSessionMixin:
                 max_items = max(1, min(12, int(retrieval_max_items)))
                 self.long_term_memory_retrieval_max_items_spin.setValue(max_items)
                 self.on_long_term_memory_retrieval_max_items_changed(max_items)
+            recall_image_limit = session.get("long_term_memory_recall_image_limit")
+            if recall_image_limit is not None and hasattr(self, "long_term_memory_recall_image_limit_spin"):
+                image_limit = long_term_memory.normalize_image_recall_limit(recall_image_limit, default=1)
+                self.long_term_memory_recall_image_limit_spin.setValue(image_limit)
+                self.on_long_term_memory_recall_image_limit_changed(image_limit)
+            auto_archive_enabled = session.get("long_term_memory_auto_archive_enabled")
+            if auto_archive_enabled is not None and hasattr(self, "long_term_memory_auto_archive_enabled_checkbox"):
+                self.long_term_memory_auto_archive_enabled_checkbox.setChecked(bool(auto_archive_enabled))
+                self.on_long_term_memory_auto_archive_enabled_changed(bool(auto_archive_enabled))
             archive_batch_turns = session.get("long_term_memory_archive_batch_turns")
             if archive_batch_turns is not None and hasattr(self, "long_term_memory_archive_batch_turns_spin"):
                 batch_turns = max(1, min(10000, int(archive_batch_turns or 120)))
@@ -843,6 +1216,13 @@ class MainWindowSessionMixin:
             sensory_feedback_source = session.get("sensory_feedback_source")
             if sensory_feedback_source is not None and hasattr(self, "sensory_feedback_source_combo"):
                 source_value = str(sensory_feedback_source or "off")
+                if "companion_orb_sensory_target_enabled" in session:
+                    source_value = ",".join(
+                        normalize_companion_orb_target_source_selection(
+                            source_value,
+                            bool(session.get("companion_orb_sensory_target_enabled")),
+                        )
+                    ) or "off"
                 self.refresh_sensory_feedback_source_options(selected_value=source_value)
                 self.on_sensory_feedback_source_changed(source_value)
             sensory_feedback_interval_seconds = session.get("sensory_feedback_interval_seconds")
@@ -992,6 +1372,8 @@ class MainWindowSessionMixin:
             self._update_restart_sensitive_controls()
             self.refresh_dry_run_status()
             QtCore.QTimer.singleShot(0, self._ensure_window_on_screen)
+            self._apply_persisted_tab_orders()
+            self._apply_persisted_hidden_tabs()
         finally:
             self._suspend_session_save = previous_suspend
             self._restoring_session = False

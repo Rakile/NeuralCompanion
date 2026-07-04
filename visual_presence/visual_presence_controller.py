@@ -1499,7 +1499,12 @@ class VisualPresenceController(QtCore.QObject):
         self._proxy.reset_floating_requested.emit()
 
     def _external_runtime_enabled(self) -> bool:
-        return bool(self._last_runtime_config.get("ai_presence_external_runtime_enabled", False))
+        if not bool(self._last_runtime_config.get("ai_presence_external_runtime_enabled", False)):
+            return False
+        if not bool(self._last_runtime_config.get("ai_presence_enabled", False)):
+            return False
+        mode = str(self._last_runtime_config.get("ai_presence_display_mode", "off") or "off").strip().lower()
+        return mode != "off"
 
     def _ensure_external_runtime(self) -> bool:
         if self._external_runtime is None:

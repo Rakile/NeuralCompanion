@@ -1,5 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
+from core import long_term_memory
+
 
 def configure_real_ui_surfaces_dependencies(namespace):
     """Inject qt_app-owned globals used by the extracted real-UI surface mixin."""
@@ -153,9 +155,31 @@ class MainUiRealSurfacesMixin:
                 session_box = session_box.parentWidget()
             parent_widget = session_box.parentWidget() if session_box is not None else None
             parent_layout = parent_widget.layout() if parent_widget is not None and hasattr(parent_widget, "layout") else None
+            if session_box is not None and hasattr(session_box, "setTitle"):
+                try:
+                    if str(session_box.title() or "").strip().lower() == "conversation memory":
+                        session_box.setTitle("Chat context")
+                except Exception:
+                    pass
+
+            def _ensure_export_button_in_archive(archive_box):
+                if archive_box is None or self._ui_object("btn_export_session_memory") is not None:
+                    return
+                review_archive = self._ui_object("btn_review_long_term_memory_archive")
+                anchor = review_archive if review_archive is not None else self._ui_object("btn_rebuild_long_term_memory_embeddings")
+                button_parent = anchor.parentWidget() if anchor is not None else archive_box
+                button_layout = button_parent.layout() if button_parent is not None and hasattr(button_parent, "layout") else None
+                if button_layout is None or not hasattr(button_layout, "insertWidget"):
+                    return
+                export_button = QtWidgets.QPushButton("Export Session Memory...", button_parent)
+                export_button.setObjectName("btn_export_session_memory")
+                insert_index = button_layout.indexOf(review_archive) if review_archive is not None else -1
+                button_layout.insertWidget(insert_index + 1 if insert_index >= 0 else button_layout.count(), export_button)
 
             def _ensure_archive_box():
-                if self._ui_object("long_term_memory_archive_group") is not None:
+                existing_archive_box = self._ui_object("long_term_memory_archive_group")
+                if existing_archive_box is not None:
+                    _ensure_export_button_in_archive(existing_archive_box)
                     return
                 if parent_widget is None or parent_layout is None or not hasattr(parent_layout, "insertWidget"):
                     return
@@ -196,6 +220,11 @@ class MainUiRealSurfacesMixin:
                 retrieval_enabled.setChecked(_backend_archive_checked("long_term_memory_retrieval_enabled_checkbox", False))
                 archive_layout.addWidget(retrieval_enabled)
 
+                auto_archive_enabled = QtWidgets.QCheckBox("Enable long-term memory archiving", archive_box)
+                auto_archive_enabled.setObjectName("long_term_memory_auto_archive_enabled_checkbox")
+                auto_archive_enabled.setChecked(_backend_archive_checked("long_term_memory_auto_archive_enabled_checkbox", False))
+                archive_layout.addWidget(auto_archive_enabled)
+
                 retrieval_max_items = QtWidgets.QSpinBox(archive_box)
                 retrieval_max_items.setObjectName("long_term_memory_retrieval_max_items_spin")
                 retrieval_max_items.setRange(1, 12)
@@ -203,6 +232,13 @@ class MainUiRealSurfacesMixin:
                 retrieval_max_items.setValue(max(1, min(12, _backend_archive_value("long_term_memory_retrieval_max_items_spin", 6))))
                 retrieval_max_items.setMinimumWidth(112)
                 retrieval_max_items.setMaximumWidth(132)
+                recall_image_limit = QtWidgets.QSpinBox(archive_box)
+                recall_image_limit.setObjectName("long_term_memory_recall_image_limit_spin")
+                recall_image_limit.setRange(-1, 2147483647)
+                recall_image_limit.setSingleStep(1)
+                recall_image_limit.setValue(long_term_memory.normalize_image_recall_limit(_backend_archive_value("long_term_memory_recall_image_limit_spin", 1), default=1))
+                recall_image_limit.setMinimumWidth(112)
+                recall_image_limit.setMaximumWidth(132)
                 archive_batch_turns = QtWidgets.QSpinBox(archive_box)
                 archive_batch_turns.setObjectName("long_term_memory_archive_batch_turns_spin")
                 archive_batch_turns.setRange(1, 10000)
@@ -216,6 +252,7 @@ class MainUiRealSurfacesMixin:
                 retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
                 retrieval_form.addRow("Archive every (messages)", archive_batch_turns)
                 retrieval_form.addRow("Archive notes to use", retrieval_max_items)
+                retrieval_form.addRow("Long-Term Memory recalled images to attach", recall_image_limit)
                 embedding_model = QtWidgets.QComboBox(archive_box)
                 embedding_model.setObjectName("long_term_memory_embedding_model_edit")
                 embedding_model.setEditable(True)
@@ -253,8 +290,14 @@ class MainUiRealSurfacesMixin:
                 search_archive.setObjectName("btn_search_long_term_memory_archive")
                 review_archive = QtWidgets.QPushButton("Review Archive", archive_box)
                 review_archive.setObjectName("btn_review_long_term_memory_archive")
+                export_memory = QtWidgets.QPushButton("Export Session Memory...", archive_box)
+                export_memory.setObjectName("btn_export_session_memory")
+                rebuild_embeddings = QtWidgets.QPushButton("Rebuild Embeddings", archive_box)
+                rebuild_embeddings.setObjectName("btn_rebuild_long_term_memory_embeddings")
                 archive_button_row.addWidget(search_archive)
                 archive_button_row.addWidget(review_archive)
+                archive_button_row.addWidget(export_memory)
+                archive_button_row.addWidget(rebuild_embeddings)
                 archive_button_row.addStretch(1)
                 archive_layout.addLayout(archive_button_row)
                 archive_hint = QtWidgets.QLabel(archive_box)
@@ -277,7 +320,7 @@ class MainUiRealSurfacesMixin:
             if self._ui_object("long_term_memory_enabled_checkbox") is not None:
                 auto_checkbox = self._ui_object("long_term_memory_update_on_save_checkbox")
                 if auto_checkbox is not None and hasattr(auto_checkbox, "setText"):
-                    auto_checkbox.setText("Auto summarize at interval")
+                    auto_checkbox.setText("Enable Conversation Memory summarization")
                 update_button = self._ui_object("btn_update_long_term_memory")
                 if update_button is not None:
                     update_button.setVisible(False)
@@ -323,7 +366,7 @@ class MainUiRealSurfacesMixin:
             enabled.setChecked(_backend_checked("long_term_memory_enabled_checkbox", False))
             memory_layout.addWidget(enabled)
 
-            update_on_save = QtWidgets.QCheckBox("Auto summarize at interval", memory_box)
+            update_on_save = QtWidgets.QCheckBox("Enable Conversation Memory summarization", memory_box)
             update_on_save.setObjectName("long_term_memory_update_on_save_checkbox")
             update_on_save.setChecked(_backend_checked("long_term_memory_update_on_save_checkbox", False))
             memory_layout.addWidget(update_on_save)
@@ -514,8 +557,12 @@ class MainUiRealSurfacesMixin:
                 "btn_forget_long_term_memory": self._ui_object("btn_forget_long_term_memory"),
                 "btn_search_long_term_memory_archive": self._ui_object("btn_search_long_term_memory_archive"),
                 "btn_review_long_term_memory_archive": self._ui_object("btn_review_long_term_memory_archive"),
+                "btn_export_session_memory": self._ui_object("btn_export_session_memory"),
+                "btn_rebuild_long_term_memory_embeddings": self._ui_object("btn_rebuild_long_term_memory_embeddings"),
                 "long_term_memory_retrieval_enabled_checkbox": self._ui_object("long_term_memory_retrieval_enabled_checkbox"),
+                "long_term_memory_auto_archive_enabled_checkbox": self._ui_object("long_term_memory_auto_archive_enabled_checkbox"),
                 "long_term_memory_retrieval_max_items_spin": self._ui_object("long_term_memory_retrieval_max_items_spin"),
+                "long_term_memory_recall_image_limit_spin": self._ui_object("long_term_memory_recall_image_limit_spin"),
                 "long_term_memory_archive_batch_turns_spin": self._ui_object("long_term_memory_archive_batch_turns_spin"),
                 "long_term_memory_embedding_enabled_checkbox": self._ui_object("long_term_memory_embedding_enabled_checkbox"),
                 "long_term_memory_embedding_model_edit": self._ui_object("long_term_memory_embedding_model_edit"),
@@ -615,7 +662,9 @@ class MainUiRealSurfacesMixin:
             _copy_value(backend_widgets.get("continuity_memory_auto_turns_spin"), frontend_widgets.get("continuity_memory_auto_turns_spin"))
             _copy_value(backend_widgets.get("long_term_memory_max_chars_spin"), frontend_widgets.get("long_term_memory_max_chars_spin"))
             _copy_checked(backend_widgets.get("long_term_memory_retrieval_enabled_checkbox"), frontend_widgets.get("long_term_memory_retrieval_enabled_checkbox"))
+            _copy_checked(backend_widgets.get("long_term_memory_auto_archive_enabled_checkbox"), frontend_widgets.get("long_term_memory_auto_archive_enabled_checkbox"))
             _copy_value(backend_widgets.get("long_term_memory_retrieval_max_items_spin"), frontend_widgets.get("long_term_memory_retrieval_max_items_spin"))
+            _copy_value(backend_widgets.get("long_term_memory_recall_image_limit_spin"), frontend_widgets.get("long_term_memory_recall_image_limit_spin"))
             _copy_value(backend_widgets.get("long_term_memory_archive_batch_turns_spin"), frontend_widgets.get("long_term_memory_archive_batch_turns_spin"))
             _copy_checked(backend_widgets.get("long_term_memory_embedding_enabled_checkbox"), frontend_widgets.get("long_term_memory_embedding_enabled_checkbox"))
             _copy_text(backend_widgets.get("long_term_memory_embedding_model_edit"), frontend_widgets.get("long_term_memory_embedding_model_edit"))

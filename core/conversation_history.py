@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 
 class ChatContextLimitReached(RuntimeError):
     pass
@@ -69,6 +71,36 @@ def blank_user_anchor():
     return {"role": "user", "content": "", "origin": "synthetic_anchor"}
 
 
+def coerce_turn_created_at(value):
+    try:
+        created_at = float(value)
+    except Exception:
+        return None
+    if created_at <= 0:
+        return None
+    return created_at
+
+
+def format_turn_timestamp(turn):
+    if not isinstance(turn, dict):
+        return ""
+    created_at = coerce_turn_created_at(turn.get("created_at"))
+    if created_at is None:
+        return ""
+    try:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at))
+    except Exception:
+        return ""
+
+
+def content_with_timestamp(turn, content_text):
+    stamp = format_turn_timestamp(turn)
+    text = str(content_text or "")
+    if not stamp:
+        return text
+    return f"[{stamp}] {text}"
+
+
 def repair_model_history_window(history, *, policy, assistant_prefix_anchor_threshold=5):
     repaired = [dict(item) for item in list(history or []) if isinstance(item, dict)]
     if not repaired:
@@ -104,7 +136,7 @@ def build_model_history_window(conversation_history, *, limit, policy, assistant
     )
 
 
-def build_chat_message_from_turn(turn, *, data_url_for_local_image):
+def build_chat_message_from_turn(turn, *, data_url_for_local_image, include_timestamp=False):
     if not isinstance(turn, dict):
         return None
     role = str(turn.get("role", "user") or "user").strip().lower() or "user"
@@ -112,6 +144,8 @@ def build_chat_message_from_turn(turn, *, data_url_for_local_image):
         role = "user"
     content_text = str(turn.get("content", "") or "").strip()
     attachment_image_path = str(turn.get("attachment_image_path", "") or "").strip()
+    if bool(include_timestamp) and (content_text or attachment_image_path):
+        content_text = content_with_timestamp(turn, content_text)
     if attachment_image_path:
         data_url = data_url_for_local_image(attachment_image_path)
         if data_url:

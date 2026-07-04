@@ -50,6 +50,7 @@ class MainUiRealBindingMixin:
                 "console_autoscroll_button": getattr(self.backend, "toggle_console_autoscroll", None),
                 "console_clear_button": getattr(self.backend, "clear_console", None),
                 "chat_autoscroll_button": getattr(self.backend, "toggle_chat_autoscroll", None),
+                "chat_timestamp_toggle_button": getattr(self.backend, "toggle_chat_message_timestamps", None),
                 "chat_clear_button": getattr(self.backend, "clear_chat", None),
             }
             for object_name, handler in bindings.items():
@@ -96,6 +97,8 @@ class MainUiRealBindingMixin:
                 "btn_forget_long_term_memory": getattr(self.backend, "forget_long_term_memory", None),
                 "btn_search_long_term_memory_archive": getattr(self.backend, "search_long_term_memory_archive", None),
                 "btn_review_long_term_memory_archive": getattr(self.backend, "review_long_term_memory_archive", None),
+                "btn_export_session_memory": getattr(self.backend, "export_session_memory_report", None),
+                "btn_rebuild_long_term_memory_embeddings": getattr(self.backend, "rebuild_long_term_memory_embeddings_now", None),
             }
             for object_name, handler in bindings.items():
                 widget = self._ui_object(object_name)
@@ -469,9 +472,15 @@ class MainUiRealBindingMixin:
             long_term_memory_retrieval_enabled_checkbox = self._ui_object("long_term_memory_retrieval_enabled_checkbox")
             if long_term_memory_retrieval_enabled_checkbox is not None and hasattr(long_term_memory_retrieval_enabled_checkbox, "toggled"):
                 long_term_memory_retrieval_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_retrieval_enabled_changed)
+            long_term_memory_auto_archive_enabled_checkbox = self._ui_object("long_term_memory_auto_archive_enabled_checkbox")
+            if long_term_memory_auto_archive_enabled_checkbox is not None and hasattr(long_term_memory_auto_archive_enabled_checkbox, "toggled"):
+                long_term_memory_auto_archive_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_auto_archive_enabled_changed)
             long_term_memory_retrieval_max_items_spin = self._ui_object("long_term_memory_retrieval_max_items_spin")
             if long_term_memory_retrieval_max_items_spin is not None and hasattr(long_term_memory_retrieval_max_items_spin, "valueChanged"):
                 long_term_memory_retrieval_max_items_spin.valueChanged.connect(self._on_frontend_long_term_memory_retrieval_max_items_changed)
+            long_term_memory_recall_image_limit_spin = self._ui_object("long_term_memory_recall_image_limit_spin")
+            if long_term_memory_recall_image_limit_spin is not None and hasattr(long_term_memory_recall_image_limit_spin, "valueChanged"):
+                long_term_memory_recall_image_limit_spin.valueChanged.connect(self._on_frontend_long_term_memory_recall_image_limit_changed)
             continuity_memory_auto_turns_spin = self._ui_object("continuity_memory_auto_turns_spin")
             if continuity_memory_auto_turns_spin is not None and hasattr(continuity_memory_auto_turns_spin, "valueChanged"):
                 continuity_memory_auto_turns_spin.valueChanged.connect(self._on_frontend_continuity_memory_auto_turns_changed)

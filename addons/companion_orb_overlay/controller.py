@@ -803,11 +803,6 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
                 self._sync_checkbox("companion_orb_sensory_target_enabled", True)
             self._set_companion_orb_source_included(True)
         elif key == "companion_orb_supervisor_enabled":
-            if bool(value):
-                if not bool(_runtime_config().get("companion_orb_sensory_target_enabled", False)):
-                    _update_runtime_config("companion_orb_sensory_target_enabled", True)
-                    self._sync_checkbox("companion_orb_sensory_target_enabled", True)
-                self._set_companion_orb_source_included(True)
             self._publish_companion_orb_supervisor()
             self._refresh_companion_orb_supervisor_designer_if_available()
         elif key == "sensory_pingpong_enabled":
@@ -1333,7 +1328,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         )
         source_checkbox = self._controls.get("companion_orb_sensory_target_enabled")
         if source_checkbox is not None and hasattr(source_checkbox, "setChecked"):
-            checked = bool(_runtime_config().get("companion_orb_sensory_target_enabled", False)) or self._companion_orb_source_included()
+            checked = bool(_runtime_config().get("companion_orb_sensory_target_enabled", False))
             try:
                 source_checkbox.blockSignals(True)
                 source_checkbox.setChecked(checked)
@@ -1356,10 +1351,6 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
 
     def import_session_state(self, session):
         result = super().import_session_state(session)
-        if bool(_runtime_config().get("companion_orb_supervisor_enabled", False)):
-            if not bool(_runtime_config().get("companion_orb_sensory_target_enabled", False)):
-                _update_runtime_config("companion_orb_sensory_target_enabled", True)
-            self._set_companion_orb_source_included(True)
         self._register_companion_orb_supervisor_contributor()
         return result
 
