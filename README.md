@@ -13,8 +13,6 @@ and shared workflows. Join the setup/help Discord here:
   </a>
 </p>
 
-https://discord.gg/UqnwX46rcK
-
 ## Support
 
 Support your friendly NeuralCompanion devs!
@@ -23,9 +21,10 @@ Support your friendly NeuralCompanion devs!
   <a href="https://www.patreon.com/cw/Neuralcompanion">
     <img src="https://img.shields.io/badge/Patreon-Support-F96854?style=for-the-badge&amp;logo=patreon&amp;logoColor=white" alt="Support NeuralCompanion on Patreon">
   </a>
+  <a href="https://buymeacoffee.com/neuralcompanion">
+    <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-FFDD00?style=for-the-badge&amp;logo=buymeacoffee&amp;logoColor=black" alt="Support NeuralCompanion on Buy Me a Coffee">
+  </a>
 </p>
-
-https://www.patreon.com/cw/Neuralcompanion
 
 <p align="center">
   <video src="docs/readme_videos/neuralcompanion-overview.mp4" controls width="100%"></video>

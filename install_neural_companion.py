@@ -577,16 +577,21 @@ class Installer:
 
     def download_avatar_pack_file(self, filename: str, public_url: str, destination: Path) -> None:
         token = self.github_token()
-        if token:
-            try:
-                self.download_github_release_asset(filename, destination, token)
-                return
-            except urllib.error.HTTPError as exc:
-                raise SystemExit(
-                    f"Could not download private avatar pack asset {filename} from {AVATAR_PACK_REPO}: "
-                    f"GitHub API returned HTTP {exc.code}. Check that the token has read access to repository contents."
-                ) from exc
-        self.download_file(public_url, destination)
+        try:
+            self.download_file(public_url, destination)
+            return
+        except SystemExit as public_exc:
+            if not token:
+                raise
+            warn(f"Public avatar pack download failed; trying authenticated GitHub release asset: {public_exc}")
+        try:
+            self.download_github_release_asset(filename, destination, token)
+        except urllib.error.HTTPError as exc:
+            raise SystemExit(
+                f"Could not download avatar pack asset {filename} from {AVATAR_PACK_REPO}: "
+                f"public download failed and authenticated GitHub fallback returned HTTP {exc.code}. "
+                "Check the public release asset URL or use a token with read access to repository contents."
+            ) from exc
 
     def github_headers(self, token: str, *, octet_stream: bool = False) -> dict[str, str]:
         accept = "application/octet-stream" if octet_stream else "application/vnd.github+json"
