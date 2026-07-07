@@ -2,6 +2,31 @@
   <img src="docs/readme_images/git_front.png" alt="NeuralCompanion feature overview" width="100%">
 </p>
 
+## Community
+
+The project is intended to grow through community feedback, addon development,
+and shared workflows. Join the setup/help Discord here:
+
+<p>
+  <a href="https://discord.gg/UqnwX46rcK">
+    <img src="https://img.shields.io/badge/Discord-Join%20setup%2Fhelp-5865F2?style=for-the-badge&amp;logo=discord&amp;logoColor=white" alt="Join the setup/help Discord">
+  </a>
+</p>
+
+https://discord.gg/UqnwX46rcK
+
+## Support
+
+Support your friendly NeuralCompanion devs!
+
+<p>
+  <a href="https://www.patreon.com/cw/Neuralcompanion">
+    <img src="https://img.shields.io/badge/Patreon-Support-F96854?style=for-the-badge&amp;logo=patreon&amp;logoColor=white" alt="Support NeuralCompanion on Patreon">
+  </a>
+</p>
+
+https://www.patreon.com/cw/Neuralcompanion
+
 <p align="center">
   <video src="docs/readme_videos/neuralcompanion-overview.mp4" controls width="100%"></video>
 </p>
@@ -12,8 +37,10 @@
 
 # Neural Companion
 
-Neural Companion is a local Windows desktop AI companion for realtime chat,
-speech, avatars, visual replies, and addon-driven workflows.
+Neural Companion is a local desktop AI companion for realtime chat, speech,
+avatars, visual replies, and addon-driven workflows. This release targets
+Windows, and a Linux version is available at
+[Rakile/NeuralCompanion-Linux](https://github.com/Rakile/NeuralCompanion-Linux).
 
 It is designed for users who want a configurable AI companion that can talk,
 listen, roleplay, use local or API models, drive avatars, and grow through
@@ -494,16 +521,8 @@ provider, voice, avatar, or generated asset you use with the app.
 
 ## Current Limitations
 
-- Neural Companion is currently Windows only.
+- This release package targets Windows. Linux users can use
+  [Rakile/NeuralCompanion-Linux](https://github.com/Rakile/NeuralCompanion-Linux).
 - MuseTalk requires an NVIDIA CUDA GPU.
 - Some integrations require external applications or plugins.
 - Public demo assets are intentionally not bundled in the main repo.
-
-## Community
-
-The project is intended to grow through community feedback, addon development,
-and shared workflows. Join the setup/help Discord here:
-
-```text
-https://discord.gg/UqnwX46rcK
-```
