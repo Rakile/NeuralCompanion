@@ -673,13 +673,14 @@ def main():
 
         controller.settings.update(enabled=False, allow_llm_control=False, user_music_change_cooldown_seconds=120)
         controller._last_user_music_change_at = time.time()
-        direct_play = controller.invoke_capability("chat.user_text_command", {"text": "play ambient electronic"})
-        assert direct_play["handled"] is True
-        assert direct_play["ok"] is True
-        assert direct_play["use_llm_response"] is True
+        disabled_direct_play = controller.invoke_capability("chat.user_text_command", {"text": "play ambient electronic"})
+        assert disabled_direct_play is None
         blocked_tool = controller.invoke_capability("spotify.pause", {"confirmed": True})
         assert blocked_tool["ok"] is False
         assert blocked_tool["error_code"] == "disabled"
+        blocked_direct_tool = controller.invoke_capability("spotify.pause", {"confirmed": True, "direct_user_request": True})
+        assert blocked_direct_tool["ok"] is False
+        assert blocked_direct_tool["error_code"] == "disabled"
         controller.shutdown()
 
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])

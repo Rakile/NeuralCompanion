@@ -219,7 +219,7 @@ BUILTIN_HIDDEN_SENSORY_PRESETS = (
 
 SETTING_TOOLTIPS = {
     "enabled": "Turns Spotify Sense on. The addon still needs a connected Spotify account before it can read or control playback.",
-    "allow_llm_control": "Allows autonomous/model-initiated Spotify changes. Direct user voice commands can still run when Spotify is connected.",
+    "allow_llm_control": "Allows autonomous/model-initiated Spotify changes. Direct user voice commands can still run when Spotify Sense is enabled and connected.",
     "require_confirmation": "Keeps autonomous/tool-triggered playback changes blocked unless the request is confirmed. Direct user commands are treated as confirmed.",
     "duck_while_speaking": "Temporarily lowers Spotify volume while NC speaks, if the active Spotify device allows volume control.",
     "restore_volume_after_speech": "Restores the saved Spotify volume after NC finishes speaking.",
@@ -2371,6 +2371,8 @@ class SpotifySenseController(QtCore.QObject):
         if role and role != "user":
             return {"ok": True, "handled": False, "reason": "role_not_user"} if report_misses else None
         text = str(payload.get("text") or payload.get("utterance") or "").strip()
+        if not bool(self.settings.data.get("enabled", False)):
+            return {"ok": True, "handled": False, "reason": "disabled"} if report_misses else None
         routed = route_music_intent(text)
         self._debug_log("user_text_route", {"text": text, "route": routed})
         if not routed.get("matched"):
@@ -2476,7 +2478,7 @@ class SpotifySenseController(QtCore.QObject):
 
     def _guard_capability(self, capability_name: str, payload: dict[str, Any]):
         direct_user_request = bool(payload.get("direct_user_request", False))
-        if not bool(self.settings.data.get("enabled", False)) and not direct_user_request:
+        if not bool(self.settings.data.get("enabled", False)):
             return {"ok": False, "tool": capability_name, "error_code": "disabled", "error": "Spotify Sense is disabled."}
         if capability_name in CONTROL_TOOLS:
             if (
