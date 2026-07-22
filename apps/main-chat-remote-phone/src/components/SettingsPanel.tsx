@@ -2,8 +2,11 @@ import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { RemoteConnectionStatus, RemoteEnvelope, RemoteHealth, RemoteState, RemoteTransport } from '../api/types';
-import type { MicBehavior, MuseTalkQuality, PhoneSettings, SendMode } from '../hooks/usePhoneSettings';
+import type { ChatIndicatorStyle, ChatTextColor, MicBehavior, MuseTalkQuality, PhoneSettings, SendMode } from '../hooks/usePhoneSettings';
+import { AppearanceSelector } from './AppearanceSelector';
+import { ModeSection } from './ModeSurface';
 import { colors, spacing } from '../styles/theme';
+import { phoneDebugFileName } from '../utils/phoneDebug';
 
 type Props = {
   settings: PhoneSettings;
@@ -13,6 +16,7 @@ type Props = {
   status: RemoteConnectionStatus;
   transport: RemoteTransport;
   error: string;
+  onSendDebug: () => Promise<number>;
 };
 
 type Option<T extends string> = {
@@ -35,6 +39,20 @@ const qualityOptions: Array<Option<MuseTalkQuality>> = [
   { value: 'low_latency', label: 'Low latency' },
   { value: 'balanced', label: 'Balanced' },
   { value: 'quality', label: 'Quality' },
+];
+
+const textColorOptions: Array<Option<ChatTextColor>> = [
+  { value: 'white', label: 'White' },
+  { value: 'green', label: 'Green' },
+  { value: 'amber', label: 'Amber' },
+  { value: 'cyan', label: 'Cyan' },
+];
+
+const indicatorOptions: Array<Option<ChatIndicatorStyle>> = [
+  { value: 'dot', label: 'Dot' },
+  { value: 'pulse', label: 'Pulse' },
+  { value: 'line', label: 'Line' },
+  { value: 'text', label: 'Text' },
 ];
 
 function ToggleRow({ label, value, onChange, detail }: { label: string; value: boolean; detail?: string; onChange: (value: boolean) => void }) {
@@ -111,15 +129,13 @@ function RuntimeSummary({ state }: { state: RemoteState | null }) {
   const buddyMode = String(buddy?.llm_mode || 'main');
   return (
     <>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Runtime Settings</Text>
+      <ModeSection title="Runtime Settings">
         <Text style={styles.diag}>LLM: {settings?.chat_provider || runtime?.chat_provider || 'unknown'} {settings?.model_name || runtime?.model_name ? `/ ${settings?.model_name || runtime?.model_name}` : ''}</Text>
         <Text style={styles.diag}>STT: {settings?.stt_backend || 'unknown'} {settings?.stt_model_size ? `/ ${settings.stt_model_size}` : ''}</Text>
         <Text style={styles.diag}>TTS: {settings?.tts_backend || runtime?.tts_backend || 'unknown'}</Text>
         <Text style={styles.diag}>Visual Reply: {settings?.visual_reply_provider || visualProvider}</Text>
-      </View>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Buddy Chat</Text>
+      </ModeSection>
+      <ModeSection title="Buddy Chat">
         {buddy?.available === false ? (
           <Text style={styles.detail}>{buddy.message || 'Buddy Chat is not available on the desktop.'}</Text>
         ) : (
@@ -131,22 +147,30 @@ function RuntimeSummary({ state }: { state: RemoteState | null }) {
             {Number(buddy?.per_persona_provider_count ?? 0) > 0 ? (
               <Text style={styles.diag}>Persona overrides: {Number(buddy?.per_persona_provider_count ?? 0)}</Text>
             ) : null}
+            {buddy?.last_provider_error ? (
+              <Text selectable style={styles.error}>Latest provider error: {buddy.last_provider_error}</Text>
+            ) : null}
           </>
         )}
-      </View>
+      </ModeSection>
     </>
   );
 }
 
-export function SettingsPanel({ settings, onChange, state, health, status, transport, error }: Props) {
+export function SettingsPanel({ settings, onChange, state, health, status, transport, error, onSendDebug }: Props) {
   const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false);
+  const [debugStatus, setDebugStatus] = React.useState('');
   const volumePercent = Math.round(settings.phoneTtsVolume * 100);
   const pollSeconds = Math.round(settings.pollingIntervalMs / 100) / 10;
-  const showDiagnostics = Boolean(error) || diagnosticsOpen;
+  const showDiagnostics = Boolean(error || state?.buddy_chat?.last_provider_error) || diagnosticsOpen;
   return (
     <ScrollView style={styles.panel} contentContainerStyle={styles.content}>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Phone Audio</Text>
+      <ModeSection title="Appearance">
+        <AppearanceSelector value={settings.interfaceStyle} onChange={(interfaceStyle) => onChange({ interfaceStyle })} />
+        <Segmented label="Chat text color" value={settings.chatTextColor} options={textColorOptions} onChange={(chatTextColor) => onChange({ chatTextColor })} />
+        <Segmented label="Activity indicator" value={settings.chatIndicatorStyle} options={indicatorOptions} onChange={(chatIndicatorStyle) => onChange({ chatIndicatorStyle })} />
+      </ModeSection>
+      <ModeSection title="Phone Audio">
         <ToggleRow label="Autoplay TTS on phone" value={settings.phoneTtsAutoplay} onChange={(phoneTtsAutoplay) => onChange({ phoneTtsAutoplay })} />
         <Stepper
           label="Phone TTS volume"
@@ -163,16 +187,14 @@ export function SettingsPanel({ settings, onChange, state, health, status, trans
           value={settings.playOnBackend}
           onChange={(playOnBackend) => onChange({ playOnBackend })}
         />
-      </View>
+      </ModeSection>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Voice Input</Text>
+      <ModeSection title="Voice Input">
         <Segmented label="Send mode" value={settings.sendMode} options={sendModeOptions} onChange={(sendMode) => onChange({ sendMode })} />
         <Segmented label="Microphone" value={settings.micBehavior} options={micOptions} onChange={(micBehavior) => onChange({ micBehavior })} />
-      </View>
+      </ModeSection>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Connection</Text>
+      <ModeSection title="Connection">
         <ToggleRow label="Auto reconnect" value={settings.autoReconnect} onChange={(autoReconnect) => onChange({ autoReconnect })} />
         <ToggleRow label="Keep screen awake" value={settings.keepAwake} onChange={(keepAwake) => onChange({ keepAwake })} />
         <Stepper
@@ -184,14 +206,13 @@ export function SettingsPanel({ settings, onChange, state, health, status, trans
           step={0.5}
           onChange={(value) => onChange({ pollingIntervalMs: Math.round(value * 1000) })}
         />
-      </View>
+      </ModeSection>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Avatar Stream</Text>
+      <ModeSection title="Avatar Stream">
         <Segmented label="Quality mode" value={settings.museTalkQuality} options={qualityOptions} onChange={(museTalkQuality) => onChange({ museTalkQuality })} />
-      </View>
+      </ModeSection>
 
-      <View style={styles.card}>
+      <ModeSection>
         <View style={styles.cardHeaderRow}>
           <Text style={styles.cardTitle}>Diagnostics</Text>
           <Pressable style={styles.diagnosticsToggle} onPress={() => setDiagnosticsOpen((value) => !value)}>
@@ -199,11 +220,26 @@ export function SettingsPanel({ settings, onChange, state, health, status, trans
           </Pressable>
         </View>
         {showDiagnostics ? (
-          <Diagnostics health={health} status={status} transport={transport} error={error} />
+          <>
+            <Diagnostics health={health} status={status} transport={transport} error={error} />
+            <Text style={styles.detail}>Phone log: {phoneDebugFileName()}</Text>
+            <Pressable
+              style={styles.sendDebugButton}
+              onPress={() => {
+                setDebugStatus('Sending...');
+                onSendDebug()
+                  .then((count) => setDebugStatus(count ? `Sent ${count} event(s) to desktop.` : 'No queued events to send.'))
+                  .catch((exc) => setDebugStatus(exc instanceof Error ? exc.message : 'Debug upload failed.'));
+              }}
+            >
+              <Text style={styles.toggleText}>Send debug now</Text>
+            </Pressable>
+            {debugStatus ? <Text selectable style={styles.detail}>{debugStatus}</Text> : null}
+          </>
         ) : (
           <Text style={styles.detail}>Hidden unless there is a connection error.</Text>
         )}
-      </View>
+      </ModeSection>
       <RuntimeSummary state={state} />
     </ScrollView>
   );
@@ -283,6 +319,7 @@ const styles = StyleSheet.create({
   diagnosticsBody: {
     gap: spacing.xs,
   },
+  sendDebugButton: { alignItems: 'center', borderColor: colors.border, borderRadius: 6, borderWidth: 1, marginTop: spacing.xs, padding: spacing.sm },
   group: {
     gap: spacing.xs,
   },

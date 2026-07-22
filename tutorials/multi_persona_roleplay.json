@@ -34,7 +34,7 @@
     },
     {
       "title": "Create a Master Story Draft",
-      "body": "The Master Story prompt turns a single rough idea into a draft with premise, session state, AR state, cast, visual direction, and story metadata. Review the generated JSON before Apply Draft so broken names, voices, and scene goals do not become the new baseline.",
+      "body": "Choose the Master Story Mode independently from Roleplay Session. Optional Scene title, Location, Time / mood, and Mood fields anchor the opening. Review the generated cast, then Apply Draft for a paused clean baseline. Start Play arms the isolated story feed.",
       "tab": "Roleplay",
       "target": "mprc_master_story_prompt",
       "actions": [
@@ -72,7 +72,7 @@
       "title": "Use Focused Speaker Deliberately",
       "body": "The Focus selector is the practical cast-mode control. Choose a specific character for focused speaker turns when you want less blending and stronger dialogue. Use broader joined-cast behavior for setup, recap, or master-story style turns.",
       "tab": "Roleplay",
-      "target": "mprc_chat_speaker_combo",
+      "target": "mprc_chat_speaker_label",
       "actions": [
         { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
       ]

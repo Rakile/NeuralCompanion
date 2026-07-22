@@ -35,7 +35,12 @@ def test_export_session_memory_report_writes_readable_dump_without_image_blobs()
     engine.RUNTIME_CONFIG["active_chat_context_path"] = str(Path("chat_session") / f"{memory_id}.json")
     engine.conversation_history[:] = [
         {"role": "user", "content": "Hello", "attachment_source": "clipboard"},
-        {"role": "assistant", "content": "Hello back", "visual_reply_image_path": "runtime/visual_replies/example.png"},
+        {
+            "role": "assistant",
+            "content": "Hello back",
+            "visual_reply_image_path": "runtime/visual_replies/example.png",
+            "visual_reply_prompt": "A small neon harbor at night.",
+        },
     ]
 
     result = engine.export_session_memory_report(output_path)
@@ -46,6 +51,7 @@ def test_export_session_memory_report_writes_readable_dump_without_image_blobs()
     assert "Conversation Memory" in text
     assert "Long-Term Memory Archive" in text
     assert "Recent Chat Messages" in text
+    assert "Visualization prompt: A small neon harbor at night." in text
     assert "blob" not in text.lower()
     assert "base64" not in text.lower()
 

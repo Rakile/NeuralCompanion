@@ -8,6 +8,7 @@ import { RemoteClient } from '../api/client';
 import type { VisualAction } from '../api/client';
 import { remoteActionError } from '../api/envelope';
 import type { VisualState } from '../api/types';
+import { useInterfaceMode } from '../context/InterfaceModeContext';
 import { colors, spacing } from '../styles/theme';
 
 type Props = {
@@ -63,6 +64,8 @@ function DemoVisualReplyArtwork({ caption }: { caption: string }) {
 }
 
 export function VisualPanel({ client, visual, disabled, controlsAvailable, controlsDisabled: controlsBlocked = false, demoMode = false, onGenerate, onAction, onRefresh }: Props) {
+  const { mode, policy } = useInterfaceMode();
+  const visualPrimary = policy.primaryFirst;
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -152,24 +155,32 @@ export function VisualPanel({ client, visual, disabled, controlsAvailable, contr
       setShareBusy(false);
     }
   };
+  const header = (
+    <View style={styles.header}>
+      <Text style={styles.title}>Visual Reply</Text>
+      <Text style={styles.meta}>{statusText}</Text>
+    </View>
+  );
+  const visualCanvas = imageUrl ? (
+    <Pressable
+      style={[styles.imageFrame, !policy.cards && styles.cleanImageFrame, mode === 'immersive' && styles.immersiveImageFrame]}
+      onPress={() => setFullscreen(true)}
+    >
+      <Image source={{ uri: imageUrl }} style={styles.image} resizeMode={visualPrimary ? 'contain' : 'cover'} />
+    </Pressable>
+  ) : demoMode ? (
+    <DemoVisualReplyArtwork caption={String(visual?.state?.caption || visual?.latest_request?.prompt_preview || 'Demo Visual Reply scene')} />
+  ) : (
+    <View style={[styles.emptyImage, !policy.cards && styles.cleanEmptyImage]}>
+      <Text style={styles.emptyTitle}>{emptyTitle}</Text>
+      <Text style={styles.emptyText}>{emptyText}</Text>
+    </View>
+  );
   return (
-    <View style={styles.panel}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Visual Reply</Text>
-        <Text style={styles.meta}>{statusText}</Text>
-      </View>
-      {imageUrl ? (
-        <Pressable style={styles.imageFrame} onPress={() => setFullscreen(true)}>
-          <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="cover" />
-        </Pressable>
-      ) : demoMode ? (
-        <DemoVisualReplyArtwork caption={String(visual?.state?.caption || visual?.latest_request?.prompt_preview || 'Demo Visual Reply scene')} />
-      ) : (
-        <View style={styles.emptyImage}>
-          <Text style={styles.emptyTitle}>{emptyTitle}</Text>
-          <Text style={styles.emptyText}>{emptyText}</Text>
-        </View>
-      )}
+    <View style={[styles.panel, !policy.cards && styles.cleanPanel, mode === 'immersive' && styles.immersivePanel]}>
+      {!visualPrimary ? header : null}
+      {visualCanvas}
+      {visualPrimary ? header : null}
       {visual?.state?.caption ? <Text style={styles.caption}>{String(visual.state.caption)}</Text> : null}
       <View style={styles.row}>
         <TextInput
@@ -229,6 +240,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md,
   },
+  cleanPanel: { backgroundColor: 'transparent', borderTopWidth: 0, paddingHorizontal: 0 },
+  immersivePanel: { backgroundColor: '#000000' },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -258,6 +271,8 @@ const styles = StyleSheet.create({
     height: '100%',
     width: '100%',
   },
+  cleanImageFrame: { borderRadius: 0, borderWidth: 0, maxHeight: 440 },
+  immersiveImageFrame: { backgroundColor: '#000000', maxHeight: 560 },
   emptyImage: {
     alignItems: 'center',
     alignSelf: 'center',
@@ -278,6 +293,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     textAlign: 'center',
   },
+  cleanEmptyImage: { backgroundColor: 'transparent', borderRadius: 0, borderWidth: 0 },
   emptyText: {
     color: colors.muted,
     fontSize: 12,

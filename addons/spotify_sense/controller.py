@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from .intent_router import infer_music_mood, route_music_intent
 from .settings import DEFAULT_HIDDEN_COMMENTARY_STYLE_PROMPT, DEFAULT_SETTINGS, TOKEN_KEYS, SpotifySenseSettings
 from .spotify_client import SpotifySenseClient
+from ui.widgets.basic import NoWheelTabBar, NoWheelTabWidget
 
 
 READ_TOOLS = {
@@ -44,11 +45,20 @@ CONTROL_TOOLS = {
 
 TOOL_NAMES = READ_TOOLS | CONTROL_TOOLS
 SENSORY_PROVIDER_ID = "spotify_sense"
+SENSORY_BEHAVIOR_CONTRIBUTOR_ID = "nc.spotify_sense.behavior"
 DEFAULT_SPOTIFY_SOURCE_GUIDANCE = (
     "Spotify Sense provides metadata only. Treat it as ambient music context, not a user request and not raw audio analysis. "
     "Use track title, artists, album, playback state, and mood hint to support the current conversation, story, coding session, or user command. "
     "Do not repeatedly mention Spotify. Speak about music only when the user asks, when a fresh track-change comment is allowed, or when it clearly improves the reply. "
     "When a commentary style prompt is provided, follow that style while staying brief, natural, and grounded in metadata."
+)
+SPOTIFY_HIDDEN_BEHAVIOR_PROMPT = (
+    "Spotify Sense behavior applies only to spotify_sense hidden PING snapshots. "
+    "Spotify Sense emits a hidden snapshot only when a fresh song-change music reaction has passed its own cooldown gates. "
+    "When the snapshot metadata says hidden_response_allowed=true or should_speak_recommended=true, "
+    "set should_speak=true and write one concise proactive_candidate about the current track's feel, title, artist, mood, or energy. "
+    "Follow commentary_style_prompt when present. Do not say 'song changed', 'track changed', 'now playing', or mention hidden sensory mechanics. "
+    "When the snapshot does not clearly allow a music reaction, set should_speak=false and proactive_candidate=\"\"."
 )
 MUSIC_RESPONSE_MODES = (
     ("Off", "off"),
@@ -252,6 +262,169 @@ SETTING_TOOLTIPS = {
 }
 
 
+class _SpotifySenseTabBar(NoWheelTabBar):
+    """Draw Spotify Sense settings tabs as MPRC-style icon cards."""
+
+    _MIN_WIDTH = 78
+    _HEIGHT = 68
+    _HORIZONTAL_PADDING = 10
+    _TOP_PADDING = 5
+    _TITLE_HEIGHT = 20
+    _TEXT_WIDTH_SAFETY = 8
+    _INTER_TAB_GUTTER = 5
+    _STRIP_VERTICAL_GUTTER = 4
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setProperty("_spotify_sense_mprc_tab_style", True)
+        self.setDrawBase(False)
+        self.setExpanding(False)
+        self.setUsesScrollButtons(True)
+        self.setElideMode(QtCore.Qt.ElideNone)
+        self.setIconSize(QtCore.QSize(36, 36))
+
+    def _title_font(self):
+        title_font = QtGui.QFont(self.font())
+        title_font.setBold(True)
+        return title_font
+
+    def tabSizeHint(self, index):
+        title_font = self._title_font()
+        text_width = QtGui.QFontMetrics(title_font).horizontalAdvance(self.tabText(index))
+        icon_width = 0 if self.tabIcon(index).isNull() else self.iconSize().width()
+        width = max(
+            self._MIN_WIDTH,
+            max(text_width + self._TEXT_WIDTH_SAFETY, icon_width) + (self._HORIZONTAL_PADDING * 2),
+        )
+        return QtCore.QSize(width + self._INTER_TAB_GUTTER, self._HEIGHT + (self._STRIP_VERTICAL_GUTTER * 2))
+
+    def _tab_metadata(self, index):
+        try:
+            data = self.tabData(index)
+        except Exception:
+            return {}
+        return dict(data) if isinstance(data, dict) else {}
+
+    def _tab_accent(self, index):
+        color = str(self._tab_metadata(index).get("accent") or "#22c55e").strip()
+        accent = QtGui.QColor(color)
+        return accent if accent.isValid() else QtGui.QColor("#22c55e")
+
+    def paintEvent(self, event):
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        title_font = self._title_font()
+        for index in range(self.count()):
+            rect = self.tabRect(index).adjusted(
+                0,
+                self._STRIP_VERTICAL_GUTTER,
+                -self._INTER_TAB_GUTTER,
+                -self._STRIP_VERTICAL_GUTTER,
+            )
+            if not event.rect().intersects(rect):
+                continue
+            selected = index == self.currentIndex()
+            enabled = self.isTabEnabled(index)
+            accent = self._tab_accent(index)
+            border = accent if selected else QtGui.QColor("#36506d")
+            background = QtGui.QColor("#1d352b" if selected else "#111b28")
+
+            path = QtGui.QPainterPath()
+            path.addRoundedRect(QtCore.QRectF(rect), 9, 9)
+            painter.fillPath(path, background)
+            painter.setPen(QtGui.QPen(border, 1))
+            painter.drawPath(path)
+
+            content = rect.adjusted(self._HORIZONTAL_PADDING, self._TOP_PADDING, -self._HORIZONTAL_PADDING, -5)
+            title_rect = QtCore.QRect(content.left(), content.top(), content.width(), self._TITLE_HEIGHT)
+            painter.setFont(title_font)
+            painter.setPen(accent if enabled else QtGui.QColor("#728095"))
+            painter.drawText(
+                title_rect,
+                QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter | QtCore.Qt.TextSingleLine,
+                self.tabText(index),
+            )
+
+            icon = self.tabIcon(index)
+            if not icon.isNull():
+                icon_size = self.iconSize()
+                icon_x = content.left() + max(0, (content.width() - icon_size.width()) // 2)
+                icon_y = title_rect.bottom() + 1
+                mode = QtGui.QIcon.Normal if enabled else QtGui.QIcon.Disabled
+                state = QtGui.QIcon.On if selected else QtGui.QIcon.Off
+                icon.paint(painter, QtCore.QRect(icon_x, icon_y, icon_size.width(), icon_size.height()), QtCore.Qt.AlignCenter, mode, state)
+
+
+def _spotify_sense_tab_icon(icon_key: str, accent_hex: str) -> QtGui.QIcon:
+    accent = QtGui.QColor(str(accent_hex or "#22c55e"))
+    if not accent.isValid():
+        accent = QtGui.QColor("#22c55e")
+    canvas = QtGui.QPixmap(36, 36)
+    canvas.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(canvas)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    pen = QtGui.QPen(accent, 2.4, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(QtCore.Qt.NoBrush)
+
+    key = str(icon_key or "").strip().lower()
+    if key == "overview":
+        painter.drawEllipse(QtCore.QRectF(8, 8, 20, 20))
+        painter.drawEllipse(QtCore.QRectF(15, 15, 6, 6))
+        painter.drawLine(18, 4, 18, 10)
+        painter.drawLine(18, 26, 18, 32)
+        painter.drawLine(4, 18, 10, 18)
+        painter.drawLine(26, 18, 32, 18)
+    elif key == "connect":
+        painter.drawRoundedRect(QtCore.QRectF(9, 14, 18, 12), 4, 4)
+        painter.drawLine(14, 10, 14, 14)
+        painter.drawLine(22, 10, 22, 14)
+        painter.drawLine(18, 26, 18, 31)
+    elif key == "playback":
+        path = QtGui.QPainterPath()
+        path.moveTo(13, 9)
+        path.lineTo(27, 18)
+        path.lineTo(13, 27)
+        path.closeSubpath()
+        painter.setBrush(QtGui.QBrush(accent))
+        painter.drawPath(path)
+        painter.setBrush(QtCore.Qt.NoBrush)
+    elif key == "awareness":
+        painter.drawEllipse(QtCore.QRectF(6, 11, 24, 14))
+        painter.drawEllipse(QtCore.QRectF(14, 15, 8, 6))
+    elif key == "ducking":
+        painter.drawRect(QtCore.QRectF(7, 14, 6, 8))
+        speaker = QtGui.QPainterPath()
+        speaker.moveTo(13, 14)
+        speaker.lineTo(22, 8)
+        speaker.lineTo(22, 28)
+        speaker.lineTo(13, 22)
+        speaker.closeSubpath()
+        painter.drawPath(speaker)
+        painter.drawArc(QtCore.QRectF(20, 11, 11, 14), -45 * 16, 90 * 16)
+    elif key == "story":
+        painter.drawRoundedRect(QtCore.QRectF(8, 8, 20, 22), 3, 3)
+        painter.drawLine(18, 8, 18, 30)
+        painter.drawLine(11, 14, 15, 14)
+        painter.drawLine(21, 14, 25, 14)
+    elif key == "hidden":
+        painter.drawEllipse(QtCore.QRectF(7, 7, 22, 22))
+        painter.drawEllipse(QtCore.QRectF(14, 14, 8, 8))
+        painter.drawLine(18, 3, 18, 9)
+        painter.drawLine(18, 27, 18, 33)
+        painter.drawLine(3, 18, 9, 18)
+        painter.drawLine(27, 18, 33, 18)
+    elif key == "advanced":
+        for x, y in ((10, 12), (18, 22), (26, 15)):
+            painter.drawLine(x, 7, x, 29)
+            painter.drawEllipse(QtCore.QRectF(x - 3, y - 3, 6, 6))
+    else:
+        painter.drawRoundedRect(QtCore.QRectF(8, 8, 20, 20), 5, 5)
+
+    painter.end()
+    return QtGui.QIcon(canvas)
+
+
 class _OAuthHTTPServer(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
 
@@ -277,6 +450,7 @@ class SpotifySenseController(QtCore.QObject):
         self._last_track_comment_at = 0.0
         self._remembered_volume: int | None = None
         self._remembered_duck_device_id: str | None = None
+        self._duck_start_pending = False
         self._cached_music_context: dict[str, Any] = {}
         self._cached_music_context_at = 0.0
         self._last_context_refresh_request_at = 0.0
@@ -294,6 +468,7 @@ class SpotifySenseController(QtCore.QObject):
         self._story_transition_lock = threading.RLock()
         self._story_transition_generation = 0
         self._sensory_provider_registered = False
+        self._sensory_contributor_registered = False
         self._refine_bridge = _SpotifyRefineBridge()
         self._refine_bridge.finished.connect(self._on_hidden_sensory_field_refined)
         self._hidden_style_save_timer = QtCore.QTimer(self)
@@ -343,13 +518,59 @@ class SpotifySenseController(QtCore.QObject):
                 },
             )
             self._sensory_provider_registered = True
+            self._register_sensory_behavior_contributor()
         except Exception as exc:
             try:
                 self.context.logger.warning("[SpotifySense] Could not register sensory provider: %s", exc)
             except Exception:
                 pass
 
+    def _register_sensory_behavior_contributor(self):
+        service = self.context.get_service("qt.sensory") if getattr(self, "context", None) is not None else None
+        register = getattr(service, "register_prompt_contributor", None)
+        if not callable(register):
+            return
+        try:
+            register(
+                contributor_id=SENSORY_BEHAVIOR_CONTRIBUTOR_ID,
+                source_id=SENSORY_PROVIDER_ID,
+                label="Spotify Sense",
+                prompt=SPOTIFY_HIDDEN_BEHAVIOR_PROMPT,
+                order=345,
+                metadata={
+                    "type": "behavior_rule",
+                    "behavior_count": 1,
+                    "active_behaviors": [
+                        {
+                            "trigger": "Spotify Sense hidden music reaction opportunity is allowed.",
+                            "action": "Comment once on the current track using Spotify metadata.",
+                            "repeat_mode": "One-off",
+                            "repeat_interval": 1,
+                        }
+                    ],
+                },
+            )
+            self._sensory_contributor_registered = True
+        except Exception as exc:
+            try:
+                self.context.logger.warning("[SpotifySense] Could not register sensory behavior prompt: %s", exc)
+            except Exception:
+                pass
+
+    def _unregister_sensory_behavior_contributor(self):
+        if not self._sensory_contributor_registered:
+            return
+        service = self.context.get_service("qt.sensory") if getattr(self, "context", None) is not None else None
+        unregister = getattr(service, "unregister_prompt_contributor", None)
+        if callable(unregister):
+            try:
+                unregister(SENSORY_BEHAVIOR_CONTRIBUTOR_ID)
+            except Exception:
+                pass
+        self._sensory_contributor_registered = False
+
     def _unregister_sensory_provider(self):
+        self._unregister_sensory_behavior_contributor()
         if not self._sensory_provider_registered:
             return
         service = self.context.get_service("qt.sensory") if getattr(self, "context", None) is not None else None
@@ -382,6 +603,160 @@ class SpotifySenseController(QtCore.QObject):
         layout.setSpacing(8)
         return group, layout
 
+    def _spotify_sense_tab_page(self, object_name: str) -> tuple[QtWidgets.QWidget, QtWidgets.QVBoxLayout]:
+        page = QtWidgets.QWidget()
+        page.setObjectName(str(object_name or "").strip())
+        layout = QtWidgets.QVBoxLayout(page)
+        layout.setContentsMargins(6, 8, 6, 6)
+        layout.setSpacing(10)
+        return page, layout
+
+    def _build_spotify_sense_main_tabs(self) -> tuple[NoWheelTabWidget, dict[str, QtWidgets.QVBoxLayout]]:
+        tabs = NoWheelTabWidget()
+        tabs.setObjectName("spotify_sense_main_tabs")
+        tab_specs = (
+            ("Overview", "Status, quick guide, command examples, and current track.", "overview", "#22c55e"),
+            ("Connect", "Spotify app Client ID, OAuth login, and device refresh.", "connect", "#38bdf8"),
+            ("Playback", "Enable Spotify Sense, playback permissions, device target, and quick controls.", "playback", "#f97316"),
+            ("Awareness", "Music context, song-change comments, album art, and cooldowns.", "awareness", "#a78bfa"),
+            ("Ducking", "Lower Spotify while NC speaks and restore volume afterward.", "ducking", "#14b8a6"),
+            ("Story", "Story mode background music and transition tuning.", "story", "#e879f9"),
+            ("Hidden Sense", "Hidden sensory prompts, commentary presets, and quick styles.", "hidden", "#facc15"),
+            ("Advanced", "Command preview and addon-local debug tools.", "advanced", "#94a3b8"),
+        )
+        tab_layouts: dict[str, QtWidgets.QVBoxLayout] = {}
+        for title, tooltip, _icon_key, _accent in tab_specs:
+            page, page_layout = self._spotify_sense_tab_page(f"spotify_sense_{title.lower().replace(' ', '_')}_tab")
+            tabs.addTab(page, title)
+            tabs.setTabToolTip(tabs.count() - 1, tooltip)
+            tab_layouts[title] = page_layout
+        self._apply_spotify_sense_main_tab_style(tabs)
+        return tabs, tab_layouts
+
+    def _apply_spotify_sense_main_tab_style(self, tabs: NoWheelTabWidget | None) -> None:
+        if tabs is None:
+            return
+        if not isinstance(tabs.tabBar(), _SpotifySenseTabBar):
+            previous_bar = tabs.tabBar()
+            current_index = tabs.currentIndex()
+            entries = []
+            for index in range(tabs.count()):
+                entries.append(
+                    {
+                        "widget": tabs.widget(index),
+                        "text": tabs.tabText(index),
+                        "icon": tabs.tabIcon(index),
+                        "tooltip": tabs.tabToolTip(index),
+                        "enabled": tabs.isTabEnabled(index),
+                        "data": previous_bar.tabData(index) if previous_bar is not None else None,
+                    }
+                )
+            while tabs.count():
+                tabs.removeTab(0)
+            tab_bar = _SpotifySenseTabBar(tabs)
+            tabs.setTabBar(tab_bar)
+            for entry in entries:
+                widget = entry["widget"]
+                icon = entry["icon"]
+                text = str(entry["text"] or "")
+                if isinstance(icon, QtGui.QIcon) and not icon.isNull():
+                    index = tabs.addTab(widget, icon, text)
+                else:
+                    index = tabs.addTab(widget, text)
+                tooltip = str(entry["tooltip"] or "")
+                if tooltip:
+                    tabs.setTabToolTip(index, tooltip)
+                tabs.setTabEnabled(index, bool(entry["enabled"]))
+                tab_bar.setTabData(index, entry["data"])
+            if entries:
+                tabs.setCurrentIndex(min(max(0, current_index), len(entries) - 1))
+
+        tabs.setIconSize(QtCore.QSize(36, 36))
+        tabs.setUsesScrollButtons(True)
+        tab_bar = tabs.tabBar()
+        if tab_bar is not None:
+            tab_bar.setDrawBase(False)
+            tab_bar.setExpanding(False)
+            tab_bar.setUsesScrollButtons(True)
+
+        specs = {
+            "Overview": ("overview", "#22c55e"),
+            "Connect": ("connect", "#38bdf8"),
+            "Playback": ("playback", "#f97316"),
+            "Awareness": ("awareness", "#a78bfa"),
+            "Ducking": ("ducking", "#14b8a6"),
+            "Story": ("story", "#e879f9"),
+            "Hidden Sense": ("hidden", "#facc15"),
+            "Advanced": ("advanced", "#94a3b8"),
+        }
+        for index in range(tabs.count()):
+            title = str(tabs.tabText(index) or "")
+            icon_key, accent = specs.get(title, ("fallback", "#60a5fa"))
+            tabs.setTabIcon(index, _spotify_sense_tab_icon(icon_key, accent))
+            if tab_bar is not None:
+                tab_bar.setTabData(index, {"accent": accent, "icon": icon_key})
+
+        tabs.setStyleSheet(
+            """
+/* nc-spotify-sense-main-tabs:start */
+QTabWidget#spotify_sense_main_tabs::tab-bar {
+    left: 4px;
+}
+QTabWidget#spotify_sense_main_tabs QTabBar {
+    background: #122033;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+QTabWidget#spotify_sense_main_tabs QTabBar::scroller {
+    width: 32px;
+}
+QTabWidget#spotify_sense_main_tabs QTabBar QToolButton {
+    background: #1b2b40;
+    color: #d8e2ee;
+    border: 1px solid #416184;
+    border-radius: 8px;
+    width: 20px;
+    min-width: 20px;
+    max-width: 20px;
+    padding: 0px;
+    margin: 8px 1px 8px 1px;
+}
+QTabWidget#spotify_sense_main_tabs QTabBar QToolButton:hover {
+    background: #243956;
+}
+QTabWidget#spotify_sense_main_tabs QTabBar::tab {
+    background: transparent;
+    color: #d8e2ee;
+    font-weight: 700;
+    border: none;
+    min-width: 0px;
+    min-height: 68px;
+    padding: 0px;
+    margin-right: 5px;
+    margin-bottom: 2px;
+    border-radius: 9px;
+}
+QTabWidget#spotify_sense_main_tabs QTabBar::tab:selected,
+QTabWidget#spotify_sense_main_tabs QTabBar::tab:hover {
+    background: transparent;
+    border: none;
+}
+QTabWidget#spotify_sense_main_tabs::pane {
+    top: 0px;
+    background: #122033;
+    border: 1px solid #2d4561;
+    border-top-color: #36506d;
+    border-radius: 10px;
+    padding: 10px;
+}
+QTabWidget#spotify_sense_main_tabs QStackedWidget {
+    background: transparent;
+    padding: 6px;
+}
+/* nc-spotify-sense-main-tabs:end */
+"""
+        )
+
     def build_tab(self):
         scroll = QtWidgets.QScrollArea()
         scroll.setObjectName("spotify_sense_addon_tab")
@@ -412,12 +787,22 @@ class SpotifySenseController(QtCore.QObject):
         title.setStyleSheet("font-size: 14px; font-weight: 800; color: #ecfeff;")
         card_layout.addWidget(title)
 
+        main_tabs, tab_layouts = self._build_spotify_sense_main_tabs()
+        overview_layout = tab_layouts["Overview"]
+        connect_tab_layout = tab_layouts["Connect"]
+        playback_tab_layout = tab_layouts["Playback"]
+        awareness_tab_layout = tab_layouts["Awareness"]
+        ducking_tab_layout = tab_layouts["Ducking"]
+        story_tab_layout = tab_layouts["Story"]
+        hidden_tab_layout = tab_layouts["Hidden Sense"]
+        advanced_tab_layout = tab_layouts["Advanced"]
+
         intro = QtWidgets.QLabel(
             "Optional Spotify Web API controls for current-track awareness, safe music commands, lower music while NC speaks, and story hooks."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet("color: #9fb3c8;")
-        card_layout.addWidget(intro)
+        overview_layout.addWidget(intro)
 
         guide = QtWidgets.QLabel(
             "How it works: add your Spotify Client ID, save, log in, then enable Spotify Sense. "
@@ -437,7 +822,7 @@ class SpotifySenseController(QtCore.QObject):
             "}"
         )
         guide.setToolTip("Quick setup and behavior summary for Spotify Sense.")
-        card_layout.addWidget(guide)
+        overview_layout.addWidget(guide)
 
         commands = QtWidgets.QLabel(
             "Common voice commands: \"play ambient electronic\", \"play relaxing focus music\", "
@@ -457,13 +842,13 @@ class SpotifySenseController(QtCore.QObject):
             "}"
         )
         commands.setToolTip("Examples of phrases Spotify Sense can route from typed or spoken chat. Add \"and comment about it\" when you want NC to react after changing tracks.")
-        card_layout.addWidget(commands)
+        overview_layout.addWidget(commands)
 
         self.status_label = QtWidgets.QLabel("")
         self.status_label.setObjectName("spotify_sense_status")
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        card_layout.addWidget(self.status_label)
+        overview_layout.addWidget(self.status_label)
 
         connection_group, connection_layout = self._section_group("Connect Spotify")
         auth_grid = QtWidgets.QGridLayout()
@@ -513,7 +898,7 @@ class SpotifySenseController(QtCore.QObject):
             auth_buttons.addWidget(button)
         auth_buttons.addStretch(1)
         connection_layout.addLayout(auth_buttons)
-        card_layout.addWidget(connection_group)
+        connect_tab_layout.addWidget(connection_group)
 
         self.enable_checkbox = self._checkbox("Enable Spotify Sense", "enabled")
         self.llm_checkbox = self._checkbox("Allow autonomous LLM Spotify control", "allow_llm_control")
@@ -589,7 +974,7 @@ class SpotifySenseController(QtCore.QObject):
         playback_grid.addWidget(self.default_volume_spin, 4, 1)
         playback_grid.setColumnStretch(3, 1)
         playback_layout.addLayout(playback_grid)
-        card_layout.addWidget(playback_group)
+        playback_tab_layout.addWidget(playback_group)
 
         commentary_group, commentary_layout = self._section_group("Music Commentary")
         commentary_grid = QtWidgets.QGridLayout()
@@ -612,7 +997,7 @@ class SpotifySenseController(QtCore.QObject):
         commentary_grid.addWidget(self.user_change_cooldown_spin, 4, 3)
         commentary_grid.setColumnStretch(3, 1)
         commentary_layout.addLayout(commentary_grid)
-        card_layout.addWidget(commentary_group)
+        awareness_tab_layout.addWidget(commentary_group)
 
         duck_group, duck_layout = self._section_group("Lower Music While NC Speaks")
         duck_grid = QtWidgets.QGridLayout()
@@ -629,7 +1014,7 @@ class SpotifySenseController(QtCore.QObject):
         duck_grid.addWidget(self.duck_fade_up_spin, 2, 3)
         duck_grid.setColumnStretch(3, 1)
         duck_layout.addLayout(duck_grid)
-        card_layout.addWidget(duck_group)
+        ducking_tab_layout.addWidget(duck_group)
 
         story_group, story_layout = self._section_group("Story Soundtrack")
         story_grid = QtWidgets.QGridLayout()
@@ -652,11 +1037,11 @@ class SpotifySenseController(QtCore.QObject):
         story_grid.addWidget(self.coding_query_edit, 4, 1, 1, 3)
         story_grid.setColumnStretch(3, 1)
         story_layout.addLayout(story_grid)
-        card_layout.addWidget(story_group)
+        story_tab_layout.addWidget(story_group)
 
         debug_group, debug_layout = self._section_group("Advanced Debug")
         debug_layout.addWidget(self.debug_log_checkbox)
-        card_layout.addWidget(debug_group)
+        advanced_tab_layout.addWidget(debug_group)
 
         now_group, now_layout = self._section_group("Now Playing")
         self.current_track_label = QtWidgets.QLabel("Current track: not checked yet.")
@@ -709,7 +1094,7 @@ class SpotifySenseController(QtCore.QObject):
             test_buttons.addWidget(button)
         test_buttons.addStretch(1)
         now_layout.addLayout(test_buttons)
-        card_layout.addWidget(now_group)
+        overview_layout.addWidget(now_group)
 
         test_group, test_layout = self._section_group("Command Preview")
         intent_row = QtWidgets.QHBoxLayout()
@@ -729,9 +1114,12 @@ class SpotifySenseController(QtCore.QObject):
         intent_row.addWidget(route_button)
         intent_row.addWidget(log_button)
         test_layout.addLayout(intent_row)
-        card_layout.addWidget(test_group)
+        advanced_tab_layout.addWidget(test_group)
 
-        card_layout.addWidget(self._build_hidden_sensory_group())
+        hidden_tab_layout.addWidget(self._build_hidden_sensory_group())
+        for page_layout in tab_layouts.values():
+            page_layout.addStretch(1)
+        card_layout.addWidget(main_tabs)
 
         layout.addWidget(card)
         layout.addStretch(1)
@@ -2206,6 +2594,7 @@ class SpotifySenseController(QtCore.QObject):
                 "is_playing": bool(payload.get("is_playing", False)),
                 "mood_hint": str(payload.get("mood_hint") or "neutral"),
                 "metadata_only": True,
+                "cache_policy": "one_shot",
                 "hidden_response_allowed": True,
                 "hidden_response_cooldown_seconds": hidden_cooldown,
                 "proactive_candidate": "",
@@ -2647,12 +3036,23 @@ class SpotifySenseController(QtCore.QObject):
         minimum_drop = max(1, min(10, max(3, int(round(previous * 0.25)))))
         return max(0, previous - minimum_drop)
 
-    def _set_volume_smooth(self, *, start: int, target: int, device_id: str | None, duration_ms: int, reason: str) -> dict[str, Any]:
+    def _set_volume_smooth(
+        self,
+        *,
+        start: int,
+        target: int,
+        device_id: str | None,
+        duration_ms: int,
+        reason: str,
+        generation: int | None = None,
+    ) -> dict[str, Any]:
         start_value = max(0, min(100, int(start)))
         target_value = max(0, min(100, int(target)))
         duration = max(0, int(duration_ms or 0))
-        generation = self._next_duck_transition_generation()
+        generation = self._next_duck_transition_generation() if generation is None else int(generation)
         if duration <= 0 or start_value == target_value:
+            if not self._volume_transition_is_current(generation):
+                return {"ok": True, "cancelled": True, "reason": "stale_duck_transition"}
             result = self.client.set_volume(target_value, device_id=device_id)
             self._debug_log("duck_volume_set", {"reason": reason, "volume": target_value, "device_id": device_id, "result": result})
             return result
@@ -2688,74 +3088,96 @@ class SpotifySenseController(QtCore.QObject):
         if self._duck_is_active():
             target_volume = self._duck_target_volume(int(self._remembered_volume or 0))
             device_id = self._remembered_duck_device_id or str(self.settings.data.get("default_device_id") or "").strip() or None
-            result = self._set_volume_smooth(
-                start=int(self._remembered_volume or target_volume),
-                target=target_volume,
-                device_id=device_id,
-                duration_ms=0,
-                reason="tts_duck_start_refresh",
-            )
             self._debug_log(
                 "duck_start_refresh",
-                {"device_id": device_id, "previous_volume": self._remembered_volume, "target_volume": target_volume, "result": result},
+                {"device_id": device_id, "previous_volume": self._remembered_volume, "target_volume": target_volume},
             )
             return {
-                "ok": bool(result.get("ok")),
-                "ducked": bool(result.get("ok")),
+                "ok": True,
+                "ducked": True,
                 "already_active": True,
+                "pending": bool(getattr(self, "_duck_start_pending", False)),
                 "previous_volume": self._remembered_volume,
                 "target_volume": target_volume,
-                "result": result,
             }
         device_id = str(self.settings.data.get("default_device_id") or "").strip() or None
-        state = self.client.get_playback_state()
-        device = (state.get("data") or {}).get("device") or {} if isinstance(state, dict) and state.get("ok") else {}
-        state_error = None if isinstance(state, dict) and state.get("ok") else dict(state or {})
-        if not device_id:
-            device_id = str(device.get("id") or "").strip() or None
         try:
-            self._remembered_volume = int(device.get("volume_percent"))
+            fallback_volume = int(self.settings.data.get("default_volume") or 30)
         except Exception:
-            self._remembered_volume = int(self.settings.data.get("default_volume") or 30)
+            fallback_volume = 30
+        self._remembered_volume = max(0, min(100, fallback_volume))
         self._remembered_duck_device_id = device_id
         target_volume = self._duck_target_volume(self._remembered_volume)
         duration_ms = int(self.settings.data.get("duck_fade_down_ms", 650) or 0)
-        result = self._set_volume_smooth(
-            start=self._remembered_volume,
-            target=target_volume,
-            device_id=device_id,
-            duration_ms=duration_ms,
-            reason="tts_duck_start",
-        )
-        self._debug_log(
-            "duck_start",
-            {
-                "device_id": device_id,
-                "previous_volume": self._remembered_volume,
-                "target_volume": target_volume,
-                "duration_ms": duration_ms,
-                "state_error": state_error,
-                "result": result,
-            },
-        )
-        if not bool(result.get("ok")):
-            self._remembered_volume = None
-            self._remembered_duck_device_id = None
+        generation = self._next_duck_transition_generation()
+        self._duck_start_pending = True
+
+        def worker() -> None:
+            try:
+                state = self.client.get_playback_state()
+            except Exception as exc:
+                state = {"ok": False, "error": str(exc), "error_type": type(exc).__name__}
+            if not self._volume_transition_is_current(generation):
+                return
+            device = (state.get("data") or {}).get("device") or {} if isinstance(state, dict) and state.get("ok") else {}
+            state_error = None if isinstance(state, dict) and state.get("ok") else dict(state or {})
+            resolved_device_id = device_id or str(device.get("id") or "").strip() or None
+            try:
+                previous_volume = max(0, min(100, int(device.get("volume_percent"))))
+            except Exception:
+                previous_volume = int(self._remembered_volume or fallback_volume)
+            if not self._volume_transition_is_current(generation):
+                return
+            self._remembered_volume = previous_volume
+            self._remembered_duck_device_id = resolved_device_id
+            resolved_target = self._duck_target_volume(previous_volume)
+            self._duck_start_pending = False
+            result = self._set_volume_smooth(
+                start=previous_volume,
+                target=resolved_target,
+                device_id=resolved_device_id,
+                duration_ms=duration_ms,
+                reason="tts_duck_start",
+                generation=generation,
+            )
+            self._debug_log(
+                "duck_start",
+                {
+                    "device_id": resolved_device_id,
+                    "previous_volume": previous_volume,
+                    "target_volume": resolved_target,
+                    "duration_ms": duration_ms,
+                    "state_error": state_error,
+                    "result": result,
+                },
+            )
+            if not bool(result.get("ok")) and self._volume_transition_is_current(generation):
+                self._remembered_volume = None
+                self._remembered_duck_device_id = None
+
+        threading.Thread(target=worker, name="SpotifySenseTtsDuckStart", daemon=True).start()
         return {
-            "ok": bool(result.get("ok")),
-            "ducked": bool(result.get("ok")),
-            "previous_volume": self._remembered_volume if bool(result.get("ok")) else None,
+            "ok": True,
+            "ducked": True,
+            "queued": True,
+            "previous_volume": self._remembered_volume,
             "target_volume": target_volume,
-            "state_error": state_error,
-            "result": result,
         }
 
     def duck_end(self):
+        if bool(getattr(self, "_duck_start_pending", False)):
+            self._next_duck_transition_generation()
+            self._duck_start_pending = False
+            self._remembered_volume = None
+            self._remembered_duck_device_id = None
+            self._debug_log("duck_end_pending_cancelled", {})
+            return {"ok": True, "restored": False, "cancelled_pending": True}
         if not bool(self.settings.data.get("restore_volume_after_speech", True)):
             self._next_duck_transition_generation()
             self._debug_log("duck_end_restore_disabled", {"previous_volume": self._remembered_volume, "device_id": self._remembered_duck_device_id})
             self._remembered_volume = None
             self._remembered_duck_device_id = None
+            self._duck_start_pending = False
             return {"ok": True, "restored": False, "message": "Restore volume after speech is disabled."}
         if self._remembered_volume is None:
             return {"ok": True, "restored": False, "message": "No remembered Spotify volume to restore."}
@@ -2773,6 +3195,7 @@ class SpotifySenseController(QtCore.QObject):
         restored = self._remembered_volume
         self._remembered_volume = None
         self._remembered_duck_device_id = None
+        self._duck_start_pending = False
         self._debug_log("duck_end", {"device_id": device_id, "restore_volume": restored, "duration_ms": duration_ms, "result": result})
         return {"ok": bool(result.get("ok")), "restored": bool(result.get("ok")), "volume": restored, "result": result}
 

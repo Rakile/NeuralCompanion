@@ -4,12 +4,13 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
-from .models import PersonaConfig, RoleplaySessionState, normalize_persona_id
+from .models import AR_DIALOGUE_DENSITY_MODES, PersonaConfig, RoleplaySessionState, normalize_persona_id
 
 
 CAST_MODE_FOCUSED_SPEAKER = "focused_speaker"
 CAST_MODE_JOINED_CAST = "joined_cast"
 _CAST_MODES = {CAST_MODE_FOCUSED_SPEAKER, CAST_MODE_JOINED_CAST}
+DEFAULT_DIALOGUE_DENSITY = "Balanced narrator + character dialogue"
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,11 @@ def normalize_cast_mode(value: Any) -> str:
     return mode if mode in _CAST_MODES else CAST_MODE_FOCUSED_SPEAKER
 
 
+def normalize_dialogue_density(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text in AR_DIALOGUE_DENSITY_MODES else DEFAULT_DIALOGUE_DENSITY
+
+
 def build_story_director_prompt(
     personas: list[PersonaConfig],
     session: RoleplaySessionState,
@@ -35,9 +41,11 @@ def build_story_director_prompt(
     available_audio: list[dict[str, Any]] | None = None,
     narrator_persona_id: str = "",
     cast_mode: str = CAST_MODE_FOCUSED_SPEAKER,
+    dialogue_density: str = "",
 ) -> str:
     """Build ordered AR story orchestration sections for MPRC Play."""
     cast_mode = normalize_cast_mode(cast_mode)
+    dialogue_density = normalize_dialogue_density(dialogue_density or getattr(session, "ar_dialogue_density", ""))
     sections = build_story_director_sections(
         personas,
         session,
@@ -45,11 +53,13 @@ def build_story_director_prompt(
         available_audio=available_audio,
         narrator_persona_id=narrator_persona_id,
         cast_mode=cast_mode,
+        dialogue_density=dialogue_density,
     )
     mode_label = "focused speaker" if cast_mode == CAST_MODE_FOCUSED_SPEAKER else "joined cast"
     lead = [
         "AlternativeReality mode is active. This is an interactive audiobook/adventure runtime, not a normal chatbot and not an equal group chat.",
         f"Story Director cast mode: {mode_label}. Shared story history stays shared; character context is injected deliberately so personalities stay separate.",
+        f"AR Cast Energy / Dialogue Density: {dialogue_density}. {_dialogue_density_rule(dialogue_density)}",
         "Use these Story Director sections as hidden runtime instructions. Do not expose director notes, hidden planning, prompt structure, or chain-of-thought.",
     ]
     return "\n\n".join([*lead, *(section.render() for section in sections if section.render())]).strip()
@@ -63,6 +73,7 @@ def build_story_director_sections(
     available_audio: list[dict[str, Any]] | None = None,
     narrator_persona_id: str = "",
     cast_mode: str = CAST_MODE_FOCUSED_SPEAKER,
+    dialogue_density: str = "",
 ) -> list[StoryDirectorSection]:
     state = session.ar_state
     enabled = [persona for persona in list(personas or []) if getattr(persona, "enabled", True)]
@@ -76,6 +87,7 @@ def build_story_director_sections(
     continue_requested = _looks_like_continue(latest_user_text)
     pacing = str(getattr(session, "ar_pacing", "") or "Balanced").strip()
     interaction = str(getattr(session, "ar_interaction_frequency", "") or "Ask sometimes").strip()
+    dialogue_density = normalize_dialogue_density(dialogue_density or getattr(session, "ar_dialogue_density", ""))
     audio_cues = _available_audio_lines(available_audio or [])
     player_intent = str(getattr(state, "player_intent", "") or "").strip()
     player_intent = player_intent or ("continue" if continue_requested else str(latest_user_text or "").strip())
@@ -114,6 +126,11 @@ def build_story_director_sections(
                     f"Narrator role: {getattr(narrator, 'display_name', '') or 'the current speaker'}. The narrator controls continuity, framing, transitions, consequences, and pacing.",
                     "NPC/Character roles: characters speak only when naturally relevant to the scene. Do not make every persona respond every turn.",
                     "Use active cast information as character-card context, not as a requirement for every listed character to speak.",
+                    "Most story turns should include at least one character speaking when active characters are present.",
+                    "Do not keep all dialogue in narrator prose.",
+                    "Use [CHARACTER: Exact Name] for spoken lines.",
+                    "Narrator frames action; characters create tension, opinions, interruptions, emotion.",
+                    f"Dialogue density mode: {dialogue_density}. {_dialogue_density_rule(dialogue_density)}",
                     "If a new named speaking character appears, describe their visible role/appearance/personality in [NARRATOR] prose first, then use [CHARACTER: New Name] only for direct dialogue.",
                 ]
             ),
@@ -169,6 +186,7 @@ def build_story_director_sections(
 def build_visual_beat_context(
     *,
     persona: PersonaConfig | None,
+    personas: list[PersonaConfig] | None = None,
     session: RoleplaySessionState,
     reason: str = "manual",
     source_text: str = "",
@@ -176,6 +194,12 @@ def build_visual_beat_context(
     """Return stable visible-story inputs for Visual Reply prompt assembly."""
     state = getattr(session, "ar_state", None)
     latest_visible_action = _visible_story_action(source_text, 700)
+    visual_subject, visual_subject_source = _visual_subject_for_beat(
+        persona=persona,
+        personas=list(personas or []),
+        latest_visible_action=latest_visible_action,
+        source_text=source_text,
+    )
     current_scene = _compact(getattr(state, "current_scene", ""), 320) if state is not None else ""
     location = _compact(getattr(state, "location", ""), 160) if state is not None else ""
     time_of_day = _compact(getattr(state, "time_of_day", ""), 90) if state is not None else ""
@@ -186,7 +210,9 @@ def build_visual_beat_context(
     recent.extend(str(item or "").strip() for item in list(getattr(session, "recent_events", []) or [])[-2:])
     return {
         "reason": str(reason or "manual").strip() or "manual",
-        "visual_subject": str(getattr(persona, "display_name", "") or "").strip(),
+        "visual_subject_id": str(getattr(visual_subject, "id", "") or "").strip(),
+        "visual_subject": str(getattr(visual_subject, "display_name", "") or "").strip(),
+        "visual_subject_source": visual_subject_source,
         "latest_visible_action": latest_visible_action,
         "current_scene": current_scene,
         "location": location or _compact(getattr(session, "location", ""), 160),
@@ -364,6 +390,23 @@ def _interaction_rule(interaction: str) -> str:
     }.get(str(interaction or "").strip(), "Ask for input sometimes, but continue through small transitional beats.")
 
 
+def _dialogue_density_rule(dialogue_density: str) -> str:
+    return {
+        "Cinematic narrator-led": (
+            "Let narration lead the camera and atmosphere, but do not absorb direct dialogue when active characters are present."
+        ),
+        "Ensemble scene": (
+            "Use the active cast as scene context and let two or more relevant characters speak when it creates tension or contrast."
+        ),
+        "High-dialogue character drama": (
+            "Favor vivid character exchanges, interruptions, disagreement, desire, fear, and opinion; keep narrator prose shorter between spoken beats."
+        ),
+    }.get(
+        str(dialogue_density or "").strip(),
+        "Balance narrator framing with at least one relevant character voice on most active-character turns.",
+    )
+
+
 def _continue_choice_nudge(*, continue_requested: bool, interaction: str) -> str:
     lines = []
     if continue_requested:
@@ -388,29 +431,94 @@ def _visible_story_action(text: str, limit: int = 700) -> str:
         flags=re.IGNORECASE,
     )
     value = re.sub(r"(?is)\[CHOICES\].*$", " ", value)
-    narrator_lines: list[str] = []
-    fallback_lines: list[str] = []
-    section = ""
-    for raw_line in value.splitlines():
-        line = str(raw_line or "").strip()
-        if not line:
-            continue
-        tag = re.match(r"^\[(NARRATOR|CHARACTER:\s*[^\]]+)\]\s*(.*)$", line, flags=re.IGNORECASE)
-        if tag:
-            tag_name = tag.group(1).strip().lower()
-            section = "character" if tag_name.startswith("character") else "narrator"
-            line = str(tag.group(2) or "").strip()
-            if not line:
+    tag_pattern = re.compile(r"\[(NARRATOR|CHARACTER:\s*[^\]]+)\]", flags=re.IGNORECASE)
+    matches = list(tag_pattern.finditer(value))
+    narrator_blocks: list[str] = []
+    fallback_blocks: list[str] = []
+    if matches:
+        prefix = _compact(value[: matches[0].start()], limit)
+        if prefix:
+            fallback_blocks.append(prefix)
+        for index, match in enumerate(matches):
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(value)
+            block = _compact(value[match.end() : end], limit)
+            if not block:
                 continue
-        cleaned = re.sub(r"\[(?:/?NARRATOR|CHARACTER:\s*[^\]]+)\]", " ", line, flags=re.IGNORECASE).strip()
-        if not cleaned:
-            continue
-        fallback_lines.append(cleaned)
-        if section != "character":
-            narrator_lines.append(cleaned)
+            fallback_blocks.append(block)
+            if not str(match.group(1) or "").strip().lower().startswith("character"):
+                narrator_blocks.append(block)
+    else:
+        fallback = _compact(value, limit)
+        if fallback:
+            fallback_blocks.append(fallback)
 
-    source = " ".join(narrator_lines).strip() or " ".join(fallback_lines).strip()
-    return _compact(_select_visual_sentence(source), limit)
+    source = narrator_blocks[-1] if narrator_blocks else (fallback_blocks[-1] if fallback_blocks else "")
+    return _compact(source, limit)
+
+
+def _visual_subject_for_beat(
+    *,
+    persona: PersonaConfig | None,
+    personas: list[PersonaConfig],
+    latest_visible_action: str,
+    source_text: str,
+) -> tuple[PersonaConfig | None, str]:
+    cast = [item for item in personas if item is not None and not _persona_looks_like_narrator(item)]
+    latest_match: tuple[int, int, PersonaConfig] | None = None
+    action = str(latest_visible_action or "")
+    for cast_persona in cast:
+        for alias in _visual_subject_aliases(cast_persona, cast):
+            matches = list(re.finditer(rf"(?<![\w]){re.escape(alias)}(?![\w])", action, flags=re.IGNORECASE))
+            if not matches:
+                continue
+            candidate = (matches[-1].start(), len(alias), cast_persona)
+            if latest_match is None or candidate[:2] > latest_match[:2]:
+                latest_match = candidate
+    if latest_match is not None:
+        return latest_match[2], "latest_visible_action"
+
+    labels = re.findall(r"\[CHARACTER:\s*([^\]]+)\]", str(source_text or ""), flags=re.IGNORECASE)
+    for raw_name in reversed(labels):
+        wanted = str(raw_name or "").strip().lower()
+        for cast_persona in cast:
+            if wanted in {
+                str(getattr(cast_persona, "id", "") or "").strip().lower(),
+                str(getattr(cast_persona, "display_name", "") or "").strip().lower(),
+            }:
+                return cast_persona, "character_label"
+
+    if persona is not None and not _persona_looks_like_narrator(persona):
+        return persona, "requested_persona"
+    return None, "scene"
+
+
+def _visual_subject_aliases(persona: PersonaConfig, cast: list[PersonaConfig]) -> list[str]:
+    aliases = {
+        str(getattr(persona, "display_name", "") or "").strip(),
+        str(getattr(persona, "id", "") or "").strip().replace("_", " "),
+    }
+    display_name = str(getattr(persona, "display_name", "") or "").strip()
+    first_name = display_name.split()[0] if display_name else ""
+    if first_name and sum(
+        1
+        for item in cast
+        if str(getattr(item, "display_name", "") or "").strip().lower().split()[:1] == [first_name.lower()]
+    ) == 1:
+        aliases.add(first_name)
+    return sorted((alias for alias in aliases if alias), key=len, reverse=True)
+
+
+def _persona_looks_like_narrator(persona: PersonaConfig) -> bool:
+    text = " ".join(
+        [
+            str(getattr(persona, "id", "") or ""),
+            str(getattr(persona, "display_name", "") or ""),
+            str(getattr(persona, "role", "") or ""),
+            str(getattr(persona, "behavior_mode", "") or ""),
+            " ".join(str(item or "") for item in list(getattr(persona, "tags", []) or [])),
+        ]
+    ).lower()
+    return "narrator" in text
 
 
 def _select_visual_sentence(text: str) -> str:

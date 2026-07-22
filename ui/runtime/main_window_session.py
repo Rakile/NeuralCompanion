@@ -9,6 +9,8 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 from addons.visual_reply.session_schema import group_visual_reply_session, with_flat_visual_reply_settings
+from core.ai_presence_session_schema import group_ai_presence_session, with_flat_ai_presence_settings
+from core.companion_orb_session_schema import group_companion_orb_session, with_flat_companion_orb_settings
 from core import long_term_memory
 from core.sensory_source_selection import normalize_companion_orb_target_source_selection
 from core.chat_runtime_session_schema import group_chat_runtime_session, with_flat_chat_runtime_settings
@@ -21,8 +23,10 @@ from core.sensory_session_schema import group_sensory_session, with_flat_sensory
 from core.stt_session_schema import group_stt_runtime_session, with_flat_stt_runtime_settings
 from core.tts_session_schema import group_tts_runtime_session, with_flat_tts_runtime_settings
 from core.ui_session_schema import group_ui_session, with_flat_ui_settings
+from core.ua_companion_orb_session_schema import group_ua_companion_orb_session, with_flat_ua_companion_orb_settings
 from core.vam_session_schema import group_vam_session, with_flat_vam_settings
 from ui.runtime import engine_access as engine
+from ui.runtime import chat_transcript_window
 from ui.runtime.engine_access import RUNTIME_CONFIG, update_runtime_config
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES, UI_SHELL_MUSE_VRAM_MODE_LABELS
 
@@ -691,9 +695,15 @@ class MainWindowSessionMixin:
             "proactive_delay_seconds": float(self.proactive_delay_spin.value()) if hasattr(self, "proactive_delay_spin") else 10.0,
             "chat_context_window_messages": int(self.chat_context_window_spin.value()) if hasattr(self, "chat_context_window_spin") else 20,
             "stored_chat_history_limit": int(self.stored_chat_history_limit_spin.value()) if hasattr(self, "stored_chat_history_limit_spin") else 0,
+            "chat_visual_batch_size": chat_transcript_window.normalize_visual_batch_size(
+                self.chat_visual_batch_size_spin.value()
+                if hasattr(self, "chat_visual_batch_size_spin")
+                else RUNTIME_CONFIG.get("chat_visual_batch_size", chat_transcript_window.DEFAULT_VISUAL_BATCH_SIZE)
+            ),
             "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
             "spellcheck_enabled": bool(self.spellcheck_enabled_checkbox.isChecked()) if hasattr(self, "spellcheck_enabled_checkbox") else bool(RUNTIME_CONFIG.get("spellcheck_enabled", True)),
             "spellcheck_language": str(self.spellcheck_language_combo.currentText() or "en_US").strip() if hasattr(self, "spellcheck_language_combo") else str(RUNTIME_CONFIG.get("spellcheck_language", "en_US") or "en_US"),
+            "identity_relay_owner_override": bool(RUNTIME_CONFIG.get("identity_relay_owner_override", False)),
             **self._ai_presence_session_settings(),
             "continuity_memory_id": "",
             "active_chat_context_path": "",
@@ -706,7 +716,9 @@ class MainWindowSessionMixin:
             "continuity_memory_inject": bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_inject", RUNTIME_CONFIG.get("long_term_memory_inject", False))),
             "continuity_memory_max_chars": int(self.long_term_memory_max_chars_spin.value()) if hasattr(self, "long_term_memory_max_chars_spin") else int(RUNTIME_CONFIG.get("continuity_memory_max_chars", RUNTIME_CONFIG.get("long_term_memory_max_chars", 3000)) or 3000),
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
+            "long_term_memory_image_review_enabled": bool(self.long_term_memory_image_review_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_image_review_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_image_review_enabled", False)),
             "long_term_memory_retrieval_max_items": int(self.long_term_memory_retrieval_max_items_spin.value()) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
+            "long_term_memory_recall_text_budget": long_term_memory.normalize_recall_text_budget(self.long_term_memory_recall_text_budget_spin.value(), default=-1) if hasattr(self, "long_term_memory_recall_text_budget_spin") else long_term_memory.normalize_recall_text_budget(RUNTIME_CONFIG.get("long_term_memory_recall_text_budget", -1), default=-1),
             "long_term_memory_recall_image_limit": long_term_memory.normalize_image_recall_limit(self.long_term_memory_recall_image_limit_spin.value(), default=1) if hasattr(self, "long_term_memory_recall_image_limit_spin") else long_term_memory.normalize_image_recall_limit(RUNTIME_CONFIG.get("long_term_memory_recall_image_limit", 1), default=1),
             "long_term_memory_auto_archive_enabled": bool(self.long_term_memory_auto_archive_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_auto_archive_enabled", False)),
             "long_term_memory_archive_batch_turns": int(self.long_term_memory_archive_batch_turns_spin.value()) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", 120) or 120),
@@ -789,6 +801,9 @@ class MainWindowSessionMixin:
         session = group_chunking_session(session)
         session = group_chat_runtime_session(session)
         session = group_sensory_session(session)
+        session = group_ai_presence_session(session)
+        session = group_companion_orb_session(session)
+        session = group_ua_companion_orb_session(session)
         session = group_musetalk_session(session)
         session = group_stt_runtime_session(session)
         session = group_tts_runtime_session(session)
@@ -872,15 +887,21 @@ class MainWindowSessionMixin:
             return
         session = with_flat_chat_runtime_settings(
             with_flat_sensory_settings(
-                with_flat_musetalk_settings(
-                    with_flat_stt_runtime_settings(
-                        with_flat_tts_runtime_settings(
-                            with_flat_visual_reply_settings(
-                                with_flat_persona_settings(
-                                    with_flat_runtime_controls_settings(
-                                        with_flat_dry_run_settings(
-                                            with_flat_chunking_settings(
-                                                with_flat_ui_settings(with_flat_vam_settings(session))
+                with_flat_ai_presence_settings(
+                    with_flat_companion_orb_settings(
+                        with_flat_ua_companion_orb_settings(
+                            with_flat_musetalk_settings(
+                                with_flat_stt_runtime_settings(
+                                    with_flat_tts_runtime_settings(
+                                        with_flat_visual_reply_settings(
+                                            with_flat_persona_settings(
+                                                with_flat_runtime_controls_settings(
+                                                    with_flat_dry_run_settings(
+                                                        with_flat_chunking_settings(
+                                                            with_flat_ui_settings(with_flat_vam_settings(session))
+                                                        )
+                                                    )
+                                                )
                                             )
                                         )
                                     )
@@ -1107,6 +1128,16 @@ class MainWindowSessionMixin:
                 stored_limit = max(0, int(stored_chat_history_limit))
                 self.stored_chat_history_limit_spin.setValue(stored_limit)
                 self.on_stored_chat_history_limit_changed(stored_limit)
+            chat_visual_batch_size = session.get("chat_visual_batch_size")
+            if chat_visual_batch_size is not None:
+                visual_batch_size = chat_transcript_window.normalize_visual_batch_size(chat_visual_batch_size)
+                update_runtime_config("chat_visual_batch_size", visual_batch_size)
+                if hasattr(self, "chat_visual_batch_size_spin"):
+                    blocker = self.chat_visual_batch_size_spin.blockSignals(True)
+                    try:
+                        self.chat_visual_batch_size_spin.setValue(visual_batch_size)
+                    finally:
+                        self.chat_visual_batch_size_spin.blockSignals(blocker)
             chat_context_overflow_policy = session.get("chat_context_overflow_policy")
             if chat_context_overflow_policy is not None and hasattr(self, "chat_overflow_policy_combo"):
                 policy_text = self._chat_overflow_policy_label_from_value(chat_context_overflow_policy)
@@ -1123,6 +1154,12 @@ class MainWindowSessionMixin:
                     self.spellcheck_language_combo.addItem(language)
                 self.spellcheck_language_combo.setCurrentText(language)
                 self.on_spellcheck_language_changed(language)
+            identity_relay_owner_override = session.get("identity_relay_owner_override")
+            if identity_relay_owner_override is not None:
+                update_runtime_config(
+                    "identity_relay_owner_override",
+                    identity_relay_owner_override is True,
+                )
             self._restore_ai_presence_session_settings(session)
             last_chat_context_path = session.get("last_chat_context_path", session.get("active_chat_context_path", ""))
             last_chat_context_name = session.get("last_chat_context_name", session.get("active_chat_context_name", ""))
@@ -1154,11 +1191,20 @@ class MainWindowSessionMixin:
             if retrieval_enabled is not None and hasattr(self, "long_term_memory_retrieval_enabled_checkbox"):
                 self.long_term_memory_retrieval_enabled_checkbox.setChecked(bool(retrieval_enabled))
                 self.on_long_term_memory_retrieval_enabled_changed(bool(retrieval_enabled))
+            image_review_enabled = session.get("long_term_memory_image_review_enabled")
+            if image_review_enabled is not None and hasattr(self, "long_term_memory_image_review_enabled_checkbox"):
+                self.long_term_memory_image_review_enabled_checkbox.setChecked(bool(image_review_enabled))
+                self.on_long_term_memory_image_review_enabled_changed(bool(image_review_enabled))
             retrieval_max_items = session.get("long_term_memory_retrieval_max_items")
             if retrieval_max_items is not None and hasattr(self, "long_term_memory_retrieval_max_items_spin"):
                 max_items = max(1, min(12, int(retrieval_max_items)))
                 self.long_term_memory_retrieval_max_items_spin.setValue(max_items)
                 self.on_long_term_memory_retrieval_max_items_changed(max_items)
+            recall_text_budget = session.get("long_term_memory_recall_text_budget")
+            if recall_text_budget is not None and hasattr(self, "long_term_memory_recall_text_budget_spin"):
+                text_budget = long_term_memory.normalize_recall_text_budget(recall_text_budget, default=-1)
+                self.long_term_memory_recall_text_budget_spin.setValue(text_budget)
+                self.on_long_term_memory_recall_text_budget_changed(text_budget)
             recall_image_limit = session.get("long_term_memory_recall_image_limit")
             if recall_image_limit is not None and hasattr(self, "long_term_memory_recall_image_limit_spin"):
                 image_limit = long_term_memory.normalize_image_recall_limit(recall_image_limit, default=1)
@@ -1223,7 +1269,7 @@ class MainWindowSessionMixin:
                             bool(session.get("companion_orb_sensory_target_enabled")),
                         )
                     ) or "off"
-                self.refresh_sensory_feedback_source_options(selected_value=source_value)
+                self.refresh_sensory_feedback_source_options(selected_value=source_value, explicit_selection=True)
                 self.on_sensory_feedback_source_changed(source_value)
             sensory_feedback_interval_seconds = session.get("sensory_feedback_interval_seconds")
             if sensory_feedback_interval_seconds is not None and hasattr(self, "sensory_feedback_interval_spin"):

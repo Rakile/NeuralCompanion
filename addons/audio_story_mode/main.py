@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 from core.addons import BaseAddon
@@ -13,7 +14,16 @@ def _load_controller_class():
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load Audio Story Mode controller from {controller_path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Dataclasses resolve postponed annotations through sys.modules while the
+    # controller module is executing. Register this dynamically loaded module
+    # first, just as Python's normal import machinery does.
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        if sys.modules.get(module_name) is module:
+            sys.modules.pop(module_name, None)
+        raise
     return module.AudioStoryModeController
 
 

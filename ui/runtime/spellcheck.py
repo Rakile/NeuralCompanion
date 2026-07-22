@@ -449,6 +449,17 @@ class SpellCheckLineEditHelper(QtCore.QObject):
         self._line_edit.setCursorPosition(start + len(value))
 
 
+_SPELLCHECK_ENABLED_TOOLTIP = "Spellcheck is enabled."
+
+
+def _without_spellcheck_enabled_tooltip(value: Any) -> str:
+    return "\n".join(
+        line
+        for line in str(value or "").splitlines()
+        if line.strip() != _SPELLCHECK_ENABLED_TOOLTIP
+    ).strip()
+
+
 def attach_spellcheck(widget: Any, language: str | None = None, *, enabled: bool | None = None) -> bool:
     resolved_enabled, resolved_language = _runtime_spellcheck_settings(enabled=enabled, language=language)
     if not resolved_enabled:
@@ -468,11 +479,7 @@ def attach_spellcheck(widget: Any, language: str | None = None, *, enabled: bool
         setattr(widget, "_nc_spellcheck_highlighter", highlighter)
         setattr(widget, "_nc_spellcheck_dictionary", dictionary)
         setattr(widget, "_nc_spellcheck_language", resolved_language)
-        tooltip = str(widget.toolTip() or "").strip()
-        if tooltip:
-            widget.setToolTip(tooltip + "\nSpellcheck is enabled.")
-        else:
-            widget.setToolTip("Spellcheck is enabled.")
+        widget.setToolTip(_without_spellcheck_enabled_tooltip(widget.toolTip()))
         return True
     if isinstance(widget, QtWidgets.QLineEdit):
         current_language = str(getattr(widget, "_nc_spellcheck_language", "") or "")
@@ -499,6 +506,8 @@ def detach_spellcheck(widget: Any) -> None:
             helper.deleteLater()
         except Exception:
             pass
+    if isinstance(widget, (QtWidgets.QPlainTextEdit, QtWidgets.QTextEdit)):
+        widget.setToolTip(_without_spellcheck_enabled_tooltip(widget.toolTip()))
     for attr_name in ("_nc_spellcheck_highlighter", "_nc_spellcheck_dictionary", "_nc_spellcheck_helper", "_nc_spellcheck_language"):
         try:
             delattr(widget, attr_name)

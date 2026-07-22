@@ -4,10 +4,11 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6 import QtCore, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from core import chat_context_assets, conversation_history as conversation_history_runtime, long_term_memory
 from core.addons.qt_host_services import QtDialogService
+from ui.runtime import chat_transcript_window
 
 
 from ui.runtime.engine_access import engine_module as _engine
@@ -17,12 +18,13 @@ class _ChatContextMemoryFlushBridge(QtCore.QObject):
     finished = QtCore.Signal(object, object)
 
 
-def _replace_chat_conversation_history(entries, *, allow_pending_loaded_user):
+def _replace_chat_conversation_history(entries, *, allow_pending_loaded_user, expected_history=None):
     from ui.runtime.engine_access import replace_chat_conversation_history
 
     return replace_chat_conversation_history(
         entries,
         allow_pending_loaded_user=allow_pending_loaded_user,
+        expected_history=expected_history,
     )
 
 
@@ -72,6 +74,16 @@ class BackendConsoleChatMixin:
     """Console/chat mirroring and editable chat transcript behavior."""
 
     def _connect_console_bridge(self):
+        self._chat_append_preserve_scroll_active = False
+        self._chat_visible_history_indexes = ()
+        self._chat_visible_history_keys = ()
+        self._chat_total_displayable = 0
+        self._chat_render_generation = 0
+        self._chat_prepend_active = False
+        self._chat_prepend_request_pending = False
+        self._chat_window_rebuild_active = False
+        self._chat_window_rebuild_scheduled = False
+        self._chat_window_rebuild_reset_window = False
         self._console_bridge.text_ready.connect(self._append_console_text)
         self._console_bridge.chat_ready.connect(self._append_chat_text)
         self._console_bridge.status_ready.connect(self._update_console_status)
@@ -132,6 +144,11 @@ class BackendConsoleChatMixin:
         scrollbar = widget.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
+    def _force_chat_scroll_to_bottom_later(self):
+        QtCore.QTimer.singleShot(0, lambda: self._force_scroll_to_bottom(self.chat_edit))
+        QtCore.QTimer.singleShot(50, lambda: self._force_scroll_to_bottom(self.chat_edit))
+        QtCore.QTimer.singleShot(150, lambda: self._force_scroll_to_bottom(self.chat_edit))
+
     def _capture_vertical_scroll_state(self, widget):
         scrollbar = widget.verticalScrollBar()
         maximum = max(1, int(scrollbar.maximum()))
@@ -159,14 +176,43 @@ class BackendConsoleChatMixin:
             return
         self._restore_vertical_scroll_state(self.system_shaping_scroll, state)
 
+    def _restore_chat_scroll_state_later(self, state):
+        if not state:
+            return
+        QtCore.QTimer.singleShot(0, lambda state=state, widget=self.chat_edit: self._restore_vertical_scroll_state(widget, state))
+        QtCore.QTimer.singleShot(50, lambda state=state, widget=self.chat_edit: self._restore_vertical_scroll_state(widget, state))
+        QtCore.QTimer.singleShot(150, lambda state=state, widget=self.chat_edit: self._restore_vertical_scroll_state(widget, state))
+
+    def _chat_edit_exit_scroll_state(self):
+        current = self._capture_vertical_scroll_state(self.chat_edit)
+        original = getattr(self, "_chat_edit_scroll_state_before_edit", None)
+        if not original:
+            return current
+        current_value = int(current.get("value", 0) or 0)
+        original_value = int(original.get("value", 0) or 0)
+        original_ratio = float(original.get("ratio", 0.0) or 0.0)
+        if current_value <= 1 and (original_value > 1 or original_ratio > 0.05):
+            return original
+        return current
+
     def _append_chat_text(self, text):
-        if getattr(self, "chat_edit_mode", False):
+        self._append_chat_text_now(text)
+
+    def _append_chat_text_now(self, text):
+        self._insert_chat_text_now(text, cursor_position=QtGui.QTextCursor.End, allow_auto_scroll=True)
+
+    def _insert_chat_text_now(self, text, *, cursor_position, allow_auto_scroll):
+        if getattr(self, "chat_edit_mode", False) and cursor_position != QtGui.QTextCursor.Start:
             return
         text = re.sub(r"(?<!\n)(💬 You(?: \([^)]*\))?:|🤖 Assistant:)", r"\n\1", text)
-        if not self.chat_edit.toPlainText():
+        document = self.chat_edit.document() if hasattr(self.chat_edit, "document") else None
+        document_empty = document is not None and document.isEmpty()
+        if document_empty:
             text = text.lstrip()
+        elif cursor_position == QtGui.QTextCursor.Start and text and not text.endswith("\n"):
+            text += "\n"
         cursor = self.chat_edit.textCursor()
-        cursor.movePosition(QtGui.QTextCursor.End)
+        cursor.movePosition(cursor_position)
         default_format = QtGui.QTextCharFormat()
         default_format.setForeground(QtGui.QColor("#e5e9f0"))
         default_format.setFont(QtGui.QFont("Segoe UI", self._current_chat_font_size()))
@@ -175,31 +221,229 @@ class BackendConsoleChatMixin:
         speaker_format.setFont(QtGui.QFont("Segoe UI", self._current_chat_font_size()))
         speaker_format.setFontWeight(QtGui.QFont.Bold)
 
-        for chunk in re.split(r"(\n)", text):
-            if chunk == "":
-                continue
-            if chunk == "\n":
+        self.chat_edit.setUpdatesEnabled(False)
+        cursor.beginEditBlock()
+        try:
+            for chunk in re.split(r"(\n)", text):
+                if chunk == "":
+                    continue
+                if chunk == "\n":
+                    cursor.insertText(chunk, default_format)
+                    continue
+                speaker_match = re.match(r"(💬 You(?: \([^)]*\))?:)", chunk)
+                if speaker_match:
+                    speaker = speaker_match.group(1)
+                    cursor.insertText(speaker, speaker_format)
+                    remainder = chunk[len(speaker):]
+                    if remainder:
+                        cursor.insertText(remainder, default_format)
+                    continue
+                if chunk.startswith("🤖 Assistant:"):
+                    cursor.insertText("🤖 Assistant:", speaker_format)
+                    remainder = chunk[len("🤖 Assistant:"):]
+                    if remainder:
+                        cursor.insertText(remainder, default_format)
+                    continue
                 cursor.insertText(chunk, default_format)
-                continue
-            speaker_match = re.match(r"(💬 You(?: \([^)]*\))?:)", chunk)
-            if speaker_match:
-                speaker = speaker_match.group(1)
-                cursor.insertText(speaker, speaker_format)
-                remainder = chunk[len(speaker):]
-                if remainder:
-                    cursor.insertText(remainder, default_format)
-                continue
-            if chunk.startswith("🤖 Assistant:"):
-                cursor.insertText("🤖 Assistant:", speaker_format)
-                remainder = chunk[len("🤖 Assistant:"):]
-                if remainder:
-                    cursor.insertText(remainder, default_format)
-                continue
-            cursor.insertText(chunk, default_format)
-        if self.chat_auto_scroll:
+        finally:
+            cursor.endEditBlock()
+            self.chat_edit.setUpdatesEnabled(True)
+        if cursor_position == QtGui.QTextCursor.End:
+            self._sync_chat_window_tail_from_history()
+        if allow_auto_scroll and self.chat_auto_scroll and not getattr(self, "_chat_append_preserve_scroll_active", False):
             self.chat_edit.setTextCursor(cursor)
             self.chat_edit.ensureCursorVisible()
             QtCore.QTimer.singleShot(0, lambda w=self.chat_edit: self._force_scroll_to_bottom(w))
+
+    def _chat_visual_batch_size(self):
+        config = getattr(_engine(), "RUNTIME_CONFIG", {}) or {}
+        return chat_transcript_window.normalize_visual_batch_size(
+            config.get("chat_visual_batch_size", chat_transcript_window.DEFAULT_VISUAL_BATCH_SIZE)
+        )
+
+    @staticmethod
+    def _chat_history_entry_key(entry):
+        try:
+            return json.dumps(entry, ensure_ascii=True, sort_keys=True, default=str)
+        except Exception:
+            return repr(entry)
+
+    def _chat_window_mapping_matches_history(self, history):
+        indexes = tuple(getattr(self, "_chat_visible_history_indexes", ()) or ())
+        keys = tuple(getattr(self, "_chat_visible_history_keys", ()) or ())
+        if len(indexes) != len(keys):
+            return False
+        for index, expected_key in zip(indexes, keys):
+            if not 0 <= int(index) < len(history):
+                return False
+            if self._chat_history_entry_key(history[int(index)]) != expected_key:
+                return False
+        return True
+
+    def _schedule_chat_window_rebuild(self, *, reset_window=True):
+        requested_reset = bool(reset_window)
+        if getattr(self, "_chat_window_rebuild_scheduled", False):
+            self._chat_window_rebuild_reset_window = bool(
+                getattr(self, "_chat_window_rebuild_reset_window", False) or requested_reset
+            )
+            return
+        generation = int(getattr(self, "_chat_render_generation", 0) or 0)
+        self._chat_window_rebuild_scheduled = True
+        self._chat_window_rebuild_reset_window = requested_reset
+        QtCore.QTimer.singleShot(0, lambda generation=generation: self._run_scheduled_chat_window_rebuild(generation))
+
+    def _run_scheduled_chat_window_rebuild(self, generation):
+        if int(generation) != int(getattr(self, "_chat_render_generation", 0) or 0):
+            return
+        reset_window = bool(getattr(self, "_chat_window_rebuild_reset_window", True))
+        self._chat_window_rebuild_scheduled = False
+        self._chat_window_rebuild_reset_window = False
+        self._rebuild_chat_view_from_history(force=True, reset_window=reset_window)
+
+    def _reset_chat_window_state(self, history):
+        self._chat_render_generation = int(getattr(self, "_chat_render_generation", 0) or 0) + 1
+        self._chat_prepend_request_pending = False
+        self._chat_window_rebuild_scheduled = False
+        self._chat_window_rebuild_reset_window = False
+        visible, total = chat_transcript_window.initial_window(history, self._chat_visual_batch_size())
+        self._chat_visible_history_indexes = tuple(visible)
+        self._chat_visible_history_keys = tuple(
+            self._chat_history_entry_key(history[index]) for index in self._chat_visible_history_indexes
+        )
+        self._chat_total_displayable = int(total)
+        return self._chat_visible_history_indexes
+
+    def _extend_chat_window_with_previous_batch(self, history):
+        previous = chat_transcript_window.previous_batch(
+            history,
+            getattr(self, "_chat_visible_history_indexes", ()),
+            self._chat_visual_batch_size(),
+        )
+        if previous:
+            self._chat_visible_history_indexes = tuple(previous) + tuple(self._chat_visible_history_indexes)
+            self._chat_visible_history_keys = tuple(
+                self._chat_history_entry_key(history[index]) for index in previous
+            ) + tuple(getattr(self, "_chat_visible_history_keys", ()) or ())
+        self._chat_total_displayable = len(chat_transcript_window.displayable_history_indexes(history))
+        return tuple(previous)
+
+    def _sync_chat_window_tail_from_history(self):
+        history = list(getattr(_engine(), "conversation_history", []) or [])
+        all_indexes = chat_transcript_window.displayable_history_indexes(history)
+        all_index_set = set(all_indexes)
+        self._chat_total_displayable = len(all_indexes)
+        visible = tuple(getattr(self, "_chat_visible_history_indexes", ()) or ())
+        if not visible:
+            selected, _total = chat_transcript_window.initial_window(history, self._chat_visual_batch_size())
+            self._chat_visible_history_indexes = tuple(selected)
+            self._chat_visible_history_keys = tuple(
+                self._chat_history_entry_key(history[index]) for index in self._chat_visible_history_indexes
+            )
+            return True
+        if not self._chat_window_mapping_matches_history(history):
+            self._schedule_chat_window_rebuild()
+            return False
+        valid = tuple(index for index in visible if index in all_index_set)
+        last_visible = valid[-1] if valid else -1
+        tail = tuple(index for index in all_indexes if index > last_visible)
+        selected = valid + tail
+        batch_size = self._chat_visual_batch_size()
+        window_capacity = max(len(valid), int(batch_size)) if batch_size != -1 else -1
+        evicted_prefix = window_capacity != -1 and len(selected) > window_capacity
+        if evicted_prefix:
+            selected = selected[-window_capacity:]
+        self._chat_visible_history_indexes = selected
+        self._chat_visible_history_keys = tuple(
+            self._chat_history_entry_key(history[index]) for index in self._chat_visible_history_indexes
+        )
+        if evicted_prefix and not getattr(self, "_chat_window_rebuild_active", False):
+            self._schedule_chat_window_rebuild(reset_window=False)
+        return True
+
+    def _chat_display_window_status(self):
+        loaded = len(tuple(getattr(self, "_chat_visible_history_indexes", ()) or ()))
+        total = max(0, int(getattr(self, "_chat_total_displayable", 0) or 0))
+        return f"displaying {loaded}/{total} messages" if total else ""
+
+    def _restore_prepend_anchor(self, generation, old_value, old_maximum):
+        if int(generation) != int(getattr(self, "_chat_render_generation", 0) or 0):
+            return
+        scrollbar = self.chat_edit.verticalScrollBar()
+        delta = max(0, int(scrollbar.maximum()) - int(old_maximum))
+        scrollbar.setValue(int(old_value) + delta)
+
+    def _on_chat_scroll_value_changed(self, value):
+        if (
+            int(value) <= 1
+            and not getattr(self, "_chat_prepend_active", False)
+            and not getattr(self, "_chat_prepend_request_pending", False)
+            and not getattr(self, "_chat_window_rebuild_active", False)
+        ):
+            generation = int(getattr(self, "_chat_render_generation", 0) or 0)
+            self._chat_prepend_request_pending = True
+            QtCore.QTimer.singleShot(0, lambda generation=generation: self._run_queued_chat_prepend(generation))
+
+    def _run_queued_chat_prepend(self, generation):
+        if int(generation) != int(getattr(self, "_chat_render_generation", 0) or 0):
+            return
+        self._chat_prepend_request_pending = False
+        self._load_previous_chat_batch(expected_generation=generation)
+
+    def _load_previous_chat_batch(self, expected_generation=None):
+        generation = int(getattr(self, "_chat_render_generation", 0) or 0)
+        if expected_generation is not None and int(expected_generation) != generation:
+            return
+        if getattr(self, "_chat_prepend_active", False):
+            return
+        history = list(getattr(_engine(), "conversation_history", []) or [])
+        if not self._chat_window_mapping_matches_history(history):
+            self._schedule_chat_window_rebuild()
+            return
+        previous = chat_transcript_window.previous_batch(
+            history,
+            getattr(self, "_chat_visible_history_indexes", ()),
+            self._chat_visual_batch_size(),
+        )
+        if not previous:
+            return
+        self._chat_prepend_active = True
+        scrollbar = self.chat_edit.verticalScrollBar()
+        old_value = int(scrollbar.value())
+        old_maximum = int(scrollbar.maximum())
+        try:
+            lines = [self._chat_display_line_for_history_entry(history[index]) for index in previous]
+            lines = [line for line in lines if line]
+            self._chat_visible_history_indexes = tuple(previous) + tuple(self._chat_visible_history_indexes)
+            self._chat_visible_history_keys = tuple(
+                self._chat_history_entry_key(history[index]) for index in previous
+            ) + tuple(getattr(self, "_chat_visible_history_keys", ()) or ())
+            self._chat_total_displayable = len(chat_transcript_window.displayable_history_indexes(history))
+            self._chat_append_preserve_scroll_active = True
+            if lines:
+                self._insert_chat_text_now(
+                    "\n".join(lines),
+                    cursor_position=QtGui.QTextCursor.Start,
+                    allow_auto_scroll=False,
+                )
+            self._update_chat_status(len(self._chat_visible_history_indexes), int(self.chat_auto_scroll))
+            hook = getattr(self, "_on_chat_window_prepended", None)
+            if callable(hook):
+                hook(tuple(previous))
+        finally:
+            self._chat_append_preserve_scroll_active = False
+            self._chat_prepend_active = False
+        QtCore.QTimer.singleShot(
+            0,
+            lambda generation=generation, value=old_value, maximum=old_maximum: self._restore_prepend_anchor(
+                generation, value, maximum
+            ),
+        )
+        QtCore.QTimer.singleShot(
+            50,
+            lambda generation=generation, value=old_value, maximum=old_maximum: self._restore_prepend_anchor(
+                generation, value, maximum
+            ),
+        )
 
     def _update_console_status(self, lines, _auto_scroll):
         state = "on" if self.console_auto_scroll else "off"
@@ -211,7 +455,9 @@ class BackendConsoleChatMixin:
         edit_suffix = " | edit mode" if getattr(self, "chat_edit_mode", False) else ""
         context_text, capped = self._chat_context_usage_label() if hasattr(self, "chat_status") else ("", False)
         context_suffix = f" | {context_text}" if context_text else ""
-        self.chat_status.setText(f"autoscroll {state}{context_suffix}{edit_suffix}")
+        window_status = self._chat_display_window_status()
+        window_suffix = f" | {window_status}" if window_status else ""
+        self.chat_status.setText(f"autoscroll {state}{context_suffix}{window_suffix}{edit_suffix}")
         self.chat_status.setStyleSheet("color: #ff6b6b;" if capped else "")
         self.chat_autoscroll_button.setText(f"Autoscroll: {'On' if self.chat_auto_scroll else 'Off'}")
         refresh_memory_hint = getattr(self, "_refresh_continuity_memory_hint", None)
@@ -255,7 +501,7 @@ class BackendConsoleChatMixin:
         return f"[{stamp}] " if stamp else ""
 
     def _strip_display_timestamp_prefix(self, content):
-        return re.sub(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s*", "", str(content or ""))
+        return conversation_history_runtime.strip_leading_turn_timestamps(content)
 
     def _on_right_tab_changed(self, index):
         if not hasattr(self, "right_tabs"):
@@ -279,11 +525,21 @@ class BackendConsoleChatMixin:
         self._update_console_status(0, int(self.console_auto_scroll))
 
     def clear_chat(self):
-        self.chat_edit.clear()
+        self._chat_window_rebuild_active = True
+        try:
+            self.chat_edit.clear()
+        finally:
+            self._chat_window_rebuild_active = False
+        self._chat_render_generation = int(getattr(self, "_chat_render_generation", 0) or 0) + 1
+        self._chat_visible_history_indexes = ()
+        self._chat_visible_history_keys = ()
+        self._chat_prepend_request_pending = False
+        self._chat_window_rebuild_scheduled = False
+        self._chat_total_displayable = 0
         self._console_redirect.chat_line_count = 0
         self._update_chat_status(0, int(self.chat_auto_scroll))
 
-    def send_typed_chat_message(self, text=None):
+    def send_typed_chat_message(self, text=None, metadata=None):
         if getattr(self, "chat_edit_mode", False):
             print("[QtGUI] Exit chat edit mode before sending a typed message.")
             return False
@@ -305,7 +561,7 @@ class BackendConsoleChatMixin:
         role = None
         if hasattr(self, "_input_role_value_from_label") and hasattr(self, "input_role_combo"):
             role = self._input_role_value_from_label(self.input_role_combo.currentText())
-        result = _engine().queue_typed_chat_message(message, role=role)
+        result = _engine().queue_typed_chat_message(message, role=role, metadata=dict(metadata or {}))
         if not bool(dict(result or {}).get("queued", False)):
             print(f"[QtGUI] Typed chat message was not queued: {dict(result or {}).get('reason', 'unknown')}")
             return False
@@ -380,20 +636,30 @@ class BackendConsoleChatMixin:
 
     def _replay_index_for_chat_position(self, position):
         entries = self._parse_chat_display_entries_with_spans(self.chat_edit.toPlainText())
-        replay_index = 0
         total_entries = len(entries)
         for idx, entry in enumerate(entries):
-            content = str(entry.get("content", "") or "").strip()
-            is_replayable = bool(content)
-            if is_replayable:
-                replay_index += 1
             start = int(entry.get("_start", 0) or 0)
             end = int(entry.get("_end", start) or start)
             in_entry = start <= position < end
             if not in_entry and idx == total_entries - 1:
                 in_entry = start <= position <= end
             if in_entry:
-                return replay_index if is_replayable else None
+                return self._replay_index_for_visible_entry(idx)
+        return None
+
+    def _replay_index_for_visible_entry(self, visible_entry_index):
+        visible_indexes = tuple(getattr(self, "_chat_visible_history_indexes", ()) or ())
+        try:
+            history_index = int(visible_indexes[int(visible_entry_index)])
+        except (IndexError, TypeError, ValueError):
+            return None
+        for replay_entry in list(_engine().collect_replayable_chat_entries() or []):
+            try:
+                if int(replay_entry.get("history_index", -1)) == history_index:
+                    replay_index = int(replay_entry.get("replay_index", 0) or 0)
+                    return replay_index or None
+            except (TypeError, ValueError):
+                continue
         return None
 
     def _assistant_replay_index_for_chat_position(self, position):
@@ -431,8 +697,15 @@ class BackendConsoleChatMixin:
         if getattr(self, "chat_edit_mode", False):
             return
         scroll_state = self._capture_vertical_scroll_state(self.chat_edit)
+        self._chat_edit_scroll_state_before_edit = dict(scroll_state)
         current_font = QtGui.QFont(self.chat_edit.font())
         self._chat_edit_snapshot_text = self.chat_edit.toPlainText()
+        self._chat_edit_snapshot_full_history = [
+            dict(entry) if isinstance(entry, dict) else entry
+            for entry in list(getattr(_engine(), "conversation_history", []) or [])
+        ]
+        self._chat_edit_snapshot_visible_indexes = tuple(getattr(self, "_chat_visible_history_indexes", ()) or ())
+        self._chat_edit_snapshot_entries = self._parse_chat_edit_text(self._chat_edit_snapshot_text)
         self.chat_edit.setPlainText(self._chat_edit_snapshot_text)
         self.chat_edit.setFont(current_font)
         self.chat_edit.setCurrentFont(current_font)
@@ -444,13 +717,13 @@ class BackendConsoleChatMixin:
         except Exception:
             pass
         self._restore_vertical_scroll_state(self.chat_edit, scroll_state)
-        QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_vertical_scroll_state(self.chat_edit, state))
+        self._restore_chat_scroll_state_later(scroll_state)
         print("[QtGUI] Chat edit mode enabled.")
 
     def cancel_chat_edit_mode(self):
         if not getattr(self, "chat_edit_mode", False):
             return
-        scroll_state = self._capture_vertical_scroll_state(self.chat_edit)
+        scroll_state = getattr(self, "_chat_edit_scroll_state_before_edit", None) or self._capture_vertical_scroll_state(self.chat_edit)
         self._set_chat_edit_mode(False)
         try:
             from ui.runtime.spellcheck import detach_spellcheck
@@ -458,8 +731,43 @@ class BackendConsoleChatMixin:
             detach_spellcheck(self.chat_edit)
         except Exception:
             pass
-        self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
+        self._chat_edit_scroll_state_before_edit = None
+        self._clear_chat_edit_snapshot()
+        self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state, reset_window=False)
         print("[QtGUI] Chat edit mode cancelled.")
+
+    def _clear_chat_edit_snapshot(self):
+        self._chat_edit_snapshot_text = ""
+        self._chat_edit_snapshot_full_history = None
+        self._chat_edit_snapshot_visible_indexes = ()
+        self._chat_edit_snapshot_entries = None
+
+    def _chat_edit_history_is_stale(self, current_history):
+        snapshot = getattr(self, "_chat_edit_snapshot_full_history", None)
+        if snapshot is None:
+            return True
+        normalized = [dict(entry) if isinstance(entry, dict) else entry for entry in list(current_history or [])]
+        return normalized != snapshot
+
+    def _on_chat_window_prepended(self, previous_indexes):
+        if not getattr(self, "chat_edit_mode", False):
+            return
+        snapshot = list(getattr(self, "_chat_edit_snapshot_full_history", None) or [])
+        previous = tuple(int(index) for index in tuple(previous_indexes or ()))
+        if not previous:
+            return
+        lines = [
+            self._chat_display_line_for_history_entry(snapshot[index])
+            for index in previous
+            if 0 <= index < len(snapshot)
+        ]
+        previous_entries = self._parse_chat_edit_text("\n".join(line for line in lines if line))
+        self._chat_edit_snapshot_visible_indexes = previous + tuple(
+            getattr(self, "_chat_edit_snapshot_visible_indexes", ()) or ()
+        )
+        self._chat_edit_snapshot_entries = previous_entries + list(
+            getattr(self, "_chat_edit_snapshot_entries", None) or []
+        )
 
     def _parse_chat_edit_text(self, raw_text):
         entries = []
@@ -499,10 +807,37 @@ class BackendConsoleChatMixin:
     def apply_chat_edit_mode(self):
         if not getattr(self, "chat_edit_mode", False):
             return
-        scroll_state = self._capture_vertical_scroll_state(self.chat_edit)
+        scroll_state = self._chat_edit_exit_scroll_state()
         try:
+            current_history = list(getattr(_engine(), "conversation_history", []) or [])
+            if self._chat_edit_history_is_stale(current_history):
+                message = (
+                    "The conversation changed while Chat Edit Mode was open. "
+                    "Your edits were not applied so newer chat messages and hidden metadata remain safe."
+                )
+                QtWidgets.QMessageBox.warning(self, "Chat Changed During Edit", message)
+                print(f"[QtGUI] Chat edit apply blocked: {message}")
+                return
             entries = self._parse_chat_edit_text(self.chat_edit.toPlainText())
-            result = _replace_chat_conversation_history(entries, allow_pending_loaded_user=False)
+            entries = chat_transcript_window.merge_edited_window(
+                getattr(self, "_chat_edit_snapshot_full_history", None),
+                visible_indexes=getattr(self, "_chat_edit_snapshot_visible_indexes", ()),
+                original_display_entries=getattr(self, "_chat_edit_snapshot_entries", None),
+                edited_entries=entries,
+            )
+            result = _replace_chat_conversation_history(
+                entries,
+                allow_pending_loaded_user=False,
+                expected_history=getattr(self, "_chat_edit_snapshot_full_history", None),
+            )
+            if not bool(result.get("replaced", True)):
+                message = (
+                    "The conversation changed while Chat Edit Mode was open. "
+                    "Your edits were not applied so newer chat messages and hidden metadata remain safe."
+                )
+                QtWidgets.QMessageBox.warning(self, "Chat Changed During Edit", message)
+                print(f"[QtGUI] Chat edit apply blocked: {message}")
+                return
         except Exception as exc:
             print(f"[QtGUI] Chat edit apply failed: {exc}")
             return
@@ -513,32 +848,64 @@ class BackendConsoleChatMixin:
             detach_spellcheck(self.chat_edit)
         except Exception:
             pass
+        self._chat_edit_scroll_state_before_edit = None
+        self._clear_chat_edit_snapshot()
         self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
         print(f"[QtGUI] Chat context edited in place ({int(result.get('conversation_turns', 0))} turn(s)).")
 
-    def _rebuild_chat_view_from_history(self, force=False, preserve_scroll_state=None):
+    def _chat_display_line_for_history_entry(self, entry):
+        content = str((entry or {}).get("content", "") or "").strip()
+        if str((entry or {}).get("role", "") or "").strip().lower() == "assistant":
+            content = conversation_history_runtime.strip_leading_turn_timestamps(content).strip()
+        attachment_image_path = str((entry or {}).get("attachment_image_path", "") or "").strip()
+        if not content and not attachment_image_path:
+            return ""
+        if attachment_image_path:
+            content = (content or "Please respond to the image I just sent you.") + " [Image attached]"
+        return f"{self._chat_label_for_entry(entry)} {self._display_timestamp_prefix_for_entry(entry)}{content}"
+
+    def _rebuild_chat_view_from_history(self, force=False, preserve_scroll_state=None, reset_window=True):
         if getattr(self, "chat_edit_mode", False) and not force:
             return
+        self._chat_append_preserve_scroll_active = preserve_scroll_state is not None
         entries = list(getattr(_engine(), "conversation_history", []) or [])
-        lines = []
-        for entry in entries:
-            content = str((entry or {}).get("content", "") or "").strip()
-            attachment_image_path = str((entry or {}).get("attachment_image_path", "") or "").strip()
-            if not content and not attachment_image_path:
-                continue
-            if attachment_image_path:
-                content = (content or "Please respond to the image I just sent you.") + " [Image attached]"
-            lines.append(f"{self._chat_label_for_entry(entry)} {self._display_timestamp_prefix_for_entry(entry)}{content}")
-        self.chat_edit.clear()
-        if lines:
-            self._append_chat_text("\n".join(lines))
+        if reset_window or not getattr(self, "_chat_visible_history_indexes", ()):
+            self._reset_chat_window_state(entries)
+        elif not self._chat_window_mapping_matches_history(entries):
+            self._reset_chat_window_state(entries)
+        else:
+            all_indexes = chat_transcript_window.displayable_history_indexes(entries)
+            all_index_set = set(all_indexes)
+            self._chat_total_displayable = len(all_indexes)
+            self._chat_visible_history_indexes = tuple(
+                index for index in self._chat_visible_history_indexes if index in all_index_set
+            )
+            self._chat_visible_history_keys = tuple(
+                self._chat_history_entry_key(entries[index]) for index in self._chat_visible_history_indexes
+            )
+        lines = [
+            self._chat_display_line_for_history_entry(entries[index])
+            for index in self._chat_visible_history_indexes
+            if 0 <= int(index) < len(entries)
+        ]
+        lines = [line for line in lines if line]
+        self._chat_window_rebuild_active = True
+        try:
+            self.chat_edit.clear()
+            if lines:
+                self._append_chat_text("\n".join(lines))
+        finally:
+            self._chat_window_rebuild_active = False
         self._console_redirect.chat_line_count = len(lines)
         self._update_chat_status(len(lines), int(self.chat_auto_scroll))
         self._update_control_action_buttons()
         if preserve_scroll_state is not None:
-            QtCore.QTimer.singleShot(0, lambda state=preserve_scroll_state, widget=self.chat_edit: self._restore_vertical_scroll_state(widget, state))
-        if self.chat_auto_scroll:
-            QtCore.QTimer.singleShot(0, lambda w=self.chat_edit: self._force_scroll_to_bottom(w))
+            self._chat_append_preserve_scroll_active = False
+            self._restore_chat_scroll_state_later(preserve_scroll_state)
+        elif self.chat_auto_scroll:
+            self._force_chat_scroll_to_bottom_later()
+        else:
+            self._chat_append_preserve_scroll_active = False
 
     def _is_replay_control_action(self, action):
         raw = str(action or "").strip()
@@ -588,6 +955,9 @@ class BackendConsoleChatMixin:
         print(f"[QtGUI] Control action: {action}")
 
     def reset_chat_session(self):
+        review_coordinator = getattr(self, "_long_term_memory_image_review_coordinator", None)
+        if review_coordinator is not None:
+            review_coordinator.cancel_pending()
         _engine().reset_session_state()
         self.clear_chat()
         self._refresh_chat_context_save_controls()
@@ -691,6 +1061,7 @@ class BackendConsoleChatMixin:
             config["continuity_memory_auto_turns"] = max(1, min(10000, int(data.get("continuity_memory_auto_turns", config.get("continuity_memory_auto_turns", 120)) or 120)))
             config["continuity_memory_max_chars"] = max(500, min(20000, int(data.get("continuity_memory_max_chars", data.get("long_term_memory_max_chars", config.get("continuity_memory_max_chars", 3000))) or 3000)))
             config["long_term_memory_retrieval_max_items"] = max(1, min(12, int(data.get("long_term_memory_retrieval_max_items", config.get("long_term_memory_retrieval_max_items", 6)) or 6)))
+            config["long_term_memory_recall_text_budget"] = long_term_memory.normalize_recall_text_budget(data.get("long_term_memory_recall_text_budget", config.get("long_term_memory_recall_text_budget", -1)), default=-1)
             config["long_term_memory_recall_image_limit"] = long_term_memory.normalize_image_recall_limit(data.get("long_term_memory_recall_image_limit", config.get("long_term_memory_recall_image_limit", 1)), default=1)
             config["long_term_memory_auto_archive_enabled"] = bool(data.get("long_term_memory_auto_archive_enabled", False))
             config["long_term_memory_archive_batch_turns"] = max(1, min(10000, int(data.get("long_term_memory_archive_batch_turns", config.get("long_term_memory_archive_batch_turns", 120)) or 120)))
@@ -714,6 +1085,8 @@ class BackendConsoleChatMixin:
             self.long_term_memory_max_chars_spin.setValue(int(config.get("continuity_memory_max_chars", 3000) or 3000))
         if hasattr(self, "long_term_memory_retrieval_max_items_spin") and isinstance(config, dict):
             self.long_term_memory_retrieval_max_items_spin.setValue(int(config.get("long_term_memory_retrieval_max_items", 6) or 6))
+        if hasattr(self, "long_term_memory_recall_text_budget_spin") and isinstance(config, dict):
+            self.long_term_memory_recall_text_budget_spin.setValue(long_term_memory.normalize_recall_text_budget(config.get("long_term_memory_recall_text_budget", -1), default=-1))
         if hasattr(self, "long_term_memory_recall_image_limit_spin") and isinstance(config, dict):
             self.long_term_memory_recall_image_limit_spin.setValue(long_term_memory.normalize_image_recall_limit(config.get("long_term_memory_recall_image_limit", 1), default=1))
         if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") and isinstance(config, dict):
@@ -927,6 +1300,9 @@ class BackendConsoleChatMixin:
         refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
         if callable(refresh_archive):
             refresh_archive()
+        show_migration_notice = getattr(self, "_show_memory_content_migration_notice", None)
+        if callable(show_migration_notice):
+            show_migration_notice(result)
         print(f"[QtGUI] Chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
 
     def quick_load_chat_context(self):

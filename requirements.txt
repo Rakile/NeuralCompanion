@@ -1,5 +1,8 @@
 chatterbox-tts
 gradio
+instructor
 nltk
 pypdf
 pynput
+qrcode[pil]==8.2
+uiautomation==2.0.29

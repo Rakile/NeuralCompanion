@@ -47,9 +47,33 @@ def _test_comfortable_buffer_lead_relaxes_timeout_flush() -> None:
     assert chunks == [], chunks
 
 
+def _test_first_chunk_target_honors_fast_start_setting() -> None:
+    from core.streaming_text import StreamingChunkAssembler
+
+    config = {
+        "stream_first_chunk_min_chars": 22,
+        "stream_force_flush_seconds": 0.9,
+        "stream_force_flush_later_seconds": 2.5,
+    }
+    assembler = StreamingChunkAssembler(
+        85,
+        170,
+        config_getter=lambda key, default=None: config.get(key, default),
+        clock=lambda: 0.0,
+    )
+    first_sentence = "Ah, come on, I was really enjoying that vibe."
+
+    chunks = assembler.feed(first_sentence)
+
+    assert [item["text"] for item in chunks] == [first_sentence], (
+        "The configured fast-start threshold must not be raised to the steady 85-character target"
+    )
+
+
 def main() -> None:
     _test_low_buffer_lead_keeps_timeout_flush()
     _test_comfortable_buffer_lead_relaxes_timeout_flush()
+    _test_first_chunk_target_honors_fast_start_setting()
     print("streaming text adaptive flush smoke passed")
 
 

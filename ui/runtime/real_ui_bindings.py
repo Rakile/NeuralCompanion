@@ -157,6 +157,16 @@ class MainUiRealBindingMixin:
             if chat_edit is not None and hasattr(chat_edit, "customContextMenuRequested"):
                 chat_edit.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
                 chat_edit.customContextMenuRequested.connect(self._show_frontend_chat_context_menu)
+            if chat_edit is not None and hasattr(chat_edit, "verticalScrollBar"):
+                try:
+                    scrollbar = chat_edit.verticalScrollBar()
+                    marker = "nc_chat_history_scroll_bound"
+                    already_bound = bool(scrollbar.property(marker))
+                    if not already_bound and hasattr(scrollbar, "actionTriggered"):
+                        scrollbar.actionTriggered.connect(self._on_frontend_chat_scroll_action)
+                        scrollbar.setProperty(marker, True)
+                except Exception:
+                    pass
             edit_button = self._ui_object("chat_edit_mode_button")
             if edit_button is not None and hasattr(edit_button, "clicked"):
                 edit_button.clicked.connect(self._enter_chat_edit_mode_from_ui_real)
@@ -189,6 +199,112 @@ class MainUiRealBindingMixin:
                     attach_spellcheck(message_input)
                 except Exception:
                     pass
+
+    def _restore_frontend_chat_prepend_anchor(self, chat_edit, old_value, old_maximum, expected_count):
+            visible = tuple(getattr(self.backend, "_chat_visible_history_indexes", ()) or ())
+            if len(visible) != int(expected_count):
+                return
+            try:
+                scrollbar = chat_edit.verticalScrollBar()
+                delta = max(0, int(scrollbar.maximum()) - int(old_maximum))
+                target = int(old_value) + delta
+                previous = scrollbar.blockSignals(True) if hasattr(scrollbar, "blockSignals") else None
+                try:
+                    scrollbar.setValue(target)
+                finally:
+                    if hasattr(scrollbar, "blockSignals"):
+                        scrollbar.blockSignals(bool(previous))
+            except Exception:
+                pass
+
+    def _on_frontend_chat_scroll_action(self, _action=None):
+            if bool(getattr(self, "_frontend_chat_prepend_request_pending", False)) or bool(
+                getattr(self, "_frontend_chat_prepend_active", False)
+            ):
+                return
+            frontend_chat = self._ui_object("chat_edit")
+            if frontend_chat is None:
+                return
+            try:
+                scrollbar = frontend_chat.verticalScrollBar()
+                scroll_position = int(
+                    scrollbar.sliderPosition() if hasattr(scrollbar, "sliderPosition") else scrollbar.value()
+                )
+            except Exception:
+                return
+            if scroll_position > 1:
+                return
+            self._frontend_chat_prepend_request_pending = True
+            QtCore.QTimer.singleShot(0, self._run_frontend_chat_prepend_request)
+
+    def _run_frontend_chat_prepend_request(self):
+            self._frontend_chat_prepend_request_pending = False
+            frontend_chat = self._ui_object("chat_edit")
+            if frontend_chat is None:
+                return
+            try:
+                scrollbar = frontend_chat.verticalScrollBar()
+                scroll_position = int(
+                    scrollbar.sliderPosition() if hasattr(scrollbar, "sliderPosition") else scrollbar.value()
+                )
+            except Exception:
+                return
+            if scroll_position > 1:
+                return
+            self._load_frontend_chat_previous_batch(frontend_chat)
+
+    def _load_frontend_chat_previous_batch(self, frontend_chat):
+            backend = getattr(self, "backend", None)
+            loader = getattr(backend, "_load_previous_chat_batch", None)
+            if not callable(loader):
+                return
+            if bool(getattr(backend, "_chat_prepend_active", False)) or bool(
+                getattr(backend, "_chat_window_rebuild_active", False)
+            ):
+                return
+            backend_chat = self._backend_widget("chat_edit")
+            if backend_chat is None:
+                return
+            try:
+                scrollbar = frontend_chat.verticalScrollBar()
+                old_value = int(scrollbar.value())
+                old_maximum = int(scrollbar.maximum())
+            except Exception:
+                return
+            before_count = len(tuple(getattr(backend, "_chat_visible_history_indexes", ()) or ()))
+            generation = int(getattr(backend, "_chat_render_generation", 0) or 0)
+            self._frontend_chat_prepend_active = True
+            try:
+                if bool(getattr(backend, "chat_edit_mode", False)):
+                    try:
+                        backend_chat.setPlainText(str(frontend_chat.toPlainText() or ""))
+                    except Exception:
+                        return
+                loader(expected_generation=generation)
+                after_count = len(tuple(getattr(backend, "_chat_visible_history_indexes", ()) or ()))
+                if after_count <= before_count:
+                    return
+                self._set_readonly_text_if_changed(frontend_chat, backend_chat.toPlainText())
+                self._restore_frontend_chat_prepend_anchor(
+                    frontend_chat,
+                    old_value,
+                    old_maximum,
+                    after_count,
+                )
+                for delay_ms in (0, 50):
+                    QtCore.QTimer.singleShot(
+                        delay_ms,
+                        lambda widget=frontend_chat, previous_value=old_value,
+                        previous_maximum=old_maximum, count=after_count:
+                        self._restore_frontend_chat_prepend_anchor(
+                            widget,
+                            previous_value,
+                            previous_maximum,
+                            count,
+                        ),
+                    )
+            finally:
+                self._frontend_chat_prepend_active = False
 
     def _show_frontend_chat_context_menu(self, point):
             chat_edit = self._ui_object("chat_edit")
@@ -445,6 +561,9 @@ class MainUiRealBindingMixin:
             stored_chat_history_limit_spin = self._ui_object("stored_chat_history_limit_spin")
             if stored_chat_history_limit_spin is not None and hasattr(stored_chat_history_limit_spin, "valueChanged"):
                 stored_chat_history_limit_spin.valueChanged.connect(self._on_frontend_stored_chat_history_limit_changed)
+            chat_visual_batch_size_spin = self._ui_object("chat_visual_batch_size_spin")
+            if chat_visual_batch_size_spin is not None and hasattr(chat_visual_batch_size_spin, "valueChanged"):
+                chat_visual_batch_size_spin.valueChanged.connect(self._on_frontend_chat_visual_batch_size_changed)
             chat_overflow_policy_combo = self._ui_object("chat_overflow_policy_combo")
             if chat_overflow_policy_combo is not None and hasattr(chat_overflow_policy_combo, "currentTextChanged"):
                 chat_overflow_policy_combo.currentTextChanged.connect(self._on_frontend_chat_overflow_policy_changed)
@@ -472,12 +591,18 @@ class MainUiRealBindingMixin:
             long_term_memory_retrieval_enabled_checkbox = self._ui_object("long_term_memory_retrieval_enabled_checkbox")
             if long_term_memory_retrieval_enabled_checkbox is not None and hasattr(long_term_memory_retrieval_enabled_checkbox, "toggled"):
                 long_term_memory_retrieval_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_retrieval_enabled_changed)
+            long_term_memory_image_review_enabled_checkbox = self._ui_object("long_term_memory_image_review_enabled_checkbox")
+            if long_term_memory_image_review_enabled_checkbox is not None and hasattr(long_term_memory_image_review_enabled_checkbox, "toggled"):
+                long_term_memory_image_review_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_image_review_enabled_changed)
             long_term_memory_auto_archive_enabled_checkbox = self._ui_object("long_term_memory_auto_archive_enabled_checkbox")
             if long_term_memory_auto_archive_enabled_checkbox is not None and hasattr(long_term_memory_auto_archive_enabled_checkbox, "toggled"):
                 long_term_memory_auto_archive_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_auto_archive_enabled_changed)
             long_term_memory_retrieval_max_items_spin = self._ui_object("long_term_memory_retrieval_max_items_spin")
             if long_term_memory_retrieval_max_items_spin is not None and hasattr(long_term_memory_retrieval_max_items_spin, "valueChanged"):
                 long_term_memory_retrieval_max_items_spin.valueChanged.connect(self._on_frontend_long_term_memory_retrieval_max_items_changed)
+            long_term_memory_recall_text_budget_spin = self._ui_object("long_term_memory_recall_text_budget_spin")
+            if long_term_memory_recall_text_budget_spin is not None and hasattr(long_term_memory_recall_text_budget_spin, "valueChanged"):
+                long_term_memory_recall_text_budget_spin.valueChanged.connect(self._on_frontend_long_term_memory_recall_text_budget_changed)
             long_term_memory_recall_image_limit_spin = self._ui_object("long_term_memory_recall_image_limit_spin")
             if long_term_memory_recall_image_limit_spin is not None and hasattr(long_term_memory_recall_image_limit_spin, "valueChanged"):
                 long_term_memory_recall_image_limit_spin.valueChanged.connect(self._on_frontend_long_term_memory_recall_image_limit_changed)

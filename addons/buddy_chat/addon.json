@@ -1,0 +1,28 @@
+{
+  "id": "nc.buddy_chat",
+  "name": "Buddy Chat",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Natural multi-buddy personas for the main chat with shared or per-persona LLM provider routing.",
+  "permissions": [
+    "ui.tabs",
+    "storage.read",
+    "storage.write",
+    "services.register",
+    "services.consume",
+    "llm.read",
+    "tts.read"
+  ],
+  "ui": [
+    {
+      "id": "buddy_chat_tab",
+      "title": "Buddy Chat",
+      "area": "top_level",
+      "order": 127,
+      "icon_path": "../../ui_icons/side_tabs/budy_chat.png",
+      "tooltip": "Let one or more buddy personas speak naturally in the main chat."
+    }
+  ],
+  "enabled": true
+}

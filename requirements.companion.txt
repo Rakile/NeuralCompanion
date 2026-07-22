@@ -41,3 +41,4 @@ torch
 torchaudio
 tqdm
 transformers==4.46.3
+uiautomation==2.0.29

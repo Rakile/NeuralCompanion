@@ -73,6 +73,18 @@ class BackendAddonTabMountMixin:
         tooltip = str(getattr(contribution, "tooltip", "") or "").strip()
         if tooltip:
             tabs.setTabToolTip(tab_index, tooltip)
+        applier = getattr(self, "_apply_persisted_tab_order", None)
+        if callable(applier):
+            try:
+                applier(str(tabs.objectName() or ""))
+            except Exception:
+                pass
+        hidden_applier = getattr(self, "_apply_persisted_hidden_tabs_for", None)
+        if callable(hidden_applier):
+            try:
+                hidden_applier(str(tabs.objectName() or ""))
+            except Exception:
+                pass
         return tab_index
 
     def _install_addon_tab_context_menu(self, tabs):
@@ -227,7 +239,13 @@ class BackendAddonTabMountMixin:
                     )
                 if replacement is not None:
                     tabs.setCurrentIndex(int(replacement))
-            return self._set_tab_visible(tabs, index, False)
+            hidden = self._set_tab_visible(tabs, index, False)
+            if hidden:
+                try:
+                    self.save_session()
+                except Exception:
+                    pass
+            return hidden
         except Exception:
             return False
 
@@ -236,6 +254,11 @@ class BackendAddonTabMountMixin:
         for index in self._hidden_addon_tab_indices(tabs):
             if self._set_tab_visible(tabs, index, True):
                 restored += 1
+        if restored:
+            try:
+                self.save_session()
+            except Exception:
+                pass
         return restored
 
     def _mount_simple_addon_tabs(

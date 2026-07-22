@@ -20,6 +20,8 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("always_on_top_floating_docks", ("docks", "always_on_top")),
         ("preview_visible", ("docks", "preview_visible")),
         ("performance_guidance_visible", ("docks", "performance_guidance_visible")),
+        ("chat_visual_batch_size", ("chat", "messages_per_visual_batch")),
+        ("long_term_memory_image_review_enabled", ("memory", "review_recalled_images_before_sending")),
     )
 )
 

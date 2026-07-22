@@ -6,6 +6,9 @@ from PySide6 import QtCore, QtWidgets
 
 _REPLAY_TOOLTIP_MAX_CHARS = 4000
 _REPLAY_SIGNATURE_EDGE_CHARS = 160
+_SESSION_KEY = "chat_session_player"
+_ROLE_VOICES_KEY = "role_voices"
+_LEGACY_ROLE_VOICES_KEY = "chat_replay_role_voices"
 
 
 def _bounded_text(value, limit):
@@ -231,10 +234,14 @@ class ChatSessionPlayerController(QtCore.QObject):
 
     def export_session_state(self):
         settings = self._current_role_voice_settings() if getattr(self, "chat_player_assistant_voice_combo", None) is not None else self._role_voice_settings()
-        return {"chat_replay_role_voices": dict(settings or {})}
+        return {_SESSION_KEY: {_ROLE_VOICES_KEY: dict(settings or {})}}
 
     def import_session_state(self, session):
-        payload = dict(session or {}).get("chat_replay_role_voices", {})
+        source = dict(session or {})
+        grouped = source.get(_SESSION_KEY, {})
+        payload = grouped.get(_ROLE_VOICES_KEY, {}) if isinstance(grouped, dict) else {}
+        if not isinstance(payload, dict):
+            payload = source.get(_LEGACY_ROLE_VOICES_KEY, {})
         if isinstance(payload, dict) and self.runtime_config is not None:
             try:
                 self.runtime_config.update("chat_replay_role_voices", payload)

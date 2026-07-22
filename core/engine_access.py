@@ -22,10 +22,11 @@ def get_chat_models(provider=None, quiet=True):
     return engine_module().get_chat_models(provider=provider, quiet=quiet)
 
 
-def replace_chat_conversation_history(entries, *, allow_pending_loaded_user):
+def replace_chat_conversation_history(entries, *, allow_pending_loaded_user, expected_history=None):
     return engine_module().replace_chat_conversation_history(
         entries,
         allow_pending_loaded_user=allow_pending_loaded_user,
+        expected_history=expected_history,
     )
 
 

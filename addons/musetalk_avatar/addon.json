@@ -14,7 +14,7 @@
     "musetalk_enabled_pack_emotions": {},
     "musetalk_video_path": "data\\video\\ani.mp4",
     "musetalk_fps": 24,
-    "musetalk_vram_mode": "quality",
+    "musetalk_vram_mode": "balanced",
     "musetalk_loop_fade_ms": 180,
     "musetalk_chunk_target_chars": 110,
     "musetalk_chunk_max_chars": 220,

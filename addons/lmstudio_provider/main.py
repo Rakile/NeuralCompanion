@@ -1,30 +1,73 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
+import queue
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
+from collections.abc import Mapping
 from typing import Any, Iterable
 from urllib.request import Request, urlopen
 
 from openai import OpenAI
 
 from core.addons.base import BaseAddon
-from core import lmstudio_runtime
+from core import chat_providers, lmstudio_runtime
+from addons.lmstudio_provider.responses import (
+    build_responses_payload,
+    decode_http_text,
+    extract_response_text,
+    http_error_text,
+    iter_response_sse,
+    response_charset,
+    responses_url,
+)
 
 
 PROVIDER_ID = "lmstudio"
 DEFAULT_BASE_URL = "http://127.0.0.1:1234/v1"
 DEFAULT_API_KEY = "lm-studio"
-_NATIVE_REASONING_VALUES = {"off", "low", "medium", "high", "on"}
-_THINK_TOKEN = "<|think|>"
 _CHANNEL_START = "<|channel>"
 _CHANNEL_END = "<channel|>"
-_PROMPT_TOKEN_REASONING_FRAGMENTS = ("gemma-4",)
+_FROZEN_REASONING_METADATA_FIELD = "_lmstudio_catalog_reasoning_metadata"
+_FROZEN_COMPATIBILITY_PROTOCOL = "lmstudio-responses-reasoning-none-v1"
+_COMPATIBILITY_STATE_INIT_LOCK = threading.Lock()
+
+
+class _CompatibilityFlight:
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self.error: BaseException | None = None
+
+
+class _FrozenCatalogReasoningField(Mapping[str, Any]):
+    """Runtime-only generation field that snapshots the selected catalog entry."""
+
+    def __init__(self, capture) -> None:
+        self._capture = capture
+
+    def __getitem__(self, key: str) -> Any:
+        if key == "id":
+            return _FROZEN_REASONING_METADATA_FIELD
+        if key == "default":
+            return self._capture()
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter(("id", "default"))
+
+    def __len__(self) -> int:
+        return 2
+
+    def __repr__(self) -> str:
+        return "<_FrozenCatalogReasoningField>"
 
 
 def _ui_yield_seconds() -> float:
@@ -36,6 +79,10 @@ def _ui_yield_seconds() -> float:
 
 def _yield_ui():
     delay = _ui_yield_seconds()
+    _yield_ui_for_seconds(delay)
+
+
+def _yield_ui_for_seconds(delay: float) -> None:
     if delay <= 0:
         time.sleep(0)
     else:
@@ -47,6 +94,13 @@ def _worker_timeout_seconds() -> float:
         return max(30.0, min(3600.0, float(os.environ.get("NC_LMSTUDIO_WORKER_TIMEOUT_SECONDS", "900") or "900")))
     except Exception:
         return 900.0
+
+
+def _worker_poll_interval_seconds() -> float:
+    try:
+        return max(0.02, min(0.5, float(os.environ.get("NC_LMSTUDIO_WORKER_POLL_SECONDS", "0.05") or "0.05")))
+    except Exception:
+        return 0.05
 
 
 def _strip_channel_blocks(text: Any) -> str:
@@ -105,153 +159,6 @@ def _filter_channel_blocks_stream(chunks: Iterable[str]):
         yield buffer
 
 
-def _extract_text(response: Any) -> str:
-    if isinstance(response, str):
-        return _strip_channel_blocks(response)
-    choices = getattr(response, "choices", None) or []
-    if not choices:
-        return ""
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", None) if message is not None else None
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-                continue
-            text_value = getattr(item, "text", None)
-            if text_value:
-                parts.append(str(text_value))
-                continue
-            if isinstance(item, dict):
-                dict_text = item.get("text")
-                if dict_text:
-                    parts.append(str(dict_text))
-        return _strip_channel_blocks("".join(parts))
-    return _strip_channel_blocks(content)
-
-
-def _raw_stream_text(stream: Iterable[Any]):
-    for event in stream:
-        _yield_ui()
-        choices = getattr(event, "choices", None) or []
-        if not choices:
-            continue
-        delta = getattr(choices[0], "delta", None)
-        content = getattr(delta, "content", None) if delta is not None else None
-        if isinstance(content, list):
-            for item in content:
-                if isinstance(item, str) and item:
-                    yield item
-                    continue
-                text_value = getattr(item, "text", None)
-                if text_value:
-                    yield str(text_value)
-                    continue
-                if isinstance(item, dict):
-                    dict_text = item.get("text")
-                    if dict_text:
-                        yield str(dict_text)
-        elif content:
-            yield str(content)
-
-
-def _stream_text(stream: Iterable[Any]):
-    yield from _filter_channel_blocks_stream(_raw_stream_text(stream))
-
-
-def _native_chat_delta_stream(response: Iterable[bytes]):
-    for raw_line in response:
-        _yield_ui()
-        line = raw_line.decode("utf-8", errors="replace").strip()
-        if not line.startswith("data:"):
-            continue
-        raw_payload = line[5:].strip()
-        if not raw_payload:
-            continue
-        try:
-            payload = json.loads(raw_payload)
-        except Exception:
-            continue
-        event_type = str(payload.get("type") or "").strip()
-        if event_type == "message.delta" and payload.get("content"):
-            yield str(payload.get("content"))
-        elif event_type == "error":
-            message = str(payload.get("message") or payload.get("error") or "LM Studio native chat error")
-            raise RuntimeError(message)
-
-
-def _string_content(content: Any) -> str:
-    if isinstance(content, str):
-        return content.strip()
-    if not isinstance(content, list):
-        return str(content or "").strip()
-    parts: list[str] = []
-    for item in content:
-        if isinstance(item, str):
-            parts.append(item)
-            continue
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("type") or "").strip().lower() == "text":
-            parts.append(str(item.get("text") or ""))
-    return "\n".join(part.strip() for part in parts if part and part.strip()).strip()
-
-
-def _image_data_urls(content: Any) -> list[str]:
-    if not isinstance(content, list):
-        return []
-    urls: list[str] = []
-    for item in content:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("type") or "").strip().lower() != "image_url":
-            continue
-        image_url = item.get("image_url")
-        if isinstance(image_url, dict):
-            url = str(image_url.get("url") or "").strip()
-        else:
-            url = str(image_url or "").strip()
-        if url:
-            urls.append(url)
-    return urls
-
-
-def _native_chat_text(payload: Any) -> str:
-    if isinstance(payload, str):
-        return _strip_channel_blocks(payload)
-    if not isinstance(payload, dict):
-        return ""
-    output = payload.get("output")
-    if isinstance(output, list):
-        parts = []
-        for item in output:
-            if isinstance(item, dict) and str(item.get("type") or "").strip().lower() == "message":
-                parts.append(str(item.get("content") or ""))
-        return _strip_channel_blocks("".join(parts))
-    return _strip_channel_blocks(payload.get("content") or payload.get("text") or "")
-
-
-def _model_uses_prompt_token_reasoning(model_id: str | None) -> bool:
-    value = str(model_id or "").strip().lower()
-    return bool(value) and any(fragment in value for fragment in _PROMPT_TOKEN_REASONING_FRAGMENTS)
-
-
-def _apply_think_token(system_prompt: str, reasoning: str | None) -> str:
-    prompt = str(system_prompt or "").lstrip()
-    while prompt.startswith(_THINK_TOKEN):
-        prompt = prompt[len(_THINK_TOKEN):].lstrip()
-    if str(reasoning or "").strip().lower() in {"on", "low", "medium", "high"}:
-        return f"{_THINK_TOKEN}\n{prompt}".strip()
-    return prompt
-
-
-def _without_reasoning(additional_params: dict[str, Any] | None) -> dict[str, Any]:
-    cleaned = dict(additional_params or {})
-    cleaned.pop("reasoning", None)
-    return cleaned
-
-
 def _normalize_openai_base_url(base_url: str | None) -> str:
     url = str(base_url or DEFAULT_BASE_URL).strip().rstrip("/")
     if not url:
@@ -269,41 +176,33 @@ def _normalize_openai_base_url(base_url: str | None) -> str:
     return url
 
 
-def _is_native_reasoning_unsupported_error(exc: urllib.error.HTTPError) -> bool:
-    try:
-        payload = json.loads(exc.read().decode("utf-8", errors="replace"))
-    except Exception:
-        return False
-    error = payload.get("error") if isinstance(payload, dict) else None
-    if not isinstance(error, dict):
-        return False
-    message = str(error.get("message") or "").lower()
-    param = str(error.get("param") or "").strip().lower()
-    return param == "reasoning" and "does not expose reasoning configuration" in message
-
-
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
-        self._native_reasoning_control_by_model: dict[str, str] = {}
+        self._model_catalog_by_id: dict[str, dict[str, Any]] = {}
+        self._responses_compatibility_cache: dict[tuple[str, str], bool] = {}
+        self._responses_compatibility_lock = threading.Lock()
+        self._responses_compatibility_flights: dict[
+            tuple[str, str], _CompatibilityFlight
+        ] = {}
         self._chat_service = context.get_service("qt.chat_providers")
         if self._chat_service is None:
             context.logger.warning("LM Studio provider addon could not find qt.chat_providers service.")
             return None
 
-        self._chat_service.register_provider(
-            provider_id=PROVIDER_ID,
-            label="LM Studio",
-            description="Local LM Studio models exposed through the OpenAI-compatible API.",
-            order=100,
-            client_factory=self._client,
-            model_list_handler=self._list_models,
-            completion_handler=self._complete_chat,
-            stream_handler=self._stream_chat,
-            connection_check_handler=self._check_connection,
-            api_key_getter=self._api_key,
-            base_url_getter=self._base_url,
-            metadata={
+        provider_kwargs = {
+            "provider_id": PROVIDER_ID,
+            "label": "LM Studio",
+            "description": "Local LM Studio models exposed through the OpenAI-compatible Responses API.",
+            "order": 100,
+            "client_factory": self._client,
+            "model_list_handler": self._list_models,
+            "completion_handler": self._complete_chat,
+            "stream_handler": self._stream_chat,
+            "connection_check_handler": self._check_connection,
+            "api_key_getter": self._api_key,
+            "base_url_getter": self._base_url,
+            "metadata": {
                 "config_fields": [
                     {"id": "base_url", "label": "Base URL", "source": "addon", "default": DEFAULT_BASE_URL},
                 ],
@@ -326,13 +225,772 @@ class Addon(BaseAddon):
                         "requires_model_support": "reasoning_toggle",
                         "description": "Shown when LM Studio reports public reasoning options with both off and on support.",
                     },
+                    *self._frozen_catalog_reasoning_fields(),
                 ],
-                "hint": "Uses LM Studio's local OpenAI-compatible endpoint. In LM Studio, open Developer -> Local Server and make sure Status is Running.",
+                "hint": "Requires LM Studio 0.4.7 or newer and its local Responses API. In LM Studio, open Developer -> Local Server and make sure Status is Running.",
                 "supports_local_runtime": True,
             },
-        )
+        }
+        frozen_hooks = self._frozen_registration_hooks()
+        register_provider = self._chat_service.register_provider
+        try:
+            signature = inspect.signature(register_provider)
+            parameters = signature.parameters.values()
+            supports_frozen_hooks = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in parameters
+            ) or all(name in signature.parameters for name in frozen_hooks)
+        except Exception:
+            supports_frozen_hooks = False
+        if supports_frozen_hooks:
+            provider_kwargs.update(frozen_hooks)
+        else:
+            context.logger.warning(
+                "LM Studio frozen chat execution is unavailable because qt.chat_providers "
+                "does not expose the additive frozen registration hooks."
+            )
+
+        register_provider(**provider_kwargs)
         context.logger.info("LM Studio chat provider addon initialized.")
         return None
+
+    def _frozen_registration_hooks(self) -> dict[str, Any]:
+        transport = {
+            "worker_enabled": self._worker_enabled(),
+            "worker_timeout": _worker_timeout_seconds(),
+            "worker_poll_interval": _worker_poll_interval_seconds(),
+            "ui_yield_seconds": _ui_yield_seconds(),
+            "direct_timeout": 300.0,
+            "worker_command": (sys.executable, "-u", str(self._worker_path())),
+            "worker_creation_flags": self._worker_creation_flags(),
+        }
+        complete_direct = self._complete_prepared_direct
+        stream_direct = self._stream_prepared_direct
+        complete_worker = self._complete_prepared_worker
+        stream_worker = self._stream_prepared_worker
+        ensure_compatibility = self._ensure_frozen_responses_compatibility
+        responsiveness_guard = lmstudio_runtime.local_inference_responsiveness_guard
+        sdk_loader = lmstudio_runtime.get_sdk
+
+        def private_config():
+            base_url = self._base_url()
+            return {
+                "base_url": base_url,
+                "provider_is_remote": not lmstudio_runtime.is_local_base_url(base_url),
+            }
+
+        def prepare(binding, params, additional_params):
+            provider_config, generation_fields = self._frozen_binding_values(binding)
+            base_url = _normalize_openai_base_url(
+                provider_config.get("base_url") or DEFAULT_BASE_URL
+            )
+            api_key = str(provider_config.get("api_key") or DEFAULT_API_KEY)
+            model_name = str(binding.model_name or "").strip()
+            if not model_name:
+                raise RuntimeError("LM Studio frozen chat requires a selected model.")
+
+            source = dict(params or {})
+            extras = dict(additional_params or {})
+            output_budget_override = extras.pop(
+                chat_providers.FROZEN_OUTPUT_TOKEN_BUDGET_OVERRIDE,
+                None,
+            )
+            source["model"] = model_name
+            for key in ("temperature", "top_p"):
+                if key in generation_fields:
+                    source[key] = generation_fields[key]
+            if output_budget_override is not None:
+                source.pop("max_completion_tokens", None)
+                source["max_tokens"] = output_budget_override
+            else:
+                for key in ("max_tokens", "max_completion_tokens"):
+                    if key in generation_fields:
+                        source[key] = generation_fields[key]
+            for key in ("top_k", "repeat_penalty", "min_p", "reasoning"):
+                if key in generation_fields:
+                    extras[key] = generation_fields[key]
+            if "reasoning" not in extras and "enable_thinking" in generation_fields:
+                extras["reasoning"] = "on" if bool(generation_fields["enable_thinking"]) else "off"
+
+            metadata = self._frozen_reasoning_metadata(
+                provider_config,
+                generation_fields,
+                model_name=model_name,
+            )
+            payload = build_responses_payload(source, extras, metadata, stream=False)
+            url = responses_url(base_url)
+            fingerprint = self._frozen_compatibility_fingerprint(
+                url=url,
+                model=model_name,
+            )
+            return (
+                {"lmstudio_responses_payload": payload},
+                {
+                    "lmstudio_transport": {
+                        "compatibility_protocol": _FROZEN_COMPATIBILITY_PROTOCOL,
+                        "compatibility_fingerprint": fingerprint,
+                        "local_responsiveness": lmstudio_runtime.is_local_base_url(base_url),
+                        "worker": bool(transport["worker_enabled"]),
+                    }
+                },
+            )
+
+        def complete(request, *, timeout=None, cancel_token=None):
+            del timeout, cancel_token
+            state = self._frozen_execution_state(request)
+            with self._captured_responsiveness_guard(
+                state["local_responsiveness"],
+                responsiveness_guard,
+            ):
+                ensure_compatibility(
+                    url=state["url"],
+                    api_key=state["api_key"],
+                    model=state["model"],
+                    timeout=transport["direct_timeout"],
+                )
+                payload = dict(state["payload"])
+                payload["stream"] = False
+                if state["worker"]:
+                    return complete_worker(
+                        config={
+                            "url": state["url"],
+                            "api_key": state["api_key"],
+                            "payload": payload,
+                            "emit_chunks": False,
+                            "stream": False,
+                        },
+                        timeout=transport["worker_timeout"],
+                        poll_interval=transport["worker_poll_interval"],
+                        ui_yield_seconds=transport["ui_yield_seconds"],
+                        command=transport["worker_command"],
+                        creationflags=transport["worker_creation_flags"],
+                    )
+                return complete_direct(
+                    url=state["url"],
+                    api_key=state["api_key"],
+                    payload=payload,
+                    timeout=transport["direct_timeout"],
+                )
+
+        def stream(request, *, timeout=None, cancel_token=None):
+            del timeout, cancel_token
+            state = self._frozen_execution_state(request)
+
+            def guarded_stream():
+                with self._captured_responsiveness_guard(
+                    state["local_responsiveness"],
+                    responsiveness_guard,
+                ):
+                    ensure_compatibility(
+                        url=state["url"],
+                        api_key=state["api_key"],
+                        model=state["model"],
+                        timeout=transport["direct_timeout"],
+                    )
+                    payload = dict(state["payload"])
+                    payload["stream"] = True
+                    if state["worker"]:
+                        yield from stream_worker(
+                            config={
+                                "url": state["url"],
+                                "api_key": state["api_key"],
+                                "payload": payload,
+                                "emit_chunks": True,
+                                "stream": True,
+                            },
+                            timeout=transport["worker_timeout"],
+                            poll_interval=transport["worker_poll_interval"],
+                            ui_yield_seconds=transport["ui_yield_seconds"],
+                            command=transport["worker_command"],
+                            creationflags=transport["worker_creation_flags"],
+                        )
+                        return
+                    yield from stream_direct(
+                        url=state["url"],
+                        api_key=state["api_key"],
+                        payload=payload,
+                        timeout=transport["direct_timeout"],
+                    )
+
+            return guarded_stream()
+
+        def capabilities(binding):
+            return self._strict_local_capability(binding, sdk_loader=sdk_loader)
+
+        return {
+            "frozen_execution_version": 1,
+            "frozen_prepare_handler": prepare,
+            "frozen_completion_handler": complete,
+            "frozen_stream_handler": stream,
+            "model_capabilities_handler": capabilities,
+            "frozen_private_config_getter": private_config,
+            "frozen_public_config_fields": ("base_url", "provider_is_remote"),
+        }
+
+    def _frozen_catalog_reasoning_fields(self) -> tuple[Mapping[str, Any], ...]:
+        return (_FrozenCatalogReasoningField(self._capture_catalog_reasoning_metadata),)
+
+    def _capture_catalog_reasoning_metadata(self) -> dict[str, Any]:
+        model_key = self._setting("model_name")
+        metadata = dict(
+            getattr(self, "_model_catalog_by_id", {}).get(model_key) or {}
+        )
+        options = metadata.get("reasoning_options", ())
+        if isinstance(options, str):
+            options = [options]
+        return {
+            "model_key": model_key,
+            "supports_reasoning": bool(metadata.get("supports_reasoning", False)),
+            "supports_reasoning_toggle": bool(
+                metadata.get("supports_reasoning_toggle", False)
+            ),
+            "reasoning_options": [
+                str(option or "").strip().lower()
+                for option in list(options or ())
+                if str(option or "").strip()
+            ],
+            "reasoning_default": str(
+                metadata.get("reasoning_default") or ""
+            ).strip().lower(),
+        }
+
+    def _frozen_binding_values(self, binding) -> tuple[dict[str, Any], dict[str, Any]]:
+        provider_config_copy = getattr(binding, "_provider_config_copy", None)
+        generation_fields_copy = getattr(binding, "_generation_fields_copy", None)
+        if not callable(provider_config_copy) or not callable(generation_fields_copy):
+            raise RuntimeError("LM Studio frozen execution received an invalid binding.")
+        provider_config = provider_config_copy()
+        generation_fields = generation_fields_copy()
+        if not isinstance(provider_config, dict) or not isinstance(generation_fields, dict):
+            raise RuntimeError("LM Studio frozen execution received invalid captured state.")
+        return provider_config, generation_fields
+
+    def _frozen_reasoning_metadata(
+        self,
+        provider_config: Mapping[str, Any],
+        generation_fields: Mapping[str, Any],
+        *,
+        model_name: str,
+    ) -> dict[str, Any]:
+        catalog_metadata = generation_fields.get(_FROZEN_REASONING_METADATA_FIELD)
+        if isinstance(catalog_metadata, Mapping) and str(
+            catalog_metadata.get("model_key") or ""
+        ).strip() == str(model_name or "").strip():
+            options = catalog_metadata.get("reasoning_options", ())
+            if isinstance(options, str):
+                options = [options]
+            return {
+                "supports_reasoning": bool(
+                    catalog_metadata.get("supports_reasoning", False)
+                ),
+                "reasoning_options": [
+                    str(option or "").strip().lower()
+                    for option in list(options or ())
+                    if str(option or "").strip()
+                ],
+                "reasoning_default": str(
+                    catalog_metadata.get("reasoning_default") or ""
+                ).strip().lower(),
+            }
+
+        captured_metadata = provider_config.get("model_metadata")
+        metadata = dict(captured_metadata) if isinstance(captured_metadata, Mapping) else {}
+        supports_reasoning = bool(
+            generation_fields.get(
+                "model_supports_reasoning",
+                metadata.get("supports_reasoning", False),
+            )
+        )
+        options = generation_fields.get(
+            "reasoning_options",
+            metadata.get("reasoning_options", ()),
+        )
+        if isinstance(options, str):
+            options = [options]
+        normalized_options = [
+            str(option or "").strip().lower()
+            for option in list(options or ())
+            if str(option or "").strip()
+        ]
+        if (
+            not normalized_options
+            and bool(generation_fields.get("model_supports_reasoning_toggle", False))
+        ):
+            normalized_options = ["off", "on"]
+        return {
+            "supports_reasoning": supports_reasoning,
+            "reasoning_options": normalized_options,
+            "reasoning_default": str(
+                generation_fields.get(
+                    "reasoning_default",
+                    metadata.get("reasoning_default", ""),
+                )
+                or ""
+            ).strip().lower(),
+        }
+
+    def _frozen_compatibility_fingerprint(self, *, url: str, model: str) -> str:
+        value = json.dumps(
+            {
+                "model": str(model or "").strip(),
+                "protocol": _FROZEN_COMPATIBILITY_PROTOCOL,
+                "url": str(url or "").strip().rstrip("/"),
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def _frozen_execution_state(self, request) -> dict[str, Any]:
+        context = getattr(request, "context", None)
+        binding = getattr(context, "_binding", None)
+        provider_config, _generation_fields = self._frozen_binding_values(binding)
+        params_copy = getattr(request, "params_copy", None)
+        additional_copy = getattr(request, "additional_params_copy", None)
+        if not callable(params_copy) or not callable(additional_copy):
+            raise RuntimeError("LM Studio frozen execution received an invalid request.")
+        params = params_copy()
+        additional = additional_copy()
+        payload = params.get("lmstudio_responses_payload")
+        transport = additional.get("lmstudio_transport")
+        if not isinstance(payload, dict) or not isinstance(transport, dict):
+            raise RuntimeError("LM Studio frozen execution received an unprepared request.")
+        model_name = str(getattr(binding, "model_name", "") or "").strip()
+        base_url = _normalize_openai_base_url(
+            provider_config.get("base_url") or DEFAULT_BASE_URL
+        )
+        url = responses_url(base_url)
+        expected_fingerprint = self._frozen_compatibility_fingerprint(
+            url=url,
+            model=model_name,
+        )
+        if (
+            transport.get("compatibility_protocol") != _FROZEN_COMPATIBILITY_PROTOCOL
+            or transport.get("compatibility_fingerprint") != expected_fingerprint
+            or str(payload.get("model") or "").strip() != model_name
+        ):
+            raise RuntimeError("LM Studio frozen compatibility attestation mismatch.")
+        return {
+            "api_key": str(provider_config.get("api_key") or DEFAULT_API_KEY),
+            "local_responsiveness": bool(transport.get("local_responsiveness")),
+            "model": model_name,
+            "payload": payload,
+            "url": url,
+            "worker": bool(transport.get("worker")),
+        }
+
+    @contextlib.contextmanager
+    def _captured_responsiveness_guard(self, enabled: bool, guard_factory):
+        if not enabled:
+            yield
+            return
+        with guard_factory(logger=print):
+            yield
+
+    def _prepared_responses_request(
+        self,
+        *,
+        url: str,
+        api_key: str,
+        payload: Mapping[str, Any],
+        timeout: float,
+    ):
+        request = Request(
+            str(url),
+            data=json.dumps(dict(payload), ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            return urlopen(request, timeout=float(timeout))
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(http_error_text(exc)) from exc
+
+    def _probe_frozen_responses(
+        self,
+        *,
+        url: str,
+        api_key: str,
+        model: str,
+        timeout: float,
+    ) -> bool:
+        payload = {
+            "model": str(model or "").strip(),
+            "input": [{"role": "user", "content": "Reply with exactly OK."}],
+            "max_output_tokens": 16,
+            "store": False,
+            "stream": False,
+            "reasoning": {"effort": "none"},
+        }
+        try:
+            with self._prepared_responses_request(
+                url=url,
+                api_key=api_key,
+                payload=payload,
+                timeout=timeout,
+            ) as response:
+                body = json.loads(
+                    decode_http_text(response.read(), response_charset(response))
+                )
+            extract_response_text(body)
+            return True
+        except Exception as exc:
+            raise RuntimeError(
+                "LM Studio 0.4.7 or newer is required for NeuralCompanion chat. "
+                "The configured server must support POST /v1/responses and reasoning.effort=none. "
+                f"Probe failed: {exc}"
+            ) from exc
+
+    def _ensure_frozen_responses_compatibility(
+        self,
+        *,
+        url: str,
+        api_key: str,
+        model: str,
+        timeout: float,
+    ) -> None:
+        clean_url = str(url or "").strip().rstrip("/")
+        clean_model = str(model or "").strip()
+        if not clean_url or not clean_model:
+            raise RuntimeError(
+                "LM Studio frozen chat requires a captured endpoint and model before checking compatibility."
+            )
+        key = (clean_url, clean_model)
+        self._run_compatibility_probe(
+            key,
+            lambda: self._probe_frozen_responses(
+                url=clean_url,
+                api_key=str(api_key or DEFAULT_API_KEY),
+                model=clean_model,
+                timeout=float(timeout),
+            ),
+        )
+
+    def _compatibility_state(self):
+        with _COMPATIBILITY_STATE_INIT_LOCK:
+            cache = getattr(self, "_responses_compatibility_cache", None)
+            if not isinstance(cache, dict):
+                cache = {}
+                self._responses_compatibility_cache = cache
+            lock = getattr(self, "_responses_compatibility_lock", None)
+            if not callable(getattr(lock, "acquire", None)):
+                lock = threading.Lock()
+                self._responses_compatibility_lock = lock
+            flights = getattr(self, "_responses_compatibility_flights", None)
+            if not isinstance(flights, dict):
+                flights = {}
+                self._responses_compatibility_flights = flights
+        return cache, lock, flights
+
+    def _run_compatibility_probe(self, key, probe) -> None:
+        cache, lock, flights = self._compatibility_state()
+        with lock:
+            if bool(cache.get(key)):
+                return
+            flight = flights.get(key)
+            owner = flight is None
+            if owner:
+                flight = _CompatibilityFlight()
+                flights[key] = flight
+
+        if not owner:
+            flight.event.wait()
+            with lock:
+                if bool(cache.get(key)):
+                    return
+                error = flight.error
+            if error is None:
+                raise RuntimeError(
+                    "LM Studio compatibility probe ended without a shared result."
+                )
+            raise RuntimeError(str(error)) from error
+
+        try:
+            probe()
+        except BaseException as exc:
+            with lock:
+                flight.error = exc
+                if flights.get(key) is flight:
+                    flights.pop(key, None)
+                flight.event.set()
+            raise
+        else:
+            with lock:
+                cache[key] = True
+                if flights.get(key) is flight:
+                    flights.pop(key, None)
+                flight.event.set()
+
+    def _complete_prepared_direct(
+        self,
+        *,
+        url: str,
+        api_key: str,
+        payload: Mapping[str, Any],
+        timeout: float,
+    ) -> str:
+        with self._prepared_responses_request(
+            url=url,
+            api_key=api_key,
+            payload=payload,
+            timeout=timeout,
+        ) as response:
+            body = json.loads(
+                decode_http_text(response.read(), response_charset(response))
+            )
+        return _strip_channel_blocks(extract_response_text(body))
+
+    def _stream_prepared_direct(
+        self,
+        *,
+        url: str,
+        api_key: str,
+        payload: Mapping[str, Any],
+        timeout: float,
+    ):
+        with self._prepared_responses_request(
+            url=url,
+            api_key=api_key,
+            payload=payload,
+            timeout=timeout,
+        ) as response:
+            charset = response_charset(response)
+            lines = (decode_http_text(raw_line, charset) for raw_line in response)
+            yield from _filter_channel_blocks_stream(iter_response_sse(lines))
+
+    def _start_prepared_worker(
+        self,
+        *,
+        command: Iterable[str],
+        creationflags: int,
+    ) -> subprocess.Popen:
+        command_parts = [str(part) for part in command]
+        if len(command_parts) < 3 or not Path(command_parts[-1]).exists():
+            raise RuntimeError("LM Studio helper process is missing.")
+        return subprocess.Popen(
+            command_parts,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=int(creationflags),
+        )
+
+    def _complete_prepared_worker(
+        self,
+        *,
+        config: Mapping[str, Any],
+        timeout: float,
+        poll_interval: float,
+        ui_yield_seconds: float,
+        command: Iterable[str],
+        creationflags: int,
+    ) -> str:
+        process = self._start_prepared_worker(
+            command=command,
+            creationflags=creationflags,
+        )
+        config_text = json.dumps(dict(config), ensure_ascii=True)
+        try:
+            stdout, stderr = self._communicate_worker(
+                process,
+                config_text,
+                timeout=timeout,
+                poll_interval=poll_interval,
+                ui_yield_seconds=ui_yield_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("LM Studio helper process timed out.")
+        result = self._last_worker_payload(stdout)
+        if result.get("ok"):
+            return str(result.get("text") or "").strip()
+        error = str(
+            result.get("error") or stderr or "LM Studio helper process failed."
+        ).strip()
+        raise RuntimeError(error)
+
+    def _stream_prepared_worker(
+        self,
+        *,
+        config: Mapping[str, Any],
+        timeout: float,
+        poll_interval: float,
+        ui_yield_seconds: float,
+        command: Iterable[str],
+        creationflags: int,
+    ):
+        process = self._start_prepared_worker(
+            command=command,
+            creationflags=creationflags,
+        )
+        self._send_worker_config(process, dict(config))
+        final_payload: dict[str, Any] = {}
+        return_code = None
+        try:
+            for line in self._iter_worker_stdout_lines(
+                process,
+                timeout=timeout,
+                poll_interval=poll_interval,
+                ui_yield_seconds=ui_yield_seconds,
+            ):
+                payload = self._parse_worker_line(line)
+                if not payload:
+                    continue
+                if "chunk" in payload:
+                    chunk = str(payload.get("chunk") or "")
+                    if chunk:
+                        yield chunk
+                    continue
+                final_payload = payload
+            return_code = process.wait(timeout=5)
+        finally:
+            if process.poll() is None:
+                process.kill()
+        try:
+            stderr = process.stderr.read() if process.stderr is not None else ""
+        except Exception:
+            stderr = ""
+        if final_payload.get("ok"):
+            return
+        error = str(
+            final_payload.get("error")
+            or stderr
+            or f"LM Studio helper process exited with code {return_code}."
+        ).strip()
+        raise RuntimeError(error)
+
+    def _strict_local_capability(self, binding, *, sdk_loader):
+        try:
+            provider_config, _generation_fields = self._frozen_binding_values(binding)
+            base_url = _normalize_openai_base_url(
+                provider_config.get("base_url") or DEFAULT_BASE_URL
+            )
+            if not lmstudio_runtime.is_local_base_url(base_url):
+                return None
+            model_name = str(binding.model_name or "").strip()
+            if not model_name:
+                return None
+            sdk = sdk_loader()
+            client_type = getattr(sdk, "Client", None) if sdk is not None else None
+            chat_type = getattr(sdk, "Chat", None) if sdk is not None else None
+            from_history = getattr(chat_type, "from_history", None)
+            if not callable(client_type) or not callable(from_history):
+                return None
+            client = lmstudio_runtime.sdk_client(sdk, base_url)
+            if client is None:
+                return None
+            llm_namespace = getattr(client, "llm", None)
+            list_loaded = getattr(llm_namespace, "list_loaded", None)
+            if not callable(list_loaded):
+                return None
+            matches = []
+            for model in list(list_loaded()):
+                identity = self._loaded_model_identity(model)
+                if identity is not None and identity[0] == model_name:
+                    matches.append((model, identity))
+            if len(matches) != 1:
+                return None
+            model, identity = matches[0]
+            context_limit = model.get_context_length()
+            if type(context_limit) is not int or context_limit <= 0:
+                return None
+            if not callable(getattr(model, "apply_prompt_template", None)) or not callable(
+                getattr(model, "tokenize", None)
+            ):
+                return None
+            execution_identity = binding.execution_identity
+
+            def exact_token_counter(messages) -> int:
+                current_identity = self._loaded_model_identity(model)
+                if current_identity != identity:
+                    raise RuntimeError("LM Studio loaded model instance changed.")
+                current_context = model.get_context_length()
+                if current_context != context_limit:
+                    raise RuntimeError("LM Studio loaded context length changed.")
+                history = []
+                for message in messages:
+                    if not isinstance(message, Mapping):
+                        raise TypeError("LM Studio strict counting requires message mappings.")
+                    role = str(message.get("role") or "").strip().lower()
+                    content = message.get("content")
+                    if role not in {"system", "user", "assistant"} or not isinstance(
+                        content,
+                        str,
+                    ):
+                        raise ValueError(
+                            "LM Studio strict counting supports plain text chat messages only."
+                        )
+                    if role == "system" and history and history[-1]["role"] == "system":
+                        history[-1]["content"] = (
+                            f"{history[-1]['content']}\n\n{content}"
+                        )
+                    else:
+                        history.append({"role": role, "content": content})
+                chat = from_history({"messages": history})
+                formatted = model.apply_prompt_template(chat)
+                if not isinstance(formatted, str):
+                    raise TypeError("LM Studio prompt template did not return text.")
+                tokens = model.tokenize(formatted)
+                count = len(tokens)
+                if type(count) is not int or count < 0:
+                    raise ValueError("LM Studio tokenizer returned an invalid count.")
+                return count
+
+            return {
+                "context_limit": context_limit,
+                "token_counter": exact_token_counter,
+                "capability_identity": execution_identity,
+                "token_counter_identity": execution_identity,
+            }
+        except Exception:
+            return None
+
+    def _loaded_model_identity(self, model) -> tuple[str, str, str] | None:
+        try:
+            info = model.get_info()
+        except Exception:
+            return None
+
+        def info_value(*names: str):
+            for name in names:
+                if isinstance(info, Mapping) and info.get(name) not in {None, ""}:
+                    return info.get(name)
+                value = getattr(info, name, None)
+                if value not in {None, ""}:
+                    return value
+            return None
+
+        model_keys = {
+            str(value).strip()
+            for value in (
+                info_value("model_key"),
+                info_value("modelKey"),
+                info_value("key"),
+            )
+            if str(value or "").strip()
+        }
+        if len(model_keys) != 1:
+            return None
+        model_key = next(iter(model_keys))
+        handle_identifier = str(getattr(model, "identifier", None) or "").strip()
+        info_identifier = str(info_value("identifier") or "").strip()
+        if not info_identifier or (
+            handle_identifier and handle_identifier != info_identifier
+        ):
+            return None
+        identifier = info_identifier
+        instance_reference = str(
+            info_value("instanceReference", "instance_reference") or ""
+        ).strip()
+        if not identifier or not instance_reference:
+            return None
+        return model_key, identifier, instance_reference
 
     def _responsiveness_guard(self):
         if not lmstudio_runtime.is_local_base_url(self._base_url()):
@@ -349,11 +1007,8 @@ class Addon(BaseAddon):
     def _worker_creation_flags(self) -> int:
         return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-    def _openai_chat_url(self) -> str:
-        return f"{self._base_url().rstrip('/')}/chat/completions"
-
-    def _native_chat_url(self) -> str:
-        return f"{self._native_api_base_url()}/api/v1/chat"
+    def _responses_url(self) -> str:
+        return responses_url(self._base_url())
 
     def _worker_request_config(
         self,
@@ -363,37 +1018,11 @@ class Addon(BaseAddon):
         emit_chunks: bool = False,
         stream: bool = False,
     ) -> dict[str, Any]:
-        if self._should_use_native_chat(params, additional_params):
-            payload = self._native_chat_payload(params, additional_params, stream=stream)
-            fallback_payload = None
-            if "reasoning" in dict(additional_params or {}):
-                control = "prompt_token" if _model_uses_prompt_token_reasoning((params or {}).get("model")) else ""
-                retry_params = additional_params if control else _without_reasoning(additional_params)
-                fallback_payload = self._native_chat_payload(
-                    params,
-                    retry_params,
-                    stream=stream,
-                    reasoning_control=control or None,
-                )
-            return {
-                "url": self._native_chat_url(),
-                "api_key": self._api_key(),
-                "native": True,
-                "payload": payload,
-                "fallback_payload": fallback_payload,
-                "emit_chunks": bool(emit_chunks) and bool(stream),
-                "stream": bool(stream),
-            }
-        force_non_stream = bool(isinstance(params, dict) and params.get("response_format") is not None)
-        stream = bool(stream) and not force_non_stream
-        payload = self._openai_wire_payload(params, additional_params, stream=stream)
         return {
-            "url": self._openai_chat_url(),
+            "url": self._responses_url(),
             "api_key": self._api_key(),
-            "native": False,
-            "payload": payload,
+            "payload": self._responses_payload(params, additional_params, stream=stream),
             "emit_chunks": bool(emit_chunks) and bool(stream),
-            "force_non_stream": force_non_stream,
             "stream": bool(stream),
         }
 
@@ -415,20 +1044,101 @@ class Addon(BaseAddon):
     def _send_worker_config(self, process: subprocess.Popen, config: dict[str, Any]) -> None:
         if process.stdin is None:
             raise RuntimeError("LM Studio helper process did not expose stdin.")
-        process.stdin.write(json.dumps(dict(config or {}), ensure_ascii=False))
+        process.stdin.write(json.dumps(dict(config or {}), ensure_ascii=True))
         process.stdin.close()
+
+    def _communicate_worker(
+        self,
+        process: subprocess.Popen,
+        input_text: str,
+        *,
+        timeout: float,
+        poll_interval: float | None = None,
+        ui_yield_seconds: float | None = None,
+    ) -> tuple[str, str]:
+        deadline = time.monotonic() + max(1.0, float(timeout or _worker_timeout_seconds()))
+        poll_seconds = (
+            _worker_poll_interval_seconds()
+            if poll_interval is None
+            else max(0.001, float(poll_interval))
+        )
+        first_attempt = True
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                stdout, stderr = process.communicate(timeout=5)
+                raise subprocess.TimeoutExpired(process.args, timeout, output=stdout, stderr=stderr)
+            try:
+                if first_attempt:
+                    return process.communicate(
+                        input=input_text,
+                        timeout=min(poll_seconds, remaining),
+                    )
+                return process.communicate(timeout=min(poll_seconds, remaining))
+            except subprocess.TimeoutExpired:
+                first_attempt = False
+                if ui_yield_seconds is None:
+                    _yield_ui()
+                else:
+                    _yield_ui_for_seconds(float(ui_yield_seconds))
+
+    def _iter_worker_stdout_lines(
+        self,
+        process: subprocess.Popen,
+        *,
+        timeout: float,
+        poll_interval: float | None = None,
+        ui_yield_seconds: float | None = None,
+    ):
+        if process.stdout is None:
+            raise RuntimeError("LM Studio helper process did not expose stdout.")
+        line_queue: queue.Queue[object] = queue.Queue()
+
+        def reader() -> None:
+            try:
+                for line in process.stdout:
+                    line_queue.put(line)
+            except Exception as exc:
+                line_queue.put(exc)
+            finally:
+                line_queue.put(None)
+
+        threading.Thread(target=reader, name="nc-lmstudio-worker-stdout", daemon=True).start()
+        deadline = time.monotonic() + max(1.0, float(timeout or _worker_timeout_seconds()))
+        poll_seconds = (
+            _worker_poll_interval_seconds()
+            if poll_interval is None
+            else max(0.001, float(poll_interval))
+        )
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                raise subprocess.TimeoutExpired(process.args, timeout)
+            try:
+                item = line_queue.get(timeout=min(poll_seconds, remaining))
+            except queue.Empty:
+                if ui_yield_seconds is None:
+                    _yield_ui()
+                else:
+                    _yield_ui_for_seconds(float(ui_yield_seconds))
+                continue
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield str(item)
 
     def _complete_chat_via_worker(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
         process = self._start_worker()
         config_text = json.dumps(
             self._worker_request_config(params, additional_params, emit_chunks=False, stream=False),
-            ensure_ascii=False,
+            ensure_ascii=True,
         )
         try:
-            stdout, stderr = process.communicate(input=config_text, timeout=_worker_timeout_seconds())
+            stdout, stderr = self._communicate_worker(process, config_text, timeout=_worker_timeout_seconds())
         except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate(timeout=5)
             raise RuntimeError("LM Studio helper process timed out.")
         payload = self._last_worker_payload(stdout)
         if payload.get("ok"):
@@ -442,9 +1152,7 @@ class Addon(BaseAddon):
         final_payload: dict[str, Any] = {}
         return_code = None
         try:
-            if process.stdout is None:
-                raise RuntimeError("LM Studio helper process did not expose stdout.")
-            for line in process.stdout:
+            for line in self._iter_worker_stdout_lines(process, timeout=_worker_timeout_seconds()):
                 payload = self._parse_worker_line(line)
                 if not payload:
                     continue
@@ -517,175 +1225,92 @@ class Addon(BaseAddon):
     def _client(self) -> OpenAI:
         return OpenAI(base_url=self._base_url(), api_key=self._api_key())
 
-    def _request_kwargs(self, params: dict[str, Any] | None, additional_params: dict[str, Any] | None = None, *, stream: bool = False) -> dict[str, Any]:
-        request_kwargs = dict(params or {})
-        if additional_params:
-            request_kwargs["extra_body"] = dict(additional_params or {})
-        if stream:
-            request_kwargs["stream"] = True
-        return request_kwargs
-
-    def _openai_wire_payload(self, params: dict[str, Any] | None, additional_params: dict[str, Any] | None = None, *, stream: bool = False) -> dict[str, Any]:
-        payload = self._request_kwargs(params, additional_params, stream=stream)
-        extra_body = payload.pop("extra_body", None)
-        if isinstance(extra_body, dict):
-            for key, value in extra_body.items():
-                if value is not None:
-                    payload[str(key)] = value
-        return payload
-
-    def _should_use_native_chat(self, params: dict[str, Any] | None, additional_params: dict[str, Any] | None = None) -> bool:
-        reasoning = str((additional_params or {}).get("reasoning") or "").strip().lower()
-        if reasoning not in _NATIVE_REASONING_VALUES:
-            return False
-        # LM Studio's native chat endpoint supports reasoning, but the existing
-        # OpenAI-compatible endpoint is still used for JSON response_format calls.
-        if isinstance(params, dict) and params.get("response_format") is not None:
-            return False
-        return True
-
-    def _native_reasoning_control_for_model(self, model_id: str | None) -> str:
+    def _model_metadata(self, model_id: str) -> dict[str, Any]:
         clean_model_id = str(model_id or "").strip()
-        cached = str(getattr(self, "_native_reasoning_control_by_model", {}).get(clean_model_id) or "").strip()
-        if cached:
-            return cached
-        return "prompt_token" if _model_uses_prompt_token_reasoning(clean_model_id) else "native"
+        metadata = dict(getattr(self, "_model_catalog_by_id", {}).get(clean_model_id) or {})
+        if not metadata and clean_model_id:
+            self._list_native_models(quiet=True)
+            metadata = dict(getattr(self, "_model_catalog_by_id", {}).get(clean_model_id) or {})
+        return metadata
 
-    def _native_chat_payload(
+    def _responses_payload(
         self,
-        params: dict[str, Any],
+        params: dict[str, Any] | None,
         additional_params: dict[str, Any] | None = None,
         *,
         stream: bool = False,
-        reasoning_control: str | None = None,
     ) -> dict[str, Any]:
         source = dict(params or {})
-        extras = dict(additional_params or {})
-        messages = list(source.get("messages") or [])
         model_id = str(source.get("model") or "").strip()
-        reasoning = str(extras.get("reasoning") or "").strip().lower()
-        reasoning_control = str(reasoning_control or self._native_reasoning_control_for_model(model_id) or "native").strip().lower()
-        system_parts: list[str] = []
-        transcript_parts: list[str] = []
-        input_items: list[dict[str, str]] = []
+        return build_responses_payload(
+            source,
+            dict(additional_params or {}),
+            self._model_metadata(model_id),
+            stream=stream,
+        )
 
-        for message in messages:
-            if not isinstance(message, dict):
-                continue
-            role = str(message.get("role") or "user").strip().lower() or "user"
-            text = _string_content(message.get("content"))
-            if role == "system":
-                if text:
-                    system_parts.append(text)
-                continue
-            label = "Assistant" if role == "assistant" else "User"
-            if text:
-                transcript_parts.append(f"{label}: {text}")
-            for url in _image_data_urls(message.get("content")):
-                if text:
-                    transcript_parts.append(f"{label}: [attached image]")
-                input_items.append({"type": "image", "data_url": url})
-
-        payload: dict[str, Any] = {
-            "model": model_id,
-            "store": False,
-            "stream": bool(stream),
-        }
-        system_prompt = "\n\n".join(part for part in system_parts if part)
-        if reasoning and reasoning_control == "prompt_token":
-            system_prompt = _apply_think_token(system_prompt, reasoning)
-        if system_prompt:
-            payload["system_prompt"] = system_prompt
-
-        transcript = "\n".join(part for part in transcript_parts if part).strip()
-        if input_items:
-            if transcript:
-                input_items.insert(0, {"type": "text", "content": transcript})
-            payload["input"] = input_items
-        else:
-            payload["input"] = transcript
-
-        for key in ("temperature", "top_p"):
-            if source.get(key) is not None:
-                payload[key] = source.get(key)
-        max_tokens = source.get("max_tokens", source.get("max_completion_tokens"))
-        try:
-            max_tokens = int(max_tokens)
-        except Exception:
-            max_tokens = None
-        if max_tokens is not None and max_tokens > 0:
-            payload["max_output_tokens"] = max_tokens
-        for key in ("top_k", "repeat_penalty", "min_p"):
-            if extras.get(key) is not None:
-                payload[key] = extras.get(key)
-        if reasoning and reasoning_control != "prompt_token":
-            payload["reasoning"] = reasoning
-        return payload
-
-    def _native_chat_request(
-        self,
-        params: dict[str, Any],
-        additional_params: dict[str, Any] | None = None,
-        *,
-        stream: bool = False,
-        reasoning_control: str | None = None,
-    ):
-        payload = self._native_chat_payload(params, additional_params, stream=stream, reasoning_control=reasoning_control)
+    def _responses_request(self, payload: dict[str, Any]):
         request = Request(
-            f"{self._native_api_base_url()}/api/v1/chat",
-            data=json.dumps(payload).encode("utf-8"),
+            self._responses_url(),
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self._api_key()}",
                 "Content-Type": "application/json",
             },
             method="POST",
         )
-        return urlopen(request, timeout=300.0)
-
-    def _complete_native_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
         try:
-            with self._native_chat_request(params, additional_params, stream=False) as response:
-                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+            return urlopen(request, timeout=300.0)
         except urllib.error.HTTPError as exc:
-            if "reasoning" not in dict(additional_params or {}) or not _is_native_reasoning_unsupported_error(exc):
-                raise
-            control = "prompt_token" if _model_uses_prompt_token_reasoning((params or {}).get("model")) else ""
-            retry_params = additional_params if control else _without_reasoning(additional_params)
-            with self._native_chat_request(params, retry_params, stream=False, reasoning_control=control or None) as response:
-                payload = json.loads(response.read().decode("utf-8", errors="replace"))
-        return _native_chat_text(payload)
+            raise RuntimeError(http_error_text(exc)) from exc
 
-    def _stream_native_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
-        try:
-            response = self._native_chat_request(params, additional_params, stream=True)
-        except urllib.error.HTTPError as exc:
-            if "reasoning" not in dict(additional_params or {}) or not _is_native_reasoning_unsupported_error(exc):
-                raise
-            control = "prompt_token" if _model_uses_prompt_token_reasoning((params or {}).get("model")) else ""
-            retry_params = additional_params if control else _without_reasoning(additional_params)
-            response = self._native_chat_request(params, retry_params, stream=True, reasoning_control=control or None)
-        with response:
-            yield from _filter_channel_blocks_stream(_native_chat_delta_stream(response))
+    def _post_responses_probe(self, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._responses_request(payload) as response:
+            return json.loads(decode_http_text(response.read(), response_charset(response)))
+
+    def _ensure_responses_compatibility(self, model_id: str) -> None:
+        clean_model_id = str(model_id or "").strip()
+        if not clean_model_id:
+            raise RuntimeError("LM Studio chat requires a selected model before checking Responses compatibility.")
+        key = (self._responses_url().rstrip("/"), clean_model_id)
+
+        payload = {
+            "model": clean_model_id,
+            "input": [{"role": "user", "content": "Reply with exactly OK."}],
+            "max_output_tokens": 16,
+            "store": False,
+            "stream": False,
+            "reasoning": {"effort": "none"},
+        }
+        def probe() -> None:
+            try:
+                response_payload = self._post_responses_probe(payload)
+                extract_response_text(response_payload)
+            except Exception as exc:
+                raise RuntimeError(
+                    "LM Studio 0.4.7 or newer is required for NeuralCompanion chat. "
+                    "The configured server must support POST /v1/responses and reasoning.effort=none. "
+                    f"Probe failed: {exc}"
+                ) from exc
+
+        self._run_compatibility_probe(key, probe)
+
+    def _complete_responses(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
+        payload = self._responses_payload(params, additional_params, stream=False)
+        with self._responses_request(payload) as response:
+            body = json.loads(decode_http_text(response.read(), response_charset(response)))
+        return _strip_channel_blocks(extract_response_text(body))
+
+    def _stream_responses(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
+        payload = self._responses_payload(params, additional_params, stream=True)
+        with self._responses_request(payload) as response:
+            charset = response_charset(response)
+            lines = (decode_http_text(raw_line, charset) for raw_line in response)
+            yield from _filter_channel_blocks_stream(iter_response_sse(lines))
 
     def _list_models(self, quiet: bool = False):
         native_models = self._list_native_models(quiet=quiet)
-        if native_models is not None:
-            return native_models
-        try:
-            client = self._client()
-            payload = client.models.list()
-            ids = sorted(
-                {
-                    str(getattr(model, "id", "") or "").strip()
-                    for model in list(getattr(payload, "data", []) or [])
-                    if str(getattr(model, "id", "") or "").strip()
-                }
-            )
-            return ids
-        except Exception as exc:
-            if not quiet:
-                print(f"Error fetching LM Studio models: {exc}")
-            return []
+        return native_models if native_models is not None else []
 
     def _list_native_models(self, quiet: bool = False):
         url = f"{self._native_api_base_url()}/api/v1/models"
@@ -693,7 +1318,7 @@ class Addon(BaseAddon):
         try:
             request = Request(url, headers=headers, method="GET")
             with urlopen(request, timeout=5.0) as response:
-                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+                payload = json.loads(decode_http_text(response.read(), response_charset(response)))
         except Exception as exc:
             if not quiet:
                 print(f"Error fetching LM Studio native model metadata: {exc}")
@@ -702,7 +1327,6 @@ class Addon(BaseAddon):
         if not isinstance(models, list):
             return None
         catalog = []
-        reasoning_control_by_model = {}
         for model in models:
             if not isinstance(model, dict):
                 continue
@@ -718,35 +1342,33 @@ class Addon(BaseAddon):
                 for option in list(reasoning.get("allowed_options") or [])
                 if str(option or "").strip()
             }
-            supports_native_reasoning_toggle = bool({"off", "on"}.issubset(reasoning_options))
-            supports_prompt_token_reasoning = bool(
-                not supports_native_reasoning_toggle and _model_uses_prompt_token_reasoning(model_id)
-            )
-            reasoning_control = "native" if supports_native_reasoning_toggle else ("prompt_token" if supports_prompt_token_reasoning else "")
-            if reasoning_control:
-                reasoning_control_by_model[model_id] = reasoning_control
             catalog.append(
                 {
                     "id": model_id,
                     "supports_images": bool(capabilities.get("vision", False)),
-                    "supports_reasoning": bool(reasoning or supports_prompt_token_reasoning),
-                    "supports_reasoning_toggle": bool(supports_native_reasoning_toggle or supports_prompt_token_reasoning),
+                    "supports_reasoning": bool(reasoning),
+                    "supports_reasoning_toggle": bool(reasoning_options),
                     "reasoning_options": sorted(reasoning_options),
-                    "reasoning_control": reasoning_control,
+                    "reasoning_default": str(reasoning.get("default") or "").strip().lower(),
                     "source": "lmstudio_native",
                 }
             )
-        self._native_reasoning_control_by_model = reasoning_control_by_model
+        self._model_catalog_by_id = {str(item.get("id") or ""): dict(item) for item in catalog}
         return sorted(catalog, key=lambda item: str(item.get("id") or "").lower())
 
     def _check_connection(self):
         try:
-            client = self._client()
-            payload = client.models.list()
-            count = len(list(getattr(payload, "data", []) or []))
+            models = self._list_native_models(quiet=False)
+            if not models:
+                raise RuntimeError("LM Studio returned no available LLM models from /api/v1/models")
+            selected_model_id = self._setting("model_name")
+            available_ids = {str(item.get("id") or "").strip() for item in models}
+            model_id = selected_model_id if selected_model_id in available_ids else str(models[0].get("id") or "").strip()
+            self._ensure_responses_compatibility(model_id)
+            count = len(models)
             return {
                 "ok": True,
-                "detail": f"Connected to LM Studio ({count} model(s) available)",
+                "detail": f"Connected to LM Studio Responses ({count} model(s) available)",
                 "model_count": count,
             }
         except Exception as exc:
@@ -759,25 +1381,18 @@ class Addon(BaseAddon):
 
     def _complete_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
         with self._responsiveness_guard():
+            self._ensure_responses_compatibility(str((params or {}).get("model") or ""))
             if self._worker_enabled():
                 return self._complete_chat_via_worker(params, additional_params)
-            if self._should_use_native_chat(params, additional_params):
-                return self._complete_native_chat(params, additional_params)
-            client = self._client()
-            response = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=False))
-            return _extract_text(response)
+            return self._complete_responses(params, additional_params)
 
     def _stream_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
         def guarded_stream():
             with self._responsiveness_guard():
+                self._ensure_responses_compatibility(str((params or {}).get("model") or ""))
                 if self._worker_enabled():
                     yield from self._stream_chat_via_worker(params, additional_params)
                     return
-                if self._should_use_native_chat(params, additional_params):
-                    yield from self._stream_native_chat(params, additional_params)
-                    return
-                client = self._client()
-                stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
-                yield from _stream_text(stream)
+                yield from self._stream_responses(params, additional_params)
 
         return guarded_stream()

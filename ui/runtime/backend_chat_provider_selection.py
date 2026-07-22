@@ -67,8 +67,22 @@ class BackendChatProviderSelectionMixin:
         for summary in summaries:
             label = str(summary.get("label") or summary.get("id") or "").strip()
             provider_id = str(summary.get("id") or "").strip()
+            normal_chat = dict(summary.get("normal_chat") or {})
+            available = bool(normal_chat.get("available", True))
             if label and provider_id:
-                self.chat_provider_combo.addItem(label, provider_id)
+                display_label = label if available else f"{label} [Update required]"
+                self.chat_provider_combo.addItem(display_label, provider_id)
+                if not available:
+                    index = self.chat_provider_combo.count() - 1
+                    message = str(normal_chat.get("message") or "").strip()
+                    self.chat_provider_combo.setItemData(
+                        index,
+                        message,
+                        QtCore.Qt.ToolTipRole,
+                    )
+                    item = self.chat_provider_combo.model().item(index)
+                    if item is not None:
+                        item.setEnabled(False)
         target_index = self.chat_provider_combo.findData(current_value)
         if target_index < 0 and self.chat_provider_combo.count():
             target_index = 0

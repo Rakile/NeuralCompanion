@@ -302,10 +302,8 @@ class ConversationStateMachine:
             if event.type is ConversationEventType.THINKING_STARTED:
                 user_text = str(state.pending_user_text or "").strip()
                 if state.is_proactive_turn:
-                    placeholder_role = "user"
-                    state.proactive_placeholder_role = placeholder_role
+                    state.proactive_placeholder_role = "user"
                     state.preserve_proactive_placeholder = True
-                    actions.append(ConversationAction(ConversationActionType.APPEND_HISTORY, {"role": placeholder_role, "content": user_text, "placeholder": True}))
                 elif not state.skip_input_history_append:
                     actions.append(ConversationAction(ConversationActionType.APPEND_HISTORY, {"role": self.policy.input_message_role, "content": user_text}))
                 if self.policy.stream_mode:
@@ -368,6 +366,9 @@ class ConversationStateMachine:
                 text = str(event.payload.get("text", "") or "").strip()
                 state.was_barge_in = True
                 state.pending_user_text = text or None
+                state.is_proactive_turn = False
+                state.proactive_placeholder_role = None
+                state.preserve_proactive_placeholder = False
                 state.stream_active = False
                 state.discard_assistant_history = True
                 state.skip_input_history_append = False

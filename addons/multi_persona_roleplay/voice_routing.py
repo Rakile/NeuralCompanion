@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import queue
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,9 @@ class PersonaVoiceRouter:
         self._ar_stream_speaker_id = ""
         self._ar_stream_speaker_by_key: dict[str, str] = {}
         self._ar_stream_speaker_at_by_key: dict[str, float] = {}
+        self._voice_route_debug_queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=128)
+        self._voice_route_debug_thread_lock = threading.Lock()
+        self._voice_route_debug_thread: threading.Thread | None = None
 
     def _voice_volume_percent(self) -> int:
         getter = getattr(self.controller, "mprc_voice_volume_percent", None)
@@ -185,12 +190,11 @@ class PersonaVoiceRouter:
         streaming = bool(payload.get("streaming", False))
         stream_start = bool(payload.get("stream_start", False))
         if self._is_alternative_reality():
-            if not streaming:
-                self._clear_ar_stream_speaker_state()
-            elif stream_start or self._stream_source_index_is_start(payload):
-                self._set_ar_stream_speaker(payload, "")
-            else:
-                self._expire_stale_ar_stream_speaker(payload)
+            if streaming:
+                if stream_start or self._stream_source_index_is_start(payload):
+                    self._set_ar_stream_speaker(payload, "")
+                else:
+                    self._expire_stale_ar_stream_speaker(payload)
             text = self._strip_assistant_prefix_before_ar_tag(text)
             text = self._normalize_ar_story_tags(text)
         explicit_persona = self._explicit_persona_for_payload(payload)
@@ -341,8 +345,9 @@ class PersonaVoiceRouter:
                         self._set_ar_stream_speaker(payload, speaker.id)
                 else:
                     self._voice_route_debug("unresolved_speaker_label", label_excerpt=self._voice_route_log_excerpt(raw_line))
-                    current_persona = current_persona or default_persona or self.controller.active_persona()
-                    current_reason = current_reason or default_reason
+                    narrator_fallback = self._narrator_persona() if self._is_alternative_reality() else None
+                    current_persona = narrator_fallback or default_persona or self.controller.active_persona()
+                    current_reason = "ar_narrator_default" if narrator_fallback is not None else default_reason
                     if self._is_alternative_reality():
                         self._set_ar_stream_speaker(payload, getattr(current_persona, "id", ""))
                     self._warn_unresolved_speaker(raw_line)
@@ -566,7 +571,10 @@ class PersonaVoiceRouter:
             return []
         matches = list(re.finditer(r'"[^"\n]*(?:"|$)|“[^”\n]*(?:”|$)', value))
         if persona.id == narrator.id:
-            return self._split_ar_narrator_attributed_dialogue(value, narrator, matches)
+            quoted = self._split_ar_narrator_attributed_dialogue(value, narrator, matches)
+            if quoted:
+                return quoted
+            return self._split_ar_narrator_unquoted_attributed_dialogue(value, narrator)
         if not matches:
             if (
                 explicit_speaker_label
@@ -610,10 +618,13 @@ class PersonaVoiceRouter:
         previous_speaker: PersonaConfig | None = None
         for match in matches:
             before = value[cursor : match.start()].strip()
-            if before:
+            label_speaker, before_without_label = self._split_trailing_inline_dialogue_label(before, narrator)
+            if before_without_label:
+                fragments.append((narrator, before_without_label))
+            elif before and label_speaker is None:
                 fragments.append((narrator, before))
             dialogue = match.group(0).strip()
-            speaker = self._infer_attributed_dialogue_speaker(
+            speaker = label_speaker or self._infer_attributed_dialogue_speaker(
                 value[max(0, cursor) : match.start()],
                 value[match.end() : min(len(value), match.end() + 240)],
                 previous_speaker,
@@ -633,6 +644,92 @@ class PersonaVoiceRouter:
             return []
         return [(fragment_persona, fragment_text) for fragment_persona, fragment_text in fragments if fragment_text.strip()]
 
+    def _split_trailing_inline_dialogue_label(
+        self,
+        text: str,
+        narrator: PersonaConfig,
+    ) -> tuple[PersonaConfig | None, str]:
+        value = str(text or "").strip()
+        if not value:
+            return None, ""
+        for persona, names in self._dialogue_speaker_name_candidates(narrator):
+            for name in names:
+                match = re.search(r"\b" + re.escape(name) + r"\b\s*:\s*$", value, re.IGNORECASE)
+                if match:
+                    return persona, value[: match.start()].strip()
+        return None, value
+
+    def _split_ar_narrator_unquoted_attributed_dialogue(
+        self,
+        value: str,
+        narrator: PersonaConfig,
+    ) -> list[tuple[PersonaConfig, str]]:
+        text = str(value or "").strip()
+        if not text:
+            return []
+        fragments: list[tuple[PersonaConfig, str]] = []
+        cursor = 0
+        any_character_dialogue = False
+        for match, speaker in self._iter_unquoted_attributed_dialogue_matches(text, narrator):
+            if match.start() < cursor:
+                continue
+            speech_start = match.end()
+            speech_end = self._unquoted_dialogue_end(text, speech_start)
+            speech = text[speech_start:speech_end].strip(" ,:-")
+            if not speech or not self._looks_like_unquoted_attributed_speech(speech, speaker):
+                continue
+            before = text[cursor : match.start()].strip()
+            if before:
+                fragments.append((narrator, before))
+            any_character_dialogue = True
+            fragments.append((speaker, speech))
+            cursor = speech_end
+        after = text[cursor:].strip()
+        if after:
+            fragments.append((narrator, after))
+        if not any_character_dialogue:
+            return []
+        return [(fragment_persona, fragment_text) for fragment_persona, fragment_text in fragments if fragment_text.strip()]
+
+    def _iter_unquoted_attributed_dialogue_matches(
+        self,
+        text: str,
+        narrator: PersonaConfig,
+    ) -> list[tuple[re.Match[str], PersonaConfig]]:
+        results: list[tuple[re.Match[str], PersonaConfig]] = []
+        verbs = self._dialogue_attribution_verbs()
+        for persona, names in self._dialogue_speaker_name_candidates(narrator):
+            for name in names:
+                escaped = re.escape(name)
+                pattern = re.compile(
+                    r"\b"
+                    + escaped
+                    + r"\b(?:\s+\w+){0,3}\s+(?:"
+                    + verbs
+                    + r")\b(?:\s+\w+){0,4}\s*[,:\-]\s*",
+                    re.IGNORECASE,
+                )
+                for match in pattern.finditer(text):
+                    results.append((match, persona))
+        return sorted(results, key=lambda item: item[0].start())
+
+    @staticmethod
+    def _unquoted_dialogue_end(text: str, start: int) -> int:
+        value = str(text or "")
+        for match in re.finditer(r"[.!?](?=\s|$)", value[max(0, int(start)) :]):
+            return max(0, int(start)) + match.end()
+        return len(value)
+
+    def _looks_like_unquoted_attributed_speech(self, text: str, persona: PersonaConfig) -> bool:
+        value = str(text or "").strip()
+        if not value or self._is_direction_only_dialogue(value):
+            return False
+        if self._looks_like_character_direct_speech(value, persona):
+            return True
+        if self._starts_like_third_person_narration(value, persona):
+            return False
+        return bool(re.search(r"[.!?]$", value)) and len(value) <= 180
+
     def _infer_attributed_dialogue_speaker(
         self,
         before: str,
@@ -642,6 +739,16 @@ class PersonaVoiceRouter:
     ) -> PersonaConfig | None:
         after_text = str(after or "")[:240]
         before_text = str(before or "")[-240:]
+        after_label_speaker = self._leading_inline_dialogue_label(after_text, narrator)
+        if after_label_speaker is not None:
+            self._voice_route_debug(
+                "attributed_dialogue",
+                reason="speaker_label_after_quote",
+                speaker_id=after_label_speaker.id,
+                display_name=after_label_speaker.display_name,
+                after_excerpt=self._voice_route_log_excerpt(after_text),
+            )
+            return after_label_speaker
         for persona, names in self._dialogue_speaker_name_candidates(narrator):
             if self._context_names_dialogue_speaker(after_text, names, after_quote=True):
                 self._voice_route_debug(
@@ -693,6 +800,20 @@ class PersonaVoiceRouter:
         )
         return None
 
+    def _leading_inline_dialogue_label(
+        self,
+        text: str,
+        narrator: PersonaConfig,
+    ) -> PersonaConfig | None:
+        value = str(text or "")
+        if not value.strip():
+            return None
+        for persona, names in self._dialogue_speaker_name_candidates(narrator):
+            for name in names:
+                if re.match(r"^\s*[,.;:!?-]*\s*" + re.escape(name) + r"\b\s*:\s*(?=[\"'])", value, re.IGNORECASE):
+                    return persona
+        return None
+
     def _recent_named_persona_from_context(self, context: str, narrator: PersonaConfig) -> PersonaConfig | None:
         text = str(context or "")[-360:]
         best_index = -1
@@ -707,9 +828,10 @@ class PersonaVoiceRouter:
         return best_persona
 
     def _dialogue_speaker_name_candidates(self, narrator: PersonaConfig) -> list[tuple[PersonaConfig, list[str]]]:
-        candidates: list[tuple[PersonaConfig, list[str]]] = []
-        for persona in self.controller.personas:
-            if persona.id == narrator.id or not bool(getattr(persona, "enabled", True)):
+        raw_candidates: list[tuple[PersonaConfig, list[str]]] = []
+        name_owners: dict[str, set[str]] = {}
+        for persona in self._routing_personas():
+            if persona.id == narrator.id:
                 continue
             raw_names = [
                 str(persona.display_name or "").strip(),
@@ -720,8 +842,14 @@ class PersonaVoiceRouter:
                 raw_names.append(first_name)
             names = sorted({name for name in raw_names if len(name) >= 2}, key=len, reverse=True)
             if names:
-                candidates.append((persona, names))
-        return candidates
+                raw_candidates.append((persona, names))
+                for name in names:
+                    name_owners.setdefault(name.lower(), set()).add(persona.id)
+        return [
+            (persona, [name for name in names if len(name_owners.get(name.lower(), set())) == 1])
+            for persona, names in raw_candidates
+            if any(len(name_owners.get(name.lower(), set())) == 1 for name in names)
+        ]
 
     @staticmethod
     def _dialogue_attribution_verbs() -> str:
@@ -729,7 +857,12 @@ class PersonaVoiceRouter:
             r"says?|said|asks?|asked|answers?|answered|replies?|replied|responds?|responded|"
             r"murmurs?|murmured|mutters?|muttered|whispers?|whispered|calls?|called|"
             r"continues?|continued|adds?|added|pauses?|paused|teases?|teased|remarks?|remarked|"
-            r"offers?|offered|snaps?|snapped|grumbles?|grumbled|laughs?|laughed|smiles?|smiled|sighs?|sighed"
+            r"offers?|offered|snaps?|snapped|grumbles?|grumbled|laughs?|laughed|smiles?|smiled|sighs?|sighed|"
+            r"barks?|barked|bellows?|bellowed|blurts?|blurted|booms?|boomed|cackles?|cackled|"
+            r"chuckles?|chuckled|cries?|cried|declares?|declared|demands?|demanded|drawls?|drawled|"
+            r"exclaims?|exclaimed|gasps?|gasped|giggles?|giggled|groans?|groaned|growls?|growled|"
+            r"grunts?|grunted|hisses?|hissed|insists?|insisted|purrs?|purred|rasps?|rasped|"
+            r"roars?|roared|scoffs?|scoffed|shouts?|shouted|snarls?|snarled|warns?|warned|yells?|yelled"
         )
 
     def _context_names_dialogue_speaker(self, context: str, names: list[str], *, after_quote: bool) -> bool:
@@ -902,8 +1035,6 @@ class PersonaVoiceRouter:
                 persona = self._ensure_character_persona(label.group(1), remaining)
             if persona is not None:
                 body = label.group(2)
-                if self._is_alternative_reality() and not self._looks_like_dialogue(body):
-                    return None, text, False
                 return persona, (leading_tags + body).strip(), True
         if not self._is_alternative_reality():
             persona = self._resolve_persona_line_prefix(remaining)
@@ -1009,7 +1140,8 @@ class PersonaVoiceRouter:
         if not wanted:
             return None
         normalized = normalize_persona_id(wanted)
-        for persona in self.controller.personas:
+        enabled_personas = self._enabled_personas()
+        for persona in enabled_personas:
             if persona.id == normalized:
                 return persona
         alias_resolver = getattr(self.controller, "resolve_story_persona_alias", None)
@@ -1018,28 +1150,54 @@ class PersonaVoiceRouter:
                 persona = alias_resolver(wanted)
             except Exception:
                 persona = None
-            if persona is not None:
+            if persona is not None and bool(getattr(persona, "enabled", True)):
                 return persona
+        routing_personas = self._routing_personas(enabled_personas)
         lowered = wanted.lower()
-        for persona in self.controller.personas:
+        for persona in routing_personas:
             names = {
                 str(persona.display_name or "").strip().lower(),
                 str(persona.role or "").strip().lower(),
             }
             if lowered in names:
                 return persona
-        fuzzy = self._resolve_persona_fuzzy(wanted)
+        fuzzy = self._resolve_persona_fuzzy(wanted, personas=routing_personas)
         if fuzzy is not None:
             return fuzzy
         return None
 
-    def _resolve_persona_fuzzy(self, value: str) -> PersonaConfig | None:
+    def _enabled_personas(self) -> list[PersonaConfig]:
+        return [persona for persona in self.controller.personas if bool(getattr(persona, "enabled", True))]
+
+    def _routing_personas(self, enabled_personas: list[PersonaConfig] | None = None) -> list[PersonaConfig]:
+        enabled = list(enabled_personas if enabled_personas is not None else self._enabled_personas())
+        if not self._is_alternative_reality():
+            return enabled
+        linked_getter = getattr(self.controller, "_current_linked_persona_ids", None)
+        if not callable(linked_getter):
+            return enabled
+        try:
+            linked_ids = [normalize_persona_id(item) for item in list(linked_getter() or []) if str(item or "").strip()]
+        except Exception:
+            return enabled
+        if not linked_ids:
+            return enabled
+        by_id = {persona.id: persona for persona in enabled}
+        linked = [by_id[persona_id] for persona_id in linked_ids if persona_id in by_id]
+        return linked or enabled
+
+    def _resolve_persona_fuzzy(
+        self,
+        value: str,
+        *,
+        personas: list[PersonaConfig] | None = None,
+    ) -> PersonaConfig | None:
         wanted_norm = normalize_persona_id(value)
         wanted_tokens = self._identity_tokens(value)
         if not wanted_norm or not wanted_tokens:
             return None
         scored: list[tuple[float, PersonaConfig]] = []
-        for persona in self.controller.personas:
+        for persona in list(personas if personas is not None else self._enabled_personas()):
             candidates = [
                 persona.id,
                 persona.display_name,
@@ -1097,12 +1255,13 @@ class PersonaVoiceRouter:
 
     def _narrator_persona(self) -> PersonaConfig | None:
         selected = getattr(self.controller, "selected_narrator_persona", lambda: None)()
-        if selected is not None:
+        if selected is not None and bool(getattr(selected, "enabled", True)):
             return selected
-        for persona in self.controller.personas:
+        routing_personas = self._routing_personas()
+        for persona in routing_personas:
             if persona.display_name.strip().lower() == "story narrator":
                 return persona
-        for persona in self.controller.personas:
+        for persona in routing_personas:
             text = " ".join([persona.id, persona.role, persona.behavior_mode, ",".join(persona.tags)]).lower()
             if "narrator" in text:
                 return persona
@@ -1194,16 +1353,6 @@ class PersonaVoiceRouter:
         events: list[dict[str, Any]],
     ) -> None:
         try:
-            path = self._voice_route_log_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if path.exists() and path.stat().st_size > 2_000_000:
-                archive = path.with_suffix(path.suffix + ".1")
-                try:
-                    if archive.exists():
-                        archive.unlink()
-                    path.replace(archive)
-                except Exception:
-                    pass
             segments = []
             for index, segment in enumerate(list((result or {}).get("segments") or [])):
                 if not isinstance(segment, dict):
@@ -1232,15 +1381,66 @@ class PersonaVoiceRouter:
                 "segments": segments,
                 "events": list(events or [])[-120:],
             }
+            self._queue_voice_route_debug_entry(entry)
+        except Exception as exc:
+            self._log_voice_route_debug_failure(exc)
+
+    def _queue_voice_route_debug_entry(self, entry: dict[str, Any]) -> None:
+        try:
+            self._voice_route_debug_queue.put_nowait(dict(entry or {}))
+        except queue.Full:
+            return
+        with self._voice_route_debug_thread_lock:
+            worker = self._voice_route_debug_thread
+            if worker is not None and worker.is_alive():
+                return
+            worker = threading.Thread(
+                target=self._voice_route_debug_worker,
+                name="MprcVoiceRouteDebugWriter",
+                daemon=True,
+            )
+            self._voice_route_debug_thread = worker
+            worker.start()
+
+    def _voice_route_debug_worker(self) -> None:
+        while True:
+            try:
+                entry = self._voice_route_debug_queue.get(timeout=0.25)
+            except queue.Empty:
+                with self._voice_route_debug_thread_lock:
+                    if self._voice_route_debug_queue.empty():
+                        self._voice_route_debug_thread = None
+                        return
+                continue
+            try:
+                self._append_voice_route_debug_entry(entry)
+            finally:
+                self._voice_route_debug_queue.task_done()
+
+    def _append_voice_route_debug_entry(self, entry: dict[str, Any]) -> None:
+        try:
+            path = self._voice_route_log_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists() and path.stat().st_size > 2_000_000:
+                archive = path.with_suffix(path.suffix + ".1")
+                try:
+                    if archive.exists():
+                        archive.unlink()
+                    path.replace(archive)
+                except Exception:
+                    pass
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except Exception as exc:
-            logger = getattr(self.controller.context, "logger", None)
-            if logger is not None:
-                try:
-                    logger.warning("[MPRC] Voice route debug logging failed: %s", exc)
-                except Exception:
-                    pass
+            self._log_voice_route_debug_failure(exc)
+
+    def _log_voice_route_debug_failure(self, exc: Exception) -> None:
+        logger = getattr(self.controller.context, "logger", None)
+        if logger is not None:
+            try:
+                logger.warning("[MPRC] Voice route debug logging failed: %s", exc)
+            except Exception:
+                pass
 
     def _voice_route_log_path(self) -> Path:
         app_root = Path(getattr(self.controller.context, "app_root", Path.cwd()))

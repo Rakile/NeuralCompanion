@@ -66,14 +66,14 @@ class QtShellService:
     def open_local_path(self, path) -> bool:
         return QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Path(path).resolve())))
 
-    def send_typed_chat_message(self, text=None) -> bool:
+    def send_typed_chat_message(self, text=None, metadata=None) -> bool:
         sender = getattr(self._window, "send_typed_chat_message", None)
         if callable(sender):
-            return bool(sender(text=text))
+            return bool(sender(text=text, metadata=dict(metadata or {})))
         backend = getattr(self._window, "backend", None)
         sender = getattr(backend, "send_typed_chat_message", None)
         if callable(sender):
-            queued = bool(sender(text=text))
+            queued = bool(sender(text=text, metadata=dict(metadata or {})))
             sync = getattr(self._window, "_sync_backend_to_ui", None)
             if queued and callable(sync):
                 try:
@@ -123,8 +123,20 @@ class QtUserImageTurnService:
     def set_pending_attachment(self, image_path: str, *, source: str = "clipboard") -> None:
         user_image_turns.set_pending_attachment(str(image_path or ""), source=str(source or "clipboard"))
 
-    def queue_image_turn(self, image_path: str, *, content: str | None = None, source: str = "clipboard") -> None:
-        user_image_turns.queue_image_turn(str(image_path or ""), content=content, source=str(source or "clipboard"))
+    def queue_image_turn(
+        self,
+        image_path: str,
+        *,
+        content: str | None = None,
+        source: str = "clipboard",
+        remote_capture_id: str = "",
+    ) -> None:
+        user_image_turns.queue_image_turn(
+            str(image_path or ""),
+            content=content,
+            source=str(source or "clipboard"),
+            remote_capture_id=str(remote_capture_id or ""),
+        )
 
 
 class QtHandCalibrationService:
@@ -1088,6 +1100,15 @@ class QtChatProviderService:
         api_key_getter=None,
         base_url_getter=None,
         metadata: dict | None = None,
+        frozen_prepare_handler=None,
+        frozen_completion_handler=None,
+        frozen_stream_handler=None,
+        model_capabilities_handler=None,
+        token_counter=None,
+        frozen_private_config_getter=None,
+        frozen_public_config_fields=None,
+        normal_chat_capable: bool = True,
+        frozen_execution_version: int | None = None,
     ):
         provider = chat_providers.register_provider(
             provider_id=provider_id,
@@ -1102,6 +1123,15 @@ class QtChatProviderService:
             api_key_getter=api_key_getter,
             base_url_getter=base_url_getter,
             metadata=metadata,
+            frozen_prepare_handler=frozen_prepare_handler,
+            frozen_completion_handler=frozen_completion_handler,
+            frozen_stream_handler=frozen_stream_handler,
+            model_capabilities_handler=model_capabilities_handler,
+            token_counter=token_counter,
+            frozen_private_config_getter=frozen_private_config_getter,
+            frozen_public_config_fields=frozen_public_config_fields,
+            normal_chat_capable=normal_chat_capable,
+            frozen_execution_version=frozen_execution_version,
         )
         self._refresh_ui(getattr(provider, "id", ""))
         return provider.to_summary()

@@ -1,0 +1,24 @@
+{
+  "id": "nc.identity_artifacts",
+  "name": "NC Identity Relay",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Connect imported identity continuity to Persona and explicit Chat relay state.",
+  "permissions": [
+    "storage.read",
+    "storage.write",
+    "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "identity_artifacts_tab",
+      "title": "NC Identity Relay",
+      "area": "top_level",
+      "order": 930,
+      "icon_path": "../../ui_icons/side_tabs/artifacts.png",
+      "tooltip": "Import source-native identity artifacts and inspect their raw and structured views."
+    }
+  ],
+  "enabled": true
+}

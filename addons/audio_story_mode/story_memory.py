@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -189,3 +190,24 @@ def merge_story_memory(memory: dict[str, Any], update: dict[str, Any]) -> tuple[
     if changed:
         merged["last_updated"] = time.time()
     return merged, changed
+
+
+def merge_committed_story_bible(
+    existing: Mapping,
+    chapter_update: Mapping,
+) -> dict[str, Any]:
+    """Return a defensively merged project Story Bible without mutating inputs."""
+    if not isinstance(existing, Mapping):
+        raise TypeError("Existing Story Bible must be a mapping")
+    if not isinstance(chapter_update, Mapping):
+        raise TypeError("Chapter Story Bible update must be a mapping")
+    existing_copy = deepcopy(dict(existing))
+    update_copy = deepcopy(dict(chapter_update))
+    merged, _changed = merge_story_memory(existing_copy, update_copy)
+    incoming_updated = update_copy.get("last_updated")
+    merged["last_updated"] = (
+        incoming_updated
+        if incoming_updated is not None
+        else normalize_story_memory(existing_copy).get("last_updated")
+    )
+    return merged

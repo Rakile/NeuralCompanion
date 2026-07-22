@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Open Companion Orb",
-      "body": "Companion Orb has its own addon tab. Its settings are separate from AI Presence and Neural Face, so orb movement, response style, sensory target capture, and supervisor behavior can be tuned without changing the other overlays. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
+      "body": "Companion Orb has its own addon tab. Its settings are separate from AI Presence, so orb movement, response style, sensory target capture, and supervisor behavior can be tuned without changing the presence overlay. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Companion Orb",
       "target": "companion_orb_overlay_addon_tab",
       "actions": [

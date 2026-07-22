@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Any, Iterable
 from urllib.error import URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from openai import OpenAI
@@ -17,6 +18,12 @@ from core.addons.base import BaseAddon
 PROVIDER_ID = "ollama"
 DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
 DEFAULT_API_KEY = "ollama"
+_LOCAL_BIND_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+
+def _is_local_base_url(base_url: Any) -> bool:
+    host = str(urlsplit(str(base_url or "").strip()).hostname or "").lower()
+    return not host or host in _LOCAL_BIND_HOSTS
 
 
 def _extract_text(response: Any) -> str:
@@ -91,6 +98,13 @@ class Addon(BaseAddon):
             connection_check_handler=self._check_connection,
             api_key_getter=self._api_key,
             base_url_getter=self._base_url,
+            frozen_execution_version=1,
+            frozen_prepare_handler=self._prepare_frozen_chat,
+            frozen_completion_handler=self._complete_frozen_chat,
+            frozen_stream_handler=self._stream_frozen_chat,
+            model_capabilities_handler=self._frozen_model_capabilities,
+            frozen_private_config_getter=self._frozen_private_config,
+            frozen_public_config_fields=("base_url", "provider_is_remote"),
             metadata={
                 "config_fields": [
                     {
@@ -176,6 +190,13 @@ class Addon(BaseAddon):
     def _base_url(self) -> str:
         return self._setting("base_url") or str(os.environ.get("NC_CHAT_OLLAMA_BASE_URL", "") or DEFAULT_BASE_URL).strip()
 
+    def _frozen_private_config(self) -> dict[str, Any]:
+        base_url = self._base_url()
+        return {
+            "base_url": base_url,
+            "provider_is_remote": not _is_local_base_url(base_url),
+        }
+
     def _native_api_base_url(self) -> str:
         base_url = str(self._base_url() or DEFAULT_BASE_URL).strip().rstrip("/")
         if base_url.endswith("/v1"):
@@ -203,6 +224,161 @@ class Addon(BaseAddon):
         if stream:
             request_kwargs["stream"] = True
         return request_kwargs
+
+    @staticmethod
+    def _frozen_binding_config(binding: Any) -> dict[str, Any]:
+        copy_config = getattr(binding, "_provider_config_copy", None)
+        if not callable(copy_config):
+            raise RuntimeError("Ollama frozen execution requires a captured provider binding.")
+        config = copy_config()
+        if not isinstance(config, dict):
+            raise RuntimeError("Ollama frozen execution requires captured provider configuration.")
+        return config
+
+    @staticmethod
+    def _frozen_generation_fields(binding: Any) -> dict[str, Any]:
+        copy_fields = getattr(binding, "_generation_fields_copy", None)
+        if not callable(copy_fields):
+            raise RuntimeError("Ollama frozen execution requires captured generation fields.")
+        fields = copy_fields()
+        if not isinstance(fields, dict):
+            raise RuntimeError("Ollama frozen execution requires captured generation fields.")
+        return fields
+
+    @staticmethod
+    def _frozen_number(value: Any, *, minimum: float, maximum: float, default: float) -> float:
+        try:
+            return max(minimum, min(maximum, float(value)))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _frozen_bool(value: Any) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    def _prepare_frozen_chat(
+        self,
+        binding: Any,
+        params: dict[str, Any],
+        additional_params: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Prepare one immutable Ollama request without consulting live addon state."""
+        del self
+        generation = Addon._frozen_generation_fields(binding)
+        prepared_params = dict(params or {})
+        prepared_additional = dict(additional_params or {})
+        model_name = str(getattr(binding, "model_name", "") or "").strip()
+        if not model_name:
+            raise RuntimeError("Ollama frozen execution requires a captured model.")
+        prepared_params["model"] = model_name
+
+        for field_name, minimum, maximum, default in (
+            ("temperature", 0.0, 2.0, 1.0),
+            ("top_p", 0.0, 1.0, 0.9),
+        ):
+            if field_name in generation and generation[field_name] is not None:
+                prepared_params[field_name] = Addon._frozen_number(
+                    generation[field_name],
+                    minimum=minimum,
+                    maximum=maximum,
+                    default=default,
+                )
+
+        for field_name, minimum, maximum, default in (
+            ("top_k", 0, 1000, 40),
+            ("min_p", 0.0, 1.0, 0.05),
+            ("repeat_penalty", 0.0, 2.0, 1.1),
+        ):
+            if field_name in generation and generation[field_name] is not None:
+                value = Addon._frozen_number(
+                    generation[field_name],
+                    minimum=minimum,
+                    maximum=maximum,
+                    default=default,
+                )
+                prepared_additional[field_name] = int(value) if field_name == "top_k" else value
+
+        if bool(generation.get("model_supports_reasoning_toggle", False)) and "reasoning" in generation:
+            prepared_params["reasoning_effort"] = (
+                "medium" if Addon._frozen_bool(generation["reasoning"]) else "none"
+            )
+
+        if "max_tokens" in generation and generation["max_tokens"] is not None:
+            try:
+                max_tokens = int(float(generation["max_tokens"]))
+            except (TypeError, ValueError):
+                max_tokens = -1
+            max_tokens = max(-1, min(131072, max_tokens))
+            if max_tokens == -1:
+                prepared_params.pop("max_tokens", None)
+            else:
+                prepared_params["max_tokens"] = max_tokens
+
+        return prepared_params, prepared_additional
+
+    @staticmethod
+    def _frozen_client(binding: Any) -> OpenAI:
+        config = Addon._frozen_binding_config(binding)
+        return OpenAI(
+            api_key=str(config.get("api_key") or "").strip(),
+            base_url=str(config.get("base_url") or "").strip(),
+        )
+
+    @staticmethod
+    def _frozen_request_binding(request: Any) -> Any:
+        context = getattr(request, "context", None)
+        binding = getattr(context, "_binding", None)
+        if binding is None:
+            raise RuntimeError("Ollama frozen execution requires a captured provider binding.")
+        return binding
+
+    def _complete_frozen_chat(self, request: Any, *, timeout=None, cancel_token=None) -> str:
+        """Complete with the private binding captured for this accepted turn."""
+        del timeout, cancel_token
+        binding = Addon._frozen_request_binding(request)
+        client = Addon._frozen_client(binding)
+        response = client.chat.completions.create(
+            **self._request_kwargs(
+                request.params_copy(),
+                request.additional_params_copy(),
+                stream=False,
+            )
+        )
+        return _extract_text(response)
+
+    def _stream_frozen_chat(self, request: Any, *, timeout=None, cancel_token=None):
+        """Stream with the private binding captured for this accepted turn."""
+        del timeout, cancel_token
+        binding = Addon._frozen_request_binding(request)
+        params = request.params_copy()
+        additional_params = request.additional_params_copy()
+
+        def _iter_stream():
+            client = Addon._frozen_client(binding)
+            stream = client.chat.completions.create(
+                **self._request_kwargs(
+                    params,
+                    additional_params,
+                    stream=True,
+                )
+            )
+            yield from _stream_text(stream)
+
+        return _iter_stream()
+
+    @staticmethod
+    def _frozen_model_capabilities(binding: Any):
+        """Keep strict Relay unavailable until Ollama parity can be proven exactly.
+
+        Ollama's OpenAI-compatible endpoint does not expose an exact tokenizer or
+        prompt-template identity for the final request. A native ``/api/show``
+        context value alone is therefore insufficient for strict Relay capacity
+        proof, so this adapter deliberately returns no strict capability data.
+        """
+        del binding
+        return None
 
     def _native_json_request(self, path: str, payload: dict[str, Any] | None = None, *, timeout: float = 5.0):
         url = f"{self._native_api_base_url()}/{str(path or '').lstrip('/')}"
@@ -382,6 +558,10 @@ class Addon(BaseAddon):
 
     def _stream_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
         self._last_model_name = str((params or {}).get("model") or self._last_model_name or "").strip()
-        client = self._client()
-        stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
-        return _stream_text(stream)
+
+        def _iter_stream():
+            client = self._client()
+            stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
+            yield from _stream_text(stream)
+
+        return _iter_stream()

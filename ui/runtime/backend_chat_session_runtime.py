@@ -5,6 +5,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 
 from core import long_term_memory
+from ui.runtime import chat_transcript_window
 from ui.runtime.engine_access import engine_module as _engine
 
 
@@ -16,6 +17,44 @@ def _update_runtime_config(key, value):
 
 class _ContinuityMemoryWorkerBridge(QtCore.QObject):
     finished = QtCore.Signal(object, object)
+
+
+def _run_memory_content_migration_notice_dialog(parent, result, *, message_box_type=None):
+    result = dict(result or {})
+    conversation_report = dict(result.get("conversation_content_migration") or {})
+    archive_report = result.get("long_term_memory_content_migration")
+    archive_report = dict(archive_report) if isinstance(archive_report, dict) else None
+    if not bool(conversation_report.get("migrated", False)) and archive_report is None:
+        return None
+
+    cleaned_messages = max(0, int(conversation_report.get("cleaned_assistant_turns", 0) or 0))
+    cleaned_chunks = max(0, int((archive_report or {}).get("cleaned_chunks", 0) or 0))
+    rebuild_count = max(0, int((archive_report or {}).get("invalidated_embeddings", 0) or 0))
+    message_box_type = message_box_type or QtWidgets.QMessageBox
+    box = message_box_type(parent)
+    box.setIcon(message_box_type.Information)
+    box.setWindowTitle("Saved Memory Updated")
+    text = (
+        "Neural Companion upgraded this chat's saved memory to the current format.\n\n"
+        f"Assistant messages repaired: {cleaned_messages}\n"
+        f"Archive chunks repaired: {cleaned_chunks}\n"
+        f"Archive embeddings requiring rebuild: {rebuild_count}\n\n"
+        "Your memory records, images, and asset links were preserved."
+    )
+    if rebuild_count:
+        text += "\n\nRebuilding will regenerate the archive embedding index using the currently selected model and settings."
+    box.setText(text)
+
+    if not rebuild_count:
+        box.setStandardButtons(message_box_type.Ok)
+        box.exec()
+        return "acknowledged"
+
+    rebuild_button = box.addButton("Rebuild Embeddings Now", message_box_type.AcceptRole)
+    later_button = box.addButton("Later", message_box_type.RejectRole)
+    box.setDefaultButton(later_button)
+    box.exec()
+    return "rebuild" if box.clickedButton() is rebuild_button else "later"
 
 
 class BackendChatSessionRuntimeMixin:
@@ -39,6 +78,14 @@ class BackendChatSessionRuntimeMixin:
         self._continuity_memory_update_callback = _callback
         register(_callback)
         self._continuity_memory_update_callback_registered = True
+
+    def _show_memory_content_migration_notice(self, result):
+        decision = _run_memory_content_migration_notice_dialog(self, result)
+        if decision is None:
+            return
+        long_term_memory.acknowledge_content_migration_report()
+        if decision == "rebuild":
+            QtCore.QTimer.singleShot(0, self.rebuild_long_term_memory_embeddings_now)
 
     @QtCore.Slot()
     def continuity_memory_updated(self):
@@ -463,6 +510,12 @@ class BackendChatSessionRuntimeMixin:
         self._update_chat_status(self._console_redirect.chat_line_count, int(self.chat_auto_scroll))
         self.save_session()
 
+    def on_chat_visual_batch_size_changed(self, value):
+        normalized = chat_transcript_window.normalize_visual_batch_size(value)
+        _update_runtime_config("chat_visual_batch_size", normalized)
+        self._rebuild_chat_view_from_history(force=True)
+        self.save_session()
+
     def on_chat_overflow_policy_changed(self, choice):
         _update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(choice))
         self._refresh_chat_session_hint()
@@ -692,8 +745,19 @@ class BackendChatSessionRuntimeMixin:
         _update_runtime_config("long_term_memory_retrieval_enabled", bool(checked))
         self.save_session()
 
+    def on_long_term_memory_image_review_enabled_changed(self, checked):
+        _update_runtime_config("long_term_memory_image_review_enabled", bool(checked))
+        self.save_session()
+
     def on_long_term_memory_retrieval_max_items_changed(self, value):
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(value))))
+        self.save_session()
+
+    def on_long_term_memory_recall_text_budget_changed(self, value):
+        _update_runtime_config(
+            "long_term_memory_recall_text_budget",
+            long_term_memory.normalize_recall_text_budget(value, default=-1),
+        )
         self.save_session()
 
     def on_long_term_memory_recall_image_limit_changed(self, value):

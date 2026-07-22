@@ -25,7 +25,16 @@
           ]
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/with-android-cleartext",
+      "expo-asset",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow NC Main Chat Remote to scan NeuralCompanion pairing QR codes.",
+          "recordAudioAndroid": false
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,
@@ -34,7 +43,7 @@
       }
     },
     "android": {
-      "usesCleartextTraffic": true,
+      "package": "com.lainol.ncmainchatremote",
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]

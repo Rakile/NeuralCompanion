@@ -5,6 +5,7 @@ import { colors, spacing } from '../styles/theme';
 
 type Props = {
   disabled: boolean;
+  photoAvailable: boolean;
   voiceAvailable: boolean;
   recording: boolean;
   busy: boolean;
@@ -13,9 +14,10 @@ type Props = {
   onTranscriptConsumed?: () => void;
   onSend: (text: string) => Promise<void>;
   onRecordPress: () => Promise<void>;
+  onPhotoPress: () => void;
 };
 
-export function Composer({ disabled, voiceAvailable, recording, busy, recordingError, transcript = '', onTranscriptConsumed, onSend, onRecordPress }: Props) {
+export function Composer({ disabled, photoAvailable, voiceAvailable, recording, busy, recordingError, transcript = '', onTranscriptConsumed, onSend, onRecordPress, onPhotoPress }: Props) {
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState('');
   const recordDisabled = busy || ((disabled || !voiceAvailable) && !recording);
@@ -60,6 +62,13 @@ export function Composer({ disabled, voiceAvailable, recording, busy, recordingE
           style={styles.input}
           multiline
         />
+        <Pressable
+          disabled={disabled || busy || !photoAvailable}
+          style={[styles.photoButton, (disabled || busy || !photoAvailable) && styles.disabled]}
+          onPress={onPhotoPress}
+        >
+          <Text style={styles.buttonText}>Photo</Text>
+        </Pressable>
         <Pressable disabled={recordDisabled} style={[styles.micButton, recording && styles.recording, recordDisabled && styles.disabled]} onPress={onRecordPress}>
           <Text style={styles.buttonText}>{recording ? 'Stop' : voiceAvailable ? 'Mic' : 'No STT'}</Text>
         </Pressable>
@@ -108,6 +117,16 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   micButton: {
+    alignItems: 'center',
+    backgroundColor: colors.panelAlt,
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: 'center',
+    width: 58,
+  },
+  photoButton: {
     alignItems: 'center',
     backgroundColor: colors.panelAlt,
     borderColor: colors.border,

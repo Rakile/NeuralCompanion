@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import logging
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -11,6 +12,7 @@ from typing import Any
 
 from .context import AddonContext, AddonEventBus, AddonServiceRegistry
 from .manifest import AddonManifest
+from core.tts_latency_diagnostics import TtsLatencyDiagnostics
 
 
 @dataclass
@@ -57,6 +59,8 @@ class AddonManager:
         self._host_services = dict(host_services or {})
         self._records: list[LoadedAddon] = []
         self._registry_state = self._load_registry_state()
+        self._latency_diagnostics = TtsLatencyDiagnostics(self.app_root)
+        self._host_services.setdefault("diagnostics.tts_latency", self.record_latency_event)
 
     def _load_registry_state(self) -> dict[str, Any]:
         try:
@@ -266,6 +270,7 @@ class AddonManager:
                         self.logger.exception("Addon context cleanup failed for '%s'", record.manifest.id)
                 if record.state != "error":
                     record.state = "unloaded"
+        self.close_latency_diagnostics()
 
     def get_tab_contributions(self, area: str = "top_level"):
         from .contributions import normalize_ui_area
@@ -295,13 +300,25 @@ class AddonManager:
         for record in self._records:
             if record.state != "initialized" or record.instance is None:
                 continue
+            started_at = time.perf_counter()
+            result = None
+            error_type = ""
             try:
                 if hasattr(record.instance, "invoke_capability"):
                     result = record.instance.invoke_capability(capability, self._capability_payload(request))
                     if result is not None:
                         return result
-            except Exception:
+            except Exception as exc:
+                error_type = type(exc).__name__
                 self.logger.exception("Addon capability invoke failed for '%s' on '%s'", capability, record.manifest.id)
+            finally:
+                self._trace_addon_capability(
+                    record,
+                    capability,
+                    started_at=started_at,
+                    handled=result is not None,
+                    error_type=error_type,
+                )
         return None
 
     def invoke_all_capabilities(self, capability: str, payload: dict[str, Any] | None = None) -> list[Any]:
@@ -320,15 +337,61 @@ class AddonManager:
         for record in self._records:
             if record.state != "initialized" or record.instance is None:
                 continue
+            started_at = time.perf_counter()
+            result = None
+            error_type = ""
             try:
                 if not hasattr(record.instance, "invoke_capability"):
                     continue
                 result = record.instance.invoke_capability(capability, self._capability_payload(request))
                 if result is not None:
                     results.append(result)
-            except Exception:
+            except Exception as exc:
+                error_type = type(exc).__name__
                 self.logger.exception("Addon capability invoke failed for '%s' on '%s'", capability, record.manifest.id)
+            finally:
+                self._trace_addon_capability(
+                    record,
+                    capability,
+                    started_at=started_at,
+                    handled=result is not None,
+                    error_type=error_type,
+                )
         return results
+
+    def _trace_addon_capability(
+        self,
+        record: LoadedAddon,
+        capability: str,
+        *,
+        started_at: float,
+        handled: bool,
+        error_type: str = "",
+    ) -> None:
+        diagnostics = getattr(self, "_latency_diagnostics", None)
+        if diagnostics is None:
+            return
+        diagnostics.record_addon_capability(
+            addon_id=str(record.manifest.id or ""),
+            capability=str(capability or ""),
+            duration_ms=(time.perf_counter() - float(started_at)) * 1000.0,
+            handled=bool(handled),
+            error_type=str(error_type or ""),
+        )
+
+    def flush_latency_diagnostics(self, timeout: float = 1.0) -> bool:
+        diagnostics = getattr(self, "_latency_diagnostics", None)
+        return True if diagnostics is None else bool(diagnostics.flush(timeout=timeout))
+
+    def record_latency_event(self, event: str, **fields: Any) -> None:
+        diagnostics = getattr(self, "_latency_diagnostics", None)
+        if diagnostics is not None:
+            diagnostics.record_event(event, **fields)
+
+    def close_latency_diagnostics(self, timeout: float = 1.0) -> None:
+        diagnostics = getattr(self, "_latency_diagnostics", None)
+        if diagnostics is not None:
+            diagnostics.close(timeout=timeout)
 
     @staticmethod
     def _capability_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -350,11 +413,39 @@ class AddonManager:
         capability = str(capability or "").strip()
         if not capability or not hasattr(record.instance, "invoke_capability"):
             return None
+        started_at = time.perf_counter()
+        result = None
+        error_type = ""
         try:
-            return record.instance.invoke_capability(capability, dict(payload or {}))
-        except Exception:
+            result = record.instance.invoke_capability(capability, dict(payload or {}))
+            return result
+        except Exception as exc:
+            error_type = type(exc).__name__
             self.logger.exception("Addon capability invoke failed for '%s' on '%s'", capability, record.manifest.id)
             return None
+        finally:
+            self._trace_addon_capability(
+                record,
+                capability,
+                started_at=started_at,
+                handled=result is not None,
+                error_type=error_type,
+            )
+
+    def invoke_addon_capability_strict(
+        self,
+        addon_id: str,
+        capability: str,
+        payload: dict[str, Any] | None = None,
+    ) -> Any:
+        """Invoke one initialized addon while propagating capability failures."""
+        record = self.get_addon_record(addon_id)
+        if record is None or record.state != "initialized" or record.instance is None:
+            return None
+        capability = str(capability or "").strip()
+        if not capability or not hasattr(record.instance, "invoke_capability"):
+            return None
+        return record.instance.invoke_capability(capability, dict(payload or {}))
 
     def get_addon_id_for_service(self, service_id: str, **metadata_match: Any) -> str:
         """Return the addon that declares a manifest service matching metadata.

@@ -40,3 +40,10 @@ def normalize_companion_orb_target_source_selection(sources, enabled):
     if bool(enabled) and COMPANION_ORB_PROVIDER_ID not in ordered:
         ordered.append(COMPANION_ORB_PROVIDER_ID)
     return ordered
+
+
+def resolve_companion_orb_target_source_selection(sources, enabled, *, explicit):
+    selected = normalize_source_tokens(sources)
+    if bool(explicit):
+        return selected
+    return normalize_companion_orb_target_source_selection(selected, enabled)

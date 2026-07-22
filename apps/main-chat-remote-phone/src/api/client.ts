@@ -1,4 +1,5 @@
 import type { RemoteEnvelope, RemoteHealth, RemoteState } from './types';
+import { recordPhoneDebug, uploadPhoneDebug } from '../utils/phoneDebugBridge';
 
 type JsonRecord = Record<string, unknown>;
 export type SendTextOptions = {
@@ -24,6 +25,7 @@ export type MprcSendOptions = {
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
 const HEALTH_REQUEST_TIMEOUT_MS = 5000;
 const STT_REQUEST_TIMEOUT_MS = 120000;
+const IMAGE_REQUEST_TIMEOUT_MS = 120000;
 const MIN_REQUEST_TIMEOUT_MS = 1000;
 const MAX_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const DROPPED_MEDIA_QUERY_KEYS = new Set(['code', 'token']);
@@ -189,6 +191,20 @@ export class RemoteClient {
     }, { timeoutMs: STT_REQUEST_TIMEOUT_MS });
   }
 
+  async sendImage(imageBase64: string, format: string, prompt: string, options: SendTextOptions = {}) {
+    return this.request('POST', '/api/image', {
+      image_base64: imageBase64,
+      format,
+      prompt,
+      play_on_backend: Boolean(options.playOnBackend),
+      capture_phone_audio: options.capturePhoneAudio !== false,
+    }, { timeoutMs: IMAGE_REQUEST_TIMEOUT_MS });
+  }
+
+  async uploadDebug(reason = 'manual'): Promise<number> {
+    return uploadPhoneDebug(this.baseUrl, this.pairingCode, reason, true);
+  }
+
   private async request<T>(method: 'GET' | 'POST', path: string, body?: JsonRecord, options: RequestOptions = {}): Promise<T> {
     const url = this.apiUrl(path);
     const timeoutMs = normalizeTimeoutMs(options.timeoutMs);
@@ -227,6 +243,11 @@ export class RemoteClient {
         ]);
       }
     } catch (exc) {
+      void recordPhoneDebug('error', 'request_failed', {
+        method,
+        path,
+        error: exc instanceof Error ? exc.message : String(exc),
+      });
       if (controller?.signal.aborted) {
         throw timeoutError(timeoutMs);
       }
@@ -247,10 +268,15 @@ export class RemoteClient {
     }
     if (!response.ok) {
       const error = payload && typeof payload === 'object' ? String((payload as JsonRecord).error || `HTTP ${response.status}`) : `HTTP ${response.status}`;
+      void recordPhoneDebug('error', 'request_rejected', { method, path, status: response.status, error });
       throw new RemoteRequestError(error, response.status, payload);
     }
     if (!payload || typeof payload !== 'object') {
+      void recordPhoneDebug('error', 'invalid_response', { method, path, status: response.status });
       throw new Error('Remote backend returned an invalid response.');
+    }
+    if (options.authorize !== false && path !== '/api/debug') {
+      void uploadPhoneDebug(this.baseUrl, this.pairingCode, 'connection_recovered').catch(() => undefined);
     }
     return payload as T;
   }

@@ -44,6 +44,82 @@ NODE_BRIDGE_REQUIRED_PACKAGES = (
     "opusscript",
     "prism-media",
 )
+RUNTIME_LOG_MAX_BYTES = 5 * 1024 * 1024
+RUNTIME_LOG_KEEP_BYTES = 4 * 1024 * 1024
+
+
+def _trim_runtime_log_file(path: Path, *, max_bytes: int = RUNTIME_LOG_MAX_BYTES, keep_bytes: int = RUNTIME_LOG_KEEP_BYTES) -> None:
+    try:
+        if not path.exists():
+            return
+        size = path.stat().st_size
+        if size <= max_bytes:
+            return
+        keep = max(0, min(int(keep_bytes), int(max_bytes)))
+        with path.open("rb") as handle:
+            handle.seek(max(0, size - keep))
+            tail = handle.read()
+        trimmed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        marker = (
+            f"--- Discord Voice Bridge log trimmed @ {trimmed_at}; "
+            f"kept last {len(tail)} byte(s) of {size} ---\n"
+        ).encode("utf-8", errors="replace")
+        path.write_bytes(marker + tail)
+    except Exception:
+        pass
+
+
+class _BoundedRuntimeLog:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self._handle = None
+        self._open()
+
+    def _open(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        _trim_runtime_log_file(self.path)
+        self._handle = self.path.open("a", encoding="utf-8")
+
+    def write(self, text: str) -> int:
+        handle = self._handle
+        if handle is None:
+            self._open()
+            handle = self._handle
+        if handle is None:
+            return 0
+        written = handle.write(str(text or ""))
+        try:
+            handle.flush()
+            if handle.tell() > RUNTIME_LOG_MAX_BYTES:
+                handle.close()
+                self._handle = None
+                _trim_runtime_log_file(self.path)
+                self._open()
+        except Exception:
+            pass
+        return written
+
+    def flush(self) -> None:
+        handle = self._handle
+        if handle is not None:
+            handle.flush()
+
+    def close(self) -> None:
+        handle = self._handle
+        self._handle = None
+        if handle is not None:
+            handle.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+        return False
+
+
+def _open_runtime_log(path: Path) -> _BoundedRuntimeLog:
+    return _BoundedRuntimeLog(path)
 
 
 class BridgeInstance:
@@ -177,6 +253,7 @@ class Addon(BaseAddon):
             self._stop_node_bridge(instance)
             self._stop_runtime_server(instance)
         self._bridge_instances = []
+        self._stop_tiny_mvp_room_server()
         return self.status_snapshot()
 
     def restart_bridge_instances(self):
@@ -351,7 +428,7 @@ class Addon(BaseAddon):
             raise RuntimeError("npm install timed out after 10 minutes.") from exc
 
         output = _redact_runtime_log_text(result.stdout or "")
-        with log_path.open("a", encoding="utf-8") as handle:
+        with _open_runtime_log(log_path) as handle:
             handle.write("\n--- npm install ---\n")
             handle.write(output)
             if output and not output.endswith("\n"):
@@ -406,9 +483,11 @@ class Addon(BaseAddon):
         logger = getattr(getattr(self, "context", None), "logger", None)
         tiny_url = str(_get(settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
         if _tiny_mvp_room_reachable(tiny_url):
+            self._sync_tiny_mvp_mic_participant(settings, tiny_url)
             self._sync_tiny_mvp_monitor(settings, tiny_url)
             return True
         if self._tiny_mvp_room_server_running():
+            self._sync_tiny_mvp_mic_participant(settings, tiny_url)
             self._sync_tiny_mvp_monitor(settings, tiny_url)
             return True
         script = _tiny_mvp_room_script(settings)
@@ -422,7 +501,7 @@ class Addon(BaseAddon):
         log_path = log_dir / "tiny_mvp_room.log"
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            self._tiny_mvp_room_log_handle = log_path.open("a", encoding="utf-8")
+            self._tiny_mvp_room_log_handle = _open_runtime_log(log_path)
             launched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self._tiny_mvp_room_log_handle.write(f"\n--- TinyMVP room launch @ {launched_at} ---\nscript={script}\nurl={tiny_url}\n")
             self._tiny_mvp_room_log_handle.flush()
@@ -456,6 +535,7 @@ class Addon(BaseAddon):
             if _tiny_mvp_room_reachable(tiny_url):
                 if logger:
                     logger.info("TinyMVP room server is ready at %s", tiny_url)
+                self._sync_tiny_mvp_mic_participant(settings, tiny_url)
                 self._sync_tiny_mvp_monitor(settings, tiny_url)
                 return True
             if not self._tiny_mvp_room_server_running():
@@ -482,14 +562,7 @@ class Addon(BaseAddon):
         self._stop_tiny_mvp_monitor()
         process = getattr(self, "_tiny_mvp_room_process", None)
         if process is not None and bool(getattr(self, "_tiny_mvp_room_owned", False)) and process.poll() is None:
-            try:
-                process.terminate()
-                process.wait(timeout=5)
-            except Exception:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
+            _terminate_process_tree(process)
         self._tiny_mvp_room_process = None
         self._tiny_mvp_room_output_thread = None
         self._tiny_mvp_room_owned = False
@@ -510,6 +583,52 @@ class Addon(BaseAddon):
         else:
             self._stop_tiny_mvp_monitor()
 
+    @staticmethod
+    def _sync_tiny_mvp_mic_participant(settings: dict[str, Any], tiny_url: str) -> None:
+        if _bridge_mode(settings) != "tiny_mvp" or not _get(settings, "tiny_mvp.capture_mic", False):
+            return
+        tiny_url = str(tiny_url or "").rstrip("/")
+        if not tiny_url:
+            return
+        mic_user_id, mic_user_name = _tiny_mvp_mic_identity(settings)
+        _http_json(
+            "POST",
+            f"{tiny_url}/participants/upsert",
+            {"id": mic_user_id, "name": mic_user_name, "type": "human", "connected": True},
+            timeout=1.5,
+        )
+        if mic_user_id == "rakila":
+            return
+        try:
+            state = _http_json("GET", f"{tiny_url}/state", timeout=1.5)
+        except Exception:
+            return
+        participants = state.get("participants") if isinstance(state, dict) else []
+        if not isinstance(participants, list):
+            return
+        for participant in participants:
+            if not isinstance(participant, dict):
+                continue
+            if str(participant.get("id") or "").strip().lower() != "rakila":
+                continue
+            if str(participant.get("name") or "").strip() != "Rakila":
+                continue
+            if str(participant.get("kind") or participant.get("type") or "").strip().lower() != "human":
+                continue
+            if bool(participant.get("current")) or bool(participant.get("next")):
+                continue
+            try:
+                queued_audio = int(participant.get("queued_audio") or 0)
+            except (TypeError, ValueError):
+                queued_audio = 0
+            if queued_audio:
+                continue
+            try:
+                _http_json("POST", f"{tiny_url}/participants/remove", {"id": "rakila"}, timeout=1.5)
+            except Exception:
+                return
+            return
+
     def _start_tiny_mvp_monitor(self, settings: dict[str, Any], tiny_url: str) -> None:
         if self._tiny_mvp_monitor_running():
             return
@@ -524,7 +643,7 @@ class Addon(BaseAddon):
         log_path = log_dir / "tiny_mvp_monitor.log"
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            self._tiny_mvp_monitor_log_handle = log_path.open("a", encoding="utf-8")
+            self._tiny_mvp_monitor_log_handle = _open_runtime_log(log_path)
             launched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             monitor_url = f"{str(tiny_url).rstrip('/')}/state"
             self._tiny_mvp_monitor_log_handle.write(f"\n--- TinyMVP monitor launch @ {launched_at} ---\nscript={script}\nurl={monitor_url}\n")
@@ -570,14 +689,7 @@ class Addon(BaseAddon):
     def _stop_tiny_mvp_monitor(self) -> None:
         process = getattr(self, "_tiny_mvp_monitor_process", None)
         if process is not None and bool(getattr(self, "_tiny_mvp_monitor_owned", False)) and process.poll() is None:
-            try:
-                process.terminate()
-                process.wait(timeout=5)
-            except Exception:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
+            _terminate_process_tree(process)
         self._tiny_mvp_monitor_process = None
         self._tiny_mvp_monitor_output_thread = None
         self._tiny_mvp_monitor_owned = False
@@ -663,7 +775,7 @@ class Addon(BaseAddon):
             instance.command_path.unlink(missing_ok=True)
         except Exception:
             pass
-        instance.log_handle = log_path.open("a", encoding="utf-8")
+        instance.log_handle = _open_runtime_log(log_path)
         token_env_var = str(_get(instance.settings, "discord.token_env_var", "DISCORD_TOKEN") or "DISCORD_TOKEN")
         launched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         transport_label = "TinyMVP Voice Bridge" if tiny_mode else "Discord Voice Bridge"
@@ -687,6 +799,7 @@ class Addon(BaseAddon):
                     port = int(nc_runtime.get("port") or 8768)
                     nc_turn_url = f"http://{host}:{port}/turn"
                 poll_seconds = float(tiny_mvp.get("poll_seconds") or 0.25)
+                mic_user_id, mic_user_name = _tiny_mvp_mic_identity(instance.settings)
                 args = [
                     str(executable),
                     str(script),
@@ -700,6 +813,10 @@ class Addon(BaseAddon):
                     nc_turn_url,
                     "--poll-seconds",
                     str(poll_seconds),
+                    "--mic-user-id",
+                    mic_user_id,
+                    "--mic-user-name",
+                    mic_user_name,
                 ]
                 playback_settings = instance.settings.get("playback") if isinstance(instance.settings.get("playback"), dict) else {}
                 if _bool_setting(
@@ -742,14 +859,7 @@ class Addon(BaseAddon):
     def _stop_node_bridge(self, instance: BridgeInstance):
         process = instance.process
         if process is not None and process.poll() is None:
-            try:
-                process.terminate()
-                process.wait(timeout=5)
-            except Exception:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
+            _terminate_process_tree(process)
         instance.process = None
         instance.output_thread = None
         self._close_log_handle(instance)
@@ -820,6 +930,12 @@ class Addon(BaseAddon):
 
     def _sync_tiny_mvp_local_mic(self, settings: dict[str, Any]) -> None:
         tiny_mvp = settings.get("tiny_mvp") if isinstance(settings, dict) else {}
+        if _bridge_mode(settings) == "tiny_mvp" and isinstance(tiny_mvp, dict) and bool(tiny_mvp.get("capture_mic")):
+            tiny_url = str(_get(settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+            try:
+                self._sync_tiny_mvp_mic_participant(settings, tiny_url)
+            except Exception:
+                pass
         enabled = (
             _bridge_mode(settings) == "tiny_mvp"
             and isinstance(tiny_mvp, dict)
@@ -1081,7 +1197,7 @@ class Addon(BaseAddon):
         if not str((state or {}).get("playback_owner_id") or "").strip():
             return False
         tiny_mvp = settings.get("tiny_mvp") if isinstance(settings.get("tiny_mvp"), dict) else {}
-        user_id = str(tiny_mvp.get("mic_user_id") or "rakila").strip() or "rakila"
+        user_id = str(tiny_mvp.get("mic_user_id") or "human").strip() or "human"
         if _tiny_mvp_current_speaker_blocks_user(state, user_id):
             return False
         if not self._tiny_mvp_reply_immunity_elapsed(state, playback):
@@ -1142,8 +1258,8 @@ class Addon(BaseAddon):
         state = _http_json("GET", f"{tiny_url}/state")
         participants = list((state or {}).get("participants") or [])
         tiny_mvp = settings.get("tiny_mvp") if isinstance(settings.get("tiny_mvp"), dict) else {}
-        user_id = str(tiny_mvp.get("mic_user_id") or "rakila").strip() or "rakila"
-        speaker_name = str(tiny_mvp.get("mic_user_name") or "Rakila").strip() or "Rakila"
+        user_id = str(tiny_mvp.get("mic_user_id") or "human").strip() or "human"
+        speaker_name = str(tiny_mvp.get("mic_user_name") or "Human").strip() or "Human"
         if _tiny_mvp_participant_is_muted(state, user_id):
             if logger:
                 logger.info("TinyMVP NC microphone ignored muted participant %s.", speaker_name)
@@ -1187,7 +1303,11 @@ class Addon(BaseAddon):
             "wav_path": str(wav_path),
             "duration_seconds": duration_seconds,
             "participants": participants,
-            "room_context": _tiny_mvp_room_context(participants),
+            "room_context": _tiny_mvp_room_context(
+                participants,
+                state=state,
+                limit=_int_setting(_get(settings, "chat.context_entries", 20), 20),
+            ),
             "record_route_context": bool(protected_current_speech and route_protected_mic_speech),
         }
         decision = instance.runtime_server.route_turn(payload)
@@ -1273,18 +1393,32 @@ class Addon(BaseAddon):
         if trigger_mode not in {"no_route_after_any_speech", "any_speech", "bot_or_human"}:
             return
         silence_timeout = _float_setting(recovery.get("silence_timeout_seconds"), 10.0)
+        payload = Addon._tiny_mvp_dead_air_payload(settings, reason)
         if silence_timeout > 0:
             threading.Thread(
                 target=Addon._recover_tiny_mvp_dead_air_after_quiet_delay,
-                args=(tiny_url, reason, silence_timeout),
+                args=(tiny_url, payload, silence_timeout),
                 name="TinyMVP NC mic dead-air recovery",
                 daemon=True,
             ).start()
             return
-        _http_json("POST", f"{tiny_url}/dead-air", {"reason": f"dead_air_recovery:{reason}"})
+        _http_json("POST", f"{tiny_url}/dead-air", payload)
 
     @staticmethod
-    def _recover_tiny_mvp_dead_air_after_quiet_delay(tiny_url: str, reason: str, silence_timeout: float) -> None:
+    def _tiny_mvp_dead_air_payload(settings: dict[str, Any], reason: str) -> dict[str, Any]:
+        router = settings.get("room_router") if isinstance(settings.get("room_router"), dict) else {}
+        recovery = router.get("dead_air_recovery") if isinstance(router.get("dead_air_recovery"), dict) else {}
+        tiny = settings.get("tiny_mvp") if isinstance(settings.get("tiny_mvp"), dict) else {}
+        return {
+            "reason": f"dead_air_recovery:{reason}",
+            "source_id": str(tiny.get("mic_user_id") or "").strip(),
+            "source_name": str(tiny.get("mic_user_name") or "").strip(),
+            "strategy": str(recovery.get("next_speaker_strategy") or "llm_choose").strip(),
+            "fallback_target": str(recovery.get("selected_fallback_target") or "").strip(),
+        }
+
+    @staticmethod
+    def _recover_tiny_mvp_dead_air_after_quiet_delay(tiny_url: str, payload: dict[str, Any], silence_timeout: float) -> None:
         timeout = max(0.0, float(silence_timeout))
         poll_interval = min(0.25, max(0.02, timeout / 2.0 if timeout else 0.02))
         deadline = time.time() + max(30.0, timeout + 5.0)
@@ -1302,7 +1436,7 @@ class Addon(BaseAddon):
             if quiet_since is None:
                 quiet_since = now
             if now - quiet_since >= timeout:
-                _http_json("POST", f"{tiny_url}/dead-air", {"reason": f"dead_air_recovery:{reason}"})
+                _http_json("POST", f"{tiny_url}/dead-air", payload)
                 return
             time.sleep(poll_interval)
 
@@ -1549,6 +1683,17 @@ def _tiny_mvp_monitor_command(settings: dict[str, Any] | None, monitor_url: str)
     return [str(sys.executable), str(_tiny_mvp_room_script(settings)), "--gui", "--monitor-url", str(monitor_url)]
 
 
+def _tiny_mvp_mic_identity(settings: dict[str, Any] | None) -> tuple[str, str]:
+    tiny_mvp = (settings or {}).get("tiny_mvp") if isinstance(settings, dict) else {}
+    if not isinstance(tiny_mvp, dict):
+        tiny_mvp = {}
+    user_id = _safe_instance_id(tiny_mvp.get("mic_user_id") or "human")
+    if not user_id:
+        user_id = "human"
+    user_name = str(tiny_mvp.get("mic_user_name") or "").strip() or ("Human" if user_id == "human" else user_id)
+    return user_id, user_name
+
+
 def _tiny_mvp_bridge_script(settings: dict[str, Any] | None = None) -> Path:
     tiny_mvp = (settings or {}).get("tiny_mvp") if isinstance(settings, dict) else {}
     configured = ""
@@ -1779,6 +1924,32 @@ def _bridge_instance_is_running(instance: BridgeInstance) -> bool:
     return bool(server is not None and getattr(server, "running", False))
 
 
+def _terminate_process_tree(process: subprocess.Popen, *, timeout: float = 5.0) -> None:
+    if process is None or process.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+                check=False,
+            )
+            process.wait(timeout=1)
+            return
+        except Exception:
+            pass
+    try:
+        process.terminate()
+        process.wait(timeout=timeout)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
 def _delete_instance_history_file(instance_id: str) -> None:
     safe_id = _safe_instance_id(instance_id)
     for history_path in (
@@ -1887,22 +2058,141 @@ def _wav_duration_seconds(path: Path) -> float:
         return 0.0
 
 
-def _tiny_mvp_room_context(participants: list[Any]) -> dict[str, Any]:
-    return {
-        "source": "TinyMVP NC microphone",
-        "participants": [
-            {
-                "id": str(item.get("id") or ""),
-                "name": str(item.get("name") or item.get("id") or ""),
-                "kind": str(item.get("kind") or item.get("type") or ""),
-                "connected": bool(item.get("connected", True)),
-                "current": bool(item.get("current")),
-                "next": bool(item.get("next")),
-            }
-            for item in participants
-            if isinstance(item, dict)
-        ],
+def _tiny_mvp_room_context(
+    participants: list[Any],
+    *,
+    state: dict[str, Any] | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    names = {
+        _safe_instance_id(item.get("id") or ""): str(item.get("name") or item.get("id") or "").strip()
+        for item in participants
+        if isinstance(item, dict) and _safe_instance_id(item.get("id") or "")
     }
+    participant_parts: list[str] = []
+    for item in participants:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("id") or "").strip()
+        if not name:
+            continue
+        flags = []
+        if bool(item.get("current")):
+            flags.append("current")
+        if bool(item.get("next")):
+            flags.append("next")
+        if not bool(item.get("connected", True)):
+            flags.append("disconnected")
+        kind = "bot" if str(item.get("kind") or item.get("type") or "") == "bot" else "human"
+        suffix = f" ({kind}{'; ' + ', '.join(flags) if flags else ''})"
+        participant_parts.append(f"{name}{suffix}")
+
+    entries: list[dict[str, Any]] = []
+    if participant_parts:
+        entries.append({
+            "role": "system",
+            "content": "Current room participants: " + ", ".join(participant_parts),
+            "answer": False,
+            "reason": "participants",
+        })
+
+    flow = (state or {}).get("route_flow") if isinstance(state, dict) else []
+    try:
+        count = min(1000, max(1, int(limit or 20)))
+    except (TypeError, ValueError):
+        count = 20
+    if isinstance(flow, list):
+        for item in flow[-count:]:
+            if not isinstance(item, dict):
+                continue
+            message = " ".join(str(item.get("message") or "").split())
+            event_type = str(item.get("type") or "event").strip() or "event"
+            message = _tiny_mvp_flow_clean_model_message(message, event_type)
+            if not message:
+                continue
+            raw_source_id = str(item.get("source_id") or "").strip()
+            raw_target_id = str(item.get("target_id") or "").strip()
+            source_id = _safe_instance_id(raw_source_id) if raw_source_id else ""
+            target_id = _safe_instance_id(raw_target_id) if raw_target_id else ""
+            source_name = names.get(source_id, source_id) or "Room"
+            target_name = names.get(target_id, target_id) if target_id else ""
+            message = _tiny_mvp_strip_duplicate_source_label(message, source_name)
+            prefix = f"{source_name} -> {target_name}: " if target_name else f"{source_name}: "
+            entries.append({
+                "role": "user",
+                "content": f"{prefix}{message}",
+                "answer": bool(target_id),
+                "reason": event_type,
+            })
+    return entries
+
+
+def _tiny_mvp_flow_clean_model_message(message: str, event_type: str = "") -> str:
+    text = str(message or "").strip()
+    if not _tiny_mvp_flow_entry_is_model_relevant(text, event_type):
+        return ""
+    return text
+
+
+def _tiny_mvp_strip_duplicate_source_label(message: str, source_name: str) -> str:
+    text = str(message or "").strip()
+    source = str(source_name or "").strip()
+    if not text or not source:
+        return text
+    prefix = f"{source}:"
+    if text.lower().startswith(prefix.lower()):
+        return text[len(prefix):].strip()
+    return text
+
+
+def _tiny_mvp_flow_entry_is_model_relevant(message: str, event_type: str = "") -> bool:
+    text = str(message or "").strip()
+    if not text:
+        return False
+    event_key = str(event_type or "").strip().lower()
+    if event_key in {
+        "playback",
+        "current",
+        "capture",
+        "queue",
+        "render",
+        "moderator_updated",
+        "participant",
+        "system",
+        "status",
+        "route",
+        "dead_air",
+        "dead_air_recovery",
+        "human_moderator",
+        "bot_text_router",
+        "room_router",
+    }:
+        return False
+    internal_patterns = (
+        "Playback started as ",
+        "Playback stopped",
+        "Current cleared",
+        "Current -> ",
+        "Capture owner",
+        "Dead-air recovery chose",
+        "Next ->",
+        " -> no route | answer=",
+        " -> no route | ",
+        "queue_cleared",
+        "runtime_replies",
+        ".wav",
+    )
+    if any(pattern in text for pattern in internal_patterns):
+        return False
+    lower_text = text.lower()
+    lifecycle_patterns = (
+        "room initialized",
+        "human connected",
+        "bot connected",
+        " removed.",
+        "participant updated",
+    )
+    return not any(pattern in lower_text for pattern in lifecycle_patterns)
 
 
 def _tiny_mvp_room_has_active_or_pending_speaker(state: dict[str, Any]) -> bool:

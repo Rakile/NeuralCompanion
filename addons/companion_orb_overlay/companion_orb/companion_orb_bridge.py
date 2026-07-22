@@ -4,6 +4,8 @@ from typing import Any
 
 from PySide6 import QtCore
 
+from addons.companion_orb_overlay.companion_orb import orb_palettes
+
 try:
     from addons.ai_presence_mode.mood_color_resolver import resolve_mood_colors
 except Exception:  # pragma: no cover
@@ -59,7 +61,19 @@ def _animation_setting(settings, key, default) -> str:
 
 def _visual_style_setting(settings, key, default) -> str:
     value = str((settings or {}).get(key, default) or default).strip().lower()
-    allowed = {"neural_spark", "aurora_glass", "prismatic_pulse", "aether_wisp", "celestial_firetrail"}
+    allowed = {
+        "neural_spark",
+        "aurora_glass",
+        "prismatic_pulse",
+        "aether_wisp",
+        "celestial_firetrail",
+        "quantum_halo",
+        "event_horizon",
+        "holographic_iris",
+        "synaptic_bloom",
+        "liquid_core",
+        "void_prism",
+    }
     return value if value in allowed else str(default)
 
 
@@ -68,6 +82,7 @@ class CompanionOrbBridge(QtCore.QObject):
     level_changed = QtCore.Signal()
     settings_changed = QtCore.Signal()
     target_changed = QtCore.Signal()
+    gaze_timer_changed = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -79,6 +94,7 @@ class CompanionOrbBridge(QtCore.QObject):
         self._accent_color = "#a78bfa"
         self._glow_color = "#67e8f9"
         self._custom_colors_enabled = False
+        self._color_palette = orb_palettes.CUSTOM_PALETTE_ID
         self._custom_primary_color = "#22d3ee"
         self._custom_secondary_color = "#38bdf8"
         self._custom_accent_color = "#a78bfa"
@@ -112,9 +128,12 @@ class CompanionOrbBridge(QtCore.QObject):
         self._shaders_enabled = True
         self._edit_mode = False
         self._placement_mode = False
-        self._click_through = True
+        self._click_through = False
         self._target_info: dict[str, Any] = {}
         self._show_target_label = True
+        self._gaze_timer_active = False
+        self._gaze_timer_progress = 0.0
+        self._gaze_timer_color = "#facc15"
 
     @QtCore.Property(str, notify=state_changed)
     def aiState(self):
@@ -287,6 +306,18 @@ class CompanionOrbBridge(QtCore.QObject):
     def showTargetLabel(self):
         return self._show_target_label
 
+    @QtCore.Property(bool, notify=gaze_timer_changed)
+    def gazeTimerActive(self):
+        return self._gaze_timer_active
+
+    @QtCore.Property(float, notify=gaze_timer_changed)
+    def gazeTimerProgress(self):
+        return self._gaze_timer_progress
+
+    @QtCore.Property(str, notify=gaze_timer_changed)
+    def gazeTimerColor(self):
+        return self._gaze_timer_color
+
     @QtCore.Slot(str)
     def setAiState(self, state):
         value = str(state or "idle").strip().lower()
@@ -315,6 +346,32 @@ class CompanionOrbBridge(QtCore.QObject):
             return
         self._audio_level = value
         self.level_changed.emit()
+
+    @QtCore.Slot(bool, float, str)
+    def setGazeTimerState(self, active, progress, color=""):
+        enabled = bool(active)
+        try:
+            normalized_progress = max(0.0, min(1.0, float(progress))) if enabled else 0.0
+        except (TypeError, ValueError):
+            normalized_progress = 0.0
+        normalized_color = self._gaze_timer_color
+        if str(color or "").strip():
+            normalized_color = _color_setting(
+                {"gaze_timer_color": color},
+                "gaze_timer_color",
+                self._gaze_timer_color,
+            )
+        changed = (
+            enabled != self._gaze_timer_active
+            or abs(normalized_progress - self._gaze_timer_progress) >= 0.002
+            or normalized_color != self._gaze_timer_color
+        )
+        if not changed:
+            return
+        self._gaze_timer_active = enabled
+        self._gaze_timer_progress = normalized_progress
+        self._gaze_timer_color = normalized_color
+        self.gaze_timer_changed.emit()
 
     @QtCore.Slot(str)
     def setPresenceMood(self, mood):
@@ -351,12 +408,18 @@ class CompanionOrbBridge(QtCore.QObject):
         self._falling_particle_lifetime = _float_setting(payload, "companion_orb_falling_particle_lifetime", 3.8, 0.8, 8.0)
         self._smoke_intensity = _float_setting(payload, "companion_orb_smoke_intensity", 0.35, 0.0, 1.0)
         self._glow_strength = _float_setting(payload, "companion_orb_glow_strength", payload.get("ai_presence_glow_strength", 1.0), 0.0, 1.75)
-        self._mood_color_intensity = _float_setting(payload, "companion_orb_mood_color_intensity", payload.get("ai_presence_mood_color_intensity", 0.85), 0.0, 1.0)
-        self._custom_colors_enabled = bool(payload.get("companion_orb_custom_colors_enabled", False))
-        self._custom_primary_color = _color_setting(payload, "companion_orb_primary_color", "#22d3ee")
-        self._custom_secondary_color = _color_setting(payload, "companion_orb_secondary_color", "#38bdf8")
-        self._custom_accent_color = _color_setting(payload, "companion_orb_accent_color", "#a78bfa")
-        self._custom_glow_color = _color_setting(payload, "companion_orb_glow_color", "#67e8f9")
+        mood_color_intensity = _float_setting(payload, "companion_orb_mood_color_intensity", 0.85, 0.0, 1.0)
+        mood_color_mode = str(payload.get("companion_orb_mood_color_mode", "automatic") or "automatic").strip().lower()
+        if mood_color_mode not in {"automatic", "manual", "off"}:
+            mood_color_mode = "automatic"
+        self._mood_color_intensity = 0.0 if mood_color_mode == "off" else mood_color_intensity
+        self._color_palette = orb_palettes.normalize_palette_id(payload.get("companion_orb_color_palette", orb_palettes.CUSTOM_PALETTE_ID))
+        selected_palette = orb_palettes.palette_for_id(self._color_palette)
+        self._custom_colors_enabled = bool(payload.get("companion_orb_custom_colors_enabled", False)) or self._color_palette != orb_palettes.CUSTOM_PALETTE_ID
+        self._custom_primary_color = _color_setting(payload, "companion_orb_primary_color", selected_palette.primary)
+        self._custom_secondary_color = _color_setting(payload, "companion_orb_secondary_color", selected_palette.secondary)
+        self._custom_accent_color = _color_setting(payload, "companion_orb_accent_color", selected_palette.accent)
+        self._custom_glow_color = _color_setting(payload, "companion_orb_glow_color", selected_palette.glow)
         self._state_colors_enabled = bool(payload.get("companion_orb_state_colors_enabled", False))
         self._idle_color = _color_setting(payload, "companion_orb_idle_color", "#38bdf8")
         self._thinking_color = _color_setting(payload, "companion_orb_thinking_color", "#a78bfa")
@@ -375,11 +438,20 @@ class CompanionOrbBridge(QtCore.QObject):
         self._particles_enabled = bool(payload.get("companion_orb_particles_enabled", payload.get("ai_presence_particles_enabled", True)))
         self._shaders_enabled = bool(payload.get("companion_orb_shaders_enabled", payload.get("ai_presence_shaders_enabled", True)))
         self._show_target_label = bool(payload.get("companion_orb_show_target_label", True))
-        if str(payload.get("ai_presence_mood_color_mode", "automatic")).strip().lower() == "manual":
-            self.setPresenceMood(payload.get("ai_presence_manual_mood", "neutral"))
+        gaze_timer_color = _color_setting(
+            payload,
+            "companion_orb_eye_tracking_gaze_timer_color",
+            "#facc15",
+        )
+        gaze_timer_color_changed = gaze_timer_color != self._gaze_timer_color
+        self._gaze_timer_color = gaze_timer_color
+        if mood_color_mode == "manual":
+            self.setPresenceMood(payload.get("companion_orb_manual_mood", "neutral"))
         else:
             self._apply_color_palette()
         self.settings_changed.emit()
+        if gaze_timer_color_changed:
+            self.gaze_timer_changed.emit()
 
     def set_modes(self, *, edit_mode=None, placement_mode=None, click_through=None):
         if edit_mode is not None:

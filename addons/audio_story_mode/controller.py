@@ -4,6 +4,7 @@ import hashlib
 import importlib
 import json
 import math
+import os
 import re
 import ast
 import threading
@@ -13,11 +14,46 @@ import uuid
 import copy
 import queue
 from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 
 from addons.audio_story_mode import runtime_bridge as audio_story_runtime
+from addons.audio_story_mode import (
+    checkpointing,
+    instructor_adapter,
+    project_autosave,
+    project_models,
+    project_store,
+    story_projects,
+    structured_models,
+)
+from addons.audio_story_mode.audio_sources import (
+    AudioSource,
+    build_audio_sources,
+    locate_global_position,
+    split_global_range,
+    total_duration_seconds,
+)
 from addons.audio_story_mode.job_control import CancellationToken, JobDeadline
+from addons.audio_story_mode.transcription_pipeline import (
+    TranscriptionFailure,
+    transcribe_slice,
+    transcribe_slices,
+)
+from addons.audio_story_mode.tts_segment_queue import (
+    SEGMENT_SCHEMA_VERSION,
+    TtsQueuePlan,
+    TtsReadySegment,
+    build_tts_queue_plan,
+    clear_audio_story_tts_cache,
+    load_ready_segment,
+    normalized_tts_settings_snapshot,
+    publish_ready_segment,
+    ready_seconds_from,
+)
 from addons.audio_story_mode.visual_stream import (
     AudioStoryVisualStreamServer,
     cast_image_to_chromecast,
@@ -31,11 +67,21 @@ from addons.audio_story_mode.visual_stream import (
 from addons.audio_story_mode.prompt_builder import build_grok_story_bible_prompt
 from addons.audio_story_mode.session_schema import audio_story_mode_session_payload, flatten_audio_story_mode_settings
 from addons.audio_story_mode.story_planner import build_scene_review
-from addons.audio_story_mode.story_session import build_story_state_flat_payload, restore_story_overrides
+from addons.audio_story_mode.story_session import (
+    build_story_state_flat_payload,
+    legacy_story_state_available,
+    restore_story_overrides,
+)
 from addons.audio_story_mode.story_analyzer import StoryAnalyzer
-from addons.audio_story_mode.story_memory import StoryMemoryStore, merge_story_memory
+from addons.audio_story_mode.story_memory import (
+    StoryMemoryStore,
+    empty_story_memory,
+    merge_committed_story_bible,
+    merge_story_memory,
+)
 from addons.audio_story_mode.story_modes import normalize_analysis_mode
 from addons.audio_story_mode.stream_security import new_stream_access_token
+from addons.audio_story_mode.tab_navigation import AudioStoryTabNavigation
 from PySide6 import QtCore, QtGui, QtWidgets
 
 try:
@@ -78,6 +124,35 @@ class _AudioStoryRefineBridge(QtCore.QObject):
     finished = QtCore.Signal(object, str, str, str)
 
 
+@dataclass(frozen=True)
+class _TtsRenderContext:
+    settings_snapshot: Mapping[str, object]
+    sample_rate: int
+    voice_path: str
+    seed: int
+    generation_kwargs: Mapping[str, object]
+
+
+@dataclass
+class _PendingTtsMediaTransition:
+    job_id: int
+    project_id: str
+    queue_signature: str
+    segment_signature: str
+    segment_index: int
+    audio_path: Path
+    source_key: str
+    global_target_seconds: float
+    global_offset_seconds: float
+    local_target_seconds: float
+    resume_playback: bool
+    resume_intent_explicit: bool
+
+
+class _TtsSettingsChangedError(RuntimeError):
+    pass
+
+
 _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS = {
     "characters": 420,
     "location": 320,
@@ -114,7 +189,7 @@ _AUDIO_STORY_XAI_IMAGE_RESPONSE_FORMATS = ("b64_json",)
 _AUDIO_STORY_CONTROL_TOOLTIPS = {
     "audio_story_intro_label": "Audio Story turns an imported story or audiobook into planned scenes, generated visuals, and synced playback.",
     "audio_story_path_edit": "Current source audio for Audio Story Mode. Import a file, then transcribe it before playback or image generation can run.",
-    "audio_story_import_button": "Choose the audiobook or story audio file. Importing a new file clears the current transcript, images, and cached story timing.",
+    "audio_story_import_button": "Add one or more audiobook or story audio chapters to the open Audio Story project.",
     "audio_story_playback_label": "Audio source used when Audio Story plays the timeline.",
     "audio_story_playback_mode_combo": "Playback source. Imported Audio is cheapest and fastest; TTS Narration renders a new local narration track from the transcript before playing.",
     "audio_story_precision_label": "Overall quality preset for transcript detail, image timing, scene planning, and prompt detail.",
@@ -167,6 +242,9 @@ _AUDIO_STORY_CONTROL_TOOLTIPS = {
     "audio_story_xai_n_label": "Number of images requested from xAI per API call.",
     "audio_story_xai_n_spin": "Number of images requested per API call. Audio Story still uses one image per timeline scene.",
     "audio_story_transcribe_button": "Run local Whisper transcription, then build story windows, scene metadata, and image prompts for this session.",
+    "audio_story_transcription_console": "Current-session transcription progress and complete error details. Transcript text is not written here.",
+    "audio_story_transcription_console_copy_button": "Copy the visible transcription activity log to the clipboard.",
+    "audio_story_transcription_console_clear_button": "Clear the current-session transcription activity log.",
     "audio_story_scene_status_label": "Current scene summary and override state.",
     "audio_story_scene_character_label": "Character continuity pins for the selected scene.",
     "audio_story_pin_location_button": "Pin the current detected location as a continuity anchor for later images.",
@@ -665,14 +743,27 @@ _AUDIO_STORY_WORLD_HINTS = {
 
 
 class AudioStoryModeController(QtCore.QObject):
+    audioSourcesReady = QtCore.Signal(object)
     transcriptionProgress = QtCore.Signal(object)
     transcriptionFinished = QtCore.Signal(object)
     transcriptionFailed = QtCore.Signal(str)
     ttsRenderFinished = QtCore.Signal(object)
     ttsRenderFailed = QtCore.Signal(str)
+    ttsQueuePrepared = QtCore.Signal(object)
+    ttsSegmentReady = QtCore.Signal(object)
+    ttsQueueStateChanged = QtCore.Signal(object)
+    ttsQueueFailed = QtCore.Signal(object)
+    ttsQueueComplete = QtCore.Signal(object)
+    ttsBundleValidationFinished = QtCore.Signal(object)
+    ttsCacheClearFinished = QtCore.Signal(object)
+    ttsCacheScanFinished = QtCore.Signal(object)
     imageReady = QtCore.Signal(object)
     imageFailed = QtCore.Signal(object)
     chromecastJobFinished = QtCore.Signal(object)
+    storyProjectJobFinished = QtCore.Signal(object)
+    storyProjectAutosaveSaved = QtCore.Signal(object)
+    storyProjectAutosaveFailed = QtCore.Signal(object)
+    storyProjectPipelineReleased = QtCore.Signal()
 
     def __init__(self, context=None):
         super().__init__()
@@ -685,12 +776,46 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_player = None
         self.audio_output = None
         self.imported_audio_path = ""
+        self.imported_audio_paths = []
+        self.imported_audio_sources = []
         self.imported_audio_duration_seconds = 0.0
         self.transcript_chunks = []
         self.full_transcript_text = ""
         self.story_style_guide = ""
         self._transcription_job_id = 0
+        self._audio_sources_revision = 0
         self._tts_render_job_id = 0
+        self._tts_queue_plan: TtsQueuePlan | None = None
+        self._tts_ready_segments: dict[int, TtsReadySegment] = {}
+        self._tts_queue_state = "Idle"
+        self._tts_state_before_pause = "Idle"
+        self._tts_playback_paused = False
+        self._tts_queue_error = ""
+        self._tts_queue_failure_reason = ""
+        self._tts_active_segment_index = 0
+        self._tts_active_segment_global_offset = 0.0
+        self._tts_playback_position_seconds = 0.0
+        self._tts_buffering_target_seconds: float | None = None
+        self._tts_render_target_segment_index = 0
+        self._tts_render_target_segment_global_offset = 0.0
+        self._tts_resume_after_buffering = False
+        self._tts_pending_media_transition: (
+            _PendingTtsMediaTransition | None
+        ) = None
+        self._tts_completing_media_transition = False
+        self._tts_render_condition = threading.Condition()
+        self._tts_render_thread: threading.Thread | None = None
+        self._tts_preparing_project_id = ""
+        self._tts_bundle_validation_job_id = 0
+        self._tts_bundle_validation_pending = False
+        self._tts_cast_after_bundle_validation = False
+        self._tts_cast_validation_previous_device_name = ""
+        self._tts_queue_transcript_snapshot: tuple[dict, ...] = ()
+        self._tts_queue_settings_snapshot: dict = {}
+        self._tts_cache_clear_job_id = 0
+        self._tts_cache_clear_in_progress = False
+        self._tts_cache_scan_job_id = 0
+        self._tts_cache_entry_count = 0
         self._image_generation_token = 0
         self._image_generation_worker_running = False
         self._image_generation_active_start_index = -1
@@ -699,10 +824,17 @@ class AudioStoryModeController(QtCore.QObject):
         self._user_scrubbing = False
         self._pending_autoplay_tts = False
         self._player_source_key = ""
+        self._active_source_index = 0
+        self._active_source_global_offset = 0.0
+        self._source_playback_expected = False
+        self._last_transcription_console_entry = ""
         self._current_chunk_index = -1
         self._stored_transcribe_seconds = 8
         self._stored_transcription_start_seconds = 0
         self._stored_transcription_end_seconds = 0
+        self._stored_selected_range_enabled = False
+        self._stored_tts_startup_buffer_seconds = 30
+        self._stored_tts_render_ahead_seconds = 120
         self._stored_image_frequency_seconds = 12
         self._stored_image_timing_mode = "fixed"
         self._stored_generate_ahead_frames = 1
@@ -719,6 +851,7 @@ class AudioStoryModeController(QtCore.QObject):
             audio_story_runtime.runtime_config_value("audio_story_analysis_mode", "scene_only")
         )
         self._stored_use_llm_story_analysis = False
+        self._stored_instructor_beats_enabled = False
         self._stored_story_analysis_provider_mode = "current"
         self._stored_story_analysis_model = ""
         self._stored_prompt_block_limits = dict(_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS)
@@ -737,6 +870,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._tts_signature = ""
         self._refine_bridge = _AudioStoryRefineBridge()
         self._refine_bridge.finished.connect(self._on_audio_story_field_refined)
+        self.storyProjectPipelineReleased.connect(self._refresh_controls)
         self._image_cache = {}
         self._prompt_image_cache = {}
         self._llm_story_analysis_cache = {}
@@ -777,6 +911,41 @@ class AudioStoryModeController(QtCore.QObject):
         self.location_anchors = {}
         self._last_transcription_audio_duration = 0.0
         self._lock = threading.RLock()
+        self._story_project_manager_lock = threading.RLock()
+        self.current_story_project_id = ""
+        self._current_story_project = None
+        self._story_projects = []
+        self._story_project_generation = 0
+        self._story_project_input_fingerprint = ""
+        self._story_project_busy = False
+        self._story_project_mutating_pipeline_owner = None
+        self._transcription_project_pipeline_owner = None
+        self._analysis_project_pipeline_owner = None
+        self._image_project_pipeline_owner = None
+        self._story_project_autosave_queue = None
+        self._story_project_autosave_ownership = {}
+        self._story_project_pending_autosave = None
+        self._story_project_dirty_autosave = None
+        self._story_project_shutdown = False
+        self._story_project_shutdown_save_failure = ""
+        self._story_project_shutdown_final_ownership = None
+        self.legacy_story_available_for_migration = False
+        self._legacy_story_session_payload = {}
+        storage = getattr(self.context, "storage", None)
+        resolver = getattr(storage, "resolve", None)
+        try:
+            story_project_root = (
+                Path(resolver("projects"))
+                if callable(resolver)
+                else Path("runtime") / "audio_story_mode" / "projects"
+            )
+        except Exception:
+            story_project_root = Path("runtime") / "audio_story_mode" / "projects"
+        self._story_project_store = project_store.StoryProjectStore(story_project_root)
+        self._story_project_manager = story_projects.StoryProjectManager(
+            self._story_project_store,
+            audio_story_runtime.audio_duration_seconds,
+        )
         self._cache_root = self.context.storage.resolve("cache") if self.context is not None else (Path("runtime") / "audio_story_mode")
         self._cache_root.mkdir(parents=True, exist_ok=True)
         self._preset_root = self.context.storage.resolve("presets") if self.context is not None else (Path("runtime") / "audio_story_mode" / "presets")
@@ -794,14 +963,48 @@ class AudioStoryModeController(QtCore.QObject):
         self._theme_refresh_timer.setSingleShot(True)
         self._theme_refresh_timer.setInterval(80)
         self._theme_refresh_timer.timeout.connect(self.apply_theme_palette)
+        self._tts_settings_watch_timer = QtCore.QTimer(self)
+        self._tts_settings_watch_timer.setInterval(500)
+        self._tts_settings_watch_timer.timeout.connect(
+            self._on_tts_settings_watch_timeout
+        )
+        self.audioSourcesReady.connect(self._on_audio_sources_ready)
         self.transcriptionProgress.connect(self._on_transcription_progress)
         self.transcriptionFinished.connect(self._on_transcription_finished)
         self.transcriptionFailed.connect(self._on_transcription_failed)
         self.ttsRenderFinished.connect(self._on_tts_render_finished)
         self.ttsRenderFailed.connect(self._on_tts_render_failed)
+        queued_connection = QtCore.Qt.ConnectionType.QueuedConnection
+        self.ttsSegmentReady.connect(
+            self._on_tts_segment_ready, queued_connection
+        )
+        self.ttsQueuePrepared.connect(
+            self._on_tts_queue_prepared, queued_connection
+        )
+        self.ttsQueueStateChanged.connect(
+            self._on_tts_queue_state_changed, queued_connection
+        )
+        self.ttsQueueFailed.connect(
+            self._on_tts_queue_failed, queued_connection
+        )
+        self.ttsQueueComplete.connect(
+            self._on_tts_queue_complete, queued_connection
+        )
+        self.ttsBundleValidationFinished.connect(
+            self._on_tts_bundle_validation_finished, queued_connection
+        )
+        self.ttsCacheClearFinished.connect(
+            self._on_tts_cache_clear_finished, queued_connection
+        )
+        self.ttsCacheScanFinished.connect(
+            self._on_tts_cache_scan_finished, queued_connection
+        )
         self.imageReady.connect(self._on_image_ready)
         self.imageFailed.connect(self._on_image_failed)
         self.chromecastJobFinished.connect(self._on_chromecast_job_finished)
+        self.storyProjectJobFinished.connect(self._on_story_project_job_finished)
+        self.storyProjectAutosaveSaved.connect(self._on_story_project_autosave_saved)
+        self.storyProjectAutosaveFailed.connect(self._on_story_project_autosave_failed)
 
     def _visual_reply_capability(self, capability: str, payload=None, default=None):
         bridge = getattr(self, "capability_bridge", None)
@@ -966,6 +1169,8 @@ class AudioStoryModeController(QtCore.QObject):
         widgets = [root]
         try:
             widgets.extend(root.findChildren(QtWidgets.QWidget))
+        except RuntimeError:
+            return
         except Exception:
             pass
         for widget in widgets:
@@ -1222,6 +1427,7 @@ class AudioStoryModeController(QtCore.QObject):
             "QWidget#audio_story_mode_tab QGroupBox#audio_story_timing_group,"
             "QWidget#audio_story_mode_tab QGroupBox#audio_story_prompt_group,"
             "QWidget#audio_story_mode_tab QGroupBox#audio_story_analysis_group,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_transcription_console_group,"
             "QWidget#audio_story_mode_tab QGroupBox#audio_story_xai_group {{"
             " background: {panel_bg}; border: 1px solid {border}; border-radius: 10px;"
             " margin-top: 14px; padding: 18px 12px 12px 12px; font-weight: 600;"
@@ -1230,6 +1436,7 @@ class AudioStoryModeController(QtCore.QObject):
             "QWidget#audio_story_mode_tab QGroupBox#audio_story_timing_group::title,"
             "QWidget#audio_story_mode_tab QGroupBox#audio_story_prompt_group::title,"
             "QWidget#audio_story_mode_tab QGroupBox#audio_story_analysis_group::title,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_transcription_console_group::title,"
             "QWidget#audio_story_mode_tab QGroupBox#audio_story_xai_group::title {{"
             " background: {panel_bg}; subcontrol-origin: margin; left: 10px; padding: 0 6px;"
             "}}"
@@ -1342,6 +1549,7 @@ class AudioStoryModeController(QtCore.QObject):
                 "audio_story_timing_group",
                 "audio_story_prompt_group",
                 "audio_story_analysis_group",
+                "audio_story_transcription_console_group",
                 "audio_story_xai_group",
             ):
                 group = root.findChild(QtWidgets.QGroupBox, group_name)
@@ -1349,7 +1557,16 @@ class AudioStoryModeController(QtCore.QObject):
                     _set_style_if_changed(group, category_group_style)
             for label in root.findChildren(QtWidgets.QLabel):
                 existing = str(label.property("_audio_story_designer_style_sheet") or label.styleSheet() or "")
-                if "font-weight: 700" in existing:
+                if str(label.objectName() or "") == "audio_story_inner_tab_title":
+                    tab_button = label.parentWidget()
+                    tab_color = str(getattr(tab_button, "_color", accent) or accent)
+                    _set_style_if_changed(
+                        label,
+                        f"background: transparent; border: none; color: {tab_color}; font-weight: 800;",
+                    )
+                elif str(label.objectName() or "") == "audio_story_inner_tab_icon":
+                    _set_style_if_changed(label, "background: transparent; border: none;")
+                elif "font-weight: 700" in existing:
                     _set_style_if_changed(label, _style_with_designer_override(label, f"background: transparent; font-size: 13px; font-weight: 700; color: {text};"))
                 elif "font-size: 11px" in existing:
                     _set_style_if_changed(label, _style_with_designer_override(label, f"background: transparent; color: {subtle}; font-size: 11px;"))
@@ -1599,6 +1816,82 @@ class AudioStoryModeController(QtCore.QObject):
             if label is not None:
                 label.setText(str(value or "").strip())
 
+    def _bind_story_project_controls(self, root, compact_button_style: str) -> None:
+        self.audio_story_project_header_frame = self._ui_child(
+            root, "audio_story_project_header_frame", QtWidgets.QFrame
+        )
+        self.audio_story_project_name_label = self._ui_child(
+            root, "audio_story_project_name_label", QtWidgets.QLabel
+        )
+        self.audio_story_project_autosave_label = self._ui_child(
+            root, "audio_story_project_autosave_label", QtWidgets.QLabel
+        )
+        self.audio_story_project_page_frame = self._ui_child(
+            root, "audio_story_project_page_frame", QtWidgets.QFrame
+        )
+        self.audio_story_project_list = self._ui_child(
+            root, "audio_story_project_list", QtWidgets.QListWidget
+        )
+        self.audio_story_project_chapter_list = self._ui_child(
+            root, "audio_story_project_chapter_list", QtWidgets.QListWidget
+        )
+        self.audio_story_project_chapter_status_label = self._ui_child(
+            root, "audio_story_project_chapter_status_label", QtWidgets.QLabel
+        )
+        self.audio_story_project_recovery_label = self._ui_child(
+            root, "audio_story_project_recovery_label", QtWidgets.QLabel
+        )
+        bindings = (
+            ("audio_story_project_new_button", self._create_story_project),
+            ("audio_story_project_open_button", self._open_story_project),
+            ("audio_story_project_rename_button", self._rename_story_project),
+            ("audio_story_project_close_button", self._close_story_project),
+            ("audio_story_project_delete_button", self._delete_story_project),
+            ("audio_story_project_add_audio_button", self._choose_audio_files),
+            ("audio_story_project_chapter_rename_button", self._rename_story_project_chapter),
+            ("audio_story_project_chapter_move_up_button", self._move_story_project_chapter_up),
+            ("audio_story_project_chapter_move_down_button", self._move_story_project_chapter_down),
+            ("audio_story_project_relink_button", self._relink_story_project_chapter),
+            ("audio_story_project_archive_button", self._archive_story_project_chapter),
+            ("audio_story_project_restore_button", self._restore_story_project_chapter),
+            ("audio_story_project_resume_all_button", self._resume_story_project),
+            ("audio_story_project_retry_button", self._retry_story_project_item),
+        )
+        for object_name, slot in bindings:
+            button = self._ui_child(root, object_name, QtWidgets.QPushButton)
+            setattr(self, object_name, button)
+            if button is not None:
+                button.setStyleSheet(compact_button_style)
+                button.clicked.connect(slot)
+        migration_button = getattr(
+            self, "audio_story_project_save_current_button", None
+        )
+        if migration_button is None:
+            migration_button = QtWidgets.QPushButton("Save Current Story as Project")
+            migration_button.setObjectName("audio_story_project_save_current_button")
+            migration_button.setStyleSheet(compact_button_style)
+            migration_button.clicked.connect(self._save_current_story_as_project)
+            lifecycle_row = root.findChild(
+                QtWidgets.QHBoxLayout, "audio_story_project_lifecycle_row"
+            )
+            if lifecycle_row is not None:
+                lifecycle_row.insertWidget(1, migration_button)
+            else:
+                migration_button.setParent(root)
+        self.audio_story_project_save_current_button = migration_button
+        self._offer_legacy_project_migration()
+        if self.audio_story_project_list is not None:
+            self.audio_story_project_list.itemSelectionChanged.connect(
+                self._refresh_story_project_ui
+            )
+            self.audio_story_project_list.itemDoubleClicked.connect(
+                lambda _item: self._open_story_project()
+            )
+        if self.audio_story_project_chapter_list is not None:
+            self.audio_story_project_chapter_list.itemSelectionChanged.connect(
+                self._refresh_story_project_ui
+            )
+
     def _bind_designer_runtime_widget(self, root):
         # The Designer shell owns fixed layout. Runtime code only binds behavior
         # and still creates data-driven rows such as style presets and prompt caps.
@@ -1624,8 +1917,11 @@ class AudioStoryModeController(QtCore.QObject):
         if scroll_content is not None:
             scroll_content.setEnabled(True)
         self._install_audio_story_interaction_filters(root)
-        QtCore.QTimer.singleShot(0, self._force_audio_story_runtime_enabled)
-        QtCore.QTimer.singleShot(250, self._force_audio_story_runtime_enabled)
+        for delay_ms in (0, 250):
+            enable_timer = QtCore.QTimer(root)
+            enable_timer.setSingleShot(True)
+            enable_timer.timeout.connect(self._force_audio_story_runtime_enabled)
+            enable_timer.start(delay_ms)
         self._apply_audio_story_user_facing_copy(root)
         self._ensure_audio_story_workflow_strip(root)
         self._ensure_audio_story_scene_review_panel(root)
@@ -1635,13 +1931,38 @@ class AudioStoryModeController(QtCore.QObject):
             "QPushButton { padding: 6px 10px; }"
             "QPushButton:checked { background: #4d8dff; color: white; border: 1px solid #6a95ff; }"
         )
+        self._bind_story_project_controls(root, compact_button_style)
 
         self.audio_story_path_edit = path_edit
         self.audio_story_path_edit.setReadOnly(True)
-        self.audio_story_path_edit.setPlaceholderText("Import an audiobook or story audio file...")
+        self.audio_story_path_edit.setPlaceholderText("Import one or more audiobook or story audio files...")
         self.audio_story_import_button = import_button
         self.audio_story_import_button.setStyleSheet(compact_button_style)
-        self.audio_story_import_button.clicked.connect(self._choose_audio_file)
+        self.audio_story_import_button.clicked.connect(self._choose_audio_files)
+        self.audio_story_source_list = self._ui_child(root, "audio_story_source_list", QtWidgets.QListWidget)
+        if self.audio_story_source_list is not None:
+            self.audio_story_source_list.itemSelectionChanged.connect(self._refresh_controls)
+        self.audio_story_source_move_up_button = self._ui_child(root, "audio_story_source_move_up_button", QtWidgets.QPushButton)
+        self.audio_story_source_move_down_button = self._ui_child(root, "audio_story_source_move_down_button", QtWidgets.QPushButton)
+        self.audio_story_source_remove_button = self._ui_child(root, "audio_story_source_remove_button", QtWidgets.QPushButton)
+        self.audio_story_source_clear_button = self._ui_child(root, "audio_story_source_clear_button", QtWidgets.QPushButton)
+        for queue_button in (
+            self.audio_story_source_move_up_button,
+            self.audio_story_source_move_down_button,
+            self.audio_story_source_remove_button,
+            self.audio_story_source_clear_button,
+        ):
+            if queue_button is not None:
+                queue_button.setStyleSheet(compact_button_style)
+        if self.audio_story_source_move_up_button is not None:
+            self.audio_story_source_move_up_button.clicked.connect(lambda: self._move_selected_audio_source(-1))
+        if self.audio_story_source_move_down_button is not None:
+            self.audio_story_source_move_down_button.clicked.connect(lambda: self._move_selected_audio_source(1))
+        if self.audio_story_source_remove_button is not None:
+            self.audio_story_source_remove_button.clicked.connect(self._remove_selected_audio_sources)
+        if self.audio_story_source_clear_button is not None:
+            self.audio_story_source_clear_button.clicked.connect(self._clear_audio_sources)
+        self._refresh_audio_source_queue()
 
         self.audio_story_playback_mode_combo = self._ui_child(root, "audio_story_playback_mode_combo", QtWidgets.QComboBox)
         if self.audio_story_playback_mode_combo is not None:
@@ -1679,12 +2000,17 @@ class AudioStoryModeController(QtCore.QObject):
         if self.audio_story_transcribe_seconds_label is not None:
             self.audio_story_transcribe_seconds_label.setText("Transcript detail")
         self.audio_story_transcribe_seconds_value_label = self._ui_child(root, "audio_story_transcribe_seconds_value_label", QtWidgets.QLabel)
+        self.audio_story_selected_range_checkbox = self._ui_child(root, "audio_story_selected_range_checkbox", QtWidgets.QCheckBox)
+        if self.audio_story_selected_range_checkbox is not None:
+            self.audio_story_selected_range_checkbox.setChecked(bool(self._stored_selected_range_enabled))
+            self.audio_story_selected_range_checkbox.toggled.connect(self._on_selected_range_toggled)
         self.audio_story_transcription_start_spin = self._ui_child(root, "audio_story_transcription_start_spin", QtWidgets.QSpinBox)
         self.audio_story_transcription_end_spin = self._ui_child(root, "audio_story_transcription_end_spin", QtWidgets.QSpinBox)
         for spin in (self.audio_story_transcription_start_spin, self.audio_story_transcription_end_spin):
             if spin is not None:
                 spin.setSuffix(" s")
                 spin.valueChanged.connect(self._on_transcription_range_changed)
+        self._sync_transcription_range_controls()
 
         self.audio_story_image_frequency_slider = self._ui_child(root, "audio_story_image_frequency_slider", QtWidgets.QSlider)
         if self.audio_story_image_frequency_slider is not None:
@@ -1787,6 +2113,11 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_llm_analysis_checkbox = self._ui_child(root, "audio_story_llm_analysis_checkbox", QtWidgets.QCheckBox)
         if self.audio_story_llm_analysis_checkbox is not None:
             self.audio_story_llm_analysis_checkbox.toggled.connect(self._on_llm_story_analysis_toggled)
+        self.audio_story_instructor_beats_checkbox = self._ui_child(root, "audio_story_instructor_beats_checkbox", QtWidgets.QCheckBox)
+        self.audio_story_instructor_status_label = self._ui_child(root, "audio_story_instructor_status_label", QtWidgets.QLabel)
+        if self.audio_story_instructor_beats_checkbox is not None:
+            self.audio_story_instructor_beats_checkbox.toggled.connect(self._on_instructor_beats_toggled)
+        self._sync_instructor_controls()
         self.audio_story_analysis_mode_combo = self._ui_child(root, "audio_story_analysis_mode_combo", QtWidgets.QComboBox)
         if self.audio_story_analysis_mode_combo is not None:
             self.audio_story_analysis_mode_combo.addItem("Scene Only", "scene_only")
@@ -1854,6 +2185,42 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_transcription_progress_bar.setRange(0, 100)
             self.audio_story_transcription_progress_bar.setValue(0)
             self.audio_story_transcription_progress_bar.setTextVisible(True)
+        self.audio_story_transcription_console = self._ui_child(
+            root,
+            "audio_story_transcription_console",
+            QtWidgets.QPlainTextEdit,
+        )
+        self.audio_story_transcription_console_copy_button = self._ui_child(
+            root,
+            "audio_story_transcription_console_copy_button",
+            QtWidgets.QPushButton,
+        )
+        self.audio_story_transcription_console_clear_button = self._ui_child(
+            root,
+            "audio_story_transcription_console_clear_button",
+            QtWidgets.QPushButton,
+        )
+        if self.audio_story_transcription_console is not None:
+            self.audio_story_transcription_console.setReadOnly(True)
+            self.audio_story_transcription_console.document().setMaximumBlockCount(250)
+        for console_button in (
+            self.audio_story_transcription_console_copy_button,
+            self.audio_story_transcription_console_clear_button,
+        ):
+            if console_button is not None:
+                console_button.setStyleSheet(compact_button_style)
+        if self.audio_story_transcription_console_copy_button is not None:
+            self.audio_story_transcription_console_copy_button.clicked.connect(
+                self._copy_transcription_console
+            )
+        if self.audio_story_transcription_console_clear_button is not None:
+            self.audio_story_transcription_console_clear_button.clicked.connect(
+                self._clear_transcription_console
+            )
+        self._append_transcription_console(
+            "INFO",
+            "Ready. Import audio and press Transcribe Audio.",
+        )
 
         self.audio_story_scene_status_label = self._ui_child(root, "audio_story_scene_status_label", QtWidgets.QLabel)
         self.audio_story_scene_character_button_row = self._ui_child(root, "audio_story_scene_character_grid", QtWidgets.QGridLayout)
@@ -1927,6 +2294,41 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_position_slider.sliderReleased.connect(self._on_slider_released)
             self.audio_story_position_slider.sliderMoved.connect(self._on_slider_moved)
         self.audio_story_status_label = self._ui_child(root, "audio_story_status_label", QtWidgets.QLabel)
+        self.audio_story_play_cast_tabs = self._ui_child(root, "audio_story_play_cast_tabs", QtWidgets.QTabWidget)
+        if self.audio_story_play_cast_tabs is not None:
+            self.audio_story_play_cast_tabs.setStyleSheet(
+                "QTabWidget#audio_story_play_cast_tabs::pane {"
+                " border: 1px solid #2d4561; border-radius: 8px;"
+                " background: #0b121a; top: -1px; }"
+                "QTabWidget#audio_story_play_cast_tabs QTabBar::tab {"
+                " background: #111b28; border: 1px solid #36506d;"
+                " border-top-left-radius: 7px; border-top-right-radius: 7px;"
+                " color: #dbeafe; min-height: 24px; padding: 4px 8px;"
+                " margin-right: 3px; }"
+                "QTabWidget#audio_story_play_cast_tabs QTabBar::tab:selected {"
+                " background: #1c2d43; border-color: #4f78a2; }"
+                "QTabWidget#audio_story_play_cast_tabs QTabBar::tab:hover {"
+                " background: #17263a; border-color: #5f8bb8; }"
+            )
+        self.audio_story_tts_startup_buffer_spin = self._ui_child(root, "audio_story_tts_startup_buffer_spin", QtWidgets.QSpinBox)
+        self.audio_story_tts_render_ahead_spin = self._ui_child(root, "audio_story_tts_render_ahead_spin", QtWidgets.QSpinBox)
+        self.audio_story_tts_buffered_label = self._ui_child(root, "audio_story_tts_buffered_label", QtWidgets.QLabel)
+        self.audio_story_tts_segment_label = self._ui_child(root, "audio_story_tts_segment_label", QtWidgets.QLabel)
+        self.audio_story_tts_state_label = self._ui_child(root, "audio_story_tts_state_label", QtWidgets.QLabel)
+        self.audio_story_tts_retry_button = self._ui_child(root, "audio_story_tts_retry_button", QtWidgets.QPushButton)
+        self.audio_story_tts_clear_cache_button = self._ui_child(root, "audio_story_tts_clear_cache_button", QtWidgets.QPushButton)
+        self._sync_tts_buffer_controls()
+        if self.audio_story_tts_startup_buffer_spin is not None:
+            self.audio_story_tts_startup_buffer_spin.valueChanged.connect(self._on_tts_buffer_settings_changed)
+        if self.audio_story_tts_render_ahead_spin is not None:
+            self.audio_story_tts_render_ahead_spin.valueChanged.connect(self._on_tts_buffer_settings_changed)
+        if self.audio_story_tts_retry_button is not None:
+            self.audio_story_tts_retry_button.setStyleSheet(compact_button_style)
+            self.audio_story_tts_retry_button.clicked.connect(self._retry_tts_rendering)
+        if self.audio_story_tts_clear_cache_button is not None:
+            self.audio_story_tts_clear_cache_button.setStyleSheet(compact_button_style)
+            self.audio_story_tts_clear_cache_button.clicked.connect(self._clear_tts_cache_requested)
+        self._request_tts_cache_scan()
         self.audio_story_stream_enabled_checkbox = self._ui_child(root, "audio_story_stream_enabled_checkbox", QtWidgets.QCheckBox)
         if self.audio_story_stream_enabled_checkbox is not None:
             self.audio_story_stream_enabled_checkbox.toggled.connect(self._on_visual_stream_toggled)
@@ -1992,10 +2394,1890 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_visual_stream_controls()
         self._sync_audio_story_cost_profile_controls()
         self._refresh_audio_story_settings_presets()
+        self._assemble_audio_story_inner_tabs(root)
+        self._start_story_project_services()
         self._refresh_controls()
         self._apply_audio_story_tooltips(root)
         self.apply_theme_palette()
         return root
+
+    def _assemble_audio_story_inner_tabs(self, root):
+        existing = getattr(self, "audio_story_inner_tabs", None)
+        if existing is not None:
+            return existing
+        content = self._ui_child(root, "audio_story_scroll_content", QtWidgets.QWidget)
+        content_layout = content.layout() if content is not None else None
+        if content_layout is None:
+            return None
+        project_frame = self._ui_child(root, "audio_story_project_page_frame", QtWidgets.QFrame)
+        project_header = self._ui_child(root, "audio_story_project_header_frame", QtWidgets.QFrame)
+        source_frame = self._ui_child(root, "audio_story_audio_page_source_frame", QtWidgets.QFrame)
+        review_frame = self._ui_child(root, "audio_story_review_page_frame", QtWidgets.QFrame)
+        play_frame = self._ui_child(root, "audio_story_play_page_frame", QtWidgets.QFrame)
+        scenes_frame = self._ui_child(root, "audio_story_story_scenes_frame", QtWidgets.QFrame)
+        audio_group = getattr(self, "audio_story_audio_group", None) or self._ui_child(root, "audio_story_audio_group", QtWidgets.QGroupBox)
+        timing_group = self._ui_child(root, "audio_story_timing_group", QtWidgets.QGroupBox)
+        prompt_group = self._ui_child(root, "audio_story_prompt_group", QtWidgets.QGroupBox)
+        analysis_group = self._ui_child(root, "audio_story_analysis_group", QtWidgets.QGroupBox)
+        xai_group = self._ui_child(root, "audio_story_xai_group", QtWidgets.QGroupBox)
+        required = (project_frame, source_frame, review_frame, play_frame, scenes_frame, audio_group, timing_group, prompt_group, analysis_group, xai_group)
+        if any(widget is None for widget in required):
+            return None
+
+        def page(name: str):
+            widget = QtWidgets.QWidget()
+            widget.setObjectName(name)
+            layout = QtWidgets.QVBoxLayout(widget)
+            layout.setContentsMargins(4, 4, 4, 8)
+            layout.setSpacing(10)
+            return widget, layout
+
+        project_page, project_layout = page("audio_story_project_inner_page")
+        audio_page, audio_layout = page("audio_story_audio_inner_page")
+        story_page, story_layout = page("audio_story_story_inner_page")
+        images_page, images_layout = page("audio_story_images_inner_page")
+        review_page, review_layout = page("audio_story_review_inner_page")
+        play_page, play_layout = page("audio_story_play_inner_page")
+
+        project_layout.addWidget(project_frame)
+        project_layout.addStretch(1)
+        audio_layout.addWidget(source_frame)
+        audio_layout.addStretch(1)
+        story_layout.addWidget(timing_group)
+        story_layout.addWidget(analysis_group)
+        master_prompt_group = QtWidgets.QGroupBox("Story Master Prompt")
+        master_prompt_group.setObjectName("audio_story_master_prompt_group")
+        master_prompt_layout = QtWidgets.QVBoxLayout(master_prompt_group)
+        master_prompt_layout.setContentsMargins(12, 12, 12, 12)
+        master_prompt_label = self._ui_child(root, "audio_story_master_prompt_label", QtWidgets.QLabel)
+        if master_prompt_label is not None:
+            master_prompt_layout.addWidget(master_prompt_label)
+        master_prompt_row = QtWidgets.QHBoxLayout()
+        if self.audio_story_master_prompt_button is not None:
+            master_prompt_row.addWidget(self.audio_story_master_prompt_button)
+        if self.audio_story_master_prompt_mode_combo is not None:
+            master_prompt_row.addWidget(self.audio_story_master_prompt_mode_combo, 1)
+        master_prompt_layout.addLayout(master_prompt_row)
+        story_layout.addWidget(master_prompt_group)
+        story_layout.addStretch(1)
+        images_layout.addWidget(prompt_group)
+        images_layout.addWidget(xai_group)
+        images_layout.addStretch(1)
+        review_layout.addWidget(review_frame)
+        review_layout.addWidget(scenes_frame)
+        review_layout.addStretch(1)
+        play_layout.addWidget(play_frame)
+        play_layout.addStretch(1)
+
+        navigation = AudioStoryTabNavigation(content)
+        navigation.add_page(
+            "project",
+            project_page,
+            "Project",
+            "Create, open, recover, and manage a continuing Audio Story project.",
+            "#f59e0b",
+        )
+        navigation.add_page("audio", audio_page, "Audio", "Import, order, and transcribe story audio files.", "#38bdf8")
+        navigation.add_page("story", story_page, "Story", "Plan story scenes and structured visual beats.", "#a78bfa")
+        navigation.add_page("images", images_page, "Images", "Configure image styles, continuity, and provider options.", "#fb7185")
+        navigation.add_page("review", review_page, "Review", "Review transcript scenes and apply visual overrides.", "#facc15")
+        navigation.add_page("play", play_page, "Play / Cast", "Play the continuous story or cast it to another display.", "#22c55e")
+        navigation.select_key("audio" if self.current_story_project_id else "project")
+        header_index = content_layout.indexOf(project_header) if project_header is not None else -1
+        insert_index = header_index + 1 if header_index >= 0 else (1 if content_layout.count() else 0)
+        content_layout.insertWidget(insert_index, navigation)
+        self.audio_story_inner_tabs = navigation
+        return navigation
+
+    def _start_story_project_services(self) -> None:
+        self._story_project_shutdown = False
+        if self._story_project_autosave_queue is None:
+            self._story_project_autosave_queue = project_autosave.ProjectAutosaveQueue(
+                self._story_project_store.save_project,
+                self._story_project_autosave_worker_saved,
+                self._story_project_autosave_worker_failed,
+            )
+        if not self._story_projects and not self._story_project_input_fingerprint:
+            self._launch_story_project_job(
+                "list",
+                self._story_project_store.list_projects,
+                project_id="__project_index__",
+                switch_project=False,
+                show_busy=False,
+            )
+
+    def _story_project_autosave_worker_saved(self, result: dict) -> None:
+        project_id = str(dict(result or {}).get("project_id") or "")
+        revision = int(dict(result or {}).get("autosave_revision", 0) or 0)
+        with self._lock:
+            ownership = self._story_project_autosave_ownership.pop(
+                (project_id, revision), None
+            )
+            dirty = self._story_project_dirty_autosave
+            if (
+                ownership is not None
+                and isinstance(dirty, dict)
+                and str(dirty.get("project_id") or "") == project_id
+                and revision >= int(dirty.get("revision", 0) or 0)
+            ):
+                self._story_project_dirty_autosave = None
+            if (
+                ownership is not None
+                and self._story_project_shutdown
+                and self._story_project_shutdown_final_ownership
+                == (project_id, revision)
+            ):
+                self._story_project_shutdown_save_failure = ""
+        if ownership is None:
+            return
+        try:
+            self.storyProjectAutosaveSaved.emit(
+                {**ownership, "project": copy.deepcopy(dict(result or {}))}
+            )
+        except RuntimeError:
+            return
+
+    def _story_project_autosave_worker_failed(self, failure: dict) -> None:
+        data = dict(failure or {})
+        project_id = str(data.get("project_id") or "")
+        revision = int(data.get("revision", 0) or 0)
+        detail = str(data.get("error") or "Project autosave failed.").strip()
+        with self._lock:
+            ownership = self._story_project_autosave_ownership.pop(
+                (project_id, revision), None
+            )
+            if (
+                ownership is not None
+                and self._story_project_shutdown
+                and self._story_project_shutdown_final_ownership
+                == (project_id, revision)
+            ):
+                self._story_project_shutdown_save_failure = detail
+        if ownership is None:
+            return
+        try:
+            self.storyProjectAutosaveFailed.emit(
+                {**ownership, "error": detail}
+            )
+        except RuntimeError:
+            return
+
+    def _queue_story_project_autosave(
+        self,
+        project: dict,
+        *,
+        shutdown_final: bool = False,
+    ) -> tuple[str, int] | None:
+        queue_service = self._story_project_autosave_queue
+        if queue_service is None or not isinstance(project, dict):
+            return None
+        snapshot = copy.deepcopy(project)
+        project_id = str(snapshot.get("project_id") or "")
+        if not project_id or project_id != self.current_story_project_id:
+            return None
+        current_revision = int(snapshot.get("autosave_revision", 0) or 0)
+        pending = self._story_project_pending_autosave
+        if pending is not None and pending[0] == project_id:
+            current_revision = max(current_revision, int(pending[1]))
+        dirty = self._story_project_dirty_autosave
+        if isinstance(dirty, dict) and dirty.get("project_id") == project_id:
+            current_revision = max(
+                current_revision, int(dirty.get("revision", 0) or 0)
+            )
+        revision = current_revision + 1
+        snapshot["autosave_revision"] = revision
+        input_fingerprint = hashlib.sha256(
+            json.dumps(snapshot, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        ).hexdigest()
+        ownership = {
+            "project_id": project_id,
+            "revision": revision,
+            "generation_id": int(self._story_project_generation),
+            "input_fingerprint": input_fingerprint,
+        }
+        with self._lock:
+            self._story_project_autosave_ownership[(project_id, revision)] = ownership
+            self._story_project_dirty_autosave = {
+                **ownership,
+                "snapshot": copy.deepcopy(snapshot),
+            }
+            if shutdown_final:
+                self._story_project_shutdown_final_ownership = (
+                    project_id,
+                    revision,
+                )
+        self._story_project_pending_autosave = (
+            project_id,
+            revision,
+            int(self._story_project_generation),
+            input_fingerprint,
+        )
+        self._set_story_project_autosave_text("Saving recovery state...")
+        self._refresh_story_project_ui()
+        self._refresh_controls()
+        try:
+            queue_service.request(
+                project_autosave.SaveRequest(project_id, revision, snapshot)
+            )
+        except Exception as exc:
+            with self._lock:
+                self._story_project_autosave_ownership.pop(
+                    (project_id, revision), None
+                )
+                if shutdown_final:
+                    self._story_project_shutdown_save_failure = str(
+                        exc or "unknown error"
+                    ).strip()
+            if (
+                self._story_project_pending_autosave is not None
+                and self._story_project_pending_autosave[:2]
+                == (project_id, revision)
+            ):
+                self._story_project_pending_autosave = None
+            self._set_story_project_autosave_text(
+                f"Autosave failed: {str(exc or 'unknown error').strip()}"
+            )
+            self._refresh_story_project_ui()
+            self._refresh_controls()
+            return None
+        return project_id, revision
+
+    def _story_project_autosave_result_is_current(self, payload: dict) -> bool:
+        pending = self._story_project_pending_autosave
+        if pending is None:
+            return False
+        return (
+            project_autosave.result_is_current(
+                payload,
+                project_id=pending[0],
+                generation_id=pending[2],
+                input_fingerprint=pending[3],
+            )
+            and int(payload.get("revision", -1) or -1) == pending[1]
+            and pending[0] == self.current_story_project_id
+            and pending[2] == self._story_project_generation
+        )
+
+    @QtCore.Slot(object)
+    def _on_story_project_autosave_saved(self, payload) -> None:
+        if self._story_project_shutdown:
+            return
+        data = dict(payload or {})
+        if not self._story_project_autosave_result_is_current(data):
+            return
+        project = dict(data.get("project") or {})
+        self._story_project_pending_autosave = None
+        if project.get("project_id") == self.current_story_project_id:
+            self._current_story_project = copy.deepcopy(project)
+            self._replace_story_project_summary(project)
+            self._refresh_story_project_ui()
+        self._set_story_project_autosave_text("Saved")
+        self._refresh_controls()
+
+    @QtCore.Slot(object)
+    def _on_story_project_autosave_failed(self, payload) -> None:
+        if self._story_project_shutdown:
+            return
+        data = dict(payload or {})
+        if not self._story_project_autosave_result_is_current(data):
+            return
+        self._story_project_pending_autosave = None
+        detail = str(data.get("error") or "Project autosave failed.").strip()
+        self._set_story_project_autosave_text(f"Autosave failed: {detail}")
+        self._set_status(f"Audio Story project autosave failed: {detail}")
+        self._refresh_story_project_ui()
+        self._refresh_controls()
+
+    def _set_story_project_autosave_text(self, text: str) -> None:
+        label = getattr(self, "audio_story_project_autosave_label", None)
+        if label is not None:
+            label.setText(str(text or "").strip())
+
+    def _invalidate_tts_queue(self, *, clear_plan: bool, state: str = "Idle") -> None:
+        """Cancel the active queue without waiting for its worker on the UI thread."""
+        self._tts_settings_watch_timer.stop()
+        with self._tts_render_condition:
+            self._tts_render_job_id += 1
+            self._tts_render_in_progress = False
+            self._tts_queue_state = str(state or "Idle")
+            self._tts_state_before_pause = self._tts_queue_state
+            self._tts_queue_error = ""
+            self._tts_queue_failure_reason = ""
+            self._tts_resume_after_buffering = False
+            self._tts_playback_paused = False
+            self._pending_autoplay_tts = False
+            self._tts_buffering_target_seconds = None
+            self._tts_render_target_segment_index = 0
+            self._tts_render_target_segment_global_offset = 0.0
+            self._tts_pending_media_transition = None
+            self._tts_preparing_project_id = ""
+            self._tts_bundle_validation_job_id += 1
+            self._tts_bundle_validation_pending = False
+            self._tts_cast_after_bundle_validation = False
+            self._tts_cast_validation_previous_device_name = ""
+            if clear_plan:
+                self._tts_queue_plan = None
+                self._tts_ready_segments = {}
+                self._tts_queue_transcript_snapshot = ()
+                self._tts_queue_settings_snapshot = {}
+                self._tts_active_segment_index = 0
+                self._tts_active_segment_global_offset = 0.0
+                self._tts_playback_position_seconds = 0.0
+            self._tts_render_condition.notify_all()
+        self._refresh_tts_buffer_ui()
+
+    def _tts_cache_clear_is_in_progress(self) -> bool:
+        with self._tts_render_condition:
+            return bool(self._tts_cache_clear_in_progress)
+
+    def _report_tts_cache_clear_in_progress(self) -> None:
+        self._set_status("TTS cache clear is in progress.")
+        self._refresh_tts_buffer_ui()
+        self._refresh_controls()
+
+    def _invalidate_story_project_work(self) -> None:
+        self._story_project_generation += 1
+        self._audio_sources_revision += 1
+        self._transcription_job_id += 1
+        self._invalidate_tts_queue(clear_plan=True)
+        self._cancel_visual_generation()
+        self._pending_play_request = None
+        self._story_project_mutating_pipeline_owner = None
+        self._transcription_project_pipeline_owner = None
+        self._analysis_project_pipeline_owner = None
+        self._image_project_pipeline_owner = None
+
+    def _begin_story_project_mutating_pipeline(self, label: str) -> str | None:
+        """Claim the one project-wide mutating pipeline without blocking the UI."""
+        if not self.current_story_project_id:
+            return "legacy-no-project"
+        normalized_label = str(label or "project work").strip() or "project work"
+        with self._lock:
+            active = self._story_project_mutating_pipeline_owner
+            if active is not None:
+                active_label = str(active.get("label") or "project work")
+                self._set_status(
+                    f"Wait for {active_label} to finish before starting {normalized_label}."
+                )
+                return None
+            token = uuid.uuid4().hex
+            self._story_project_mutating_pipeline_owner = {
+                "token": token,
+                "label": normalized_label,
+                "project_id": str(self.current_story_project_id),
+                "generation": int(self._story_project_generation),
+            }
+        self._refresh_controls()
+        return token
+
+    def _end_story_project_mutating_pipeline(self, token: str | None) -> None:
+        if not token or token == "legacy-no-project":
+            return
+        with self._lock:
+            active = self._story_project_mutating_pipeline_owner
+            if not isinstance(active, Mapping) or str(active.get("token") or "") != str(token):
+                return
+            self._story_project_mutating_pipeline_owner = None
+        try:
+            self.storyProjectPipelineReleased.emit()
+        except RuntimeError:
+            pass
+
+    def _launch_story_project_job(
+        self,
+        operation: str,
+        work,
+        *,
+        project_id: str,
+        switch_project: bool,
+        show_busy: bool = True,
+        supersede_busy: bool = False,
+    ) -> None:
+        if show_busy and not supersede_busy and (
+            self._story_project_busy
+            or self._story_project_pending_autosave is not None
+        ):
+            return
+        if switch_project:
+            self._invalidate_story_project_work()
+        generation_id = int(self._story_project_generation)
+        input_fingerprint = hashlib.sha256(
+            f"{operation}\0{project_id}\0{generation_id}\0{uuid.uuid4().hex}".encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        self._story_project_input_fingerprint = input_fingerprint
+        if show_busy:
+            self._story_project_busy = True
+            self._set_story_project_autosave_text("Working...")
+            self._refresh_story_project_ui()
+            self._refresh_controls()
+
+        def worker():
+            payload = {
+                "operation": str(operation),
+                "project_id": str(project_id),
+                "generation_id": generation_id,
+                "input_fingerprint": input_fingerprint,
+            }
+            try:
+                with self._story_project_manager_lock:
+                    payload["result"] = work()
+            except Exception as exc:
+                payload["error"] = str(exc or "Audio Story project operation failed.")
+            try:
+                self.storyProjectJobFinished.emit(payload)
+            except RuntimeError:
+                return
+
+        threading.Thread(
+            target=worker,
+            name=f"audio-story-project-{operation}",
+            daemon=True,
+        ).start()
+
+    def _story_project_job_is_current(self, payload: dict) -> bool:
+        owner_project_id = str(payload.get("project_id") or "")
+        if not project_autosave.result_is_current(
+            payload,
+            project_id=owner_project_id,
+            generation_id=self._story_project_generation,
+            input_fingerprint=self._story_project_input_fingerprint,
+        ):
+            return False
+        operation = str(payload.get("operation") or "")
+        return bool(
+            operation
+            in {
+                "list",
+                "create",
+                "open",
+                "close",
+                "delete",
+                "legacy-migration-preview",
+                "legacy-migration-commit",
+            }
+            or owner_project_id == self.current_story_project_id
+        )
+
+    @QtCore.Slot(object)
+    def _on_story_project_job_finished(self, payload) -> None:
+        if self._story_project_shutdown:
+            return
+        data = dict(payload or {})
+        if not self._story_project_job_is_current(data):
+            return
+        operation = str(data.get("operation") or "")
+        error = str(data.get("error") or "").strip()
+        if error:
+            self._story_project_busy = False
+            self._set_story_project_autosave_text(f"Project error: {error}")
+            self._set_status(f"Audio Story project error: {error}")
+            self._offer_legacy_project_migration()
+            self._refresh_controls()
+            return
+        result = data.get("result")
+        if operation == "list":
+            projects = (
+                list(result)
+                if isinstance(result, list)
+                else list(dict(result or {}).get("projects") or [])
+            )
+            self._story_projects = [
+                copy.deepcopy(item) for item in projects if isinstance(item, dict)
+            ]
+            self._refresh_story_project_ui()
+            return
+        if operation == "import-review":
+            self._story_project_busy = False
+            review = copy.deepcopy(dict(result or {}))
+            decision = self._valid_only_import_decision(
+                review, lambda: self._confirm_valid_only_story_import(review)
+            )
+            if decision is None:
+                if review.get("conflicts"):
+                    self._show_warning(
+                        "Import Story Audio",
+                        "One or more selected files are duplicates or already belong "
+                        "to a Story Project. Nothing was imported.",
+                    )
+                else:
+                    self._set_status("Story audio import was cancelled; nothing was changed.")
+                self._refresh_story_project_ui()
+                self._refresh_controls()
+                return
+            bound_review = copy.deepcopy(review)
+            self._run_story_project_mutation(
+                "import",
+                lambda: self._story_project_manager.commit_import(
+                    bound_review, valid_only=bool(decision)
+                ),
+            )
+            return
+        if operation == "recovery-repair":
+            if bool(dict(result or {}).get("repaired")):
+                self._set_status("Recovered project storage was repaired in the background.")
+            return
+        if operation == "legacy-migration-preview":
+            self._story_project_busy = False
+            preview = copy.deepcopy(dict(result or {}))
+            conflicts = [
+                dict(item)
+                for item in list(preview.get("conflicts") or [])
+                if isinstance(item, Mapping)
+            ]
+            if conflicts:
+                paths = "\n".join(
+                    f"- {str(item.get('path') or 'Unknown source')}"
+                    for item in conflicts
+                )
+                self._show_warning(
+                    "Save Current Story as Project",
+                    "The current story cannot be saved while source audio belongs "
+                    f"to another project or is duplicated:\n{paths}",
+                )
+                self._offer_legacy_project_migration()
+                self._refresh_controls()
+                return
+            invalid = [
+                dict(item)
+                for item in list(preview.get("invalid") or [])
+                if isinstance(item, Mapping)
+            ]
+            if invalid:
+                source_lines = "\n".join(
+                    f"- {str(item.get('path') or 'Unknown source')}: "
+                    f"{str(item.get('error') or 'missing or invalid')}"
+                    for item in invalid
+                )
+                detail = (
+                    "The following source audio is missing or invalid:\n"
+                    f"{source_lines}\n\n"
+                    "Its derived story state will be preserved and the chapter can "
+                    "be relinked later."
+                )
+            else:
+                detail = "All referenced source audio is currently available."
+            answer = QtWidgets.QMessageBox.question(
+                getattr(self, "audio_story_tab_widget", None),
+                "Save Current Story as Project",
+                f"{detail}\n\nCreate this project now?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No,
+            )
+            if answer != QtWidgets.QMessageBox.Yes:
+                self._set_status("Current story was not saved as a project.")
+                self._offer_legacy_project_migration()
+                self._refresh_controls()
+                return
+            project_id = str(
+                dict(preview.get("project") or {}).get("project_id") or ""
+            ).strip()
+            if not project_id:
+                self._set_status(
+                    "Audio Story project migration failed: preview has no project ID."
+                )
+                self._offer_legacy_project_migration()
+                self._refresh_controls()
+                return
+            self._launch_story_project_job(
+                "legacy-migration-commit",
+                lambda: {
+                    "project": self._story_project_manager.commit_legacy_migration(
+                        preview
+                    ),
+                    "recovery_changed": False,
+                },
+                project_id=project_id,
+                switch_project=True,
+            )
+            return
+        if operation == "close":
+            self._apply_open_story_project(None)
+            self._set_story_project_autosave_text("No project open")
+            self._set_status("Audio Story project closed.")
+            return
+        if operation == "delete":
+            deleted_project_id = str(dict(result or {}).get("project_id") or "")
+            self._story_projects = [
+                project
+                for project in self._story_projects
+                if str(project.get("project_id") or "") != deleted_project_id
+            ]
+            self._apply_open_story_project(None)
+            self._set_story_project_autosave_text("No project open")
+            self._set_status("Audio Story project deleted. Original audio files were kept.")
+            return
+        project = dict(dict(result or {}).get("project") or {})
+        if not project:
+            self._story_project_busy = False
+            self._set_story_project_autosave_text("Project operation returned no data.")
+            self._refresh_controls()
+            return
+        self._apply_open_story_project(
+            project,
+            replace_derived_state=operation in {"open", "legacy-migration-commit"},
+        )
+        backup_recovered = bool(dict(result or {}).get("backup_recovered"))
+        if backup_recovered:
+            self._set_story_project_autosave_text("Recovered backup; repairing storage...")
+            self._set_status(
+                "Opened Audio Story project from its recovery backup; "
+                "storage repair is running in the background."
+            )
+            self._schedule_story_project_recovery_repair(project)
+        if operation == "legacy-migration-commit":
+            self.legacy_story_available_for_migration = False
+            self._offer_legacy_project_migration()
+            self._set_story_project_autosave_text("Saved")
+            self._set_status(
+                f"Saved current story as Audio Story project: {project.get('name', '')}"
+            )
+            return
+        if bool(dict(result or {}).get("recovery_changed")):
+            self._queue_story_project_autosave(project)
+            if not backup_recovered:
+                self._set_status("Recovered interrupted Audio Story project work.")
+        elif operation == "open" and not backup_recovered:
+            self._set_story_project_autosave_text("Opened")
+            self._set_status(f"Opened Audio Story project: {project.get('name', '')}")
+        elif not backup_recovered:
+            self._set_story_project_autosave_text("Saved")
+            self._set_status(f"Audio Story project updated: {project.get('name', '')}")
+
+    def _schedule_story_project_recovery_repair(self, project: Mapping) -> None:
+        """Repair a backup-opened primary only after the GUI accepted the project."""
+        snapshot = copy.deepcopy(dict(project or {}))
+        project_id = str(snapshot.get("project_id") or "")
+        revision = int(snapshot.get("manifest_revision", 0) or 0)
+        generation_id = int(self._story_project_generation)
+        input_fingerprint = str(self._story_project_input_fingerprint or "")
+        if not project_id or project_id != self.current_story_project_id:
+            return
+
+        def worker():
+            payload = {
+                "operation": "recovery-repair",
+                "project_id": project_id,
+                "generation_id": generation_id,
+                "input_fingerprint": input_fingerprint,
+            }
+            try:
+                payload["result"] = {
+                    "repaired": self._story_project_store.repair_project_primary(
+                        project_id, revision
+                    )
+                }
+            except Exception as exc:
+                payload["error"] = str(
+                    exc or "Audio Story project recovery repair failed."
+                )
+            try:
+                self.storyProjectJobFinished.emit(payload)
+            except RuntimeError:
+                pass
+
+        threading.Thread(
+            target=worker,
+            name="audio-story-project-recovery-repair",
+            daemon=True,
+        ).start()
+
+    def _replace_story_project_summary(self, project: dict) -> None:
+        project_id = str(project.get("project_id") or "")
+        if not project_id:
+            return
+        replacement = copy.deepcopy(project)
+        for index, existing in enumerate(self._story_projects):
+            if str(existing.get("project_id") or "") == project_id:
+                self._story_projects[index] = replacement
+                break
+        else:
+            self._story_projects.append(replacement)
+        self._story_projects.sort(
+            key=lambda item: (
+                str(item.get("name") or "").casefold(),
+                str(item.get("project_id") or ""),
+            )
+        )
+
+    def _create_story_project(self) -> None:
+        name, accepted = QtWidgets.QInputDialog.getText(
+            self.audio_story_tab_widget,
+            "New Audio Story Project",
+            "Project name:",
+        )
+        normalized_name = str(name or "").strip()
+        if not accepted or not normalized_name:
+            return
+        self._launch_story_project_job(
+            "create",
+            lambda: {
+                "project": self._story_project_manager.create(normalized_name),
+                "recovery_changed": False,
+            },
+            project_id="__new_project__",
+            switch_project=True,
+        )
+
+    def _offer_legacy_project_migration(self) -> None:
+        button = getattr(self, "audio_story_project_save_current_button", None)
+        if button is None:
+            return
+        available = bool(
+            self.legacy_story_available_for_migration
+            and not self.current_story_project_id
+        )
+        button.setVisible(available)
+        button.setEnabled(
+            bool(
+                available
+                and not self._story_project_busy
+                and self._story_project_pending_autosave is None
+            )
+        )
+
+    def _save_current_story_as_project(self) -> None:
+        if (
+            not self.legacy_story_available_for_migration
+            or self.current_story_project_id
+            or self._story_project_busy
+            or self._story_project_pending_autosave is not None
+        ):
+            return
+        source = copy.deepcopy(dict(self._legacy_story_session_payload or {}))
+        if not source:
+            self.legacy_story_available_for_migration = False
+            self._offer_legacy_project_migration()
+            return
+        suggested_name = Path(str(self.imported_audio_path or "")).stem.strip()
+        name, accepted = QtWidgets.QInputDialog.getText(
+            getattr(self, "audio_story_tab_widget", None),
+            "Save Current Story as Project",
+            "Project name:",
+            QtWidgets.QLineEdit.Normal,
+            suggested_name or "Migrated Story",
+        )
+        normalized_name = str(name or "").strip()
+        if not accepted or not normalized_name:
+            return
+        self._launch_story_project_job(
+            "legacy-migration-preview",
+            lambda: self._story_project_manager.prepare_legacy_migration(
+                source, normalized_name
+            ),
+            project_id="__legacy_migration__",
+            switch_project=False,
+        )
+
+    def _selected_story_project_id(self) -> str:
+        project_list = getattr(self, "audio_story_project_list", None)
+        try:
+            item = project_list.currentItem() if project_list is not None else None
+        except RuntimeError:
+            return ""
+        return str(item.data(QtCore.Qt.UserRole) or "") if item is not None else ""
+
+    def _open_story_project_from_session(
+        self,
+        project_id: str,
+        autosave_queue,
+    ) -> dict:
+        if autosave_queue is not None:
+            try:
+                drained = bool(autosave_queue.flush(timeout=5.0))
+            except Exception as exc:
+                raise RuntimeError(
+                    "Could not drain the accepted Audio Story project autosave "
+                    f"before reopen: {str(exc or 'unknown error').strip()}"
+                ) from exc
+            if not drained:
+                raise TimeoutError(
+                    "The accepted Audio Story project autosave did not finish "
+                    "before authoritative reopen."
+                )
+        project, backup_recovered = self._story_project_manager.open_with_recovery(
+            project_id
+        )
+        return {
+            "project": project,
+            "recovery_changed": False,
+            "backup_recovered": backup_recovered,
+        }
+
+    def _open_story_project(self) -> None:
+        project_id = self._selected_story_project_id()
+        if not project_id:
+            self._set_status("Select an Audio Story project to open.")
+            return
+
+        def work():
+            project, backup_recovered = (
+                self._story_project_manager.open_with_recovery(project_id)
+            )
+            recovered, changed = checkpointing.recover_interrupted(project)
+            return {
+                "project": recovered,
+                "recovery_changed": changed,
+                "backup_recovered": backup_recovered,
+            }
+
+        self._launch_story_project_job(
+            "open",
+            work,
+            project_id=project_id,
+            switch_project=True,
+        )
+
+    def _rename_story_project(self) -> None:
+        project = dict(self._current_story_project or {})
+        project_id = str(project.get("project_id") or "")
+        if not project_id:
+            return
+        name, accepted = QtWidgets.QInputDialog.getText(
+            self.audio_story_tab_widget,
+            "Rename Audio Story Project",
+            "Project name:",
+            QtWidgets.QLineEdit.Normal,
+            str(project.get("name") or ""),
+        )
+        normalized_name = str(name or "").strip()
+        if not accepted or not normalized_name:
+            return
+
+        def work():
+            self._story_project_manager.open(project_id)
+            return {
+                "project": self._story_project_manager.rename(normalized_name),
+                "recovery_changed": False,
+            }
+
+        self._launch_story_project_job(
+            "rename",
+            work,
+            project_id=project_id,
+            switch_project=False,
+        )
+
+    def _close_story_project(self) -> None:
+        project_id = self.current_story_project_id
+        if not project_id:
+            return
+
+        def work():
+            self._story_project_manager.close()
+            return {"closed": True}
+
+        self._launch_story_project_job(
+            "close",
+            work,
+            project_id=project_id,
+            switch_project=True,
+        )
+
+    def _delete_story_project(self) -> None:
+        if self._story_project_busy or self._story_project_pending_autosave is not None:
+            return
+        project = dict(self._current_story_project or {})
+        project_id = str(project.get("project_id") or "")
+        if not project_id:
+            return
+        project_name = str(project.get("name") or "this project").strip()
+        answer = QtWidgets.QMessageBox.question(
+            getattr(self, "audio_story_tab_widget", None),
+            "Delete Audio Story Project",
+            f'Permanently delete "{project_name}"?\n\n'
+            "This removes its chapters, transcripts, Story Bible, generated images, "
+            "and saved checkpoints. Original audio files are not deleted.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._launch_story_project_job(
+            "delete",
+            lambda: {"project_id": self._story_project_manager.delete(project_id)["project_id"]},
+            project_id=project_id,
+            switch_project=True,
+        )
+
+    def _selected_story_project_chapter(self) -> dict:
+        chapter_list = getattr(self, "audio_story_project_chapter_list", None)
+        try:
+            item = chapter_list.currentItem() if chapter_list is not None else None
+        except RuntimeError:
+            return {}
+        data = item.data(QtCore.Qt.UserRole) if item is not None else None
+        return dict(data) if isinstance(data, dict) else {}
+
+    def _run_story_project_mutation(self, operation: str, mutation) -> None:
+        project_id = self.current_story_project_id
+        if not project_id:
+            return
+        active = self._story_project_mutating_pipeline_owner
+        if isinstance(active, Mapping):
+            self._set_status(
+                "Wait for "
+                f"{str(active.get('label') or 'project work')} to finish before changing the project."
+            )
+            return
+
+        def work():
+            self._story_project_manager.open(project_id)
+            return {"project": mutation(), "recovery_changed": False}
+
+        self._launch_story_project_job(
+            operation,
+            work,
+            project_id=project_id,
+            switch_project=False,
+        )
+
+    def _relink_story_project_chapter(self) -> None:
+        if self._story_project_busy or self._story_project_pending_autosave is not None:
+            return
+        selection = self._selected_story_project_chapter()
+        chapter_id = str(selection.get("chapter_id") or "")
+        project = dict(self._current_story_project or {})
+        chapter = dict(dict(project.get("chapters") or {}).get(chapter_id) or {})
+        audio = dict(chapter.get("audio_reference") or chapter.get("audio") or {})
+        if not chapter_id:
+            self._set_status("Select an Audio Story chapter to relink.")
+            return
+        start_directory = str(Path(str(audio.get("path") or self._cache_root)).parent)
+        candidate_path, _selected = QtWidgets.QFileDialog.getOpenFileName(
+            self.audio_story_tab_widget,
+            "Relink Story Chapter Audio",
+            start_directory,
+            "Audio Files (*.mp3 *.wav *.m4a *.flac *.ogg *.aac *.wma);;All Files (*.*)",
+        )
+        candidate_path = str(candidate_path or "").strip()
+        if not candidate_path:
+            return
+        self._run_story_project_mutation(
+            "relink",
+            lambda: self._story_project_manager.relink_chapter(
+                chapter_id, candidate_path
+            ),
+        )
+
+    def _rename_story_project_chapter(self) -> None:
+        selection = self._selected_story_project_chapter()
+        chapter_id = str(selection.get("chapter_id") or "")
+        project = dict(self._current_story_project or {})
+        chapter = dict(dict(project.get("chapters") or {}).get(chapter_id) or {})
+        if not chapter_id or not chapter:
+            self._set_status("Select an Audio Story chapter to rename.")
+            return
+        name, accepted = QtWidgets.QInputDialog.getText(
+            getattr(self, "audio_story_tab_widget", None),
+            "Rename Audio Story Chapter",
+            "Chapter name:",
+            QtWidgets.QLineEdit.Normal,
+            str(chapter.get("display_name") or ""),
+        )
+        normalized_name = str(name or "").strip()
+        if not accepted or not normalized_name:
+            return
+        self._run_story_project_mutation(
+            "chapter-rename",
+            lambda: self._story_project_manager.rename_chapter(
+                chapter_id, normalized_name
+            ),
+        )
+
+    def _move_story_project_chapter(self, offset: int) -> None:
+        selection = self._selected_story_project_chapter()
+        chapter_id = str(selection.get("chapter_id") or "")
+        if not chapter_id or bool(selection.get("archived")):
+            return
+        order = list(dict(self._current_story_project or {}).get("chapter_order") or [])
+        if chapter_id not in order:
+            return
+        current_index = order.index(chapter_id)
+        target_index = current_index + int(offset)
+        if target_index < 0 or target_index >= len(order):
+            return
+        order[current_index], order[target_index] = order[target_index], order[current_index]
+        self._run_story_project_mutation(
+            "chapter-reorder",
+            lambda: self._story_project_manager.reorder_chapters(order),
+        )
+
+    def _move_story_project_chapter_up(self) -> None:
+        self._move_story_project_chapter(-1)
+
+    def _move_story_project_chapter_down(self) -> None:
+        self._move_story_project_chapter(1)
+
+    def _archive_story_project_chapter(self) -> None:
+        selection = self._selected_story_project_chapter()
+        chapter_id = str(selection.get("chapter_id") or "")
+        if not chapter_id or bool(selection.get("archived")):
+            return
+        self._run_story_project_mutation(
+            "archive",
+            lambda: self._story_project_manager.archive_chapter(chapter_id),
+        )
+
+    def _restore_story_project_chapter(self) -> None:
+        selection = self._selected_story_project_chapter()
+        chapter_id = str(selection.get("chapter_id") or "")
+        if not chapter_id or not bool(selection.get("archived")):
+            return
+        self._run_story_project_mutation(
+            "restore",
+            lambda: self._story_project_manager.restore_chapter(chapter_id),
+        )
+
+    def _resume_story_project(self) -> None:
+        if (
+            not self.current_story_project_id
+            or self._story_project_busy
+            or self._story_project_pending_autosave is not None
+        ):
+            return
+        plan = checkpointing.build_resume_plan(dict(self._current_story_project or {}))
+        if not plan:
+            self._set_status("This Audio Story project has no unfinished work.")
+            return
+        non_image = next(
+            (item for item in plan if str(item.get("stage") or "") != "image_generation"),
+            None,
+        )
+        if non_image is not None:
+            # Transcription/analysis already run as an ordered project batch and skip
+            # reusable checkpoints, so one explicit dispatch resumes that pipeline.
+            self._retry_story_project_item(non_image)
+            return
+        self._story_project_resume_scene_keys = []
+        try:
+            for item in plan:
+                self._retry_story_project_item(item)
+            scene_keys = list(self._story_project_resume_scene_keys)
+        finally:
+            self._story_project_resume_scene_keys = None
+        if scene_keys:
+            self._retry_story_scenes(scene_keys)
+
+    def _retry_story_project_item(self, item=None) -> None:
+        if (
+            not self.current_story_project_id
+            or self._story_project_busy
+            or self._story_project_pending_autosave is not None
+        ):
+            return
+        plan = checkpointing.build_resume_plan(dict(self._current_story_project or {}))
+        requested = dict(item) if isinstance(item, dict) else {}
+        if not requested:
+            selected = self._selected_story_project_chapter()
+            chapter_id = str(selected.get("chapter_id") or "")
+            requested = next(
+                (
+                    entry
+                    for entry in plan
+                    if not chapter_id or entry.get("chapter_id") == chapter_id
+                ),
+                {},
+            )
+        if not requested:
+            self._set_status("The selected chapter has no retryable work.")
+            return
+        stage = str(requested.get("stage") or "")
+        if stage == "image_generation":
+            navigation = getattr(self, "audio_story_inner_tabs", None)
+            if navigation is not None:
+                navigation.select_key("images")
+            chapter_id = str(requested.get("chapter_id") or "").strip()
+            scene_id = str(requested.get("unit_id") or "").strip()
+            collector = getattr(self, "_story_project_resume_scene_keys", None)
+            if isinstance(collector, list):
+                if chapter_id and scene_id:
+                    collector.append((chapter_id, scene_id))
+                return
+            self._retry_story_scene(scene_id, chapter_id=chapter_id)
+            return
+        navigation = getattr(self, "audio_story_inner_tabs", None)
+        if navigation is not None:
+            navigation.select_key("audio")
+        if not self.imported_audio_sources or not all(
+            source.valid for source in self.imported_audio_sources
+        ):
+            self._set_status("Relink missing chapter audio before resuming this project.")
+            return
+        self._start_transcription()
+
+    def _story_image_context(self, index: int) -> dict:
+        index = int(index)
+        if index < 0 or index >= len(self.transcript_chunks):
+            return {}
+        chunk = dict(self.transcript_chunks[index] or {})
+        scene = dict(self._scene_entry_for_index(index) or {})
+        chapter_id = str(
+            chunk.get("chapter_id") or scene.get("chapter_id") or ""
+        ).strip()
+        project = dict(self._current_story_project or {})
+        if not chapter_id and project:
+            active_ids = [
+                str(candidate)
+                for candidate in list(project.get("chapter_order") or [])
+                if candidate in dict(project.get("chapters") or {})
+                and candidate not in set(project.get("archived_chapter_ids") or [])
+            ]
+            source_index = chunk.get("source_index")
+            if source_index is None:
+                start_seconds = max(
+                    0.0, float(chunk.get("start_seconds", 0.0) or 0.0)
+                )
+                for source in list(self.imported_audio_sources or []):
+                    if (
+                        float(source.global_start_seconds) <= start_seconds
+                        < float(source.global_end_seconds)
+                    ):
+                        source_index = source.index
+                        break
+            try:
+                source_index = int(source_index)
+            except (TypeError, ValueError):
+                source_index = -1
+            if 0 <= source_index < len(active_ids):
+                chapter_id = active_ids[source_index]
+            elif len(active_ids) == 1:
+                chapter_id = active_ids[0]
+        scene_id = str(
+            chunk.get("scene_id") or scene.get("scene_id") or f"scene-{index}"
+        ).strip()
+        return {
+            "chapter_id": chapter_id,
+            "scene_id": scene_id,
+            "chunk_index": index,
+            "prompt_text": str(chunk.get("prompt") or "").strip(),
+            "source_text": str(chunk.get("text") or "").strip(),
+            "generation_mode": str(
+                chunk.get("generation_mode")
+                or scene.get("generation_mode")
+                or "fresh"
+            ).strip()
+            or "fresh",
+            "reference_image_paths": list(
+                chunk.get("reference_image_paths")
+                or scene.get("reference_image_paths")
+                or []
+            ),
+            "scene_entry": {**scene, **chunk},
+        }
+
+    def _story_image_input_fingerprint(
+        self, chapter: Mapping, context: Mapping
+    ) -> str:
+        scene_checkpoint = dict(
+            dict(chapter.get("stages") or {}).get("scene_planning") or {}
+        )
+        return checkpointing.settings_fingerprint(
+            {
+                "scene_planning_output_fingerprint": str(
+                    scene_checkpoint.get("output_fingerprint") or ""
+                ),
+                "scene_id": str(context.get("scene_id") or ""),
+                "chunk_index": int(context.get("chunk_index", -1) or 0),
+                "prompt_text": str(context.get("prompt_text") or ""),
+                "generation_mode": str(context.get("generation_mode") or "fresh"),
+                "reference_image_paths": [
+                    str(path)
+                    for path in list(context.get("reference_image_paths") or [])
+                ],
+            }
+        )
+
+    @staticmethod
+    def _story_checkpoint_is_reusable(checkpoint: Mapping) -> bool:
+        expected = str(
+            checkpoint.get("expected_input_fingerprint")
+            or checkpoint.get("current_input_fingerprint")
+            or ""
+        ).strip()
+        return bool(
+            checkpoint.get("status") == "completed"
+            and expected
+            and str(checkpoint.get("input_fingerprint") or "") == expected
+            and str(checkpoint.get("output_fingerprint") or "")
+        )
+
+    def _story_image_dependencies_valid(self, chapter: Mapping) -> bool:
+        stages = dict(chapter.get("stages") or {})
+        return all(
+            self._story_checkpoint_is_reusable(dict(stages.get(stage) or {}))
+            for stage in (
+                "transcription",
+                "transcript_combination",
+                "story_analysis",
+                "scene_planning",
+            )
+        )
+
+    def _ensure_story_scene_checkpoints(
+        self, project: dict, chapter_id: str
+    ) -> dict[str, dict]:
+        chapter = project["chapters"][chapter_id]
+        stored = chapter.get("scene_checkpoints")
+        checkpoints = copy.deepcopy(dict(stored)) if isinstance(stored, Mapping) else {}
+        for index in range(len(self.transcript_chunks)):
+            context = self._story_image_context(index)
+            if context.get("chapter_id") != chapter_id:
+                continue
+            scene_id = str(context.get("scene_id") or "").strip()
+            if not scene_id:
+                continue
+            existing = checkpoints.get(scene_id)
+            if isinstance(existing, Mapping):
+                checkpoint = project_models.normalize_checkpoint(
+                    existing, stage="image_generation", unit_id=scene_id
+                )
+            else:
+                checkpoint = project_models.checkpoint(
+                    "image_generation", scene_id
+                )
+            expected = self._story_image_input_fingerprint(chapter, context)
+            checkpoint["expected_input_fingerprint"] = expected
+            checkpoint["scene_id"] = scene_id
+            checkpoint["chapter_id"] = chapter_id
+            checkpoint["chunk_index"] = int(context["chunk_index"])
+            checkpoint["prompt_text"] = str(context["prompt_text"])
+            checkpoint["source_text"] = str(context["source_text"])
+            checkpoint["generation_mode"] = str(context["generation_mode"])
+            checkpoint["reference_image_paths"] = list(
+                context["reference_image_paths"]
+            )
+            checkpoints[scene_id] = checkpoint
+        chapter["scene_checkpoints"] = checkpoints
+        return checkpoints
+
+    def _story_image_result_is_current(self, payload: Mapping) -> bool:
+        data = dict(payload or {})
+        if int(data.get("token", -1) or 0) != int(self._image_generation_token):
+            return False
+        owner_project_id = str(data.get("project_id") or "")
+        if not owner_project_id:
+            return not self.current_story_project_id
+        return bool(
+            not self._story_project_shutdown
+            and owner_project_id == str(self.current_story_project_id or "")
+            and int(data.get("project_generation", -1) or 0)
+            == int(self._story_project_generation)
+            and str(data.get("input_fingerprint") or "")
+            == str(self._story_project_input_fingerprint or "")
+        )
+
+    def _story_image_launch_ownership(self, token: int) -> dict:
+        return {
+            "token": int(token),
+            "project_id": str(self.current_story_project_id or ""),
+            "project_generation": int(self._story_project_generation),
+            "input_fingerprint": str(
+                self._story_project_input_fingerprint or ""
+            ),
+        }
+
+    def _retry_story_scene(self, scene_id: str, *, chapter_id: str = "") -> None:
+        self._retry_story_scenes([(chapter_id, scene_id)])
+
+    def _retry_story_scenes(
+        self, scene_keys: Sequence[tuple[str, str] | str]
+    ) -> None:
+        if (
+            not self.current_story_project_id
+            or self._story_project_busy
+            or self._story_project_pending_autosave is not None
+        ):
+            return
+        requested: set[tuple[str, str]] = set()
+        unresolved_scene_ids: set[str] = set()
+        for item in scene_keys:
+            if isinstance(item, tuple) and len(item) == 2:
+                chapter_id = str(item[0] or "").strip()
+                scene_id = str(item[1] or "").strip()
+                if chapter_id and scene_id:
+                    requested.add((chapter_id, scene_id))
+                elif scene_id:
+                    unresolved_scene_ids.add(scene_id)
+                continue
+            scene_id = str(item or "").strip()
+            if scene_id:
+                unresolved_scene_ids.add(scene_id)
+        if not requested and not unresolved_scene_ids:
+            return
+        pipeline_owner = self._begin_story_project_mutating_pipeline(
+            "image generation"
+        )
+        if pipeline_owner is None:
+            return
+        self._image_project_pipeline_owner = pipeline_owner
+        project = copy.deepcopy(dict(self._current_story_project or {}))
+        if str(project.get("project_id") or "") != self.current_story_project_id:
+            self._end_story_project_mutating_pipeline(pipeline_owner)
+            self._image_project_pipeline_owner = None
+            return
+        all_contexts = [
+            self._story_image_context(index)
+            for index in range(len(self.transcript_chunks))
+        ]
+        for scene_id in unresolved_scene_ids:
+            candidates = {
+                (
+                    str(context.get("chapter_id") or ""),
+                    str(context.get("scene_id") or ""),
+                )
+                for context in all_contexts
+                if str(context.get("scene_id") or "") == scene_id
+                and str(context.get("chapter_id") or "")
+            }
+            if len(candidates) != 1:
+                self._set_status(
+                    "Select a chapter before retrying a scene shared by multiple chapters."
+                )
+                self._end_story_project_mutating_pipeline(pipeline_owner)
+                self._image_project_pipeline_owner = None
+                return
+            requested.update(candidates)
+        contexts = [
+            context
+            for context in all_contexts
+            if (
+                str(context.get("chapter_id") or ""),
+                str(context.get("scene_id") or ""),
+            )
+            in requested
+        ]
+        found = {
+            (
+                str(context.get("chapter_id") or ""),
+                str(context.get("scene_id") or ""),
+            )
+            for context in contexts
+        }
+        if found != requested:
+            self._set_status(
+                "Restore or transcribe this chapter before retrying its images."
+            )
+            self._end_story_project_mutating_pipeline(pipeline_owner)
+            self._image_project_pipeline_owner = None
+            return
+        prepared_indices: list[int] = []
+        provider_info = dict(self._visual_reply_generation_info() or {})
+        for context in contexts:
+            chapter_id = str(context.get("chapter_id") or "")
+            chapter = dict(dict(project.get("chapters") or {}).get(chapter_id) or {})
+            if not chapter or not self._story_image_dependencies_valid(chapter):
+                self._set_status(
+                    "Restore or transcribe and analyze this chapter before retrying its images."
+                )
+                self._end_story_project_mutating_pipeline(pipeline_owner)
+                self._image_project_pipeline_owner = None
+                return
+            checkpoints = self._ensure_story_scene_checkpoints(project, chapter_id)
+            scene_id = str(context["scene_id"])
+            current = copy.deepcopy(checkpoints[scene_id])
+            if self._story_checkpoint_is_reusable(current):
+                continue
+            if current.get("status") == "running":
+                current["status"] = "interrupted"
+            elif current.get("status") == "completed":
+                current["status"] = "stale"
+            expected = self._story_image_input_fingerprint(
+                project["chapters"][chapter_id], context
+            )
+            started = checkpointing.start_checkpoint(
+                current,
+                input_fingerprint=expected,
+                provider=str(provider_info.get("provider") or ""),
+                model=str(provider_info.get("model") or ""),
+            )
+            previous_ref = str(current.get("output_ref") or "")
+            previous_fingerprint = str(current.get("output_fingerprint") or "")
+            if previous_ref and previous_fingerprint:
+                try:
+                    self._story_project_store.resolve_project_image(
+                        str(project["project_id"]), chapter_id, previous_ref
+                    )
+                except (FileNotFoundError, project_store.ProjectCorruptError):
+                    pass
+                else:
+                    started["previous_output_ref"] = previous_ref
+                    started["previous_output_fingerprint"] = previous_fingerprint
+                    started["previous_input_fingerprint"] = str(
+                        current.get("input_fingerprint") or ""
+                    )
+                    started["previous_completed_at"] = current.get("completed_at")
+            started["expected_input_fingerprint"] = expected
+            started["scene_id"] = scene_id
+            started["chapter_id"] = chapter_id
+            started["chunk_index"] = int(context["chunk_index"])
+            started["prompt_text"] = str(context["prompt_text"])
+            started["source_text"] = str(context["source_text"])
+            started["generation_mode"] = str(context["generation_mode"])
+            started["reference_image_paths"] = list(
+                context["reference_image_paths"]
+            )
+            checkpoints[scene_id] = started
+            prepared_indices.append(int(context["chunk_index"]))
+        if not prepared_indices:
+            self._end_story_project_mutating_pipeline(pipeline_owner)
+            self._image_project_pipeline_owner = None
+            return
+        with self._lock:
+            for index in prepared_indices:
+                stale_entry = dict(self._image_cache.pop(index, None) or {})
+                stale_signature = str(
+                    stale_entry.get("prompt_signature") or ""
+                )
+                if stale_signature:
+                    self._prompt_image_cache.pop(stale_signature, None)
+        self._current_story_project = copy.deepcopy(project)
+        self._replace_story_project_summary(project)
+        self._queue_story_project_autosave(project)
+        with self._lock:
+            self._image_generation_token += 1
+            token = int(self._image_generation_token)
+            self._image_generation_worker_running = True
+            self._image_generation_active_start_index = min(prepared_indices)
+            self._image_generation_requested_end_index = max(prepared_indices)
+        ownership = self._story_image_launch_ownership(token)
+        threading.Thread(
+            target=self._run_visual_generation,
+            args=(token, min(prepared_indices), max(prepared_indices)),
+            kwargs={
+                "ownership": ownership,
+                "requested_indices": tuple(sorted(set(prepared_indices))),
+            },
+            name="audio-story-image-retry",
+            daemon=True,
+        ).start()
+
+    def _hydrate_story_project_audio(self, project: dict | None) -> None:
+        sources = []
+        offset = 0.0
+        if isinstance(project, dict):
+            chapters = dict(project.get("chapters") or {})
+            archived = set(project.get("archived_chapter_ids") or [])
+            for chapter_id in list(project.get("chapter_order") or []):
+                if chapter_id in archived:
+                    continue
+                chapter = dict(chapters.get(chapter_id) or {})
+                audio = dict(
+                    chapter.get("audio_reference") or chapter.get("audio") or {}
+                )
+                path = str(audio.get("path") or "").strip()
+                fingerprint = dict(audio.get("fingerprint") or {})
+                duration = max(
+                    0.0, float(fingerprint.get("duration_ms", 0) or 0) / 1000.0
+                )
+                valid = bool(path and duration > 0.0 and Path(path).is_file())
+                error = "" if valid else "audio file is missing or unavailable"
+                sources.append(
+                    AudioSource(
+                        index=len(sources),
+                        path=path,
+                        display_name=str(
+                            chapter.get("display_name") or Path(path).name or chapter_id
+                        ),
+                        duration_seconds=duration if valid else 0.0,
+                        global_start_seconds=offset,
+                        global_end_seconds=offset + (duration if valid else 0.0),
+                        valid=valid,
+                        error=error,
+                    )
+                )
+                if valid:
+                    offset += duration
+        self.imported_audio_sources = sources
+        self.imported_audio_paths = [source.path for source in sources if source.path]
+        self.imported_audio_path = self.imported_audio_paths[0] if self.imported_audio_paths else ""
+        self.imported_audio_duration_seconds = total_duration_seconds(sources)
+        self._refresh_audio_source_queue()
+        self._sync_transcription_range_controls()
+
+    def _hydrate_project_owned_legacy_story_state(
+        self, project: Mapping | None
+    ) -> bool:
+        if not isinstance(project, Mapping):
+            return False
+        legacy_payload = project.get("legacy_session_payload")
+        if not isinstance(legacy_payload, Mapping):
+            return False
+        payload = flatten_audio_story_mode_settings(copy.deepcopy(legacy_payload))
+        bible = payload.get("audio_story_mode_story_bible")
+        if isinstance(bible, dict):
+            self.story_bible = copy.deepcopy(bible)
+        scene_plan = payload.get("audio_story_mode_scene_plan")
+        if isinstance(scene_plan, list):
+            self.scene_plan = copy.deepcopy(scene_plan)
+        scene_overrides = payload.get("audio_story_mode_scene_overrides")
+        if isinstance(scene_overrides, dict):
+            self.scene_overrides = restore_story_overrides(scene_overrides)
+        continuity_memory = payload.get("audio_story_mode_continuity_memory")
+        if isinstance(continuity_memory, dict):
+            self.continuity_memory = copy.deepcopy(continuity_memory)
+        character_anchors = payload.get("audio_story_mode_character_anchors")
+        if isinstance(character_anchors, dict):
+            self.character_anchors = copy.deepcopy(character_anchors)
+        location_anchors = payload.get("audio_story_mode_location_anchors")
+        if isinstance(location_anchors, dict):
+            self.location_anchors = copy.deepcopy(location_anchors)
+        transcript_chunks = payload.get("audio_story_mode_transcript_chunks")
+        if isinstance(transcript_chunks, list):
+            self.transcript_chunks = copy.deepcopy(transcript_chunks)
+        full_transcript_text = payload.get("audio_story_mode_full_transcript_text")
+        if full_transcript_text is not None:
+            self.full_transcript_text = str(full_transcript_text or "").strip()
+        raw_segments = payload.get("audio_story_mode_raw_transcript_segments")
+        if isinstance(raw_segments, list):
+            self._raw_transcript_segments = copy.deepcopy(raw_segments)
+        duration_value = payload.get("audio_story_mode_audio_duration_seconds")
+        if duration_value is not None:
+            try:
+                duration = max(0.0, float(duration_value or 0.0))
+            except (TypeError, ValueError):
+                pass
+            else:
+                self.imported_audio_duration_seconds = duration
+                self._last_transcription_audio_duration = duration
+        if self.transcript_chunks:
+            if hasattr(self, "audio_story_summary_label"):
+                scene_count = len(
+                    {
+                        str(item.get("scene_id", "") or "")
+                        for item in list(self.scene_plan or [])
+                        if isinstance(item, dict)
+                        and str(item.get("scene_id", "") or "").strip()
+                    }
+                )
+                playback_mode = (
+                    self.audio_story_playback_mode_combo.currentText()
+                    if hasattr(self, "audio_story_playback_mode_combo")
+                    else "Play Imported Audio"
+                )
+                self.audio_story_summary_label.setText(
+                    "Restored story plan. "
+                    f"Image windows: {len(self.transcript_chunks)}\n"
+                    f"Scenes: {scene_count}\n"
+                    f"Playback mode: {playback_mode}"
+                )
+            if hasattr(self, "audio_story_transcript_edit"):
+                lines = []
+                for chunk in self.transcript_chunks:
+                    if not isinstance(chunk, dict):
+                        continue
+                    lines.append(
+                        f"[{self._format_seconds(float(chunk.get('start_seconds', 0.0) or 0.0))}"
+                        f" - {self._format_seconds(float(chunk.get('end_seconds', 0.0) or 0.0))}] "
+                        f"{str(chunk.get('text', '') or '').strip()}"
+                    )
+                self.audio_story_transcript_edit.setPlainText("\n\n".join(lines))
+            self._sync_story_generated_master_prompt(refresh_visuals=False)
+            self._refresh_scene_override_controls()
+            self._prepare_source_media()
+        return True
+
+    def _project_owned_story_image_path(
+        self, project_id: str, chapter_id: str, output_ref: str
+    ) -> Path | None:
+        reference = str(output_ref or "").strip()
+        if not reference or "\\" in reference:
+            return None
+        expected_prefix = f"chapters/{chapter_id}/images/"
+        relative = Path(reference)
+        if (
+            not reference.startswith(expected_prefix)
+            or relative.is_absolute()
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            return None
+        project_root = self._story_project_store.project_path(project_id).parent.resolve()
+        image_root = (project_root / "chapters" / chapter_id / "images").resolve()
+        candidate = (project_root / relative).resolve()
+        if not candidate.is_relative_to(image_root) or not candidate.is_file():
+            return None
+        return candidate
+
+    def _restore_project_image_cache(self, project: Mapping | None = None) -> None:
+        source = dict(project or self._current_story_project or {})
+        project_id = str(source.get("project_id") or "")
+        restored: dict[int, dict] = {}
+        restored_prompts: dict[str, dict] = {}
+        if project_id and project_id == str(self.current_story_project_id or ""):
+            chapters = dict(source.get("chapters") or {})
+            archived = set(source.get("archived_chapter_ids") or [])
+            for chapter_id in list(source.get("chapter_order") or []):
+                if chapter_id in archived:
+                    continue
+                chapter = dict(chapters.get(chapter_id) or {})
+                stored = chapter.get("scene_checkpoints")
+                if not isinstance(stored, Mapping):
+                    continue
+                for scene_id, value in stored.items():
+                    if not isinstance(value, Mapping):
+                        continue
+                    checkpoint = dict(value)
+                    if not self._story_checkpoint_is_reusable(checkpoint):
+                        continue
+                    image_path = self._project_owned_story_image_path(
+                        project_id,
+                        str(chapter_id),
+                        str(checkpoint.get("output_ref") or ""),
+                    )
+                    if image_path is None:
+                        continue
+                    try:
+                        chunk_index = int(checkpoint.get("chunk_index", -1))
+                    except (TypeError, ValueError):
+                        continue
+                    if chunk_index < 0:
+                        continue
+                    entry = {
+                        "image_path": str(image_path),
+                        "prompt_text": str(checkpoint.get("prompt_text") or ""),
+                        "source_text": str(checkpoint.get("source_text") or ""),
+                        "prompt_signature": str(
+                            checkpoint.get("prompt_signature") or ""
+                        ),
+                        "generation_mode": str(
+                            checkpoint.get("generation_mode") or "fresh"
+                        ),
+                        "reference_image_paths": list(
+                            checkpoint.get("reference_image_paths") or []
+                        ),
+                        "scene_id": str(
+                            checkpoint.get("scene_id") or scene_id
+                        ),
+                        "scene_index": int(
+                            checkpoint.get("scene_index", chunk_index + 1)
+                            or chunk_index + 1
+                        ),
+                        "scene_context": {
+                            "chapter_id": str(chapter_id),
+                            "scene_id": str(
+                                checkpoint.get("scene_id") or scene_id
+                            ),
+                            "scene_index": int(
+                                checkpoint.get("scene_index", chunk_index + 1)
+                                or chunk_index + 1
+                            ),
+                            "chunk_index": chunk_index,
+                        },
+                    }
+                    restored[chunk_index] = entry
+                    signature = str(entry["prompt_signature"] or "")
+                    if signature:
+                        restored_prompts[signature] = dict(entry)
+        with self._lock:
+            self._image_cache = restored
+            self._prompt_image_cache = restored_prompts
+
+    def _apply_open_story_project(
+        self,
+        project,
+        *,
+        replace_derived_state: bool = False,
+    ) -> None:
+        normalized = copy.deepcopy(dict(project or {})) if isinstance(project, dict) else None
+        new_project_id = str((normalized or {}).get("project_id") or "")
+        previous_project = dict(self._current_story_project or {})
+        identity_changed = new_project_id != self.current_story_project_id
+
+        def active_audio_signature(value: dict) -> tuple:
+            chapters = dict(value.get("chapters") or {})
+            archived = set(value.get("archived_chapter_ids") or [])
+            signature = []
+            for chapter_id in list(value.get("chapter_order") or []):
+                if chapter_id in archived:
+                    continue
+                chapter = dict(chapters.get(chapter_id) or {})
+                audio = dict(
+                    chapter.get("audio_reference") or chapter.get("audio") or {}
+                )
+                fingerprint = dict(audio.get("fingerprint") or {})
+                signature.append(
+                    (
+                        str(chapter_id),
+                        str(fingerprint.get("algorithm") or ""),
+                        str(fingerprint.get("digest") or ""),
+                        int(fingerprint.get("size_bytes", 0) or 0),
+                        int(fingerprint.get("duration_ms", 0) or 0),
+                    )
+                )
+            return tuple(signature)
+
+        audio_changed = active_audio_signature(previous_project) != active_audio_signature(
+            normalized or {}
+        )
+        if identity_changed:
+            self._stored_selected_range_enabled = False
+        if (
+            identity_changed
+            and not self._story_project_busy
+        ):
+            self._invalidate_story_project_work()
+            self._story_project_input_fingerprint = ""
+        if identity_changed or audio_changed or replace_derived_state:
+            self._clear_audio_story_derived_state()
+        self.current_story_project_id = new_project_id
+        self._current_story_project = normalized
+        self._story_project_busy = False
+        if identity_changed or replace_derived_state:
+            self._story_project_pending_autosave = None
+            self._story_project_dirty_autosave = None
+        if normalized is not None:
+            recovered, changed = checkpointing.recover_interrupted(normalized)
+            normalized = recovered
+            self._current_story_project = copy.deepcopy(normalized)
+            self._replace_story_project_summary(normalized)
+            if changed:
+                self._queue_story_project_autosave(normalized)
+        if not new_project_id:
+            self._set_story_project_autosave_text("No project open")
+        elif self._story_project_pending_autosave is None:
+            self._set_story_project_autosave_text("Project ready")
+        self._hydrate_story_project_audio(normalized)
+        if identity_changed or replace_derived_state:
+            self._hydrate_project_owned_legacy_story_state(normalized)
+        self._restore_project_image_cache(normalized)
+        navigation = getattr(self, "audio_story_inner_tabs", None)
+        if navigation is not None and not new_project_id:
+            navigation.select_key("project")
+        self._refresh_story_project_ui()
+        self._refresh_controls()
+
+    def _refresh_story_project_ui(self) -> None:
+        if self._story_project_shutdown:
+            return
+        project_list = getattr(self, "audio_story_project_list", None)
+        selected_project_id = self._selected_story_project_id()
+        preferred_project_id = self.current_story_project_id or selected_project_id
+        if project_list is not None:
+            blocker = QtCore.QSignalBlocker(project_list)
+            project_list.clear()
+            selected_row = -1
+            for project in self._story_projects:
+                project_id = str(project.get("project_id") or "")
+                chapter_count = len(list(project.get("chapter_order") or []))
+                label = f"{project.get('name', 'Untitled Project')}  ({chapter_count} chapters)"
+                item = QtWidgets.QListWidgetItem(label)
+                item.setData(QtCore.Qt.UserRole, project_id)
+                item.setToolTip(project_id)
+                project_list.addItem(item)
+                if project_id == preferred_project_id:
+                    selected_row = project_list.count() - 1
+            if selected_row >= 0:
+                project_list.setCurrentRow(selected_row)
+            del blocker
+
+        project = dict(self._current_story_project or {})
+        name_label = getattr(self, "audio_story_project_name_label", None)
+        if name_label is not None:
+            name_label.setText(
+                f"Project: {project.get('name', '')}"
+                if self.current_story_project_id
+                else "No project open"
+            )
+        chapter_list = getattr(self, "audio_story_project_chapter_list", None)
+        selected_chapter = self._selected_story_project_chapter()
+        selected_chapter_id = str(selected_chapter.get("chapter_id") or "")
+        if chapter_list is not None:
+            blocker = QtCore.QSignalBlocker(chapter_list)
+            chapter_list.clear()
+            chapters = dict(project.get("chapters") or {})
+            archived_ids = list(project.get("archived_chapter_ids") or [])
+            ordered_ids = list(project.get("chapter_order") or []) + [
+                chapter_id
+                for chapter_id in archived_ids
+                if chapter_id not in project.get("chapter_order", [])
+            ]
+            selected_row = -1
+            for chapter_id in ordered_ids:
+                chapter = dict(chapters.get(chapter_id) or {})
+                archived = chapter_id in archived_ids
+                stages = dict(chapter.get("stages") or {})
+                statuses = [
+                    str(dict(value or {}).get("status") or "pending")
+                    for value in stages.values()
+                    if isinstance(value, dict)
+                ]
+                status = "complete" if statuses and all(value == "completed" for value in statuses) else next(
+                    (value for value in ("missing_audio", "failed", "interrupted", "stale", "running") if value in statuses),
+                    "pending",
+                )
+                prefix = "Archived" if archived else status.replace("_", " ").title()
+                item = QtWidgets.QListWidgetItem(
+                    f"{chapter.get('display_name', 'Untitled Chapter')}  —  {prefix}"
+                )
+                item.setData(
+                    QtCore.Qt.UserRole,
+                    {"chapter_id": str(chapter_id), "archived": archived},
+                )
+                chapter_list.addItem(item)
+                if chapter_id == selected_chapter_id:
+                    selected_row = chapter_list.count() - 1
+            if selected_row >= 0:
+                chapter_list.setCurrentRow(selected_row)
+            elif chapter_list.count():
+                chapter_list.setCurrentRow(0)
+            del blocker
+
+        selection = self._selected_story_project_chapter()
+        chapter_id = str(selection.get("chapter_id") or "")
+        chapter = dict(dict(project.get("chapters") or {}).get(chapter_id) or {})
+        chapter_status = getattr(self, "audio_story_project_chapter_status_label", None)
+        if chapter_status is not None:
+            if not chapter:
+                chapter_status.setText("No chapter selected.")
+            else:
+                stage_lines = [
+                    f"{stage.replace('_', ' ').title()}: {dict(value or {}).get('status', 'pending')}"
+                    for stage, value in dict(chapter.get("stages") or {}).items()
+                    if isinstance(value, dict)
+                ]
+                chapter_status.setText("  |  ".join(stage_lines))
+        recovery_label = getattr(self, "audio_story_project_recovery_label", None)
+        plan = checkpointing.build_resume_plan(project) if project else []
+        if recovery_label is not None:
+            recovery_label.setText(
+                f"{len(plan)} unfinished work item{'s' if len(plan) != 1 else ''} can be resumed."
+                if project
+                else "Open a project to continue its chapters and recover unfinished work."
+            )
+
+        selected_project_id = self._selected_story_project_id()
+        project_busy = bool(
+            self._story_project_busy
+            or self._story_project_pending_autosave is not None
+            or self._story_project_mutating_pipeline_owner is not None
+        )
+        active_order = list(project.get("chapter_order") or [])
+        chapter_index = active_order.index(chapter_id) if chapter_id in active_order else -1
+        button_states = {
+            "audio_story_project_new_button": not project_busy,
+            "audio_story_project_open_button": bool(selected_project_id) and not project_busy,
+            "audio_story_project_rename_button": bool(self.current_story_project_id) and not project_busy,
+            "audio_story_project_close_button": bool(self.current_story_project_id) and not project_busy,
+            "audio_story_project_delete_button": bool(self.current_story_project_id) and not project_busy,
+            "audio_story_project_add_audio_button": bool(self.current_story_project_id) and not project_busy,
+            "audio_story_project_chapter_rename_button": bool(chapter_id) and not project_busy,
+            "audio_story_project_chapter_move_up_button": bool(chapter_index > 0) and not project_busy,
+            "audio_story_project_chapter_move_down_button": bool(
+                chapter_index >= 0 and chapter_index < len(active_order) - 1
+            ) and not project_busy,
+            "audio_story_project_relink_button": bool(chapter_id) and not project_busy,
+            "audio_story_project_archive_button": bool(chapter_id) and not bool(selection.get("archived")) and not project_busy,
+            "audio_story_project_restore_button": bool(chapter_id) and bool(selection.get("archived")) and not project_busy,
+            "audio_story_project_resume_all_button": bool(plan) and not project_busy,
+            "audio_story_project_retry_button": bool(plan and chapter_id) and not project_busy,
+        }
+        for name, enabled in button_states.items():
+            button = getattr(self, name, None)
+            if button is not None:
+                button.setEnabled(enabled)
+        self._offer_legacy_project_migration()
 
     def _audio_story_compact_button_style(self):
         return (
@@ -2196,6 +4478,7 @@ class AudioStoryModeController(QtCore.QObject):
             "story_master_prompt_mode": self._audio_story_master_prompt_mode(),
             "audio_story_analysis_mode": self._audio_story_analysis_mode(),
             "use_llm_story_analysis": bool(self._stored_use_llm_story_analysis),
+            "instructor_beats_enabled": bool(self._stored_instructor_beats_enabled),
             "story_analysis_provider_mode": self._story_analysis_provider_mode(),
             "story_analysis_model": self._story_analysis_model_override(),
             "xai_image_settings": self._current_xai_image_settings(),
@@ -2243,6 +4526,8 @@ class AudioStoryModeController(QtCore.QObject):
             audio_story_runtime.update_runtime_config("audio_story_analysis_mode", self._stored_audio_story_analysis_mode)
         if data.get("use_llm_story_analysis") is not None:
             self._stored_use_llm_story_analysis = bool(data.get("use_llm_story_analysis"))
+        if data.get("instructor_beats_enabled") is not None:
+            self._stored_instructor_beats_enabled = bool(data.get("instructor_beats_enabled"))
         if data.get("story_analysis_provider_mode") is not None:
             self._stored_story_analysis_provider_mode = self._normalize_story_analysis_provider_mode(data.get("story_analysis_provider_mode"))
         if data.get("story_analysis_model") is not None:
@@ -2273,6 +4558,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_story_master_prompt_controls()
         self._sync_audio_story_analysis_mode_controls()
         self._sync_llm_story_analysis_controls()
+        self._sync_instructor_controls()
         self._sync_story_analysis_provider_controls()
         self._sync_story_analysis_model_controls()
         self._sync_xai_image_settings_controls()
@@ -2386,11 +4672,21 @@ class AudioStoryModeController(QtCore.QObject):
         self._set_status(f"Loaded Audio Story preset: {name}")
 
     def export_session_state(self):
+        project = dict(self._current_story_project or {})
+        project_id = str(self.current_story_project_id or "").strip()
+        try:
+            project_revision = max(0, int(project.get("manifest_revision", 0) or 0))
+        except (TypeError, ValueError):
+            project_revision = 0
         flat_payload = {
             "audio_story_mode_audio_path": str(self.imported_audio_path or "").strip(),
+            "audio_story_mode_audio_paths": list(self.imported_audio_paths or []),
             "audio_story_mode_transcribe_seconds": int(self.audio_story_transcribe_seconds_slider.value()) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8),
+            "audio_story_mode_selected_range_enabled": bool(self._stored_selected_range_enabled),
             "audio_story_mode_transcription_start_seconds": int(self.audio_story_transcription_start_spin.value()) if hasattr(self, "audio_story_transcription_start_spin") else int(self._stored_transcription_start_seconds or 0),
             "audio_story_mode_transcription_end_seconds": int(self.audio_story_transcription_end_spin.value()) if hasattr(self, "audio_story_transcription_end_spin") else int(self._stored_transcription_end_seconds or 0),
+            "audio_story_mode_tts_startup_buffer_seconds": int(self._stored_tts_startup_buffer_seconds),
+            "audio_story_mode_tts_render_ahead_seconds": int(self._stored_tts_render_ahead_seconds),
             "audio_story_mode_image_frequency_seconds": self._normalize_image_frequency_seconds(int(self.audio_story_image_frequency_slider.value()) if hasattr(self, "audio_story_image_frequency_slider") else self._stored_image_frequency_seconds),
             "audio_story_mode_image_timing_mode": self._image_timing_mode(),
             "audio_story_mode_generate_ahead_frames": int(self._stored_generate_ahead_frames or 0),
@@ -2404,6 +4700,7 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_story_mode_story_master_prompt_mode": str(self._stored_story_master_prompt_mode or "medium"),
             "audio_story_mode_analysis_mode": self._audio_story_analysis_mode(),
             "audio_story_mode_use_llm_story_analysis": bool(self._stored_use_llm_story_analysis),
+            "audio_story_mode_instructor_beats_enabled": bool(self._stored_instructor_beats_enabled),
             "audio_story_mode_story_analysis_provider_mode": self._story_analysis_provider_mode(),
             "audio_story_mode_story_analysis_model": self._story_analysis_model_override(),
             "audio_story_mode_xai_image_settings": self._current_xai_image_settings(),
@@ -2416,6 +4713,13 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_story_mode_chromecast_show_prompt": bool(self._stored_chromecast_show_prompt),
             "audio_story_mode_playback_mode": str(self.audio_story_playback_mode_combo.currentText() or "Play Imported Audio") if hasattr(self, "audio_story_playback_mode_combo") else "Play Imported Audio",
         }
+        if project_id:
+            flat_payload.update(
+                {
+                    "audio_story_mode_project_id": project_id,
+                    "audio_story_mode_project_revision": project_revision,
+                }
+            )
         flat_payload.update(
             build_story_state_flat_payload(
                 story_bible=self.story_bible,
@@ -2427,20 +4731,39 @@ class AudioStoryModeController(QtCore.QObject):
                 transcript_chunks=self.transcript_chunks,
                 full_transcript_text=self.full_transcript_text,
                 raw_transcript_segments=self._raw_transcript_segments,
+                audio_sources=[item.to_dict() for item in self.imported_audio_sources],
                 audio_duration_seconds=self.imported_audio_duration_seconds,
             )
         )
         return audio_story_mode_session_payload(flat_payload)
 
     def import_session_state(self, session):
+        source_session = copy.deepcopy(dict(session)) if isinstance(session, Mapping) else {}
         payload = flatten_audio_story_mode_settings(session or {})
+        project_hint = str(payload.get("audio_story_mode_project_id") or "").strip()
+        self.legacy_story_available_for_migration = bool(
+            not project_hint
+            and not self.current_story_project_id
+            and legacy_story_state_available(payload)
+        )
+        self._legacy_story_session_payload = (
+            copy.deepcopy(source_session)
+            if self.legacy_story_available_for_migration
+            else {}
+        )
         audio_path = str(payload.get("audio_story_mode_audio_path") or "").strip()
-        if audio_path:
-            self.imported_audio_path = audio_path
-            self._refresh_imported_audio_duration()
-        if audio_path and hasattr(self, "audio_story_path_edit"):
-            self.audio_story_path_edit.setText(audio_path)
-        if audio_path:
+        ordered_paths_value = payload.get("audio_story_mode_audio_paths")
+        ordered_paths = (
+            [str(item or "").strip() for item in ordered_paths_value if str(item or "").strip()]
+            if isinstance(ordered_paths_value, (list, tuple))
+            else []
+        )
+        if not ordered_paths and audio_path:
+            ordered_paths = [audio_path]
+        if ordered_paths:
+            self.imported_audio_paths = ordered_paths
+            self.imported_audio_path = ordered_paths[0]
+            self._set_imported_audio_paths(ordered_paths, clear_story=False)
             self._sync_transcribe_seconds_slider()
             self._sync_image_frequency_slider()
         seconds_value = payload.get("audio_story_mode_transcribe_seconds")
@@ -2450,6 +4773,10 @@ class AudioStoryModeController(QtCore.QObject):
                 self._sync_transcribe_seconds_slider()
             except Exception:
                 pass
+        selected_range_value = payload.get("audio_story_mode_selected_range_enabled")
+        self._stored_selected_range_enabled = bool(
+            selected_range_value if selected_range_value is not None else False
+        )
         start_value = payload.get("audio_story_mode_transcription_start_seconds")
         if start_value is not None:
             try:
@@ -2462,8 +4789,27 @@ class AudioStoryModeController(QtCore.QObject):
                 self._stored_transcription_end_seconds = max(0, int(end_value or 0))
             except Exception:
                 pass
-        if start_value is not None or end_value is not None or audio_path:
-            self._sync_transcription_range_controls()
+        self._sync_transcription_range_controls()
+        startup_buffer_value = payload.get(
+            "audio_story_mode_tts_startup_buffer_seconds",
+            30,
+        )
+        render_ahead_value = payload.get(
+            "audio_story_mode_tts_render_ahead_seconds",
+            120,
+        )
+        try:
+            (
+                self._stored_tts_startup_buffer_seconds,
+                self._stored_tts_render_ahead_seconds,
+            ) = self._normalize_tts_buffer_settings(
+                startup_buffer_value,
+                render_ahead_value,
+            )
+        except (TypeError, ValueError):
+            self._stored_tts_startup_buffer_seconds = 30
+            self._stored_tts_render_ahead_seconds = 120
+        self._sync_tts_buffer_controls()
         image_frequency_value = payload.get("audio_story_mode_image_frequency_seconds")
         if image_frequency_value is not None:
             try:
@@ -2526,6 +4872,9 @@ class AudioStoryModeController(QtCore.QObject):
         if payload.get("audio_story_mode_use_llm_story_analysis") is not None:
             self._stored_use_llm_story_analysis = bool(payload.get("audio_story_mode_use_llm_story_analysis"))
         self._sync_llm_story_analysis_controls()
+        if payload.get("audio_story_mode_instructor_beats_enabled") is not None:
+            self._stored_instructor_beats_enabled = bool(payload.get("audio_story_mode_instructor_beats_enabled"))
+        self._sync_instructor_controls()
         analysis_provider_mode = payload.get("audio_story_mode_story_analysis_provider_mode")
         if analysis_provider_mode is not None:
             self._stored_story_analysis_provider_mode = self._normalize_story_analysis_provider_mode(analysis_provider_mode)
@@ -2643,20 +4992,116 @@ class AudioStoryModeController(QtCore.QObject):
             self._sync_story_generated_master_prompt(refresh_visuals=False)
             self._refresh_scene_override_controls()
             self._prepare_source_media()
+        if project_hint:
+            autosave_queue = self._story_project_autosave_queue
+            self._launch_story_project_job(
+                "open",
+                lambda: self._open_story_project_from_session(
+                    project_hint,
+                    autosave_queue,
+                ),
+                project_id=project_hint,
+                switch_project=True,
+                supersede_busy=True,
+            )
+        self._offer_legacy_project_migration()
         self._refresh_controls()
         return None
 
     def shutdown(self):
-        self._transcription_job_id += 1
-        self._tts_render_job_id += 1
-        self._cancel_visual_generation()
-        self._pending_play_request = None
+        self._invalidate_story_project_work()
+        self._story_project_input_fingerprint = ""
+        self._story_project_shutdown_save_failure = ""
+        self._story_project_shutdown_final_ownership = None
+        autosave_queue = self._story_project_autosave_queue
+        self._story_project_shutdown = True
+        with self._lock:
+            dirty = copy.deepcopy(self._story_project_dirty_autosave)
+        dirty_is_current = bool(
+            isinstance(dirty, dict)
+            and str(dirty.get("project_id") or "")
+            == self.current_story_project_id
+            and isinstance(dirty.get("snapshot"), dict)
+        )
+        final_save_needed = bool(self.current_story_project_id and dirty_is_current)
+        final_snapshot = (
+            copy.deepcopy(dirty["snapshot"])
+            if dirty_is_current
+            else copy.deepcopy(self._current_story_project)
+        )
+        if (
+            final_save_needed
+            and autosave_queue is not None
+            and isinstance(final_snapshot, dict)
+        ):
+            queued_ownership = self._queue_story_project_autosave(
+                final_snapshot,
+                shutdown_final=True,
+            )
+            if queued_ownership is None and not self._story_project_shutdown_save_failure:
+                self._story_project_shutdown_save_failure = (
+                    "The final project save could not be queued."
+                )
+        elif final_save_needed:
+            self._story_project_shutdown_save_failure = (
+                "The final project save queue or snapshot is unavailable."
+            )
+        self._story_project_autosave_queue = None
+        if autosave_queue is not None:
+            drained = False
+            drain_error = ""
+            shutdown_error = ""
+            try:
+                drained = bool(autosave_queue.flush(timeout=0.75))
+            except Exception as exc:
+                drain_error = str(
+                    exc or "The final project save could not be drained."
+                ).strip()
+            try:
+                autosave_queue.shutdown(timeout=0.25)
+            except Exception as exc:
+                shutdown_error = str(
+                    exc or "The project save queue could not be shut down."
+                ).strip()
+            with self._lock:
+                remaining_dirty = copy.deepcopy(
+                    self._story_project_dirty_autosave
+                )
+            final_save_still_dirty = bool(
+                isinstance(remaining_dirty, dict)
+                and self._story_project_shutdown_final_ownership
+                == (
+                    str(remaining_dirty.get("project_id") or ""),
+                    int(remaining_dirty.get("revision", 0) or 0),
+                )
+            )
+            if final_save_still_dirty and not self._story_project_shutdown_save_failure:
+                if drain_error:
+                    self._story_project_shutdown_save_failure = drain_error
+                elif shutdown_error:
+                    self._story_project_shutdown_save_failure = shutdown_error
+                elif not drained:
+                    self._story_project_shutdown_save_failure = (
+                        "The final project save did not finish before shutdown."
+                    )
+                else:
+                    self._story_project_shutdown_save_failure = (
+                        "The final project save completion was not confirmed."
+                    )
+        if self._story_project_shutdown_save_failure:
+            detail = self._story_project_shutdown_save_failure
+            self._set_story_project_autosave_text(f"Final save unresolved: {detail}")
+            self._set_status(f"Audio Story project final save unresolved: {detail}")
         try:
             self._visual_refresh_timer.stop()
         except Exception:
             pass
         try:
             self._story_rebuild_timer.stop()
+        except Exception:
+            pass
+        try:
+            self._theme_refresh_timer.stop()
         except Exception:
             pass
         if audio_story_runtime.engine_loaded():
@@ -2674,6 +5119,13 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_player.positionChanged.connect(self._on_player_position_changed)
         self.audio_player.durationChanged.connect(self._on_player_duration_changed)
         self.audio_player.playbackStateChanged.connect(self._on_player_state_changed)
+        self.audio_player.mediaStatusChanged.connect(self._on_player_media_status_changed)
+        try:
+            self.audio_player.seekableChanged.connect(
+                self._on_player_seekable_changed
+            )
+        except Exception:
+            pass
         try:
             self.audio_player.errorOccurred.connect(self._on_player_error)
         except Exception:
@@ -2687,6 +5139,65 @@ class AudioStoryModeController(QtCore.QObject):
     def _set_status(self, message: str):
         if hasattr(self, "audio_story_status_label"):
             self.audio_story_status_label.setText(str(message or "").strip())
+
+    def _transcription_console_safe_message(self, message: str) -> str:
+        text = " ".join(str(message or "").split()).strip()
+        text = re.sub(
+            r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+",
+            "Bearer [redacted]",
+            text,
+        )
+        text = re.sub(
+            r"(?i)\b(api[_ -]?key|authorization|access[_ -]?token|token|password)"
+            r"(\s*[:=]\s*)[^\s,;]+",
+            lambda match: f"{match.group(1)}{match.group(2)}[redacted]",
+            text,
+        )
+        for raw_path in list(getattr(self, "imported_audio_paths", []) or []):
+            path = str(raw_path or "").strip()
+            if not path:
+                continue
+            filename = Path(path).name or "audio file"
+            text = text.replace(path, filename)
+            text = text.replace(path.replace("\\", "/"), filename)
+        return text
+
+    def _append_transcription_console(self, level: str, message: str):
+        console = getattr(self, "audio_story_transcription_console", None)
+        if console is None:
+            return
+        normalized_level = str(level or "INFO").strip().upper()
+        if normalized_level not in {
+            "INFO",
+            "PROGRESS",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+        }:
+            normalized_level = "INFO"
+        text = self._transcription_console_safe_message(message)
+        if not text:
+            return
+        signature = f"{normalized_level}\0{text}"
+        if signature == self._last_transcription_console_entry:
+            return
+        self._last_transcription_console_entry = signature
+        timestamp = QtCore.QTime.currentTime().toString("HH:mm:ss")
+        console.appendPlainText(f"[{timestamp}] [{normalized_level}] {text}")
+        scrollbar = console.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def _copy_transcription_console(self):
+        console = getattr(self, "audio_story_transcription_console", None)
+        if console is None:
+            return
+        QtWidgets.QApplication.clipboard().setText(console.toPlainText())
+
+    def _clear_transcription_console(self):
+        console = getattr(self, "audio_story_transcription_console", None)
+        if console is not None:
+            console.clear()
+        self._last_transcription_console_entry = ""
 
     def _set_transcription_progress(self, percent: int, message: str):
         text = str(message or "").strip()
@@ -2713,6 +5224,11 @@ class AudioStoryModeController(QtCore.QObject):
             self.dialogs.warning(title, message)
 
     def _refresh_imported_audio_duration(self):
+        if self.imported_audio_sources:
+            self.imported_audio_duration_seconds = total_duration_seconds(
+                self.imported_audio_sources
+            )
+            return
         path = str(self.imported_audio_path or "").strip()
         if not path:
             self.imported_audio_duration_seconds = 0.0
@@ -2726,20 +5242,179 @@ class AudioStoryModeController(QtCore.QObject):
             self.imported_audio_duration_seconds = 0.0
 
     def _choose_audio_file(self):
-        if self.dialogs is None:
+        self._choose_audio_files()
+
+    def _choose_audio_files(self):
+        if (
+            not self.current_story_project_id
+            or self._story_project_busy
+            or self._story_project_pending_autosave is not None
+        ):
+            self._set_status("Select or create an Audio Story project before adding audio.")
             return
-        path, _selected = self.dialogs.open_file(
-            "Import Story Audio",
-            str(Path(self.imported_audio_path).parent if self.imported_audio_path else self._cache_root),
+        start_directory = str(
+            Path(self.imported_audio_path).parent
+            if self.imported_audio_path
+            else self._cache_root
+        )
+        paths, _selected = QtWidgets.QFileDialog.getOpenFileNames(
+            self.audio_story_tab_widget,
+            "Import Story Audio Files",
+            start_directory,
             "Audio Files (*.mp3 *.wav *.m4a *.flac *.ogg *.aac *.wma);;All Files (*.*)",
         )
-        path = str(path or "").strip()
-        if not path:
+        selected_paths = [str(path or "").strip() for path in paths if str(path or "").strip()]
+        if not selected_paths:
             return
-        self.imported_audio_path = path
-        self._refresh_imported_audio_duration()
-        self._stored_transcription_start_seconds = 0
-        self._stored_transcription_end_seconds = int(math.ceil(self.imported_audio_duration_seconds)) if self.imported_audio_duration_seconds > 0 else 0
+        self._import_story_project_audio_paths(selected_paths)
+
+    def _import_story_project_audio_paths(self, paths) -> None:
+        selected_paths = tuple(
+            str(path or "").strip() for path in list(paths or []) if str(path or "").strip()
+        )
+        if not self.current_story_project_id or not selected_paths:
+            return
+
+        project_id = str(self.current_story_project_id or "")
+
+        def review_work():
+            self._story_project_manager.open(project_id)
+            return self._story_project_manager.review_import(selected_paths)
+
+        self._launch_story_project_job(
+            "import-review",
+            review_work,
+            project_id=project_id,
+            switch_project=False,
+        )
+
+    @staticmethod
+    def _valid_only_import_decision(review: Mapping, confirm_valid_only) -> bool | None:
+        source = dict(review or {})
+        if list(source.get("conflicts") or []):
+            return None
+        valid = list(source.get("valid") or [])
+        invalid = list(source.get("invalid") or [])
+        if not valid:
+            return None
+        if not invalid:
+            return False
+        return True if bool(confirm_valid_only()) else None
+
+    def _confirm_valid_only_story_import(self, review: Mapping) -> bool:
+        invalid = [
+            dict(item)
+            for item in list(dict(review or {}).get("invalid") or [])
+            if isinstance(item, Mapping)
+        ]
+        detail = "\n".join(
+            f"- {str(item.get('path') or 'Unknown file')}: "
+            f"{str(item.get('error') or 'invalid audio')}"
+            for item in invalid
+        )
+        answer = QtWidgets.QMessageBox.question(
+            getattr(self, "audio_story_tab_widget", None),
+            "Import Valid Audio Files",
+            "Some selected files could not be validated:\n"
+            f"{detail}\n\nImport only the valid files?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        return answer == QtWidgets.QMessageBox.Yes
+
+    def _set_imported_audio_paths(self, paths, *, clear_story: bool):
+        normalized_paths = []
+        seen = set()
+        for value in list(paths or []):
+            path = str(value or "").strip()
+            if not path:
+                continue
+            key = str(Path(path).resolve()).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized_paths.append(path)
+        self._audio_sources_revision += 1
+        revision = self._audio_sources_revision
+        self.imported_audio_paths = normalized_paths
+        self.imported_audio_path = normalized_paths[0] if normalized_paths else ""
+        self.imported_audio_sources = []
+        if normalized_paths:
+            count = len(normalized_paths)
+            self._append_transcription_console(
+                "INFO",
+                f"Checking {count} imported audio {'file' if count == 1 else 'files'}...",
+            )
+        else:
+            self._append_transcription_console("INFO", "Audio import queue cleared.")
+        self._refresh_audio_source_queue(pending=True)
+        self._refresh_controls()
+        if not normalized_paths:
+            self._on_audio_sources_ready(
+                {
+                    "revision": revision,
+                    "sources": [],
+                    "clear_story": bool(clear_story),
+                }
+            )
+            return
+
+        def worker():
+            sources = build_audio_sources(
+                normalized_paths,
+                audio_story_runtime.audio_duration_seconds,
+            )
+            self.audioSourcesReady.emit(
+                {
+                    "revision": revision,
+                    "sources": sources,
+                    "clear_story": bool(clear_story),
+                }
+            )
+
+        threading.Thread(target=worker, name="audio-story-source-probe", daemon=True).start()
+
+    def _on_audio_sources_ready(self, payload):
+        data = dict(payload or {})
+        if int(data.get("revision", -1)) != int(self._audio_sources_revision):
+            return
+        sources = [item for item in list(data.get("sources") or []) if isinstance(item, AudioSource)]
+        self.imported_audio_sources = sources
+        self.imported_audio_paths = [item.path for item in sources]
+        self.imported_audio_path = self.imported_audio_paths[0] if self.imported_audio_paths else ""
+        self.imported_audio_duration_seconds = total_duration_seconds(sources)
+        invalid_sources = [item for item in sources if not item.valid]
+        if invalid_sources:
+            first_invalid = invalid_sources[0]
+            self._append_transcription_console(
+                "WARNING",
+                f"{first_invalid.display_name} is not ready: "
+                f"{first_invalid.error or 'audio duration is unavailable'}",
+            )
+        elif sources:
+            count = len(sources)
+            self._append_transcription_console(
+                "SUCCESS",
+                f"Ready to transcribe {count} {'file' if count == 1 else 'files'} "
+                f"as one {self._format_seconds(self.imported_audio_duration_seconds)} story.",
+            )
+        self._stop_story()
+        if bool(data.get("clear_story")):
+            self._stored_transcription_start_seconds = 0
+            self._stored_transcription_end_seconds = (
+                int(math.ceil(self.imported_audio_duration_seconds))
+                if self.imported_audio_duration_seconds > 0
+                else 0
+            )
+            self._clear_audio_story_derived_state()
+        self._refresh_audio_source_queue()
+        self._sync_transcribe_seconds_slider()
+        self._sync_transcription_range_controls()
+        self._sync_image_frequency_slider()
+        self._refresh_controls()
+
+    def _clear_audio_story_derived_state(self):
+        self._invalidate_tts_queue(clear_plan=True)
         self.transcript_chunks = []
         self.full_transcript_text = ""
         self.story_style_guide = ""
@@ -2752,118 +5427,1483 @@ class AudioStoryModeController(QtCore.QObject):
         self._image_cache = {}
         self._prompt_image_cache = {}
         self._current_chunk_index = -1
-        if hasattr(self, "audio_story_path_edit"):
-            self.audio_story_path_edit.setText(path)
         if hasattr(self, "audio_story_transcript_edit"):
             self.audio_story_transcript_edit.clear()
         if hasattr(self, "audio_story_summary_label"):
-            self.audio_story_summary_label.setText("Audio imported. Press 'Transcribe Audio' to build transcript windows and prompts.")
-        self._sync_transcribe_seconds_slider()
-        self._sync_transcription_range_controls()
-        self._sync_image_frequency_slider()
-        self._stop_story()
-        self._refresh_controls()
+            self.audio_story_summary_label.setText(
+                "Audio imported. Press 'Transcribe Audio' to build transcript windows and prompts."
+            )
+
+    def _refresh_audio_source_queue(self, *, pending: bool = False):
+        path_edit = getattr(self, "audio_story_path_edit", None)
+        paths = list(self.imported_audio_paths or [])
+        if path_edit is not None:
+            if not paths:
+                path_edit.clear()
+            elif len(paths) == 1:
+                path_edit.setText(paths[0])
+            else:
+                path_edit.setText(
+                    f"{len(paths)} files - {Path(paths[0]).name} - {Path(paths[-1]).name}"
+                )
+        source_list = getattr(self, "audio_story_source_list", None)
+        if source_list is None:
+            return
+        selected_paths = {
+            str(item.data(QtCore.Qt.UserRole) or "")
+            for item in source_list.selectedItems()
+        }
+        source_list.clear()
+        by_path = {item.path: item for item in self.imported_audio_sources}
+        for index, path in enumerate(paths):
+            source = by_path.get(path)
+            if source is None:
+                label = f"{index + 1}. {Path(path).name} - checking..." if pending else f"{index + 1}. {Path(path).name}"
+            elif source.valid:
+                label = f"{index + 1}. {source.display_name} - {self._format_seconds(source.duration_seconds)}"
+            else:
+                label = f"{index + 1}. {source.display_name} - invalid: {source.error}"
+            item = QtWidgets.QListWidgetItem(label)
+            item.setData(QtCore.Qt.UserRole, path)
+            source_list.addItem(item)
+            if path in selected_paths:
+                item.setSelected(True)
+
+    def _move_selected_audio_source(self, direction: int):
+        source_list = getattr(self, "audio_story_source_list", None)
+        if source_list is None or not source_list.selectedItems():
+            return
+        row = source_list.row(source_list.selectedItems()[0])
+        target = row + (-1 if int(direction) < 0 else 1)
+        paths = list(self.imported_audio_paths or [])
+        if row < 0 or target < 0 or target >= len(paths):
+            return
+        paths[row], paths[target] = paths[target], paths[row]
+        self._set_imported_audio_paths(paths, clear_story=True)
+
+    def _remove_selected_audio_sources(self):
+        source_list = getattr(self, "audio_story_source_list", None)
+        if source_list is None:
+            return
+        selected = {
+            str(item.data(QtCore.Qt.UserRole) or "")
+            for item in source_list.selectedItems()
+        }
+        if selected:
+            self._set_imported_audio_paths(
+                [path for path in self.imported_audio_paths if path not in selected],
+                clear_story=True,
+            )
+
+    def _clear_audio_sources(self):
+        if self.imported_audio_paths:
+            self._set_imported_audio_paths([], clear_story=True)
+
+    def _run_project_transcription_units(
+        self,
+        project_id: str,
+        chapter_ids: Sequence[str],
+        *,
+        selected_range_enabled: bool = False,
+        job_token: int | None = None,
+        project_generation: int | None = None,
+        project_input_fingerprint: str | None = None,
+        chunk_seconds: int | None = None,
+        transcription_start_seconds: float | None = None,
+        transcription_end_seconds: float | None = None,
+        transcribe_file: Callable[[str], object] | None = None,
+    ) -> list[dict]:
+        entry_snapshot = (
+            int(self._transcription_job_id),
+            int(self._story_project_generation),
+            str(self._story_project_input_fingerprint or ""),
+            max(1, int(self._stored_transcribe_seconds or 8)),
+            max(0.0, float(self._stored_transcription_start_seconds or 0.0)),
+            max(0.0, float(self._stored_transcription_end_seconds or 0.0)),
+        )
+        requested_ids = list(dict.fromkeys(str(item or "").strip() for item in chapter_ids))
+        requested_ids = [chapter_id for chapter_id in requested_ids if chapter_id]
+        job_token = entry_snapshot[0] if job_token is None else int(job_token)
+        project_generation = (
+            entry_snapshot[1]
+            if project_generation is None
+            else int(project_generation)
+        )
+        project_input_fingerprint = (
+            entry_snapshot[2]
+            if project_input_fingerprint is None
+            else str(project_input_fingerprint or "")
+        )
+        chunk_seconds = max(
+            1, entry_snapshot[3] if chunk_seconds is None else int(chunk_seconds or 1)
+        )
+        transcription_start_seconds = (
+            entry_snapshot[4]
+            if transcription_start_seconds is None
+            else float(transcription_start_seconds or 0.0)
+        )
+        transcription_end_seconds = (
+            entry_snapshot[5]
+            if transcription_end_seconds is None
+            else float(transcription_end_seconds or 0.0)
+        )
+        selected_range_enabled = bool(selected_range_enabled)
+
+        def cancelled() -> bool:
+            return bool(
+                job_token != int(self._transcription_job_id)
+                or not project_id
+                or project_id != self.current_story_project_id
+                or project_generation != int(self._story_project_generation)
+                or project_input_fingerprint
+                != str(self._story_project_input_fingerprint or "")
+            )
+
+        def require_current_ownership() -> None:
+            if cancelled():
+                raise TranscriptionFailure("Transcription was cancelled.")
+
+        require_current_ownership()
+        project = self._story_project_store.load_project(project_id)
+        chapters = dict(project.get("chapters") or {})
+        archived = set(project.get("archived_chapter_ids") or [])
+        active_ids = [
+            chapter_id
+            for chapter_id in list(project.get("chapter_order") or [])
+            if chapter_id in chapters and chapter_id not in archived
+        ]
+        selected_ids = [chapter_id for chapter_id in active_ids if chapter_id in requested_ids]
+        if not selected_ids:
+            raise TranscriptionFailure("The selected range contains no playable audio.")
+
+        sources: list[AudioSource] = []
+        chapter_id_by_index: dict[int, str] = {}
+        offset = 0.0
+        for chapter_id in active_ids:
+            chapter = dict(chapters.get(chapter_id) or {})
+            audio = dict(chapter.get("audio_reference") or chapter.get("audio") or {})
+            fingerprint = dict(audio.get("fingerprint") or {})
+            duration = max(0.0, float(fingerprint.get("duration_ms", 0) or 0) / 1000.0)
+            path = str(audio.get("path") or "").strip()
+            source = AudioSource(
+                index=len(sources),
+                path=path,
+                display_name=str(chapter.get("display_name") or Path(path).name or chapter_id),
+                duration_seconds=duration,
+                global_start_seconds=offset,
+                global_end_seconds=offset + duration,
+                valid=bool(path and duration > 0.0),
+                error="" if path and duration > 0.0 else "audio file is missing or unavailable",
+            )
+            chapter_id_by_index[source.index] = chapter_id
+            sources.append(source)
+            offset += duration
+
+        if selected_range_enabled:
+            range_start = min(
+                max(0.0, float(transcription_start_seconds or 0.0)), offset
+            )
+            requested_end = max(0.0, float(transcription_end_seconds or 0.0))
+            range_end = offset if requested_end <= 0.0 else min(requested_end, offset)
+        else:
+            range_start = 0.0
+            range_end = offset
+        slices = [
+            source_slice
+            for source_slice in split_global_range(sources, range_start, range_end)
+            if chapter_id_by_index.get(source_slice.source.index) in selected_ids
+        ]
+        slice_by_chapter_id = {
+            chapter_id_by_index[source_slice.source.index]: source_slice
+            for source_slice in slices
+        }
+        if selected_range_enabled:
+            selected_ids = [
+                chapter_id
+                for chapter_id in selected_ids
+                if chapter_id in slice_by_chapter_id
+            ]
+        missing_ids = [chapter_id for chapter_id in selected_ids if chapter_id not in slice_by_chapter_id]
+        if not selected_ids or missing_ids:
+            raise TranscriptionFailure("The selected range contains no playable audio.")
+
+        runtime_config = dict(audio_story_runtime.runtime_config() or {})
+        runtime_identifier = json.loads(
+            json.dumps(
+                {
+                    "backend": runtime_config.get("stt_backend", ""),
+                    "model_size": runtime_config.get("stt_model_size", ""),
+                    "language": runtime_config.get("stt_language", ""),
+                    "backend_settings": runtime_config.get("stt_backend_settings", {}),
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+                default=str,
+            )
+        )
+        transcriber = transcribe_file or audio_story_runtime.transcribe_audio
+        documents: dict[str, dict] = {}
+
+        def extract_range(path: str, local_start: float, local_end: float) -> str:
+            require_current_ownership()
+            source_audio = audio_story_runtime.audio_from_file(path)
+            start_ms = max(0, int(round(local_start * 1000.0)))
+            end_ms = max(start_ms, int(round(local_end * 1000.0)))
+            temporary = self._cache_file(
+                f"transcription_range_{job_token}_{uuid.uuid4().hex[:10]}.wav"
+            )
+            source_audio[start_ms:end_ms].export(str(temporary), format="wav")
+            return str(temporary)
+
+        def transcript_revision(chapter_id: str, reference: str) -> int | None:
+            prefix = f"chapters/{chapter_id}/transcript."
+            suffix = ".json"
+            if not reference.startswith(prefix) or not reference.endswith(suffix):
+                return None
+            try:
+                revision = int(reference[len(prefix) : -len(suffix)])
+            except (TypeError, ValueError):
+                return None
+            return revision if revision >= 1 else None
+
+        for index, chapter_id in enumerate(selected_ids):
+            if cancelled():
+                raise TranscriptionFailure("Transcription was cancelled.")
+            source_slice = slice_by_chapter_id[chapter_id]
+            chapter = dict(project["chapters"][chapter_id])
+            audio = dict(chapter.get("audio_reference") or chapter.get("audio") or {})
+            scope_identity = (
+                {
+                    "mode": "selected_range",
+                    "project_start_seconds": range_start,
+                    "project_end_seconds": range_end,
+                    "local_start_seconds": source_slice.local_start_seconds,
+                    "local_end_seconds": source_slice.local_end_seconds,
+                }
+                if selected_range_enabled
+                else {
+                    "mode": "whole_chapter",
+                    "local_start_seconds": 0.0,
+                    "local_end_seconds": source_slice.source.duration_seconds,
+                }
+            )
+            input_fingerprint = checkpointing.settings_fingerprint(
+                {
+                    "audio_identity": dict(audio.get("fingerprint") or {}),
+                    "transcription_scope": scope_identity,
+                    "chunk_seconds": chunk_seconds,
+                    "stt_runtime": runtime_identifier,
+                }
+            )
+            checkpoint = copy.deepcopy(chapter["stages"]["transcription"])
+            checkpoint["expected_input_fingerprint"] = input_fingerprint
+            previous_reference = str(checkpoint.get("output_ref") or "")
+            previous_output_fingerprint = str(
+                checkpoint.get("output_fingerprint") or ""
+            )
+            source_path = Path(str(source_slice.source.path or ""))
+            validation_error: Exception | None = None
+            if not source_path.is_file():
+                validation_error = FileNotFoundError("the source file is missing")
+            else:
+                try:
+                    probed_duration = float(
+                        audio_story_runtime.audio_duration_seconds(str(source_path))
+                        or 0.0
+                    )
+                    if (
+                        not math.isfinite(probed_duration)
+                        or probed_duration <= 0.0
+                    ):
+                        raise ValueError("the source audio duration is unavailable")
+                except RuntimeError as exc:
+                    if "audio runtime is not configured" not in str(exc).casefold():
+                        validation_error = exc
+                except Exception as exc:
+                    validation_error = exc
+            if validation_error is not None:
+                exc = validation_error
+                source_error = self._transcription_console_safe_message(str(exc))
+                display_name = str(
+                    chapter.get("display_name")
+                    or source_slice.source.display_name
+                    or chapter_id
+                ).strip()
+                detail = (
+                    f"{display_name} cannot be transcribed because its source audio "
+                    f"is missing or unreadable ({source_error or 'validation failed'}). "
+                    "Restore or relink this chapter audio, then retry transcription."
+                )
+                startable = copy.deepcopy(checkpoint)
+                if startable.get("status") == "running":
+                    startable["status"] = "interrupted"
+                elif startable.get("status") == "completed":
+                    startable["status"] = "stale"
+                started = checkpointing.start_checkpoint(
+                    startable,
+                    input_fingerprint=input_fingerprint,
+                    provider=str(runtime_identifier.get("backend") or "local"),
+                    model=str(runtime_identifier.get("model_size") or ""),
+                )
+                started["expected_input_fingerprint"] = input_fingerprint
+                started["output_ref"] = previous_reference
+                started["output_fingerprint"] = previous_output_fingerprint
+                failed = checkpointing.fail_checkpoint(started, error=detail)
+                failed["expected_input_fingerprint"] = input_fingerprint
+                failed["output_ref"] = previous_reference
+                failed["output_fingerprint"] = previous_output_fingerprint
+                project["chapters"][chapter_id]["stages"]["transcription"] = failed
+                require_current_ownership()
+                self._story_project_store.save_project(project)
+                self._emit_transcription_progress(
+                    job_token,
+                    int((index / max(1, len(selected_ids))) * 75),
+                    detail,
+                    stage="transcription_failed",
+                )
+                raise TranscriptionFailure(detail) from exc
+            reference = str(checkpoint.get("output_ref") or "")
+            revision = transcript_revision(chapter_id, reference)
+            reusable = bool(
+                checkpoint.get("status") == "completed"
+                and checkpoint.get("input_fingerprint") == input_fingerprint
+                and revision is not None
+            )
+            legacy_reusable = False
+            if reusable:
+                try:
+                    stored = self._story_project_store.load_chapter_document(
+                        project_id, chapter_id, "transcript", revision=revision
+                    )
+                except Exception:
+                    reusable = False
+                else:
+                    document = dict(stored) if isinstance(stored, dict) else {"segments": list(stored)}
+                    reusable = document.get("input_fingerprint", input_fingerprint) == input_fingerprint
+                    if reusable:
+                        documents[chapter_id] = document
+            elif (
+                not selected_range_enabled
+                and checkpoint.get("status") == "completed"
+                and revision is not None
+            ):
+                try:
+                    stored = self._story_project_store.load_chapter_document(
+                        project_id, chapter_id, "transcript", revision=revision
+                    )
+                except Exception:
+                    stored = None
+                if isinstance(stored, dict):
+                    document = dict(stored)
+                    raw_selected_range = document.get("selected_range")
+                    selected_range = (
+                        dict(raw_selected_range)
+                        if isinstance(raw_selected_range, Mapping)
+                        else {}
+                    )
+                    has_full_legacy_range = bool(
+                        "start_seconds" in selected_range
+                        and "end_seconds" in selected_range
+                    )
+                    local_start = max(
+                        0.0,
+                        float(selected_range.get("start_seconds", 0.0) or 0.0),
+                    )
+                    local_end = max(
+                        local_start,
+                        float(
+                            selected_range.get(
+                                "end_seconds", source_slice.source.duration_seconds
+                            )
+                            or source_slice.source.duration_seconds
+                        ),
+                    )
+                    legacy_input_fingerprint = checkpointing.settings_fingerprint(
+                        {
+                            "audio_identity": dict(audio.get("fingerprint") or {}),
+                            "transcription_range": {
+                                "start_seconds": float(
+                                    document.get("transcription_start_seconds", 0.0)
+                                    or 0.0
+                                ),
+                                "end_seconds": float(
+                                    document.get("transcription_end_seconds", 0.0)
+                                    or 0.0
+                                ),
+                            },
+                            "selected_range": {
+                                "start_seconds": local_start,
+                                "end_seconds": local_end,
+                            },
+                            "chunk_seconds": chunk_seconds,
+                            "stt_runtime": runtime_identifier,
+                        }
+                    )
+                    legacy_reusable = bool(
+                        has_full_legacy_range
+                        and abs(local_start) < 1e-6
+                        and abs(
+                            local_end - source_slice.source.duration_seconds
+                        ) < 1e-6
+                        and int(document.get("chunk_seconds", 0) or 0) == chunk_seconds
+                        and checkpoint.get("input_fingerprint")
+                        == legacy_input_fingerprint
+                        and document.get("input_fingerprint")
+                        == legacy_input_fingerprint
+                    )
+                    if legacy_reusable:
+                        document["input_fingerprint"] = input_fingerprint
+                        document["transcription_scope"] = scope_identity
+                        reference = self._story_project_store.save_chapter_document(
+                            project_id, chapter_id, "transcript", revision, document
+                        )
+                        checkpoint["input_fingerprint"] = input_fingerprint
+                        checkpoint["expected_input_fingerprint"] = input_fingerprint
+                        checkpoint["output_ref"] = reference
+                        checkpoint["output_fingerprint"] = (
+                            checkpointing.settings_fingerprint(document)
+                        )
+                        documents[chapter_id] = document
+            if reusable or legacy_reusable:
+                project["chapters"][chapter_id]["stages"]["transcription"] = checkpoint
+                continue
+
+            startable = copy.deepcopy(checkpoint)
+            if startable.get("status") == "running":
+                startable["status"] = "interrupted"
+            elif startable.get("status") == "completed":
+                startable["status"] = "stale"
+            started = checkpointing.start_checkpoint(
+                startable,
+                input_fingerprint=input_fingerprint,
+                provider=str(runtime_identifier.get("backend") or "local"),
+                model=str(runtime_identifier.get("model_size") or ""),
+            )
+            started["expected_input_fingerprint"] = input_fingerprint
+            started["output_ref"] = previous_reference
+            started["output_fingerprint"] = previous_output_fingerprint
+            project["chapters"][chapter_id]["stages"]["transcription"] = started
+            require_current_ownership()
+            project = self._story_project_store.save_project(project)
+            try:
+                require_current_ownership()
+                normalized = transcribe_slice(
+                    source_slice,
+                    transcribe_file=transcriber,
+                    extract_range=extract_range,
+                    cleanup=audio_story_runtime.safe_delete,
+                    progress=lambda _percent, _message, index=index, source_slice=source_slice: self._emit_transcription_progress(
+                        job_token,
+                        int((index / max(1, len(selected_ids))) * 75),
+                        f"Transcribing file {index + 1} of {len(selected_ids)}: "
+                        f"{source_slice.source.display_name}",
+                        stage="whisper_transcribe",
+                    ),
+                    cancelled=cancelled,
+                )
+                if cancelled():
+                    raise TranscriptionFailure("Transcription was cancelled.")
+                document = {
+                    "schema_version": 1,
+                    "project_id": project_id,
+                    "chapter_id": chapter_id,
+                    "input_fingerprint": input_fingerprint,
+                    "chunk_seconds": chunk_seconds,
+                    "transcription_start_seconds": range_start,
+                    "transcription_end_seconds": range_end,
+                    "transcription_scope": scope_identity,
+                    "selected_range": {
+                        "start_seconds": source_slice.local_start_seconds,
+                        "end_seconds": source_slice.local_end_seconds,
+                    },
+                    "segments": [
+                        {
+                            "start_seconds": float(item.get("source_start_seconds", 0.0) or 0.0),
+                            "end_seconds": float(item.get("source_end_seconds", 0.0) or 0.0),
+                            "text": str(item.get("text", "") or "").strip(),
+                            "source_path": str(item.get("source_path", "") or ""),
+                        }
+                        for item in normalized
+                    ],
+                }
+                output_fingerprint = checkpointing.settings_fingerprint(document)
+                revision = max(1, int(started.get("attempt_count", 0) or 0))
+                require_current_ownership()
+                reference = self._story_project_store.save_chapter_document(
+                    project_id, chapter_id, "transcript", revision, document
+                )
+                completed = checkpointing.complete_checkpoint(
+                    started,
+                    output_ref=reference,
+                    output_fingerprint=output_fingerprint,
+                )
+                completed["expected_input_fingerprint"] = input_fingerprint
+                project["chapters"][chapter_id]["stages"]["transcription"] = completed
+                require_current_ownership()
+                project = self._story_project_store.save_project(project)
+                documents[chapter_id] = document
+            except Exception as exc:
+                if cancelled():
+                    raise TranscriptionFailure("Transcription was cancelled.") from exc
+                safe_error = self._transcription_console_safe_message(str(exc))
+                current = project["chapters"][chapter_id]["stages"]["transcription"]
+                failed = checkpointing.fail_checkpoint(current, error=safe_error)
+                failed["expected_input_fingerprint"] = input_fingerprint
+                failed["output_ref"] = previous_reference
+                failed["output_fingerprint"] = previous_output_fingerprint
+                project["chapters"][chapter_id]["stages"]["transcription"] = failed
+                require_current_ownership()
+                self._story_project_store.save_project(project)
+                raise TranscriptionFailure(safe_error) from exc
+
+        combined: list[dict] = []
+        combined_by_chapter: dict[str, list[dict]] = {}
+        for chapter_id in selected_ids:
+            source_slice = slice_by_chapter_id[chapter_id]
+            chapter_segments: list[dict] = []
+            for item in list(documents[chapter_id].get("segments") or []):
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text") or "").strip()
+                if not text:
+                    continue
+                local_start = max(0.0, float(item.get("start_seconds", 0.0) or 0.0))
+                local_end = max(
+                    local_start, float(item.get("end_seconds", local_start) or local_start)
+                )
+                segment = {
+                    "start_seconds": source_slice.source.global_start_seconds + local_start,
+                    "end_seconds": source_slice.source.global_start_seconds + local_end,
+                    "text": text,
+                    "source_index": source_slice.source.index,
+                    "source_path": source_slice.source.path,
+                    "source_start_seconds": local_start,
+                    "source_end_seconds": local_end,
+                }
+                combined.append(segment)
+                chapter_segments.append(segment)
+            combined_by_chapter[chapter_id] = chapter_segments
+        combined.sort(
+            key=lambda item: (
+                float(item.get("start_seconds", 0.0) or 0.0),
+                float(item.get("end_seconds", 0.0) or 0.0),
+                int(item.get("source_index", 0) or 0),
+            )
+        )
+
+        require_current_ownership()
+        for chapter_id in selected_ids:
+            transcription_checkpoint = project["chapters"][chapter_id]["stages"]["transcription"]
+            combination_input = checkpointing.settings_fingerprint(
+                {
+                    "transcript_output_fingerprint": transcription_checkpoint.get(
+                        "output_fingerprint", ""
+                    ),
+                    "global_start_seconds": slice_by_chapter_id[
+                        chapter_id
+                    ].source.global_start_seconds,
+                }
+            )
+            combination = copy.deepcopy(
+                project["chapters"][chapter_id]["stages"]["transcript_combination"]
+            )
+            reusable_combination = bool(
+                combination.get("status") == "completed"
+                and combination.get("input_fingerprint") == combination_input
+            )
+            if reusable_combination:
+                combination["expected_input_fingerprint"] = combination_input
+            else:
+                if combination.get("status") == "running":
+                    combination["status"] = "interrupted"
+                elif combination.get("status") == "completed":
+                    combination["status"] = "stale"
+                combination = checkpointing.start_checkpoint(
+                    combination, input_fingerprint=combination_input
+                )
+                combination = checkpointing.complete_checkpoint(
+                    combination,
+                    output_ref=str(transcription_checkpoint.get("output_ref") or ""),
+                    output_fingerprint=checkpointing.settings_fingerprint(
+                        {"segments": combined_by_chapter[chapter_id]}
+                    ),
+                )
+                combination["expected_input_fingerprint"] = combination_input
+            project["chapters"][chapter_id]["stages"]["transcript_combination"] = combination
+        require_current_ownership()
+        self._story_project_store.save_project(project)
+        return combined
+
+    def _project_story_analysis_settings(self, settings: Mapping | None = None) -> dict:
+        source = dict(settings or {})
+        progress_callback = source.get("progress_callback")
+        return {
+            "chunk_seconds": max(
+                1,
+                int(source.get("chunk_seconds", self._stored_transcribe_seconds or 8) or 1),
+            ),
+            "image_frequency_seconds": self._normalize_image_frequency_seconds(
+                int(
+                    source.get(
+                        "image_frequency_seconds",
+                        self._stored_image_frequency_seconds or 12,
+                    )
+                    or 12
+                )
+            ),
+            "continuity_strength": float(
+                self._normalize_continuity_strength(
+                    source.get(
+                        "continuity_strength", self._stored_continuity_strength or 0.8
+                    )
+                )
+            ),
+            "progress_callback": progress_callback if callable(progress_callback) else None,
+            "_ownership_job_id": int(
+                source.get("_ownership_job_id", self._transcription_job_id) or 0
+            ),
+            "_ownership_project_id": str(
+                source.get("_ownership_project_id", self.current_story_project_id) or ""
+            ),
+            "_ownership_project_generation": int(
+                source.get(
+                    "_ownership_project_generation", self._story_project_generation
+                )
+                or 0
+            ),
+            "_ownership_input_fingerprint": str(
+                source.get(
+                    "_ownership_input_fingerprint",
+                    self._story_project_input_fingerprint,
+                )
+                or ""
+            ),
+        }
+
+    def _story_project_work_is_current(self, ownership: Mapping) -> bool:
+        owner = dict(ownership or {})
+        return bool(
+            not self._story_project_shutdown
+            and int(owner.get("job_id", -1) or 0)
+            == int(self._transcription_job_id)
+            and str(owner.get("project_id") or "")
+            == str(self.current_story_project_id or "")
+            and int(owner.get("project_generation", -1) or 0)
+            == int(self._story_project_generation)
+            and str(owner.get("input_fingerprint") or "")
+            == str(self._story_project_input_fingerprint or "")
+        )
+
+    def _require_current_story_project_work(self, ownership: Mapping) -> None:
+        if not self._story_project_work_is_current(ownership):
+            raise TranscriptionFailure("Story analysis was cancelled.")
+
+    def _project_story_analysis_ownership(
+        self, project_id: str, settings: Mapping
+    ) -> dict:
+        source = dict(settings or {})
+        return {
+            "job_id": int(
+                source.get("_ownership_job_id", self._transcription_job_id) or 0
+            ),
+            "project_id": str(
+                source.get("_ownership_project_id", project_id) or ""
+            ),
+            "project_generation": int(
+                source.get(
+                    "_ownership_project_generation", self._story_project_generation
+                )
+                or 0
+            ),
+            "input_fingerprint": str(
+                source.get(
+                    "_ownership_input_fingerprint",
+                    self._story_project_input_fingerprint,
+                )
+                or ""
+            ),
+        }
+
+    def _project_story_analysis_input_fingerprint(
+        self,
+        chapter: Mapping,
+        settings: Mapping,
+    ) -> str:
+        stages = dict(chapter.get("stages") or {})
+        transcript_checkpoint = dict(stages.get("transcription") or {})
+        return checkpointing.settings_fingerprint(
+            {
+                "transcript_output_fingerprint": str(
+                    transcript_checkpoint.get("output_fingerprint") or ""
+                ),
+                "chunk_seconds": int(settings.get("chunk_seconds", 8) or 8),
+                "image_frequency_seconds": int(
+                    settings.get("image_frequency_seconds", 12) or 12
+                ),
+                "continuity_strength": float(
+                    settings.get("continuity_strength", 0.8) or 0.8
+                ),
+                "analysis_mode": self._audio_story_analysis_mode(),
+                "llm_story_analysis": bool(self._stored_use_llm_story_analysis),
+                "instructor_beats": bool(self._stored_instructor_beats_enabled),
+                "provider_mode": self._story_analysis_provider_mode(),
+                "model_override": self._story_analysis_model_override(),
+            }
+        )
+
+    def _load_project_chapter_transcript(
+        self,
+        project_id: str,
+        chapter_id: str,
+        chapter: Mapping,
+    ) -> dict:
+        checkpoint = dict(dict(chapter.get("stages") or {}).get("transcription") or {})
+        if checkpoint.get("status") != "completed":
+            raise RuntimeError(f"Chapter {chapter_id} has no completed transcript")
+        reference = str(checkpoint.get("output_ref") or "")
+        match = re.fullmatch(
+            rf"chapters/{re.escape(str(chapter_id))}/transcript\.(\d+)\.json",
+            reference,
+        )
+        revision = int(match.group(1)) if match else None
+        stored = self._story_project_store.load_chapter_document(
+            project_id,
+            chapter_id,
+            "transcript",
+            revision=revision,
+        )
+        if not isinstance(stored, Mapping):
+            raise TypeError(f"Chapter {chapter_id} transcript must be an object")
+        transcript = copy.deepcopy(dict(stored))
+        segments = transcript.get("segments")
+        if not isinstance(segments, Sequence) or isinstance(
+            segments, (str, bytes, bytearray)
+        ):
+            raise TypeError(f"Chapter {chapter_id} transcript segments must be a list")
+        transcript["segments"] = [
+            copy.deepcopy(dict(item)) for item in segments if isinstance(item, Mapping)
+        ]
+        if not transcript["segments"]:
+            raise RuntimeError(f"Chapter {chapter_id} transcript contains no usable segments")
+        return transcript
+
+    def _load_committed_project_story_memory(self, project_id: str) -> dict:
+        project = self._story_project_store.load_project(project_id)
+        if int(project.get("story_bible_revision", 0) or 0) <= 0:
+            return empty_story_memory()
+        return merge_committed_story_bible(
+            empty_story_memory(), self._story_project_store.load_story_bible(project_id)
+        )
+
+    def _project_chapter_global_offset(self, project: Mapping, chapter_id: str) -> float:
+        chapters = dict(project.get("chapters") or {})
+        archived = set(project.get("archived_chapter_ids") or [])
+        offset = 0.0
+        for ordered_id in list(project.get("chapter_order") or []):
+            if ordered_id not in chapters or ordered_id in archived:
+                continue
+            if ordered_id == chapter_id:
+                return offset
+            audio = dict(
+                dict(chapters.get(ordered_id) or {}).get("audio_reference")
+                or dict(chapters.get(ordered_id) or {}).get("audio")
+                or {}
+            )
+            fingerprint = dict(audio.get("fingerprint") or {})
+            offset += max(
+                0.0, float(fingerprint.get("duration_ms", 0) or 0) / 1000.0
+            )
+        raise KeyError(f"Unknown or archived chapter: {chapter_id}")
+
+    def _project_chapter_analysis_request(
+        self,
+        *,
+        job_id: int,
+        project: Mapping,
+        chapter_id: str,
+        transcript: Mapping,
+        settings: Mapping,
+        continuity_seed: Mapping,
+    ) -> dict:
+        chapter = dict(dict(project.get("chapters") or {}).get(chapter_id) or {})
+        audio = dict(chapter.get("audio_reference") or chapter.get("audio") or {})
+        fingerprint = dict(audio.get("fingerprint") or {})
+        segments = [
+            copy.deepcopy(dict(item))
+            for item in list(transcript.get("segments") or [])
+            if isinstance(item, Mapping)
+        ]
+        duration = max(
+            0.0, float(fingerprint.get("duration_ms", 0) or 0) / 1000.0
+        )
+        if duration <= 0.0:
+            duration = max(
+                (
+                    float(item.get("end_seconds", 0.0) or 0.0)
+                    for item in segments
+                ),
+                default=0.0,
+            )
+        selected_range = dict(transcript.get("selected_range") or {})
+        local_start = max(0.0, float(selected_range.get("start_seconds", 0.0) or 0.0))
+        local_end = max(
+            local_start,
+            float(selected_range.get("end_seconds", duration) or duration),
+        )
+        return {
+            "job_id": int(job_id),
+            "project_id": str(project.get("project_id") or ""),
+            "chapter_id": str(chapter_id),
+            "path": str(audio.get("path") or ""),
+            "audio_duration": duration,
+            "raw_segments": segments,
+            "chunk_seconds": int(settings.get("chunk_seconds", 8) or 8),
+            "image_frequency_seconds": int(
+                settings.get("image_frequency_seconds", 12) or 12
+            ),
+            "continuity_strength": float(
+                settings.get("continuity_strength", 0.8) or 0.8
+            ),
+            "transcription_start_seconds": int(round(local_start)),
+            "transcription_end_seconds": int(round(local_end)),
+            "progress_callback": settings.get("progress_callback"),
+            "continuity_seed": copy.deepcopy(dict(continuity_seed)),
+            "project_story_memory": copy.deepcopy(dict(continuity_seed)),
+        }
+
+    def _default_project_story_analyzer(self, request: Mapping) -> dict:
+        return self._build_story_payload(
+            job_id=int(request.get("job_id", 0) or 0),
+            path=str(request.get("path") or ""),
+            audio_duration=float(request.get("audio_duration", 0.0) or 0.0),
+            raw_segments=list(request.get("raw_segments") or []),
+            chunk_seconds=int(request.get("chunk_seconds", 8) or 8),
+            image_frequency_seconds=int(
+                request.get("image_frequency_seconds", 12) or 12
+            ),
+            continuity_strength=float(
+                request.get("continuity_strength", 0.8) or 0.8
+            ),
+            transcription_start_seconds=int(
+                request.get("transcription_start_seconds", 0) or 0
+            ),
+            transcription_end_seconds=int(
+                request.get("transcription_end_seconds", 0) or 0
+            ),
+            progress_callback=request.get("progress_callback"),
+            continuity_seed=copy.deepcopy(dict(request.get("continuity_seed") or {})),
+            project_story_memory=copy.deepcopy(
+                dict(request.get("project_story_memory") or {})
+            ),
+        )
+
+    def _validated_project_analysis_payload(self, value: object) -> dict:
+        if not isinstance(value, Mapping):
+            raise TypeError("Chapter analysis must return an object")
+        payload = copy.deepcopy(dict(value))
+        scenes = payload.get("scene_plan")
+        if scenes is None:
+            scenes = payload.get("scenes")
+        if not isinstance(scenes, Sequence) or isinstance(
+            scenes, (str, bytes, bytearray)
+        ):
+            raise TypeError("Chapter analysis scene plan must be a list")
+        normalized_scenes = []
+        for scene in scenes:
+            if not isinstance(scene, Mapping):
+                raise TypeError("Chapter analysis scenes must be objects")
+            normalized_scenes.append(copy.deepcopy(dict(scene)))
+        if not normalized_scenes:
+            raise ValueError("Chapter analysis returned no scenes")
+        story_update = payload.get("project_story_memory")
+        if story_update is None:
+            story_update = payload.get("story_bible")
+        if not isinstance(story_update, Mapping):
+            raise TypeError("Chapter analysis Story Bible must be an object")
+        for section in ("characters", "locations", "props", "style"):
+            if section in story_update and not isinstance(
+                story_update.get(section), Mapping
+            ):
+                raise TypeError(
+                    f"Chapter analysis Story Bible {section} must be an object"
+                )
+        for section in ("characters", "locations", "props"):
+            for entry in dict(story_update.get(section) or {}).values():
+                if not isinstance(entry, Mapping):
+                    raise TypeError(
+                        f"Chapter analysis Story Bible {section} entries must be objects"
+                    )
+        recent_scenes = story_update.get("recent_scenes")
+        if recent_scenes is not None:
+            if not isinstance(recent_scenes, Sequence) or isinstance(
+                recent_scenes, (str, bytes, bytearray)
+            ):
+                raise TypeError(
+                    "Chapter analysis Story Bible recent_scenes must be a list"
+                )
+            if any(not isinstance(item, Mapping) for item in recent_scenes):
+                raise TypeError(
+                    "Chapter analysis Story Bible recent scenes must be objects"
+                )
+        payload["scene_plan"] = normalized_scenes
+        payload["project_story_memory"] = copy.deepcopy(dict(story_update))
+        return payload
+
+    def _offset_project_analysis_payload(
+        self,
+        payload: Mapping,
+        *,
+        chapter_id: str,
+        global_offset_seconds: float,
+    ) -> dict:
+        offset_payload = copy.deepcopy(dict(payload))
+        offset = max(0.0, float(global_offset_seconds or 0.0))
+        for collection_name in (
+            "transcript_chunks",
+            "transcript_windows",
+            "raw_segments",
+            "scene_plan",
+        ):
+            collection = offset_payload.get(collection_name)
+            if not isinstance(collection, list):
+                continue
+            for item in collection:
+                if not isinstance(item, dict):
+                    continue
+                for field in ("start_seconds", "end_seconds", "timestamp"):
+                    value = item.get(field)
+                    if value is None:
+                        continue
+                    try:
+                        item[field] = max(0.0, float(value)) + offset
+                    except (TypeError, ValueError):
+                        raise TypeError(
+                            f"Chapter analysis {field} must be numeric"
+                        ) from None
+        offset_payload["chapter_id"] = str(chapter_id)
+        offset_payload["chapter_start_seconds"] = offset
+        offset_payload["project_timestamps_global"] = True
+        return offset_payload
+
+    def _analyze_project_chapter(
+        self,
+        project_id: str,
+        chapter_id: str,
+        *,
+        analyzer: Callable[[dict], dict] | None = None,
+    ) -> dict:
+        return self._analyze_project_chapter_with_settings(
+            project_id,
+            chapter_id,
+            settings=self._project_story_analysis_settings(),
+            analyzer=analyzer,
+        )
+
+    def _analyze_project_chapter_with_settings(
+        self,
+        project_id: str,
+        chapter_id: str,
+        *,
+        settings: Mapping,
+        analyzer: Callable[[dict], dict] | None = None,
+        job_id: int | None = None,
+    ) -> dict:
+        normalized_settings = self._project_story_analysis_settings(settings)
+        ownership = self._project_story_analysis_ownership(
+            project_id, normalized_settings
+        )
+        self._require_current_story_project_work(ownership)
+        project = self._story_project_store.load_project(project_id)
+        chapters = dict(project.get("chapters") or {})
+        if chapter_id not in chapters:
+            raise KeyError(f"Unknown chapter: {chapter_id}")
+        if chapter_id in set(project.get("archived_chapter_ids") or []):
+            raise RuntimeError(f"Archived chapter cannot be analyzed: {chapter_id}")
+        chapter = dict(chapters[chapter_id])
+        transcript = self._load_project_chapter_transcript(
+            project_id, chapter_id, chapter
+        )
+        continuity_seed = self._load_committed_project_story_memory(project_id)
+        story_revision = int(project.get("story_bible_revision", 0) or 0)
+        input_fingerprint = self._project_story_analysis_input_fingerprint(
+            chapter, normalized_settings
+        )
+        previous = copy.deepcopy(chapter["stages"]["story_analysis"])
+        startable = copy.deepcopy(previous)
+        if startable.get("status") == "running":
+            startable["status"] = "interrupted"
+        elif startable.get("status") == "completed":
+            startable["status"] = "stale"
+        started = checkpointing.start_checkpoint(
+            startable,
+            input_fingerprint=input_fingerprint,
+            provider=self._story_analysis_provider_status_label(),
+            model=self._story_analysis_model_override(),
+        )
+        started["expected_input_fingerprint"] = input_fingerprint
+        started["output_ref"] = str(previous.get("output_ref") or "")
+        started["output_fingerprint"] = str(
+            previous.get("output_fingerprint") or ""
+        )
+        project["chapters"][chapter_id]["stages"]["story_analysis"] = started
+        self._require_current_story_project_work(ownership)
+        project = self._story_project_store.save_project(project)
+        request = self._project_chapter_analysis_request(
+            job_id=(
+                int(getattr(self, "_transcription_job_id", 0) or 0)
+                if job_id is None
+                else int(job_id)
+            ),
+            project=project,
+            chapter_id=chapter_id,
+            transcript=transcript,
+            settings=normalized_settings,
+            continuity_seed=continuity_seed,
+        )
+        active_analyzer = analyzer or self._default_project_story_analyzer
+        try:
+            self._require_current_story_project_work(ownership)
+            analyzer_result = active_analyzer(copy.deepcopy(request))
+            self._require_current_story_project_work(ownership)
+            local_payload = self._validated_project_analysis_payload(
+                analyzer_result
+            )
+            merged_story_bible = merge_committed_story_bible(
+                continuity_seed, local_payload["project_story_memory"]
+            )
+            global_payload = self._offset_project_analysis_payload(
+                local_payload,
+                chapter_id=chapter_id,
+                global_offset_seconds=self._project_chapter_global_offset(
+                    project, chapter_id
+                ),
+            )
+            analysis_fingerprint = checkpointing.settings_fingerprint(local_payload)
+            prepared = checkpointing.invalidate_project(
+                project,
+                chapter_id=chapter_id,
+                from_stage="story_analysis",
+                include_later_chapters=True,
+            )
+            completed_analysis = checkpointing.complete_checkpoint(
+                started,
+                output_ref="",
+                output_fingerprint=analysis_fingerprint,
+            )
+            completed_analysis["expected_input_fingerprint"] = input_fingerprint
+            prepared["chapters"][chapter_id]["stages"][
+                "story_analysis"
+            ] = completed_analysis
+            scene_input = checkpointing.settings_fingerprint(
+                {"analysis_output_fingerprint": analysis_fingerprint}
+            )
+            scene_checkpoint = copy.deepcopy(
+                prepared["chapters"][chapter_id]["stages"]["scene_planning"]
+            )
+            scene_checkpoint = checkpointing.start_checkpoint(
+                scene_checkpoint, input_fingerprint=scene_input
+            )
+            scene_checkpoint = checkpointing.complete_checkpoint(
+                scene_checkpoint,
+                output_ref="",
+                output_fingerprint=checkpointing.settings_fingerprint(
+                    {"scene_plan": local_payload["scene_plan"]}
+                ),
+            )
+            scene_checkpoint["expected_input_fingerprint"] = scene_input
+            prepared["chapters"][chapter_id]["stages"][
+                "scene_planning"
+            ] = scene_checkpoint
+            self._require_current_story_project_work(ownership)
+            committed = self._story_project_store.commit_analysis_transaction(
+                prepared,
+                chapter_id,
+                local_payload,
+                merged_story_bible,
+            )
+        except Exception as exc:
+            if not self._story_project_work_is_current(ownership):
+                raise
+            latest = self._story_project_store.load_project(project_id)
+            if int(latest.get("story_bible_revision", 0) or 0) == story_revision:
+                current = latest["chapters"][chapter_id]["stages"]["story_analysis"]
+                if current.get("status") == "running":
+                    failed = checkpointing.fail_checkpoint(
+                        current,
+                        error=self._transcription_console_safe_message(str(exc)),
+                    )
+                    failed["expected_input_fingerprint"] = input_fingerprint
+                    failed["output_ref"] = str(previous.get("output_ref") or "")
+                    failed["output_fingerprint"] = str(
+                        previous.get("output_fingerprint") or ""
+                    )
+                    latest["chapters"][chapter_id]["stages"][
+                        "story_analysis"
+                    ] = failed
+                    self._story_project_store.save_project(latest)
+            raise
+        if project_id == str(self.current_story_project_id or ""):
+            self._current_story_project = copy.deepcopy(committed)
+        return global_payload
+
+    def _build_project_story_payload(
+        self,
+        job_id: int,
+        chapter_ids: Sequence[str],
+        settings: Mapping,
+    ) -> dict:
+        normalized_settings = self._project_story_analysis_settings(settings)
+        project_id = str(normalized_settings.get("_ownership_project_id") or "")
+        if not project_id:
+            raise RuntimeError("A named Audio Story project must be open")
+        ownership = self._project_story_analysis_ownership(
+            project_id, normalized_settings
+        )
+        self._require_current_story_project_work(ownership)
+        project = self._story_project_store.load_project(project_id)
+        chapters = dict(project.get("chapters") or {})
+        archived = set(project.get("archived_chapter_ids") or [])
+        requested = {
+            str(item or "").strip() for item in chapter_ids if str(item or "").strip()
+        }
+        selected_ids = [
+            chapter_id
+            for chapter_id in list(project.get("chapter_order") or [])
+            if chapter_id in requested
+            and chapter_id in chapters
+            and chapter_id not in archived
+        ]
+        if not selected_ids:
+            raise RuntimeError("The selected project range contains no analyzable chapters")
+        chapter_payloads = []
+        for chapter_id in selected_ids:
+            self._require_current_story_project_work(ownership)
+            project = self._story_project_store.load_project(project_id)
+            chapter = dict(project["chapters"][chapter_id])
+            checkpoint = dict(chapter["stages"]["story_analysis"])
+            expected_input = self._project_story_analysis_input_fingerprint(
+                chapter, normalized_settings
+            )
+            reusable = bool(
+                checkpoint.get("status") == "completed"
+                and checkpoint.get("input_fingerprint") == expected_input
+                and checkpoint.get("expected_input_fingerprint") == expected_input
+                and str(checkpoint.get("output_ref") or "")
+            )
+            if reusable:
+                try:
+                    local_payload = self._validated_project_analysis_payload(
+                        self._story_project_store.load_chapter_document(
+                            project_id, chapter_id, "analysis"
+                        )
+                    )
+                except Exception:
+                    reusable = False
+            if reusable:
+                chapter_payload = self._offset_project_analysis_payload(
+                    local_payload,
+                    chapter_id=chapter_id,
+                    global_offset_seconds=self._project_chapter_global_offset(
+                        project, chapter_id
+                    ),
+                )
+            else:
+                chapter_payload = self._analyze_project_chapter_with_settings(
+                    project_id,
+                    chapter_id,
+                    settings=normalized_settings,
+                    job_id=job_id,
+                )
+            chapter_payloads.append(chapter_payload)
+
+        self._require_current_story_project_work(ownership)
+        combined = copy.deepcopy(chapter_payloads[0])
+        for key in (
+            "transcript_chunks",
+            "transcript_windows",
+            "scene_plan",
+            "raw_segments",
+        ):
+            combined[key] = []
+        combined["character_anchors"] = {}
+        combined["location_anchors"] = {}
+        combined["full_text"] = ""
+        chunk_index_offset = 0
+        scene_index_offset = 0
+        for chapter_id, chapter_payload in zip(selected_ids, chapter_payloads):
+            chunks = [
+                copy.deepcopy(dict(item))
+                for item in list(chapter_payload.get("transcript_chunks") or [])
+                if isinstance(item, Mapping)
+            ]
+            scenes = [
+                copy.deepcopy(dict(item))
+                for item in list(chapter_payload.get("scene_plan") or [])
+                if isinstance(item, Mapping)
+            ]
+            local_scene_span = max(
+                [int(item.get("scene_index", 0) or 0) for item in scenes],
+                default=0,
+            )
+            for local_index, chunk in enumerate(chunks):
+                chunk["index"] = chunk_index_offset + local_index
+                chunk["chapter_id"] = chapter_id
+            for scene in scenes:
+                scene["chapter_id"] = chapter_id
+                scene["chunk_index"] = chunk_index_offset + int(
+                    scene.get("chunk_index", 0) or 0
+                )
+                scene["scene_index"] = scene_index_offset + int(
+                    scene.get("scene_index", 1) or 1
+                )
+            combined["transcript_chunks"].extend(chunks)
+            combined["transcript_windows"].extend(
+                copy.deepcopy(list(chapter_payload.get("transcript_windows") or []))
+            )
+            combined["scene_plan"].extend(scenes)
+            combined["raw_segments"].extend(
+                copy.deepcopy(list(chapter_payload.get("raw_segments") or []))
+            )
+            combined["character_anchors"].update(
+                copy.deepcopy(dict(chapter_payload.get("character_anchors") or {}))
+            )
+            combined["location_anchors"].update(
+                copy.deepcopy(dict(chapter_payload.get("location_anchors") or {}))
+            )
+            text = str(chapter_payload.get("full_text") or "").strip()
+            if text:
+                combined["full_text"] = " ".join(
+                    part for part in (combined["full_text"], text) if part
+                )
+            combined["story_bible"] = copy.deepcopy(
+                dict(chapter_payload.get("story_bible") or {})
+            )
+            chunk_index_offset += len(chunks)
+            scene_index_offset += local_scene_span
+        final_project = self._story_project_store.load_project(project_id)
+        self._require_current_story_project_work(ownership)
+        combined["project_id"] = project_id
+        combined["chapter_ids"] = list(selected_ids)
+        combined["job_id"] = int(job_id)
+        combined["project_story_memory"] = self._load_committed_project_story_memory(
+            project_id
+        )
+        active_ids = [
+            chapter_id
+            for chapter_id in list(final_project.get("chapter_order") or [])
+            if chapter_id in dict(final_project.get("chapters") or {})
+            and chapter_id not in set(final_project.get("archived_chapter_ids") or [])
+        ]
+        combined["audio_duration_seconds"] = sum(
+            max(
+                0.0,
+                float(
+                    dict(
+                        dict(final_project["chapters"].get(chapter_id) or {}).get(
+                            "audio_reference"
+                        )
+                        or {}
+                    )
+                    .get("fingerprint", {})
+                    .get("duration_ms", 0)
+                    or 0
+                )
+                / 1000.0,
+            )
+            for chapter_id in active_ids
+        )
+        return combined
 
     def _start_transcription(self):
-        path = str(self.imported_audio_path or "").strip()
-        if not path:
-            self._show_warning("Audio Story Mode", "Import an audio file first.")
+        self._append_transcription_console(
+            "INFO",
+            "Transcribe Audio pressed. Checking the imported audio and selected range...",
+        )
+        sources = list(self.imported_audio_sources or [])
+        if not sources:
+            self._append_transcription_console(
+                "WARNING",
+                "No ready audio file is available. Import audio and wait for its duration check to finish.",
+            )
+            self._show_warning("Audio Story Mode", "Import one or more audio files first.")
             return
-        if not Path(path).exists():
-            self._show_warning("Audio Story Mode", f"Audio file not found:\n{path}")
+        invalid = [item for item in sources if not item.valid or not Path(item.path).exists()]
+        if invalid and not self.current_story_project_id:
+            source = invalid[0]
+            detail = source.error or "file not found"
+            self._append_transcription_console(
+                "WARNING",
+                f"Cannot transcribe {source.display_name}: {detail}",
+            )
+            self._show_warning("Audio Story Mode", f"Cannot transcribe {source.display_name}:\n{detail}")
             return
-        self._refresh_imported_audio_duration()
         self._sync_transcription_range_controls()
         chunk_seconds = max(1, int(self.audio_story_transcribe_seconds_slider.value())) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8)
-        transcription_start_seconds, transcription_end_seconds = self._effective_transcription_range_seconds()
-        if self.imported_audio_duration_seconds > 0 and transcription_end_seconds <= transcription_start_seconds:
+        (
+            selected_range_enabled,
+            transcription_start_seconds,
+            transcription_end_seconds,
+        ) = self._transcription_scope_snapshot()
+        if (
+            selected_range_enabled
+            and self.imported_audio_duration_seconds > 0
+            and transcription_end_seconds <= transcription_start_seconds
+        ):
+            self._append_transcription_console(
+                "WARNING",
+                "The transcription end must be later than the start.",
+            )
             self._show_warning("Audio Story Mode", "Choose a transcription end second that is after the start second.")
             return
+        pipeline_owner = self._begin_story_project_mutating_pipeline("transcription")
+        if pipeline_owner is None:
+            return
+        self._transcription_project_pipeline_owner = pipeline_owner
         self._transcription_job_id += 1
         job_id = self._transcription_job_id
+        file_count = len(sources)
+        if selected_range_enabled:
+            self._append_transcription_console(
+                "INFO",
+                f"Starting transcription for {file_count} "
+                f"{'file' if file_count == 1 else 'files'} from "
+                f"{self._format_seconds(transcription_start_seconds)} to "
+                f"{self._format_seconds(transcription_end_seconds)}.",
+            )
+        else:
+            self._append_transcription_console(
+                "INFO",
+                f"Starting whole-project transcription for {file_count} files.",
+            )
         image_frequency_seconds = self._normalize_image_frequency_seconds(int(self.audio_story_image_frequency_slider.value())) if hasattr(self, "audio_story_image_frequency_slider") else self._normalize_image_frequency_seconds()
         continuity_strength = float(self._stored_continuity_strength or 0.8)
         self._set_transcription_progress(1, "Preparing audio transcription...")
         self.audio_story_transcribe_button.setEnabled(False)
+        story_project_id = str(self.current_story_project_id or "")
+        story_project_generation = int(self._story_project_generation)
+        story_project_input_fingerprint = str(
+            self._story_project_input_fingerprint or ""
+        )
         threading.Thread(
             target=self._run_transcription_job,
-            args=(job_id, path, chunk_seconds, image_frequency_seconds, continuity_strength, transcription_start_seconds, transcription_end_seconds),
+            args=(job_id, tuple(sources), chunk_seconds, image_frequency_seconds, continuity_strength, transcription_start_seconds, transcription_end_seconds, story_project_id, story_project_generation, story_project_input_fingerprint, selected_range_enabled),
             daemon=True,
         ).start()
 
-    def _run_transcription_job(self, job_id: int, path: str, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0):
-        temp_transcription_path = None
+    def _run_transcription_job(self, job_id: int, sources, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0, project_id: str = "", project_generation: int = 0, project_input_fingerprint: str = "", selected_range_enabled: bool = False):
         try:
-            if not audio_story_runtime.ensure_stt_ready():
-                raise RuntimeError("Audio Story STT runtime is not configured.")
-            audio_duration = audio_story_runtime.audio_duration_seconds(path)
+            source_items = [item for item in list(sources or []) if isinstance(item, AudioSource)]
+            audio_duration = total_duration_seconds(source_items)
             range_start = max(0.0, float(transcription_start_seconds or 0))
             range_end = max(0.0, float(transcription_end_seconds or 0))
             if audio_duration > 0:
                 range_start = min(range_start, audio_duration)
                 range_end = audio_duration if range_end <= 0 else min(range_end, audio_duration)
-            transcribe_path = path
-            if audio_duration > 0 and (range_start > 0.0 or (range_end > 0.0 and range_end < audio_duration)):
-                if range_end <= range_start:
-                    raise RuntimeError("The selected transcription range is empty.")
-                self._emit_transcription_progress(job_id, 4, "Preparing selected audio range...", stage="audio_slice")
+            if range_end <= range_start and (not project_id or selected_range_enabled):
+                raise TranscriptionFailure("The selected transcription range is empty.")
+            source_slices = split_global_range(source_items, range_start, range_end)
+
+            def extract_range(path: str, local_start: float, local_end: float) -> str:
+                self._emit_transcription_progress(job_id, 4, f"Preparing selected range from {Path(path).name}...", stage="audio_slice")
                 source_audio = audio_story_runtime.audio_from_file(path)
-                start_ms = max(0, int(round(range_start * 1000.0)))
-                end_ms = max(start_ms, int(round(range_end * 1000.0)))
-                temp_transcription_path = self._cache_file(f"transcription_range_{job_id}_{uuid.uuid4().hex[:10]}.wav")
-                source_audio[start_ms:end_ms].export(str(temp_transcription_path), format="wav")
-                transcribe_path = str(temp_transcription_path)
-            segments, _info = audio_story_runtime.transcribe_audio(transcribe_path)
-            raw_segments = []
-            progress_duration = max(0.001, (range_end - range_start) if range_end > range_start else audio_duration)
-            for segment in segments:
-                text = str(getattr(segment, "text", "") or "").strip()
-                if not text:
-                    continue
-                start_seconds = max(0.0, float(getattr(segment, "start", 0.0) or 0.0) + range_start)
-                end_seconds = max(start_seconds, float(getattr(segment, "end", 0.0) or 0.0) + range_start)
-                if audio_duration > 0:
-                    clip_end_seconds = range_end if range_end > range_start else audio_duration
-                    if start_seconds >= clip_end_seconds:
-                        continue
-                    end_seconds = min(audio_duration, clip_end_seconds, end_seconds)
-                raw_segments.append(
-                    {
-                        "start_seconds": start_seconds,
-                        "end_seconds": end_seconds,
-                        "text": text,
-                    }
+                start_ms = max(0, int(round(local_start * 1000.0)))
+                end_ms = max(start_ms, int(round(local_end * 1000.0)))
+                temp_transcription_path = self._cache_file(
+                    f"transcription_range_{job_id}_{uuid.uuid4().hex[:10]}.wav"
                 )
-                if audio_duration > 0:
-                    range_progress = max(0.0, min(1.0, ((end_seconds - range_start) / progress_duration)))
-                    percent = 14 + int(min(58.0, range_progress * 58.0))
-                    self._emit_transcription_progress(
-                        job_id,
-                        percent,
-                        f"Transcribing audio... {min(100, int(range_progress * 100.0))}%",
-                        stage="whisper_transcribe",
-                    )
+                source_audio[start_ms:end_ms].export(str(temp_transcription_path), format="wav")
+                return str(temp_transcription_path)
+
+            if project_id:
+                project = self._story_project_store.load_project(project_id)
+                active_chapter_ids = [
+                    chapter_id
+                    for chapter_id in list(project.get("chapter_order") or [])
+                    if chapter_id in dict(project.get("chapters") or {})
+                    and chapter_id not in set(project.get("archived_chapter_ids") or [])
+                ]
+                chapter_ids = (
+                    [
+                        active_chapter_ids[source_slice.source.index]
+                        for source_slice in source_slices
+                        if 0 <= source_slice.source.index < len(active_chapter_ids)
+                    ]
+                    if selected_range_enabled
+                    else active_chapter_ids
+                )
+                raw_segments = self._run_project_transcription_units(
+                    project_id,
+                    chapter_ids,
+                    selected_range_enabled=selected_range_enabled,
+                    job_token=job_id,
+                    project_generation=project_generation,
+                    project_input_fingerprint=project_input_fingerprint,
+                    chunk_seconds=chunk_seconds,
+                    transcription_start_seconds=transcription_start_seconds,
+                    transcription_end_seconds=transcription_end_seconds,
+                    transcribe_file=audio_story_runtime.transcribe_audio,
+                )
+            else:
+                normalized_segments = transcribe_slices(
+                    source_slices,
+                    transcribe_file=audio_story_runtime.transcribe_audio,
+                    extract_range=extract_range,
+                    cleanup=audio_story_runtime.safe_delete,
+                    progress=lambda percent, message: self._emit_transcription_progress(
+                        job_id, percent, message, stage="whisper_transcribe"
+                    ),
+                    cancelled=lambda: int(job_id) != int(self._transcription_job_id),
+                )
+                raw_segments = [
+                    {
+                        "start_seconds": float(item.get("start", 0.0) or 0.0),
+                        "end_seconds": float(item.get("end", 0.0) or 0.0),
+                        "text": str(item.get("text", "") or "").strip(),
+                        "source_index": int(item.get("source_index", 0) or 0),
+                        "source_path": str(item.get("source_path", "") or ""),
+                        "source_start_seconds": float(item.get("source_start_seconds", 0.0) or 0.0),
+                        "source_end_seconds": float(item.get("source_end_seconds", 0.0) or 0.0),
+                    }
+                    for item in normalized_segments
+                ]
             self._emit_transcription_progress(job_id, 74, "Building transcript windows and scene plan...", stage="story_build")
-            payload = self._build_story_payload(
-                job_id=job_id,
-                path=path,
-                audio_duration=audio_duration,
-                raw_segments=raw_segments,
-                chunk_seconds=chunk_seconds,
-                image_frequency_seconds=image_frequency_seconds,
-                continuity_strength=continuity_strength,
-                transcription_start_seconds=int(round(range_start)),
-                transcription_end_seconds=int(round(range_end)) if range_end > 0 else 0,
-                progress_callback=lambda percent, message: self._emit_transcription_progress(job_id, percent, message, stage="story_build"),
-            )
+            if project_id:
+                payload = self._build_project_story_payload(
+                    job_id,
+                    chapter_ids,
+                    {
+                        "chunk_seconds": chunk_seconds,
+                        "image_frequency_seconds": image_frequency_seconds,
+                        "continuity_strength": continuity_strength,
+                        "progress_callback": lambda percent, message: self._emit_transcription_progress(
+                            job_id, percent, message, stage="story_build"
+                        ),
+                        "_ownership_job_id": job_id,
+                        "_ownership_project_id": project_id,
+                        "_ownership_project_generation": project_generation,
+                        "_ownership_input_fingerprint": project_input_fingerprint,
+                    },
+                )
+            else:
+                payload = self._build_story_payload(
+                    job_id=job_id,
+                    path=source_items[0].path,
+                    audio_duration=audio_duration,
+                    raw_segments=raw_segments,
+                    chunk_seconds=chunk_seconds,
+                    image_frequency_seconds=image_frequency_seconds,
+                    continuity_strength=continuity_strength,
+                    transcription_start_seconds=int(round(range_start)),
+                    transcription_end_seconds=int(round(range_end)) if range_end > 0 else 0,
+                    progress_callback=lambda percent, message: self._emit_transcription_progress(job_id, percent, message, stage="story_build"),
+                )
+            payload["audio_paths"] = [item.path for item in source_items]
+            payload["audio_sources"] = [item.to_dict() for item in source_items]
             self._emit_transcription_progress(job_id, 100, "Audio story transcription complete.", stage="done")
             self.transcriptionFinished.emit(payload)
         except Exception as exc:
             detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
             self.transcriptionFailed.emit(detail)
-        finally:
-            if temp_transcription_path is not None:
-                audio_story_runtime.safe_delete(str(temp_transcription_path))
 
     def _build_transcript_chunks(self, raw_segments, audio_duration_seconds: float, chunk_seconds: float, *, base_start_seconds: float = 0.0):
         if chunk_seconds <= 0:
@@ -2947,7 +6987,158 @@ class AudioStoryModeController(QtCore.QObject):
             )
         return image_chunks
 
-    def _build_story_payload(self, *, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0, progress_callback=None):
+    def _story_memory_continuity_bible(self, memory: Mapping | None) -> dict:
+        source = dict(memory or {})
+
+        def entity_map(section: str, kind: str) -> dict:
+            entities = {}
+            for entity_id, raw_entry in dict(source.get(section) or {}).items():
+                if not isinstance(raw_entry, Mapping):
+                    continue
+                entry = dict(raw_entry)
+                label = str(
+                    entry.get("label") or entry.get("display_name") or entity_id
+                ).strip()
+                aliases = _audio_story_unique_keep_order(
+                    [label, *list(entry.get("aliases") or [])]
+                )
+                if kind == "character":
+                    anchor_parts = [
+                        entry.get("appearance_anchor"),
+                        entry.get("anchor_text"),
+                        entry.get("visual_identity"),
+                        entry.get("face"),
+                        entry.get("hair"),
+                        entry.get("eyes"),
+                        entry.get("body"),
+                        entry.get("clothing"),
+                        entry.get("unique_markers"),
+                    ]
+                else:
+                    anchor_parts = [
+                        entry.get("anchor_text"),
+                        entry.get("visual_description"),
+                        entry.get("mood"),
+                        *list(entry.get("recurring_details") or []),
+                    ]
+                anchor = "; ".join(
+                    _audio_story_unique_keep_order(
+                        str(item or "").strip()
+                        for item in anchor_parts
+                        if str(item or "").strip()
+                    )
+                )
+                normalized_id = str(entity_id or "").strip()
+                if not normalized_id:
+                    continue
+                entities[normalized_id] = {
+                    "id": normalized_id,
+                    "label": label,
+                    "kind": kind,
+                    "mentions": max(1, int(entry.get("mentions", 1) or 1)),
+                    "sentences": [],
+                    "aliases": aliases,
+                    "summary": str(
+                        entry.get("summary")
+                        or entry.get("personality_impression")
+                        or anchor
+                        or ""
+                    ).strip(),
+                    "anchor_text": anchor,
+                    "appearance_anchor": anchor if kind == "character" else "",
+                    "image_path": str(entry.get("image_path") or "").strip(),
+                    "confidence": float(entry.get("confidence", 0.0) or 0.0),
+                }
+            return entities
+
+        style = dict(source.get("style") or {})
+        return {
+            "characters": entity_map("characters", "character"),
+            "locations": entity_map("locations", "location"),
+            "props": entity_map("props", "prop"),
+            "tone": [],
+            "palette": [],
+            "world_cues": [],
+            "time_period": "",
+            "atmosphere": str(style.get("global_visual_style") or "").strip(),
+        }
+
+    def _merge_story_continuity_seed(
+        self,
+        current_story_bible: Mapping,
+        continuity_seed: Mapping | None,
+    ) -> dict:
+        current = copy.deepcopy(dict(current_story_bible or {}))
+        if not isinstance(continuity_seed, Mapping) or not continuity_seed:
+            return current
+        seeded = self._story_memory_continuity_bible(continuity_seed)
+        for section in ("characters", "locations", "props"):
+            generated = copy.deepcopy(dict(current.get(section) or {}))
+            established = copy.deepcopy(dict(seeded.get(section) or {}))
+            identity_to_id = {}
+            for entity_id, entry in established.items():
+                for identity in [
+                    entity_id,
+                    str(entry.get("label") or ""),
+                    *list(entry.get("aliases") or []),
+                ]:
+                    normalized = str(identity or "").strip().casefold()
+                    if normalized:
+                        identity_to_id.setdefault(normalized, entity_id)
+            for generated_id, generated_entry in generated.items():
+                identities = [
+                    generated_id,
+                    str(generated_entry.get("label") or ""),
+                    *list(generated_entry.get("aliases") or []),
+                ]
+                stable_id = next(
+                    (
+                        identity_to_id.get(str(identity or "").strip().casefold())
+                        for identity in identities
+                        if identity_to_id.get(
+                            str(identity or "").strip().casefold()
+                        )
+                    ),
+                    None,
+                )
+                if stable_id is None:
+                    established[generated_id] = copy.deepcopy(generated_entry)
+                    continue
+                preserved = copy.deepcopy(dict(generated_entry or {}))
+                stable_entry = copy.deepcopy(dict(established.get(stable_id) or {}))
+                for field, value in stable_entry.items():
+                    if value not in (None, "", [], {}):
+                        preserved[field] = value
+                preserved["id"] = stable_id
+                preserved["aliases"] = _audio_story_unique_keep_order(
+                    [
+                        *list(stable_entry.get("aliases") or []),
+                        *list(generated_entry.get("aliases") or []),
+                        *([generated_id] if generated_id != stable_id else []),
+                    ]
+                )
+                established[stable_id] = preserved
+            current[section] = established
+        if seeded.get("atmosphere") and not current.get("atmosphere"):
+            current["atmosphere"] = seeded["atmosphere"]
+        return current
+
+    def _build_story_payload(
+        self,
+        *,
+        job_id: int,
+        path: str,
+        audio_duration: float,
+        raw_segments: Sequence[Mapping],
+        chunk_seconds: int,
+        image_frequency_seconds: int,
+        continuity_strength: float,
+        transcription_start_seconds: int = 0,
+        transcription_end_seconds: int = 0,
+        progress_callback: Callable[[int, str], None] | None = None,
+        continuity_seed: dict | None = None,
+        project_story_memory: dict | None = None,
+    ) -> dict:
         def progress(percent: int, message: str):
             if callable(progress_callback):
                 try:
@@ -2970,7 +7161,12 @@ class AudioStoryModeController(QtCore.QObject):
             continuity_strength=self._normalize_continuity_strength(continuity_strength),
         )
         progress(84, "Building heuristic story anchors...")
-        fallback_story_bible = self._build_story_bible(full_text, continuity_strength=continuity_strength)
+        fallback_story_bible = self._merge_story_continuity_seed(
+            self._build_story_bible(
+                full_text, continuity_strength=continuity_strength
+            ),
+            continuity_seed or project_story_memory,
+        )
         llm_analysis = {}
         if self._stored_use_llm_story_analysis and full_text and image_chunks:
             progress(86, f"Analyzing story with {self._story_analysis_provider_status_label()} (max {int(_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS)}s)...")
@@ -2981,6 +7177,7 @@ class AudioStoryModeController(QtCore.QObject):
                     story_style_guide=story_style_guide,
                     continuity_strength=continuity_strength,
                     fallback_story_bible=fallback_story_bible,
+                    continuity_seed=continuity_seed or project_story_memory,
                 )
             except Exception as exc:
                 print(f"[AudioStoryMode] LLM story analysis failed; falling back to heuristic analysis: {exc}")
@@ -2996,7 +7193,10 @@ class AudioStoryModeController(QtCore.QObject):
             if not isinstance(item, dict):
                 continue
             try:
-                llm_scene_map[int(item.get("chunk_index", -1) or -1)] = dict(item)
+                raw_chunk_index = item.get("chunk_index", -1)
+                llm_scene_map[
+                    int(-1 if raw_chunk_index is None else raw_chunk_index)
+                ] = dict(item)
             except Exception:
                 continue
         scene_plan = []
@@ -3008,7 +7208,13 @@ class AudioStoryModeController(QtCore.QObject):
         story_memory_store = None
         story_memory = None
         story_analyzer = None
-        if analysis_mode == "story_bible":
+        project_memory_mode = project_story_memory is not None
+        if project_memory_mode:
+            story_memory = merge_committed_story_bible(
+                empty_story_memory(), project_story_memory or {}
+            )
+            story_analyzer = StoryAnalyzer()
+        elif analysis_mode == "story_bible":
             story_memory_store = self._story_bible_store(path)
             story_memory = story_memory_store.load()
             story_analyzer = StoryAnalyzer()
@@ -3087,7 +7293,8 @@ class AudioStoryModeController(QtCore.QObject):
             chunk["reference_image_paths"] = list(scene_entry["reference_image_paths"])
             chunk["tts_start_seconds"] = None
             chunk["tts_end_seconds"] = None
-            if analysis_mode == "story_bible" and story_memory_store is not None and story_memory is not None and story_analyzer is not None:
+            update = {}
+            if story_memory is not None and story_analyzer is not None:
                 update = story_analyzer.analyze(
                     str(chunk.get("text", "") or ""),
                     chunk_index=index,
@@ -3098,13 +7305,14 @@ class AudioStoryModeController(QtCore.QObject):
                 scene_update = dict(update.get("scene") or {})
                 scene_entry["story_bible_character_keys"] = list(scene_update.get("character_keys", []) or [])
                 scene_entry["story_bible_location_key"] = str(scene_update.get("location_key", "") or "").strip()
-                if memory_changed:
+                if memory_changed and story_memory_store is not None:
                     story_memory_store.save(story_memory)
                 print(
                     f"[StoryBible] chunk={index} memory_updated={bool(memory_changed)} "
                     f"characters={len(dict(story_memory.get('characters') or {}))} "
                     f"locations={len(dict(story_memory.get('locations') or {}))}"
                 )
+            if analysis_mode == "story_bible" and story_memory is not None:
                 chunk["prompt"] = self._build_story_bible_image_prompt(
                     str(chunk.get("text", "") or ""),
                     chunk_index=index,
@@ -3130,7 +7338,7 @@ class AudioStoryModeController(QtCore.QObject):
                 story_bible=story_bible,
                 story_style_guide=story_style_guide,
             )
-            if analysis_mode == "story_bible" and story_memory_store is not None and story_memory is not None and story_analyzer is not None:
+            if analysis_mode == "story_bible" and story_memory is not None and story_analyzer is not None:
                 story_memory = self._apply_story_bible_prompts_to_chunks(
                     image_chunks,
                     scene_plan,
@@ -3150,7 +7358,7 @@ class AudioStoryModeController(QtCore.QObject):
             anchor = dict(entity or {})
             anchor["image_path"] = str(existing_anchor.get("image_path", "") or "").strip()
             location_anchors[entity_id] = anchor
-        return {
+        payload = {
             "job_id": job_id,
             "audio_path": path,
             "audio_duration_seconds": audio_duration,
@@ -3170,6 +7378,11 @@ class AudioStoryModeController(QtCore.QObject):
             "location_anchors": location_anchors,
             "raw_segments": list(raw_segments or []),
         }
+        if project_memory_mode:
+            payload["project_story_memory"] = copy.deepcopy(
+                story_memory or empty_story_memory()
+            )
+        return payload
 
     def _collapse_story_chunks_to_scene_changes(self, image_chunks, scene_plan, *, story_bible: dict, story_style_guide: str):
         paired = []
@@ -3268,7 +7481,34 @@ class AudioStoryModeController(QtCore.QObject):
         return collapsed_chunks, collapsed_scenes
 
     def _apply_story_payload(self, payload, *, start_visual_generation: bool = True):
+        self._invalidate_tts_queue(clear_plan=True)
+        source_payloads = payload.get("audio_sources")
+        if isinstance(source_payloads, list):
+            restored_sources = []
+            for index, item in enumerate(source_payloads):
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    restored_sources.append(
+                        AudioSource(
+                            index=index,
+                            path=str(item.get("path", "") or "").strip(),
+                            display_name=str(item.get("display_name", "") or Path(str(item.get("path", "") or "")).name),
+                            duration_seconds=max(0.0, float(item.get("duration_seconds", 0.0) or 0.0)),
+                            global_start_seconds=max(0.0, float(item.get("global_start_seconds", 0.0) or 0.0)),
+                            global_end_seconds=max(0.0, float(item.get("global_end_seconds", 0.0) or 0.0)),
+                            valid=bool(item.get("valid", True)),
+                            error=str(item.get("error", "") or ""),
+                        )
+                    )
+                except Exception:
+                    continue
+            if restored_sources:
+                self.imported_audio_sources = restored_sources
+                self.imported_audio_paths = [item.path for item in restored_sources]
         self.imported_audio_path = str(payload.get("audio_path", "") or "").strip()
+        if not self.imported_audio_paths and self.imported_audio_path:
+            self.imported_audio_paths = [self.imported_audio_path]
         self.imported_audio_duration_seconds = max(0.0, float(payload.get("audio_duration_seconds", 0.0) or 0.0))
         self.transcript_chunks = list(payload.get("transcript_chunks", []) or [])
         self.full_transcript_text = str(payload.get("full_text", "") or "").strip()
@@ -3296,6 +7536,8 @@ class AudioStoryModeController(QtCore.QObject):
         self.scene_plan = [dict(item) if isinstance(item, dict) else item for item in list(payload.get("scene_plan", []) or [])]
         self.character_anchors = dict(payload.get("character_anchors", {}) or {})
         self.location_anchors = dict(payload.get("location_anchors", {}) or {})
+        if self.current_story_project_id:
+            self._restore_project_image_cache()
         self._sync_transcribe_seconds_slider()
         self._sync_transcription_range_controls()
         self._sync_image_frequency_slider()
@@ -3304,6 +7546,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_generate_ahead_slider()
         self._sync_audio_story_style_controls()
         self._sync_story_master_prompt_controls()
+        self._refresh_audio_source_queue()
         self._set_status(
             f"Transcription ready. {len(self.transcript_chunks)} image window(s) built from {self.imported_audio_duration_seconds:.1f}s of audio."
         )
@@ -3339,6 +7582,19 @@ class AudioStoryModeController(QtCore.QObject):
     def _rebuild_story_payload_from_cached_segments(self, *, preserve_playback: bool = False, preserve_audio_assets: bool = False):
         if not self._raw_transcript_segments or self._last_transcription_audio_duration <= 0.0:
             return
+        ownership = {
+            "job_id": int(self._transcription_job_id),
+            "project_id": str(self.current_story_project_id or ""),
+            "project_generation": int(self._story_project_generation),
+            "input_fingerprint": str(self._story_project_input_fingerprint or ""),
+        }
+        self._require_current_story_project_work(ownership)
+        project_story_memory = None
+        if ownership["project_id"]:
+            project_story_memory = self._load_committed_project_story_memory(
+                ownership["project_id"]
+            )
+        self._require_current_story_project_work(ownership)
         previous_position_seconds = self._player_position_seconds()
         previous_state = None
         if self.audio_player is not None:
@@ -3361,7 +7617,10 @@ class AudioStoryModeController(QtCore.QObject):
             continuity_strength=float(self._stored_continuity_strength or 0.8),
             transcription_start_seconds=int(self._stored_transcription_start_seconds or 0),
             transcription_end_seconds=int(self._stored_transcription_end_seconds or 0),
+            continuity_seed=project_story_memory,
+            project_story_memory=project_story_memory,
         )
+        self._require_current_story_project_work(ownership)
         if not preserve_playback:
             self._stop_story()
         self._apply_story_payload(payload, start_visual_generation=False)
@@ -3388,8 +7647,19 @@ class AudioStoryModeController(QtCore.QObject):
     def _start_story_payload_rebuild_job(self, *, status_text: str = "Rebuilding audio story analysis..."):
         if not self._raw_transcript_segments or self._last_transcription_audio_duration <= 0.0:
             return
+        pipeline_owner = self._begin_story_project_mutating_pipeline(
+            "story analysis"
+        )
+        if pipeline_owner is None:
+            return
+        self._analysis_project_pipeline_owner = pipeline_owner
         self._transcription_job_id += 1
         job_id = self._transcription_job_id
+        project_id = str(self.current_story_project_id or "")
+        project_generation = int(self._story_project_generation)
+        project_input_fingerprint = str(
+            self._story_project_input_fingerprint or ""
+        )
         self._set_status(status_text)
         if hasattr(self, "audio_story_transcribe_button"):
             self.audio_story_transcribe_button.setEnabled(False)
@@ -3405,12 +7675,41 @@ class AudioStoryModeController(QtCore.QObject):
                 float(self._stored_continuity_strength or 0.8),
                 int(self._stored_transcription_start_seconds or 0),
                 int(self._stored_transcription_end_seconds or 0),
+                project_id,
+                project_generation,
+                project_input_fingerprint,
             ),
             daemon=True,
         ).start()
 
-    def _run_story_payload_rebuild_job(self, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0):
+    def _run_story_payload_rebuild_job(self, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0, project_id: str | None = None, project_generation: int | None = None, project_input_fingerprint: str | None = None):
         try:
+            owner_project_id = (
+                str(self.current_story_project_id or "")
+                if project_id is None
+                else str(project_id or "")
+            )
+            ownership = {
+                "job_id": int(job_id),
+                "project_id": owner_project_id,
+                "project_generation": (
+                    int(self._story_project_generation)
+                    if project_generation is None
+                    else int(project_generation)
+                ),
+                "input_fingerprint": (
+                    str(self._story_project_input_fingerprint or "")
+                    if project_input_fingerprint is None
+                    else str(project_input_fingerprint or "")
+                ),
+            }
+            self._require_current_story_project_work(ownership)
+            project_story_memory = None
+            if owner_project_id:
+                project_story_memory = self._load_committed_project_story_memory(
+                    owner_project_id
+                )
+            self._require_current_story_project_work(ownership)
             payload = self._build_story_payload(
                 job_id=job_id,
                 path=path,
@@ -3421,9 +7720,16 @@ class AudioStoryModeController(QtCore.QObject):
                 continuity_strength=continuity_strength,
                 transcription_start_seconds=transcription_start_seconds,
                 transcription_end_seconds=transcription_end_seconds,
+                continuity_seed=project_story_memory,
+                project_story_memory=project_story_memory,
             )
+            self._require_current_story_project_work(ownership)
             self.transcriptionFinished.emit(payload)
         except Exception as exc:
+            if "ownership" in locals() and not self._story_project_work_is_current(
+                ownership
+            ):
+                return
             detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
             self.transcriptionFailed.emit(detail)
 
@@ -3435,18 +7741,40 @@ class AudioStoryModeController(QtCore.QObject):
             int(data.get("percent", 0) or 0),
             str(data.get("message", "") or "").strip(),
         )
+        self._append_transcription_console(
+            "PROGRESS",
+            str(data.get("message", "") or "").strip(),
+        )
 
     def _on_transcription_finished(self, payload):
         if int(payload.get("job_id", 0) or 0) != self._transcription_job_id:
             return
+        self._end_story_project_mutating_pipeline(
+            self._transcription_project_pipeline_owner
+            or self._analysis_project_pipeline_owner
+        )
+        self._transcription_project_pipeline_owner = None
+        self._analysis_project_pipeline_owner = None
         self.audio_story_transcribe_button.setEnabled(True)
         self._set_transcription_progress(100, "Audio story transcription complete.")
+        self._append_transcription_console(
+            "SUCCESS",
+            "Audio story transcription and scene planning completed.",
+        )
         self._apply_story_payload(payload)
 
     def _on_transcription_failed(self, detail: str):
+        self._end_story_project_mutating_pipeline(
+            self._transcription_project_pipeline_owner
+            or self._analysis_project_pipeline_owner
+        )
+        self._transcription_project_pipeline_owner = None
+        self._analysis_project_pipeline_owner = None
         self.audio_story_transcribe_button.setEnabled(True)
         self._set_transcription_progress(0, "Transcription failed.")
-        self._set_status(f"Transcription failed: {detail}")
+        normalized_detail = str(detail or "Unknown transcription error.").strip()
+        self._set_status(f"Transcription failed: {normalized_detail}")
+        self._append_transcription_console("ERROR", normalized_detail)
 
     def _playback_mode_value(self):
         text = str(self.audio_story_playback_mode_combo.currentText() if hasattr(self, "audio_story_playback_mode_combo") else "Play Imported Audio").strip().lower()
@@ -3472,16 +7800,73 @@ class AudioStoryModeController(QtCore.QObject):
         if mode == "source":
             if not self._prepare_source_media():
                 return
+            self._source_playback_expected = True
             self._start_playback_with_visual_sync(self._player_position_seconds(), status_text="Playing imported audio story.")
             self._sync_visual_stream_playback_state("playing")
             return
-        signature = self._compute_tts_signature()
-        if self._tts_bundle is None or self._tts_signature != signature or not Path(str(self._tts_bundle.get("audio_path", "") or "")).exists():
+        if self._tts_cache_clear_is_in_progress():
+            self._report_tts_cache_clear_in_progress()
+            return
+        self._source_playback_expected = False
+        with self._tts_render_condition:
+            plan = self._tts_queue_plan
+            queue_state = str(self._tts_queue_state or "Idle")
+            render_in_progress = bool(self._tts_render_in_progress)
+            current_position = max(
+                0.0, float(self._tts_playback_position_seconds or 0.0)
+            )
+            self._tts_resume_after_buffering = True
+            self._tts_playback_paused = False
             self._pending_autoplay_tts = True
-            self._start_tts_render(signature)
+            self._tts_render_condition.notify_all()
+        if plan is not None and queue_state in {
+            "Complete",
+            "Paused",
+            "Ready",
+            "Rendering Ahead",
+        }:
+            if self._locate_ready_tts_position(current_position) is not None:
+                if queue_state == "Paused":
+                    with self._tts_render_condition:
+                        restored_state = str(self._tts_state_before_pause or "Ready")
+                        if restored_state == "Paused":
+                            restored_state = "Ready"
+                        self._tts_queue_state = restored_state
+                self._pending_autoplay_tts = False
+                self._start_playback_with_visual_sync(
+                    current_position,
+                    status_text="Playing TTS narration for the transcribed story.",
+                )
+                self._sync_visual_stream_playback_state("playing")
+                return
+        if plan is not None and render_in_progress:
+            if self._locate_ready_tts_position(current_position) is not None:
+                self._pending_autoplay_tts = False
+                self._start_playback_with_visual_sync(
+                    current_position,
+                    status_text="Playing TTS narration for the transcribed story.",
+                )
+                self._sync_visual_stream_playback_state("playing")
+            else:
+                with self._tts_render_condition:
+                    self._tts_queue_state = "Buffering"
+                    self._tts_render_condition.notify_all()
+                self._set_status(
+                    "Buffering TTS narration at the requested position..."
+                )
+            return
+        signature = self._compute_tts_signature()
+        if (
+            plan is not None
+            or self._tts_bundle is None
+            or self._tts_signature != signature
+            or not str(self._tts_bundle.get("audio_path", "") or "").strip()
+        ):
+            self._start_tts_render(signature, preserve_ready=plan is not None)
             return
         if not self._prepare_tts_media():
             return
+        self._pending_autoplay_tts = False
         self._start_playback_with_visual_sync(self._player_position_seconds(), status_text="Playing TTS narration for the transcribed story.")
         self._sync_visual_stream_playback_state("playing")
 
@@ -3489,6 +7874,22 @@ class AudioStoryModeController(QtCore.QObject):
         if self.audio_player is None:
             return
         self.audio_player.pause()
+        self._source_playback_expected = False
+        if self._playback_mode_value() == "tts":
+            with self._tts_render_condition:
+                self._tts_playback_position_seconds = self._player_position_seconds()
+                self._tts_resume_after_buffering = False
+                self._tts_playback_paused = True
+                self._pending_autoplay_tts = False
+                if self._tts_queue_plan is not None:
+                    self._tts_state_before_pause = str(
+                        self._tts_queue_state or "Ready"
+                    )
+                    self._tts_queue_state = "Paused"
+                if self._tts_pending_media_transition is not None:
+                    self._tts_pending_media_transition.resume_playback = False
+                self._tts_render_condition.notify_all()
+            self._refresh_tts_buffer_ui()
         self._sync_visual_stream_playback_state("paused")
         self._set_status("Playback paused.")
 
@@ -3500,13 +7901,19 @@ class AudioStoryModeController(QtCore.QObject):
             self._image_generation_requested_end_index = -1
 
     def _stop_story(self):
+        self._invalidate_tts_queue(clear_plan=False)
         self._pending_play_request = None
-        self._pending_autoplay_tts = False
         self._visual_generation_blocked = True
         self._cancel_visual_generation()
+        self._source_playback_expected = False
+        self._tts_active_segment_index = 0
+        self._tts_active_segment_global_offset = 0.0
+        self._tts_playback_position_seconds = 0.0
         if self.audio_player is not None:
             self.audio_player.stop()
             self.audio_player.setPosition(0)
+        self._active_source_index = 0
+        self._active_source_global_offset = 0.0
         self._sync_visual_stream_playback_state("stopped", position_seconds=0.0)
         if bool(getattr(self, "_stored_chromecast_cast_active", False)) or bool(getattr(self, "_stored_chromecast_stream_page_active", False)):
             self._stop_chromecast_cast(stop_stream=True, silent=True)
@@ -3515,11 +7922,15 @@ class AudioStoryModeController(QtCore.QObject):
         if self.transcript_chunks:
             self._sync_visual_to_position(0.0, force=True, allow_generation=False)
         self._set_status("Playback stopped.")
+        self._refresh_tts_buffer_ui()
+        self._refresh_controls()
 
     def _prepare_source_media(self):
         self._ensure_player()
         if self.audio_player is None:
             return False
+        if self.imported_audio_sources:
+            return self._set_source_for_global_position(self._player_position_seconds())
         path = str(self.imported_audio_path or "").strip()
         if not path:
             self._show_warning("Audio Story Mode", "Import an audio file first.")
@@ -3531,6 +7942,538 @@ class AudioStoryModeController(QtCore.QObject):
         self._update_slider_range()
         return True
 
+    def _set_source_for_global_position(self, position_seconds: float) -> bool:
+        if self.audio_player is None or not self.imported_audio_sources:
+            return False
+        try:
+            source, local_seconds = locate_global_position(
+                self.imported_audio_sources,
+                position_seconds,
+            )
+        except ValueError:
+            return False
+        key = f"source::{source.path}"
+        if self._player_source_key != key:
+            self.audio_player.setSource(
+                QtCore.QUrl.fromLocalFile(str(Path(source.path).resolve()))
+            )
+            self._player_source_key = key
+        self._active_source_index = int(source.index)
+        self._active_source_global_offset = float(source.global_start_seconds)
+        self.audio_player.setPosition(max(0, int(round(local_seconds * 1000.0))))
+        self._update_slider_range()
+        return True
+
+    def _tts_ready_segment_matches_plan(
+        self,
+        index: int,
+        ready: TtsReadySegment | None,
+        plan: TtsQueuePlan | None = None,
+    ) -> bool:
+        queue_plan = self._tts_queue_plan if plan is None else plan
+        if ready is None or queue_plan is None:
+            return False
+        segment_index = int(index)
+        return bool(
+            0 <= segment_index < len(queue_plan.segments)
+            and int(ready.plan.index) == segment_index
+            and ready.plan.signature == queue_plan.segments[segment_index].signature
+            and ready.plan.audio_path == queue_plan.segments[segment_index].audio_path
+            and max(0.0, float(ready.duration_seconds or 0.0)) > 0.0
+        )
+
+    def _locate_ready_tts_position(
+        self, position_seconds: float
+    ) -> tuple[int, float, float] | None:
+        plan = self._tts_queue_plan
+        if plan is None or not plan.segments:
+            return None
+        target = max(0.0, float(position_seconds or 0.0))
+        global_offset = 0.0
+        last_index = len(plan.segments) - 1
+        for index, segment in enumerate(plan.segments):
+            ready = self._tts_ready_segments.get(index)
+            ready_matches = self._tts_ready_segment_matches_plan(
+                index, ready, plan
+            )
+            duration = (
+                max(0.0, float(ready.duration_seconds or 0.0))
+                if ready_matches
+                else max(0.001, float(segment.estimated_seconds or 0.0))
+            )
+            global_end = global_offset + duration
+            if target < global_end or index == last_index:
+                if not ready_matches:
+                    return None
+                local_seconds = min(duration, max(0.0, target - global_offset))
+                return index, global_offset, local_seconds
+            global_offset = global_end
+        return None
+
+    def _planned_tts_position(
+        self, position_seconds: float
+    ) -> tuple[int, float]:
+        plan = self._tts_queue_plan
+        if plan is None or not plan.segments:
+            return 0, 0.0
+        target = max(0.0, float(position_seconds or 0.0))
+        global_offset = 0.0
+        last_index = len(plan.segments) - 1
+        for index, segment in enumerate(plan.segments):
+            ready = self._tts_ready_segments.get(index)
+            duration = (
+                max(0.0, float(ready.duration_seconds or 0.0))
+                if self._tts_ready_segment_matches_plan(index, ready, plan)
+                else max(0.001, float(segment.estimated_seconds or 0.0))
+            )
+            if target < global_offset + duration or index == last_index:
+                return index, global_offset
+            global_offset += duration
+        return last_index, global_offset
+
+    def _tts_render_position_locked(self) -> tuple[int, float]:
+        target = self._tts_buffering_target_seconds
+        if target is not None:
+            return (
+                max(0, int(self._tts_render_target_segment_index or 0)),
+                max(
+                    0.0,
+                    float(target)
+                    - float(
+                        self._tts_render_target_segment_global_offset or 0.0
+                    ),
+                ),
+            )
+        return (
+            max(0, int(self._tts_active_segment_index or 0)),
+            max(
+                0.0,
+                float(self._tts_playback_position_seconds or 0.0)
+                - float(self._tts_active_segment_global_offset or 0.0),
+            ),
+        )
+
+    def _pending_tts_media_transition_is_current_locked(
+        self, transition: _PendingTtsMediaTransition
+    ) -> bool:
+        if self._tts_pending_media_transition is not transition:
+            return False
+        if not self._tts_job_is_current_locked(
+            transition.job_id,
+            transition.project_id,
+            transition.queue_signature,
+        ):
+            return False
+        plan = self._tts_queue_plan
+        index = int(transition.segment_index)
+        if plan is None or not 0 <= index < len(plan.segments):
+            return False
+        ready = self._tts_ready_segments.get(index)
+        if not self._tts_ready_segment_matches_plan(index, ready, plan):
+            return False
+        try:
+            ready_path = ready.plan.audio_path.resolve()
+        except Exception:
+            return False
+        return bool(
+            plan.segments[index].signature == transition.segment_signature
+            and ready.plan.signature == transition.segment_signature
+            and ready_path == transition.audio_path
+            and self._player_source_key == transition.source_key
+        )
+
+    def _player_source_matches_tts_transition(
+        self, transition: _PendingTtsMediaTransition
+    ) -> bool:
+        if self.audio_player is None:
+            return False
+        try:
+            source = self.audio_player.source()
+            source_path = str(source.toLocalFile() or "").strip()
+            if not source_path:
+                return False
+            return Path(source_path).resolve() == transition.audio_path
+        except Exception:
+            return False
+
+    def _player_can_accept_tts_transition(
+        self, transition: _PendingTtsMediaTransition
+    ) -> bool:
+        if not self._player_source_matches_tts_transition(transition):
+            return False
+        player = self.audio_player
+        if player is None:
+            return False
+        media_status_enum = getattr(
+            getattr(QtMultimedia, "QMediaPlayer", object), "MediaStatus", None
+        )
+        loaded_statuses = {
+            value
+            for value in (
+                getattr(media_status_enum, "LoadedMedia", None),
+                getattr(media_status_enum, "BufferedMedia", None),
+            )
+            if value is not None
+        }
+        try:
+            if player.mediaStatus() in loaded_statuses:
+                return True
+        except Exception:
+            pass
+        try:
+            return bool(player.isSeekable())
+        except Exception:
+            return False
+
+    def _retain_pending_tts_resume_intent(
+        self, position_seconds: float
+    ) -> bool:
+        target = max(0.0, float(position_seconds or 0.0))
+        with self._tts_render_condition:
+            transition = self._tts_pending_media_transition
+            if (
+                transition is None
+                or not self._pending_tts_media_transition_is_current_locked(
+                    transition
+                )
+                or abs(transition.global_target_seconds - target) > 0.002
+            ):
+                return False
+            transition.resume_playback = True
+            transition.resume_intent_explicit = True
+            self._tts_resume_after_buffering = True
+            self._tts_render_condition.notify_all()
+        return True
+
+    def _complete_pending_tts_media_transition(self) -> bool:
+        if self.audio_player is None:
+            return False
+        with self._tts_render_condition:
+            if self._tts_completing_media_transition:
+                return False
+            transition = self._tts_pending_media_transition
+            if (
+                transition is None
+                or not self._pending_tts_media_transition_is_current_locked(
+                    transition
+                )
+            ):
+                return False
+            self._tts_completing_media_transition = True
+        try:
+            if not self._player_can_accept_tts_transition(transition):
+                return False
+
+            with self._tts_render_condition:
+                if not self._pending_tts_media_transition_is_current_locked(
+                    transition
+                ):
+                    return False
+                self._tts_active_segment_index = int(
+                    transition.segment_index
+                )
+                self._tts_active_segment_global_offset = float(
+                    transition.global_offset_seconds
+                )
+                self._tts_playback_position_seconds = float(
+                    transition.global_target_seconds
+                )
+            represented_position = max(
+                0.0,
+                float(transition.global_offset_seconds)
+                + float(self.audio_player.position() or 0) / 1000.0,
+            )
+            if (
+                abs(
+                    represented_position
+                    - transition.global_target_seconds
+                )
+                > 0.002
+            ):
+                self.audio_player.setPosition(
+                    max(
+                        0,
+                        int(
+                            round(
+                                float(transition.local_target_seconds)
+                                * 1000.0
+                            )
+                        ),
+                    )
+                )
+                represented_position = max(
+                    0.0,
+                    float(transition.global_offset_seconds)
+                    + float(self.audio_player.position() or 0) / 1000.0,
+                )
+            if (
+                abs(
+                    represented_position
+                    - transition.global_target_seconds
+                )
+                > 0.002
+            ):
+                return False
+
+            with self._tts_render_condition:
+                if not self._pending_tts_media_transition_is_current_locked(
+                    transition
+                ):
+                    return False
+                buffered_target = self._tts_buffering_target_seconds
+                if (
+                    buffered_target is None
+                    or abs(
+                        float(buffered_target)
+                        - float(transition.global_target_seconds)
+                    )
+                    > 0.002
+                ):
+                    return False
+                resume_playback = bool(transition.resume_playback)
+                self._tts_pending_media_transition = None
+                self._tts_buffering_target_seconds = None
+                self._tts_render_target_segment_index = int(
+                    transition.segment_index
+                )
+                self._tts_render_target_segment_global_offset = float(
+                    transition.global_offset_seconds
+                )
+                self._tts_playback_position_seconds = float(
+                    transition.global_target_seconds
+                )
+                if transition.resume_intent_explicit:
+                    self._tts_resume_after_buffering = resume_playback
+                self._pending_autoplay_tts = False
+                self._tts_queue_state = (
+                    "Paused" if self._tts_playback_paused else "Ready"
+                )
+                self._tts_render_condition.notify_all()
+
+            self._update_slider_range()
+            self._sync_visual_to_position(
+                transition.global_target_seconds, force=True
+            )
+            self._refresh_tts_buffer_ui()
+            if resume_playback:
+                self.audio_player.play()
+                self._sync_visual_stream_playback_state(
+                    "playing",
+                    position_seconds=transition.global_target_seconds,
+                )
+                self._set_status(
+                    "Playing TTS narration for the transcribed story."
+                )
+            else:
+                if self._is_audio_story_currently_playing():
+                    self.audio_player.pause()
+                self._sync_visual_stream_playback_state(
+                    "paused",
+                    position_seconds=transition.global_target_seconds,
+                )
+            return True
+        finally:
+            with self._tts_render_condition:
+                self._tts_completing_media_transition = False
+
+    def _clear_tts_buffering_target_if_represented(
+        self, target_position: float
+    ) -> bool:
+        if self.audio_player is None:
+            return False
+        with self._tts_render_condition:
+            if self._tts_pending_media_transition is not None:
+                return False
+        represented_position = max(
+            0.0,
+            float(self._tts_active_segment_global_offset or 0.0)
+            + float(self.audio_player.position() or 0) / 1000.0,
+        )
+        target = max(0.0, float(target_position or 0.0))
+        if abs(represented_position - target) > 0.002:
+            return False
+        with self._tts_render_condition:
+            buffered_target = self._tts_buffering_target_seconds
+            if buffered_target is None or abs(float(buffered_target) - target) > 0.002:
+                return buffered_target is None
+            self._tts_buffering_target_seconds = None
+            self._tts_render_target_segment_index = int(
+                self._tts_active_segment_index
+            )
+            self._tts_render_target_segment_global_offset = float(
+                self._tts_active_segment_global_offset
+            )
+            self._tts_playback_position_seconds = represented_position
+            self._tts_render_condition.notify_all()
+        return True
+
+    def _set_tts_segment_for_global_position(
+        self,
+        position_seconds: float,
+        *,
+        resume_playback: bool | None = None,
+    ) -> bool:
+        if self.audio_player is None:
+            return False
+        plan = self._tts_queue_plan
+        located = self._locate_ready_tts_position(position_seconds)
+        if plan is None or located is None:
+            return False
+        index, global_offset, local_seconds = located
+        ready = self._tts_ready_segments.get(index)
+        if not self._tts_ready_segment_matches_plan(index, ready, plan):
+            return False
+        target_position = max(0.0, float(position_seconds or 0.0))
+        resolved_path = ready.plan.audio_path.resolve()
+        key = (
+            f"tts-segment::{plan.signature}::{ready.plan.signature}"
+        )
+        with self._tts_render_condition:
+            existing_transition = self._tts_pending_media_transition
+        loaded_transition = _PendingTtsMediaTransition(
+            job_id=int(self._tts_render_job_id),
+            project_id=str(plan.project_id),
+            queue_signature=str(plan.signature),
+            segment_signature=str(ready.plan.signature),
+            segment_index=int(index),
+            audio_path=resolved_path,
+            source_key=key,
+            global_target_seconds=target_position,
+            global_offset_seconds=float(global_offset),
+            local_target_seconds=float(local_seconds),
+            resume_playback=(
+                False if resume_playback is None else bool(resume_playback)
+            ),
+            resume_intent_explicit=resume_playback is not None,
+        )
+        same_loaded_source = bool(
+            existing_transition is None
+            and self._player_source_key == key
+            and self._player_can_accept_tts_transition(loaded_transition)
+        )
+        if same_loaded_source:
+            self._tts_active_segment_index = int(index)
+            self._tts_active_segment_global_offset = float(global_offset)
+            self._tts_playback_position_seconds = target_position
+            self.audio_player.setPosition(
+                max(0, int(round(float(local_seconds) * 1000.0)))
+            )
+            self._update_slider_range()
+            represented_position = max(
+                0.0,
+                float(global_offset)
+                + float(self.audio_player.position() or 0) / 1000.0,
+            )
+            return abs(represented_position - target_position) <= 0.002
+
+        with self._tts_render_condition:
+            if (
+                plan is not self._tts_queue_plan
+                or not self._tts_job_is_current_locked(
+                    loaded_transition.job_id,
+                    loaded_transition.project_id,
+                    loaded_transition.queue_signature,
+                )
+            ):
+                return False
+            self._tts_pending_media_transition = loaded_transition
+            self._tts_buffering_target_seconds = target_position
+            self._tts_render_target_segment_index = int(index)
+            self._tts_render_target_segment_global_offset = float(
+                global_offset
+            )
+            self._tts_playback_position_seconds = target_position
+            if loaded_transition.resume_intent_explicit:
+                self._tts_resume_after_buffering = bool(
+                    loaded_transition.resume_playback
+                )
+            self._tts_queue_state = "Buffering"
+            self._tts_render_condition.notify_all()
+
+        source_already_selected = self._player_source_matches_tts_transition(
+            loaded_transition
+        )
+        self._player_source_key = key
+        if not source_already_selected:
+            self.audio_player.setSource(
+                QtCore.QUrl.fromLocalFile(str(resolved_path))
+            )
+        self.audio_player.setPosition(
+            max(0, int(round(float(local_seconds) * 1000.0)))
+        )
+        self._update_slider_range()
+        if self._player_can_accept_tts_transition(loaded_transition):
+            self._complete_pending_tts_media_transition()
+        with self._tts_render_condition:
+            transition_pending = (
+                self._tts_pending_media_transition is loaded_transition
+            )
+        if transition_pending:
+            return False
+        represented_position = max(
+            0.0,
+            float(self._tts_active_segment_global_offset or 0.0)
+            + float(self.audio_player.position() or 0) / 1000.0,
+        )
+        return bool(
+            self._tts_active_segment_index == int(index)
+            and abs(represented_position - target_position) <= 0.002
+        )
+
+    def _set_player_global_position(self, position_seconds: float) -> bool:
+        seconds = max(0.0, float(position_seconds or 0.0))
+        if self._playback_mode_value() == "source" and self.imported_audio_sources:
+            return self._set_source_for_global_position(seconds)
+        if self.audio_player is None:
+            return False
+        if self._playback_mode_value() == "tts" and self._tts_queue_plan is not None:
+            preserve_play_intent = bool(
+                self._tts_resume_after_buffering
+                or self._is_audio_story_currently_playing()
+            )
+            planned_index, planned_offset = self._planned_tts_position(seconds)
+            with self._tts_render_condition:
+                self._tts_pending_media_transition = None
+                self._tts_buffering_target_seconds = seconds
+                self._tts_render_target_segment_index = int(planned_index)
+                self._tts_render_target_segment_global_offset = float(
+                    planned_offset
+                )
+                self._tts_playback_position_seconds = seconds
+                self._tts_resume_after_buffering = preserve_play_intent
+                self._tts_render_condition.notify_all()
+            if self._set_tts_segment_for_global_position(
+                seconds, resume_playback=preserve_play_intent
+            ):
+                self._clear_tts_buffering_target_if_represented(seconds)
+                with self._tts_render_condition:
+                    self._tts_playback_position_seconds = self._player_position_seconds()
+                    self._tts_resume_after_buffering = preserve_play_intent
+                    if self._tts_queue_state == "Buffering":
+                        self._tts_queue_state = "Ready"
+                    self._tts_render_condition.notify_all()
+                if (
+                    preserve_play_intent
+                    and not self._is_audio_story_currently_playing()
+                ):
+                    self.audio_player.play()
+                return True
+
+            with self._tts_render_condition:
+                self._tts_queue_state = "Buffering"
+                self._tts_render_condition.notify_all()
+            self.audio_player.pause()
+            self._refresh_tts_buffer_ui()
+            self._sync_visual_stream_playback_state(
+                "paused", position_seconds=seconds
+            )
+            self._sync_visual_to_position(seconds, force=True)
+            self._update_slider_range()
+            self._set_status("Buffering TTS narration at the requested position...")
+            return False
+        self.audio_player.setPosition(max(0, int(round(seconds * 1000.0))))
+        return True
+
     def _prepare_tts_media(self):
         self._ensure_player()
         if self.audio_player is None:
@@ -3538,7 +8481,7 @@ class AudioStoryModeController(QtCore.QObject):
         if not self._tts_bundle:
             return False
         path = str(self._tts_bundle.get("audio_path", "") or "").strip()
-        if not path or not Path(path).exists():
+        if not path:
             self._show_warning("Audio Story Mode", "The rendered TTS audio is missing. Render it again.")
             return False
         key = f"tts::{path}"
@@ -3548,85 +8491,1449 @@ class AudioStoryModeController(QtCore.QObject):
         self._update_slider_range()
         return True
 
-    def _start_tts_render(self, signature: str):
-        self._tts_render_job_id += 1
-        job_id = self._tts_render_job_id
-        self._tts_render_in_progress = True
-        self._set_status("Rendering TTS narration from the transcript windows...")
+    def _start_tts_render(
+        self,
+        signature: str = "",
+        *,
+        transcript_chunks=None,
+        settings_snapshot=None,
+        project_id: str | None = None,
+        preserve_ready: bool = False,
+    ) -> None:
+        """Start one owned progressive TTS queue without blocking the UI thread."""
+        if self._tts_cache_clear_is_in_progress():
+            self._report_tts_cache_clear_in_progress()
+            return
+        self._tts_settings_watch_timer.stop()
+        del signature  # Retained for compatibility with the pre-queue call site.
+        transcript_snapshot = tuple(
+            dict(item or {})
+            for item in (
+                self.transcript_chunks
+                if transcript_chunks is None
+                else transcript_chunks
+            )
+        )
+        raw_settings = copy.deepcopy(
+            dict(
+                audio_story_runtime.tts_settings_snapshot()
+                if settings_snapshot is None
+                else settings_snapshot
+            )
+        )
+        owner_project_id = str(
+            self.current_story_project_id if project_id is None else project_id
+        )
+        resume_after_buffering = bool(
+            self._pending_autoplay_tts or self._tts_resume_after_buffering
+        )
+        with self._tts_render_condition:
+            previous_worker = self._tts_render_thread
+            previous_plan = self._tts_queue_plan
+            previous_ready = dict(self._tts_ready_segments)
+            self._tts_render_job_id += 1
+            job_id = self._tts_render_job_id
+            self._tts_preparing_project_id = owner_project_id
+            self._tts_queue_plan = None
+            self._tts_ready_segments = {}
+            self._tts_queue_transcript_snapshot = transcript_snapshot
+            self._tts_queue_settings_snapshot = {}
+            self._tts_queue_state = "Preparing"
+            self._tts_queue_error = ""
+            self._tts_queue_failure_reason = ""
+            self._tts_state_before_pause = self._tts_queue_state
+            self._tts_render_in_progress = True
+            self._tts_active_segment_index = 0
+            self._tts_active_segment_global_offset = 0.0
+            self._tts_playback_position_seconds = 0.0
+            self._tts_buffering_target_seconds = None
+            self._tts_render_target_segment_index = 0
+            self._tts_render_target_segment_global_offset = 0.0
+            self._tts_pending_media_transition = None
+            self._tts_resume_after_buffering = (
+                resume_after_buffering if transcript_snapshot else False
+            )
+            if not transcript_snapshot:
+                self._pending_autoplay_tts = False
+            self._tts_render_condition.notify_all()
+
+        self._rebuild_tts_transcript_timing()
+        self._set_status("Preparing TTS narration from the transcript windows...")
+        self._refresh_tts_buffer_ui()
         self._refresh_controls()
-        threading.Thread(
+        worker = threading.Thread(
             target=self._run_tts_render_job,
-            args=(job_id, signature, [dict(item) for item in self.transcript_chunks]),
+            args=(
+                job_id,
+                owner_project_id,
+                transcript_snapshot,
+                MappingProxyType(raw_settings),
+                previous_worker,
+                previous_plan,
+                previous_ready,
+                bool(preserve_ready),
+            ),
             daemon=True,
-        ).start()
+            name=f"audio-story-tts-{job_id}",
+        )
+        self._tts_render_thread = worker
+        worker.start()
 
-    def _run_tts_render_job(self, job_id: int, signature: str, transcript_chunks):
-        try:
-            audio_path = self._cache_file(f"tts_story_{signature}.wav")
-            metadata_path = self._cache_file(f"tts_story_{signature}.json")
-            if audio_path.exists() and metadata_path.exists():
-                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-                metadata["job_id"] = job_id
-                self.ttsRenderFinished.emit(metadata)
-                return
+    def _tts_preparation_is_current_locked(
+        self, job_id: int, project_id: str
+    ) -> bool:
+        return bool(
+            int(job_id) == int(self._tts_render_job_id)
+            and self._tts_queue_plan is None
+            and str(self._tts_preparing_project_id) == str(project_id)
+            and str(self.current_story_project_id or "") == str(project_id)
+        )
 
-            if not audio_story_runtime.init_tts():
-                raise RuntimeError("Failed to initialize the active TTS backend.")
-
-            chunk_target_chars, chunk_max_chars = audio_story_runtime.get_text_chunk_limits()
-            combined_audio = audio_story_runtime.audio_silent(duration=0)
-            rendered_chunks = []
-            sample_rate = audio_story_runtime.tts_sample_rate(default=24000)
-            voice_path = audio_story_runtime.tts_voice_path()
-
-            for chunk in transcript_chunks:
-                if job_id != self._tts_render_job_id:
+    def _on_tts_queue_prepared(self, payload) -> None:
+        if not isinstance(payload, Mapping):
+            return
+        job_id = int(payload.get("job_id", 0) or 0)
+        project_id = str(payload.get("project_id", "") or "")
+        detail = str(payload.get("detail", "") or "").strip()
+        if detail:
+            with self._tts_render_condition:
+                if not self._tts_preparation_is_current_locked(
+                    job_id, project_id
+                ):
                     return
-                chunk_text = str(chunk.get("text", "") or "").strip()
-                if not chunk_text:
-                    segment_audio = audio_story_runtime.audio_silent(duration=250)
-                else:
-                    subchunks = audio_story_runtime.intelligent_chunk_text(chunk_text, chunk_target_chars, chunk_max_chars)
-                    if not subchunks:
-                        subchunks = [chunk_text]
-                    segment_audio = audio_story_runtime.audio_silent(duration=0)
-                    for subchunk in subchunks:
-                        if job_id != self._tts_render_job_id:
-                            return
-                        configured_seed = audio_story_runtime.tts_seed()
-                        if configured_seed > 0:
-                            audio_story_runtime.set_seed(configured_seed)
-                        kwargs = audio_story_runtime.tts_generation_kwargs()
-                        if voice_path:
-                            kwargs["audio_prompt_path"] = voice_path
-                        wav = audio_story_runtime.generate_tts(subchunk, **kwargs)
-                        temp_subchunk_path = self._cache_file(f"tts_piece_{job_id}_{uuid.uuid4().hex[:10]}.wav")
-                        audio_story_runtime.save_tts_wav(str(temp_subchunk_path), wav, sample_rate)
-                        try:
-                            segment_audio += audio_story_runtime.audio_from_wav(str(temp_subchunk_path))
-                        finally:
-                            audio_story_runtime.safe_delete(str(temp_subchunk_path))
-                playback_start_seconds = max(0.0, float(combined_audio.duration_seconds or 0.0))
-                combined_audio += segment_audio
-                playback_end_seconds = max(playback_start_seconds, float(combined_audio.duration_seconds or 0.0))
-                rendered_chunk = dict(chunk)
-                rendered_chunk["tts_start_seconds"] = playback_start_seconds
-                rendered_chunk["tts_end_seconds"] = playback_end_seconds
-                rendered_chunks.append(rendered_chunk)
+                self._tts_preparing_project_id = ""
+                self._tts_render_in_progress = False
+                self._tts_queue_state = "Failed"
+                self._tts_queue_error = detail
+                self._tts_queue_failure_reason = "prepare_failed"
+                self._pending_autoplay_tts = False
+                self._tts_resume_after_buffering = False
+                self._tts_render_condition.notify_all()
+            self._set_status(f"TTS preparation failed: {detail}")
+            self._refresh_tts_buffer_ui()
+            self._refresh_controls()
+            return
+        plan = payload.get("plan")
+        if not isinstance(plan, TtsQueuePlan):
+            return
+        ready_segments = {
+            int(index): ready
+            for index, ready in dict(payload.get("ready_segments") or {}).items()
+            if isinstance(ready, TtsReadySegment)
+        }
+        settings = copy.deepcopy(dict(payload.get("settings_snapshot") or {}))
+        with self._tts_render_condition:
+            if not self._tts_preparation_is_current_locked(job_id, project_id):
+                return
+            self._tts_queue_plan = plan
+            self._tts_preparing_project_id = ""
+            self._tts_ready_segments = ready_segments
+            self._tts_queue_settings_snapshot = settings
+            self._tts_render_in_progress = bool(plan.segments)
+            self._tts_queue_state = "Preparing" if plan.segments else "Idle"
+            self._tts_render_condition.notify_all()
+        self._rebuild_tts_transcript_timing()
+        self._update_slider_range()
+        if plan.segments:
+            self._tts_settings_watch_timer.start()
+        else:
+            self._pending_autoplay_tts = False
+            self._set_status("There is no transcript text to render with TTS.")
+        self._refresh_tts_buffer_ui()
+        self._refresh_controls()
 
-            combined_audio.export(str(audio_path), format="wav")
-            payload = {
-                "job_id": job_id,
-                "audio_path": str(audio_path),
-                "duration_seconds": float(combined_audio.duration_seconds or 0.0),
-                "chunks": rendered_chunks,
-                "signature": signature,
-            }
-            metadata_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
-            self.ttsRenderFinished.emit(payload)
+    def _tts_job_is_current_locked(
+        self, job_id: int, project_id: str, queue_signature: str
+    ) -> bool:
+        plan = self._tts_queue_plan
+        return bool(
+            int(job_id) == int(self._tts_render_job_id)
+            and plan is not None
+            and str(plan.project_id) == str(project_id)
+            and str(plan.signature) == str(queue_signature)
+            and str(self.current_story_project_id or "") == str(project_id)
+        )
+
+    def _tts_job_is_current(
+        self, job_id: int, project_id: str, queue_signature: str
+    ) -> bool:
+        with self._tts_render_condition:
+            return self._tts_job_is_current_locked(
+                job_id, project_id, queue_signature
+            )
+
+    def _on_tts_settings_watch_timeout(self) -> None:
+        with self._tts_render_condition:
+            plan = self._tts_queue_plan
+            if not self._tts_render_in_progress or plan is None:
+                active = False
+                ownership = None
+                frozen_settings = None
+            else:
+                active = True
+                ownership = {
+                    "job_id": int(self._tts_render_job_id),
+                    "project_id": str(plan.project_id),
+                    "queue_signature": str(plan.signature),
+                }
+                frozen_settings = copy.deepcopy(
+                    dict(self._tts_queue_settings_snapshot)
+                )
+        if not active or ownership is None or frozen_settings is None:
+            self._tts_settings_watch_timer.stop()
+            return
+
+        try:
+            current_settings = normalized_tts_settings_snapshot(
+                audio_story_runtime.tts_settings_snapshot()
+            )
+        except Exception:
+            return
+        if current_settings == frozen_settings:
+            return
+
+        detail = (
+            "TTS settings changed while this queue was rendering; "
+            "retry with the current settings."
+        )
+        failure_payload = self._invalidate_tts_settings_change(
+            {
+                **ownership,
+                "detail": detail,
+                "reason": "settings_changed",
+            },
+            expected_settings_snapshot=frozen_settings,
+        )
+        if failure_payload is not None:
+            self.ttsQueueFailed.emit(failure_payload)
+
+    def _invalidate_tts_settings_change(
+        self,
+        payload: Mapping[str, object],
+        *,
+        expected_settings_snapshot: Mapping[str, object] | None = None,
+    ) -> dict | None:
+        """Invalidate one owned settings-stale queue on the Qt thread."""
+        try:
+            payload_job_id = int(payload.get("job_id", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+        project_id = str(payload.get("project_id", "") or "")
+        queue_signature = str(payload.get("queue_signature", "") or "")
+        detail = str(
+            payload.get("detail", "")
+            or "TTS settings changed while this queue was rendering; "
+            "retry with the current settings."
+        ).strip()
+        with self._tts_render_condition:
+            if not self._tts_job_is_current_locked(
+                payload_job_id, project_id, queue_signature
+            ):
+                return None
+            if (
+                expected_settings_snapshot is not None
+                and dict(self._tts_queue_settings_snapshot)
+                != dict(expected_settings_snapshot)
+            ):
+                return None
+            already_invalidated = bool(
+                not self._tts_render_in_progress
+                and self._tts_queue_state == "Failed"
+                and self._tts_queue_failure_reason == "settings_changed"
+            )
+            if not already_invalidated:
+                if not self._tts_render_in_progress:
+                    return None
+                self._tts_render_job_id += 1
+                self._tts_render_in_progress = False
+                self._tts_queue_state = "Failed"
+                self._tts_queue_error = detail
+                self._tts_queue_failure_reason = "settings_changed"
+                self._pending_autoplay_tts = False
+                self._tts_pending_media_transition = None
+                self._tts_buffering_target_seconds = None
+                self._tts_resume_after_buffering = False
+                self._tts_render_condition.notify_all()
+            failure_job_id = int(self._tts_render_job_id)
+            failure_detail = str(self._tts_queue_error or detail)
+            segment_index, local_offset = self._tts_render_position_locked()
+            ready_seconds = ready_seconds_from(
+                self._tts_ready_segments, segment_index, local_offset
+            )
+        self._tts_settings_watch_timer.stop()
+        return {
+            "job_id": failure_job_id,
+            "project_id": project_id,
+            "queue_signature": queue_signature,
+            "segment_index": segment_index,
+            "detail": failure_detail,
+            "reason": "settings_changed",
+            "state": "Failed",
+            "ready_seconds": ready_seconds,
+            "ready_seconds_from_playhead": ready_seconds,
+            "autoplay_requested": False,
+        }
+
+    def _require_current_tts_settings(
+        self, frozen_settings: Mapping[str, object]
+    ) -> None:
+        current_settings = normalized_tts_settings_snapshot(
+            audio_story_runtime.tts_settings_snapshot()
+        )
+        if current_settings != dict(frozen_settings):
+            raise _TtsSettingsChangedError(
+                "TTS settings changed while this queue was rendering; retry with the current settings."
+            )
+
+    def _run_tts_render_job(
+        self,
+        job_id: int,
+        project_id: str,
+        transcript_chunks,
+        raw_settings: Mapping[str, object],
+        previous_worker: threading.Thread | None = None,
+        previous_plan: TtsQueuePlan | None = None,
+        previous_ready: Mapping[int, TtsReadySegment] | None = None,
+        preserve_ready: bool = False,
+    ) -> None:
+        if (
+            previous_worker is not None
+            and previous_worker is not threading.current_thread()
+            and previous_worker.is_alive()
+        ):
+            previous_worker.join()
+        with self._tts_render_condition:
+            if not self._tts_preparation_is_current_locked(job_id, project_id):
+                return
+        try:
+            frozen_settings = MappingProxyType(
+                normalized_tts_settings_snapshot(raw_settings)
+            )
+            self._require_current_tts_settings(frozen_settings)
+            plan = build_tts_queue_plan(
+                transcript_chunks,
+                frozen_settings,
+                Path(self._cache_root),
+                project_id,
+            )
+            validated_ready: dict[int, TtsReadySegment] = {}
+            for segment in plan.segments:
+                with self._tts_render_condition:
+                    if not self._tts_preparation_is_current_locked(
+                        job_id, project_id
+                    ):
+                        return
+                ready = load_ready_segment(
+                    segment, audio_story_runtime.audio_duration_seconds
+                )
+                if ready is not None:
+                    validated_ready[int(segment.index)] = ready
         except Exception as exc:
-            detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
-            self.ttsRenderFailed.emit(detail)
+            with self._tts_render_condition:
+                current = self._tts_preparation_is_current_locked(
+                    job_id, project_id
+                )
+            if current:
+                detail = (
+                    "".join(traceback.format_exception_only(type(exc), exc)).strip()
+                    or str(exc)
+                )
+                self.ttsQueuePrepared.emit(
+                    {
+                        "job_id": job_id,
+                        "project_id": project_id,
+                        "detail": detail,
+                    }
+                )
+            return
+        del previous_plan, previous_ready, preserve_ready
+        self.ttsQueuePrepared.emit(
+            {
+                "job_id": job_id,
+                "project_id": project_id,
+                "plan": plan,
+                "ready_segments": validated_ready,
+                "settings_snapshot": dict(frozen_settings),
+            }
+        )
+        with self._tts_render_condition:
+            while self._tts_preparation_is_current_locked(job_id, project_id):
+                self._tts_render_condition.wait()
+            if not self._tts_job_is_current_locked(
+                job_id, project_id, plan.signature
+            ):
+                return
+        if not plan.segments:
+            return
+        ready_by_index: dict[int, TtsReadySegment] = dict(validated_ready)
+        ready_announced = False
+        rendering_ahead_announced = False
+        active_failure_index = 0
+        consolidating_bundle = False
+        tts_initialized = False
+        render_context: _TtsRenderContext | None = None
+        chunk_target_chars = 0
+        chunk_max_chars = 0
+
+        try:
+            while True:
+                self._require_current_tts_settings(frozen_settings)
+                ready_payload = None
+                rendering_ahead_payload = None
+                consolidate_bundle = False
+                work_index = 0
+                with self._tts_render_condition:
+                    if not self._tts_job_is_current_locked(
+                        job_id, project_id, plan.signature
+                    ):
+                        return
+                    startup_seconds, ahead_seconds = self._normalize_tts_buffer_settings(
+                        self._stored_tts_startup_buffer_seconds,
+                        self._stored_tts_render_ahead_seconds,
+                    )
+                    active_index, local_offset = self._tts_render_position_locked()
+                    available_seconds = ready_seconds_from(
+                        ready_by_index, active_index, local_offset
+                    )
+                    missing_indices = [
+                        index
+                        for index in range(len(plan.segments))
+                        if index not in ready_by_index
+                    ]
+                    queue_finished = not missing_indices
+                    target_forward_missing = [
+                        index
+                        for index in missing_indices
+                        if index >= active_index
+                    ]
+                    target_forward_needed = bool(
+                        self._tts_buffering_target_seconds is not None
+                        and available_seconds < float(startup_seconds)
+                        and target_forward_missing
+                    )
+                    earlier_missing = [
+                        index
+                        for index in missing_indices
+                        if index < active_index
+                    ]
+                    if not ready_announced and (
+                        available_seconds >= float(startup_seconds)
+                        or (queue_finished and bool(ready_by_index))
+                    ):
+                        ready_announced = True
+                        ready_payload = {
+                            "job_id": job_id,
+                            "project_id": project_id,
+                            "queue_signature": plan.signature,
+                            "state": "Ready",
+                            "ready_seconds": available_seconds,
+                            "ready_seconds_from_playhead": available_seconds,
+                            "segment_index": active_index,
+                            "autoplay_requested": bool(
+                                self._tts_resume_after_buffering
+                            ),
+                        }
+                    elif ready_announced and not rendering_ahead_announced and not queue_finished:
+                        rendering_ahead_announced = True
+                        rendering_ahead_payload = {
+                            "job_id": job_id,
+                            "project_id": project_id,
+                            "queue_signature": plan.signature,
+                            "state": "Rendering Ahead",
+                            "ready_seconds": available_seconds,
+                            "ready_seconds_from_playhead": available_seconds,
+                            "segment_index": active_index,
+                            "autoplay_requested": False,
+                        }
+                    elif queue_finished:
+                        consolidate_bundle = True
+                    elif (
+                        ready_announced
+                        and available_seconds >= float(ahead_seconds)
+                        and not target_forward_needed
+                        and not earlier_missing
+                    ):
+                        self._tts_render_condition.wait()
+                        if not self._tts_job_is_current_locked(
+                            job_id, project_id, plan.signature
+                        ):
+                            return
+                        continue
+                    if target_forward_needed:
+                        work_index = target_forward_missing[0]
+                    elif earlier_missing:
+                        work_index = earlier_missing[0]
+                    elif missing_indices:
+                        work_index = missing_indices[0]
+
+                if ready_payload is not None:
+                    self._require_current_tts_settings(frozen_settings)
+                    if self._tts_job_is_current(job_id, project_id, plan.signature):
+                        self.ttsQueueStateChanged.emit(ready_payload)
+                    continue
+                if rendering_ahead_payload is not None:
+                    self._require_current_tts_settings(frozen_settings)
+                    if self._tts_job_is_current(job_id, project_id, plan.signature):
+                        self.ttsQueueStateChanged.emit(rendering_ahead_payload)
+                    continue
+                if consolidate_bundle:
+                    consolidating_bundle = True
+                    complete_payload = self._consolidate_tts_queue_bundle(
+                        job_id,
+                        project_id,
+                        plan,
+                        transcript_chunks,
+                        ready_by_index,
+                    )
+                    if complete_payload is None:
+                        return
+                    self._require_current_tts_settings(frozen_settings)
+                    if self._tts_job_is_current(job_id, project_id, plan.signature):
+                        self.ttsQueueComplete.emit(complete_payload)
+                    return
+
+                segment = plan.segments[work_index]
+                active_failure_index = int(segment.index)
+                if not self._tts_job_is_current(job_id, project_id, plan.signature):
+                    return
+
+                ready = load_ready_segment(
+                    segment, audio_story_runtime.audio_duration_seconds
+                )
+                if ready is None:
+                    if not tts_initialized:
+                        self._require_current_tts_settings(frozen_settings)
+                        if not self._tts_job_is_current(
+                            job_id, project_id, plan.signature
+                        ):
+                            return
+                        if not audio_story_runtime.init_tts():
+                            raise RuntimeError(
+                                "Failed to initialize the active TTS backend."
+                            )
+                        if not self._tts_job_is_current(
+                            job_id, project_id, plan.signature
+                        ):
+                            return
+                        self._require_current_tts_settings(frozen_settings)
+                        render_context = _TtsRenderContext(
+                            settings_snapshot=frozen_settings,
+                            sample_rate=int(
+                                audio_story_runtime.tts_sample_rate(default=24000)
+                            ),
+                            voice_path=str(
+                                audio_story_runtime.tts_voice_path() or ""
+                            ),
+                            seed=int(audio_story_runtime.tts_seed() or 0),
+                            generation_kwargs=MappingProxyType(
+                                copy.deepcopy(
+                                    dict(
+                                        audio_story_runtime.tts_generation_kwargs()
+                                        or {}
+                                    )
+                                )
+                            ),
+                        )
+                        self._require_current_tts_settings(frozen_settings)
+                        (
+                            chunk_target_chars,
+                            chunk_max_chars,
+                        ) = audio_story_runtime.get_text_chunk_limits()
+                        tts_initialized = True
+                    if render_context is None:
+                        raise RuntimeError(
+                            "TTS render context was not captured after initialization."
+                        )
+                    ready = self._render_tts_queue_segment(
+                        job_id,
+                        project_id,
+                        plan,
+                        segment,
+                        transcript_chunks,
+                        chunk_target_chars,
+                        chunk_max_chars,
+                        render_context,
+                    )
+                    if ready is None:
+                        return
+
+                self._require_current_tts_settings(frozen_settings)
+                ready_by_index[int(segment.index)] = ready
+                if not self._tts_job_is_current(job_id, project_id, plan.signature):
+                    return
+                self.ttsSegmentReady.emit(
+                    {
+                        "job_id": job_id,
+                        "project_id": project_id,
+                        "queue_signature": plan.signature,
+                        "segment": ready,
+                    }
+                )
+        except Exception as exc:
+            if not self._tts_job_is_current(job_id, project_id, plan.signature):
+                return
+            detail = (
+                "".join(traceback.format_exception_only(type(exc), exc)).strip()
+                or str(exc)
+            )
+            self.ttsQueueFailed.emit(
+                {
+                    "job_id": job_id,
+                    "project_id": project_id,
+                    "queue_signature": plan.signature,
+                    "segment_index": active_failure_index,
+                    "detail": detail,
+                    "reason": (
+                        "settings_changed"
+                        if isinstance(exc, _TtsSettingsChangedError)
+                        else (
+                            "bundle_failed"
+                            if consolidating_bundle
+                            else "render_failed"
+                        )
+                    ),
+                }
+            )
+
+    def _render_tts_queue_segment(
+        self,
+        job_id: int,
+        project_id: str,
+        plan: TtsQueuePlan,
+        segment,
+        transcript_chunks,
+        chunk_target_chars: int,
+        chunk_max_chars: int,
+        render_context: _TtsRenderContext,
+    ) -> TtsReadySegment | None:
+        self._require_current_tts_settings(render_context.settings_snapshot)
+        segment_audio = audio_story_runtime.audio_silent(duration=0)
+        chunk_offsets = []
+        for window_index in segment.window_indices:
+            if not self._tts_job_is_current(job_id, project_id, plan.signature):
+                return None
+            chunk = dict(transcript_chunks[int(window_index)] or {})
+            chunk_start_seconds = max(
+                0.0, float(segment_audio.duration_seconds or 0.0)
+            )
+            chunk_text = str(chunk.get("text", "") or "").strip()
+            if not chunk_text:
+                chunk_audio = audio_story_runtime.audio_silent(duration=250)
+            else:
+                subchunks = audio_story_runtime.intelligent_chunk_text(
+                    chunk_text, chunk_target_chars, chunk_max_chars
+                )
+                if not subchunks:
+                    subchunks = [chunk_text]
+                chunk_audio = audio_story_runtime.audio_silent(duration=0)
+                for subchunk in subchunks:
+                    self._require_current_tts_settings(
+                        render_context.settings_snapshot
+                    )
+                    if not self._tts_job_is_current(
+                        job_id, project_id, plan.signature
+                    ):
+                        return None
+                    if render_context.seed > 0:
+                        audio_story_runtime.set_seed(render_context.seed)
+                    kwargs = copy.deepcopy(dict(render_context.generation_kwargs))
+                    if render_context.voice_path:
+                        kwargs["audio_prompt_path"] = render_context.voice_path
+                    wav = audio_story_runtime.generate_tts(subchunk, **kwargs)
+                    self._require_current_tts_settings(
+                        render_context.settings_snapshot
+                    )
+                    if not self._tts_job_is_current(
+                        job_id, project_id, plan.signature
+                    ):
+                        return None
+                    temporary_subchunk_path = self._cache_file(
+                        f"tts_subchunk_{job_id}_{segment.index}_{uuid.uuid4().hex[:10]}.wav"
+                    )
+                    try:
+                        audio_story_runtime.save_tts_wav(
+                            str(temporary_subchunk_path),
+                            wav,
+                            render_context.sample_rate,
+                        )
+                        if not self._tts_job_is_current(
+                            job_id, project_id, plan.signature
+                        ):
+                            return None
+                        chunk_audio += audio_story_runtime.audio_from_wav(
+                            str(temporary_subchunk_path)
+                        )
+                    finally:
+                        audio_story_runtime.safe_delete(
+                            str(temporary_subchunk_path)
+                        )
+            segment_audio += chunk_audio
+            chunk_end_seconds = max(
+                chunk_start_seconds,
+                float(segment_audio.duration_seconds or 0.0),
+            )
+            chunk_offsets.append(
+                (int(window_index), chunk_start_seconds, chunk_end_seconds)
+            )
+
+        if not self._tts_job_is_current(job_id, project_id, plan.signature):
+            return None
+        temporary_path = self._cache_file(
+            f"tts_piece_{job_id}_{segment.index}_{uuid.uuid4().hex[:10]}.wav"
+        )
+        try:
+            segment_audio.export(str(temporary_path), format="wav")
+            if not self._tts_job_is_current(job_id, project_id, plan.signature):
+                return None
+            probed_audio = audio_story_runtime.audio_from_wav(str(temporary_path))
+            duration_seconds = float(probed_audio.duration_seconds or 0.0)
+            if not math.isfinite(duration_seconds) or duration_seconds <= 0.0:
+                raise RuntimeError(
+                    "Exported TTS WAV must have a positive finite duration."
+                )
+            rendered_duration_seconds = max(
+                0.0, float(segment_audio.duration_seconds or 0.0)
+            )
+            offset_scale = (
+                duration_seconds / rendered_duration_seconds
+                if rendered_duration_seconds > 0.0
+                else 1.0
+            )
+            probed_chunk_offsets = [
+                (
+                    index,
+                    min(duration_seconds, max(0.0, start * offset_scale)),
+                    min(duration_seconds, max(0.0, end * offset_scale)),
+                )
+                for index, start, end in chunk_offsets
+            ]
+            self._require_current_tts_settings(render_context.settings_snapshot)
+            ready = publish_ready_segment(
+                segment,
+                temporary_path,
+                duration_seconds,
+                probed_chunk_offsets,
+            )
+        finally:
+            audio_story_runtime.safe_delete(str(temporary_path))
+        if not self._tts_job_is_current(job_id, project_id, plan.signature):
+            return None
+        return ready
+
+    @staticmethod
+    def _rendered_tts_bundle_chunks(
+        plan: TtsQueuePlan,
+        ready_by_index: Mapping[int, TtsReadySegment],
+        transcript_chunks,
+    ) -> list[dict]:
+        chunks = [dict(item or {}) for item in list(transcript_chunks or [])]
+        for chunk in chunks:
+            chunk["tts_start_seconds"] = None
+            chunk["tts_end_seconds"] = None
+        global_offset = 0.0
+        for index, segment in enumerate(plan.segments):
+            ready = ready_by_index.get(index)
+            if (
+                ready is None
+                or ready.plan.signature != segment.signature
+                or ready.plan.audio_path != segment.audio_path
+            ):
+                raise RuntimeError(
+                    f"TTS segment {index + 1} is not ready for full-bundle publication."
+                )
+            for chunk_index, local_start, local_end in ready.chunk_offsets:
+                if (
+                    int(chunk_index) not in segment.window_indices
+                    or int(chunk_index) < 0
+                    or int(chunk_index) >= len(chunks)
+                ):
+                    continue
+                chunk = dict(chunks[int(chunk_index)] or {})
+                chunk["tts_start_seconds"] = float(
+                    global_offset + max(0.0, float(local_start or 0.0))
+                )
+                chunk["tts_end_seconds"] = float(
+                    global_offset + max(0.0, float(local_end or 0.0))
+                )
+                chunks[int(chunk_index)] = chunk
+            global_offset += max(0.0, float(ready.duration_seconds or 0.0))
+        return chunks
+
+    @staticmethod
+    def _tts_bundle_file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as handle:
+            while True:
+                block = handle.read(1024 * 1024)
+                if not block:
+                    break
+                digest.update(block)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _tts_bundle_stat_fingerprint(path: Path) -> dict[str, int]:
+        stat = Path(path).stat()
+        return {
+            "size": int(stat.st_size),
+            "mtime_ns": int(
+                getattr(stat, "st_mtime_ns", round(stat.st_mtime * 1_000_000_000))
+            ),
+            "ctime_ns": int(
+                getattr(stat, "st_ctime_ns", round(stat.st_ctime * 1_000_000_000))
+            ),
+            "device": int(getattr(stat, "st_dev", 0) or 0),
+            "inode": int(getattr(stat, "st_ino", 0) or 0),
+        }
+
+    def _tts_bundle_stable_file_hash(
+        self, path: Path
+    ) -> tuple[str, dict[str, int]]:
+        before = self._tts_bundle_stat_fingerprint(path)
+        digest = self._tts_bundle_file_sha256(path)
+        after = self._tts_bundle_stat_fingerprint(path)
+        if before != after:
+            raise RuntimeError(
+                f"TTS bundle file changed while it was being validated: {Path(path).name}"
+            )
+        return digest, after
+
+    def _validate_committed_tts_bundle(
+        self,
+        *,
+        cache_root: Path,
+        signature: str,
+        project_id: str,
+    ) -> dict:
+        root = Path(cache_root).resolve()
+        audio_path = root / f"tts_story_{signature}.wav"
+        metadata_path = root / f"tts_story_{signature}.json"
+        commit_path = root / f"tts_story_{signature}.commit.json"
+        try:
+            commit_sha256, commit_stat = self._tts_bundle_stable_file_hash(
+                commit_path
+            )
+            commit_bytes = commit_path.read_bytes()
+            if (
+                self._tts_bundle_stat_fingerprint(commit_path) != commit_stat
+                or hashlib.sha256(commit_bytes).hexdigest() != commit_sha256
+            ):
+                raise RuntimeError("The TTS bundle commit changed while loading.")
+            commit = json.loads(commit_bytes.decode("utf-8"))
+        except Exception as exc:
+            raise RuntimeError("The TTS bundle commit manifest is unreadable.") from exc
+        expected_commit = {
+            "schema_version": SEGMENT_SCHEMA_VERSION,
+            "signature": str(signature),
+            "audio_filename": audio_path.name,
+            "metadata_filename": metadata_path.name,
+        }
+        if any(commit.get(key) != value for key, value in expected_commit.items()):
+            raise RuntimeError("The TTS bundle commit manifest identity is invalid.")
+        validated_hashes: dict[str, str] = {}
+        validated_stats: dict[str, dict[str, int]] = {}
+        for label, path, size_key, hash_key in (
+            ("audio", audio_path, "audio_size", "audio_sha256"),
+            ("metadata", metadata_path, "metadata_size", "metadata_sha256"),
+        ):
+            try:
+                expected_size = int(commit.get(size_key, -1))
+                expected_hash = str(commit.get(hash_key, "") or "")
+                actual_hash, actual_stat = self._tts_bundle_stable_file_hash(path)
+            except (OSError, TypeError, ValueError) as exc:
+                raise RuntimeError("A committed TTS bundle file is unreadable.") from exc
+            if expected_size <= 0 or actual_stat["size"] != expected_size:
+                raise RuntimeError("A committed TTS bundle file has the wrong size.")
+            if len(expected_hash) != 64 or actual_hash != expected_hash:
+                raise RuntimeError("A committed TTS bundle file has the wrong hash.")
+            validated_hashes[label] = actual_hash
+            validated_stats[label] = actual_stat
+        try:
+            metadata_bytes = metadata_path.read_bytes()
+            if (
+                self._tts_bundle_stat_fingerprint(metadata_path)
+                != validated_stats["metadata"]
+                or hashlib.sha256(metadata_bytes).hexdigest()
+                != validated_hashes["metadata"]
+            ):
+                raise RuntimeError("The TTS bundle metadata changed while loading.")
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
+        except Exception as exc:
+            raise RuntimeError("The committed TTS bundle metadata is unreadable.") from exc
+        if (
+            metadata.get("schema_version") != SEGMENT_SCHEMA_VERSION
+            or str(metadata.get("signature", "") or "") != str(signature)
+            or str(metadata.get("queue_signature", "") or "") != str(signature)
+            or str(metadata.get("project_id", "") or "") != str(project_id)
+            or str(metadata.get("audio_path", "") or "")
+            != str(audio_path.resolve())
+        ):
+            raise RuntimeError("The committed TTS bundle metadata identity is invalid.")
+        try:
+            duration_seconds = float(metadata.get("duration_seconds", 0.0) or 0.0)
+            probed_duration = float(
+                audio_story_runtime.audio_from_wav(str(audio_path)).duration_seconds
+                or 0.0
+            )
+            if (
+                self._tts_bundle_stat_fingerprint(audio_path)
+                != validated_stats["audio"]
+            ):
+                raise RuntimeError("The TTS bundle WAV changed while probing.")
+        except Exception as exc:
+            raise RuntimeError("The committed TTS bundle WAV is unreadable.") from exc
+        if (
+            not math.isfinite(duration_seconds)
+            or duration_seconds <= 0.0
+            or not math.isfinite(probed_duration)
+            or probed_duration <= 0.0
+            or not math.isclose(
+                duration_seconds, probed_duration, rel_tol=0.01, abs_tol=0.05
+            )
+        ):
+            raise RuntimeError("The committed TTS bundle duration is invalid.")
+        chunks = list(metadata.get("chunks", []) or [])
+        if not all(isinstance(item, Mapping) for item in chunks):
+            raise RuntimeError("The committed TTS bundle chunks are invalid.")
+        return {
+            **expected_commit,
+            "audio_size": int(commit["audio_size"]),
+            "metadata_size": int(commit["metadata_size"]),
+            "audio_sha256": str(commit["audio_sha256"]),
+            "metadata_sha256": str(commit["metadata_sha256"]),
+            "audio_path": str(audio_path.resolve()),
+            "metadata_path": str(metadata_path.resolve()),
+            "commit_path": str(commit_path.resolve()),
+            "duration_seconds": duration_seconds,
+            "audio_stat": dict(validated_stats["audio"]),
+            "metadata_stat": dict(validated_stats["metadata"]),
+            "commit_stat": dict(commit_stat),
+            "commit_sha256": commit_sha256,
+            "chunks": [dict(item) for item in chunks],
+        }
+
+    def _tts_bundle_identity_matches_commit(
+        self, identity, *, signature: str
+    ) -> bool:
+        if not isinstance(identity, Mapping) or not signature:
+            return False
+        try:
+            return bool(
+                int(identity.get("schema_version", 0) or 0)
+                == SEGMENT_SCHEMA_VERSION
+                and str(identity.get("signature", "") or "") == signature
+                and int(identity.get("audio_size", 0) or 0) > 0
+                and int(identity.get("metadata_size", 0) or 0) > 0
+                and len(str(identity.get("audio_sha256", "") or "")) == 64
+                and len(str(identity.get("metadata_sha256", "") or "")) == 64
+                and len(str(identity.get("commit_sha256", "") or "")) == 64
+                and isinstance(identity.get("audio_stat"), Mapping)
+                and isinstance(identity.get("metadata_stat"), Mapping)
+                and isinstance(identity.get("commit_stat"), Mapping)
+                and Path(str(identity.get("audio_path", "") or "")).name
+                == str(identity.get("audio_filename", "") or "")
+                and Path(str(identity.get("metadata_path", "") or "")).name
+                == str(identity.get("metadata_filename", "") or "")
+                and Path(str(identity.get("commit_path", "") or "")).name
+                == f"tts_story_{signature}.commit.json"
+            )
+        except (TypeError, ValueError):
+            return False
+
+    def _consolidate_tts_queue_bundle(
+        self,
+        job_id: int,
+        project_id: str,
+        plan: TtsQueuePlan,
+        transcript_chunks,
+        ready_by_index: Mapping[int, TtsReadySegment],
+    ) -> dict | None:
+        """Build and atomically publish the legacy full-story WAV on the worker."""
+        with self._tts_render_condition:
+            if (
+                self._tts_cache_clear_in_progress
+                or not self._tts_job_is_current_locked(
+                    job_id, project_id, plan.signature
+                )
+            ):
+                return None
+        validated_ready: dict[int, TtsReadySegment] = {}
+        combined_audio = audio_story_runtime.audio_silent(duration=0)
+        for index, segment in enumerate(plan.segments):
+            if not self._tts_job_is_current(job_id, project_id, plan.signature):
+                return None
+            ready = load_ready_segment(
+                segment, audio_story_runtime.audio_duration_seconds
+            )
+            expected = ready_by_index.get(index)
+            if (
+                ready is None
+                or expected is None
+                or ready.plan.signature != expected.plan.signature
+                or ready.plan.audio_path != expected.plan.audio_path
+            ):
+                raise RuntimeError(
+                    f"TTS segment {index + 1} failed validation during full-bundle publication."
+                )
+            combined_audio += audio_story_runtime.audio_from_wav(
+                str(ready.plan.audio_path)
+            )
+            validated_ready[index] = ready
+
+        rendered_chunks = self._rendered_tts_bundle_chunks(
+            plan, validated_ready, transcript_chunks
+        )
+        cache_root = Path(self._cache_root).resolve()
+        cache_root.mkdir(parents=True, exist_ok=True)
+        audio_path = cache_root / f"tts_story_{plan.signature}.wav"
+        metadata_path = audio_path.with_suffix(".json")
+        commit_path = audio_path.with_suffix(".commit.json")
+        token = uuid.uuid4().hex[:12]
+        temporary_audio_path = cache_root / f"tts_bundle_work_{token}.wav"
+        temporary_metadata_path = cache_root / f"tts_bundle_work_{token}.json"
+        temporary_commit_path = cache_root / f"tts_bundle_work_{token}.commit.json"
+        publication_started = False
+        try:
+            combined_audio.export(str(temporary_audio_path), format="wav")
+            probed_audio = audio_story_runtime.audio_from_wav(
+                str(temporary_audio_path)
+            )
+            duration_seconds = float(probed_audio.duration_seconds or 0.0)
+            if not math.isfinite(duration_seconds) or duration_seconds <= 0.0:
+                raise RuntimeError(
+                    "Consolidated TTS WAV must have a positive finite duration."
+                )
+            payload = {
+                "schema_version": SEGMENT_SCHEMA_VERSION,
+                "audio_path": str(audio_path.resolve()),
+                "duration_seconds": duration_seconds,
+                "chunks": rendered_chunks,
+                "rendered_chunks": rendered_chunks,
+                "signature": plan.signature,
+                "queue_signature": plan.signature,
+                "project_id": project_id,
+            }
+            temporary_metadata_path.write_text(
+                json.dumps(payload, sort_keys=True, indent=2),
+                encoding="utf-8",
+            )
+            commit = {
+                "schema_version": SEGMENT_SCHEMA_VERSION,
+                "signature": plan.signature,
+                "audio_filename": audio_path.name,
+                "metadata_filename": metadata_path.name,
+                "audio_size": temporary_audio_path.stat().st_size,
+                "metadata_size": temporary_metadata_path.stat().st_size,
+                "audio_sha256": self._tts_bundle_file_sha256(
+                    temporary_audio_path
+                ),
+                "metadata_sha256": self._tts_bundle_file_sha256(
+                    temporary_metadata_path
+                ),
+            }
+            temporary_commit_path.write_text(
+                json.dumps(commit, sort_keys=True, indent=2),
+                encoding="utf-8",
+            )
+            with self._tts_render_condition:
+                if (
+                    self._tts_cache_clear_in_progress
+                    or not self._tts_job_is_current_locked(
+                        job_id, project_id, plan.signature
+                    )
+                ):
+                    return None
+            commit_path.unlink(missing_ok=True)
+            if commit_path.exists():
+                raise RuntimeError(
+                    "The prior TTS bundle commit could not be invalidated."
+                )
+            publication_started = True
+            os.replace(str(temporary_audio_path), str(audio_path))
+            with self._tts_render_condition:
+                if (
+                    self._tts_cache_clear_in_progress
+                    or not self._tts_job_is_current_locked(
+                        job_id, project_id, plan.signature
+                    )
+                ):
+                    raise RuntimeError("TTS bundle publication was cancelled.")
+            os.replace(str(temporary_metadata_path), str(metadata_path))
+            with self._tts_render_condition:
+                if (
+                    self._tts_cache_clear_in_progress
+                    or not self._tts_job_is_current_locked(
+                        job_id, project_id, plan.signature
+                    )
+                ):
+                    raise RuntimeError("TTS bundle publication was cancelled.")
+            os.replace(str(temporary_commit_path), str(commit_path))
+            identity = self._validate_committed_tts_bundle(
+                cache_root=cache_root,
+                signature=plan.signature,
+                project_id=project_id,
+            )
+            return {
+                "job_id": int(job_id),
+                "project_id": str(project_id),
+                "queue_signature": str(plan.signature),
+                "audio_path": str(identity["audio_path"]),
+                "duration_seconds": float(identity["duration_seconds"]),
+                "chunks": list(identity["chunks"]),
+                "signature": str(plan.signature),
+                "bundle_identity": identity,
+                "ready_seconds": float(identity["duration_seconds"]),
+                "ready_seconds_from_playhead": float(identity["duration_seconds"]),
+                "segment_count": len(validated_ready),
+            }
+        except Exception:
+            if publication_started:
+                for published_path in (commit_path, metadata_path, audio_path):
+                    audio_story_runtime.safe_delete(str(published_path))
+            raise
+        finally:
+            audio_story_runtime.safe_delete(str(temporary_audio_path))
+            audio_story_runtime.safe_delete(str(temporary_metadata_path))
+            audio_story_runtime.safe_delete(str(temporary_commit_path))
+
+    def _tts_payload_matches_current(self, payload) -> bool:
+        if not isinstance(payload, Mapping):
+            return False
+        try:
+            job_id = int(payload.get("job_id", 0) or 0)
+        except (TypeError, ValueError):
+            return False
+        return self._tts_job_is_current(
+            job_id,
+            str(payload.get("project_id", "") or ""),
+            str(payload.get("queue_signature", "") or ""),
+        )
+
+    def _rebuild_tts_transcript_timing(self) -> None:
+        plan = self._tts_queue_plan
+        chunks = [dict(item or {}) for item in list(self.transcript_chunks or [])]
+        for chunk in chunks:
+            chunk["tts_start_seconds"] = None
+            chunk["tts_end_seconds"] = None
+        if plan is None:
+            self.transcript_chunks = chunks
+            return
+        global_offset = 0.0
+        for index in range(len(plan.segments)):
+            ready = self._tts_ready_segments.get(index)
+            if not self._tts_ready_segment_matches_plan(index, ready, plan):
+                break
+            for chunk_index, local_start, local_end in ready.chunk_offsets:
+                if (
+                    int(chunk_index) not in ready.plan.window_indices
+                    or int(chunk_index) < 0
+                    or int(chunk_index) >= len(chunks)
+                ):
+                    continue
+                chunk = dict(chunks[int(chunk_index)] or {})
+                chunk["tts_start_seconds"] = float(
+                    global_offset + max(0.0, float(local_start or 0.0))
+                )
+                chunk["tts_end_seconds"] = float(
+                    global_offset + max(0.0, float(local_end or 0.0))
+                )
+                chunks[int(chunk_index)] = chunk
+            global_offset += max(0.0, float(ready.duration_seconds or 0.0))
+        self.transcript_chunks = chunks
+
+    def _all_tts_segments_ready_from(self, start_index: int) -> bool:
+        plan = self._tts_queue_plan
+        if plan is None or not plan.segments:
+            return False
+        return all(
+            self._tts_ready_segment_matches_plan(
+                index, self._tts_ready_segments.get(index), plan
+            )
+            for index in range(max(0, int(start_index)), len(plan.segments))
+        )
+
+    def _finish_tts_buffering_if_ready(self) -> bool:
+        with self._tts_render_condition:
+            paused_while_buffering = bool(
+                self._tts_queue_state == "Paused"
+                and self._tts_playback_paused
+                and self._tts_buffering_target_seconds is not None
+            )
+            if (
+                self._tts_queue_state != "Buffering"
+                and not paused_while_buffering
+            ) or self._tts_queue_plan is None:
+                return False
+            plan = self._tts_queue_plan
+            target_position = max(
+                0.0,
+                float(
+                    self._tts_buffering_target_seconds
+                    if self._tts_buffering_target_seconds is not None
+                    else self._tts_playback_position_seconds or 0.0
+                ),
+            )
+            resume_playback = bool(self._tts_resume_after_buffering)
+        located = self._locate_ready_tts_position(target_position)
+        if located is None:
+            planned_index, planned_offset = self._planned_tts_position(
+                target_position
+            )
+            with self._tts_render_condition:
+                if (
+                    plan is self._tts_queue_plan
+                    and self._tts_queue_state in {"Buffering", "Paused"}
+                    and (
+                        self._tts_buffering_target_seconds is None
+                        or self._tts_buffering_target_seconds == target_position
+                    )
+                ):
+                    self._tts_render_target_segment_index = int(planned_index)
+                    self._tts_render_target_segment_global_offset = float(
+                        planned_offset
+                    )
+                    self._tts_render_condition.notify_all()
+            return False
+        index, _global_offset, local_seconds = located
+        startup_seconds, _ahead_seconds = self._normalize_tts_buffer_settings(
+            self._stored_tts_startup_buffer_seconds,
+            self._stored_tts_render_ahead_seconds,
+        )
+        owned_ready_segments = {}
+        for ready_index in range(index, len(plan.segments)):
+            ready = self._tts_ready_segments.get(ready_index)
+            if not self._tts_ready_segment_matches_plan(
+                ready_index, ready, plan
+            ):
+                break
+            owned_ready_segments[ready_index] = ready
+        available_seconds = ready_seconds_from(
+            owned_ready_segments, index, local_seconds
+        )
+        if (
+            available_seconds < float(startup_seconds)
+            and not self._all_tts_segments_ready_from(index)
+        ):
+            return False
+        if plan is not self._tts_queue_plan:
+            return False
+        if not self._set_tts_segment_for_global_position(
+            target_position, resume_playback=resume_playback
+        ):
+            return False
+        with self._tts_render_condition:
+            if (
+                self._tts_pending_media_transition is None
+                and self._tts_buffering_target_seconds is None
+                and self._tts_queue_state == "Ready"
+            ):
+                return True
+        if (
+            self._tts_buffering_target_seconds is not None
+            and not self._clear_tts_buffering_target_if_represented(
+                target_position
+            )
+        ):
+            return False
+        with self._tts_render_condition:
+            if plan is not self._tts_queue_plan:
+                return False
+            self._tts_queue_state = "Ready"
+            if paused_while_buffering:
+                self._tts_queue_state = "Paused"
+            self._pending_autoplay_tts = False
+            self._tts_resume_after_buffering = resume_playback
+            self._tts_render_condition.notify_all()
+        self._refresh_tts_buffer_ui()
+        if resume_playback:
+            self._start_playback_with_visual_sync(
+                target_position,
+                status_text="Playing TTS narration for the transcribed story.",
+            )
+        else:
+            if self._is_audio_story_currently_playing():
+                self.audio_player.pause()
+            self._sync_visual_stream_playback_state(
+                "paused", position_seconds=target_position
+            )
+        return True
+
+    def _on_tts_segment_ready(self, payload) -> None:
+        if not self._tts_payload_matches_current(payload):
+            return
+        ready = payload.get("segment")
+        if not isinstance(ready, TtsReadySegment):
+            return
+        index = int(ready.plan.index)
+        with self._tts_render_condition:
+            if not self._tts_job_is_current_locked(
+                int(payload.get("job_id", 0) or 0),
+                str(payload.get("project_id", "") or ""),
+                str(payload.get("queue_signature", "") or ""),
+            ):
+                return
+            plan = self._tts_queue_plan
+            if (
+                plan is None
+                or not self._tts_ready_segment_matches_plan(index, ready, plan)
+            ):
+                return
+            self._tts_ready_segments[index] = ready
+            self._tts_cache_entry_count = max(
+                int(self._tts_cache_entry_count or 0),
+                len(self._tts_ready_segments) * 2,
+            )
+            self._tts_render_condition.notify_all()
+        self._rebuild_tts_transcript_timing()
+        self._update_slider_range()
+        self._finish_tts_buffering_if_ready()
+        self._refresh_tts_buffer_ui()
+
+    def _on_tts_queue_state_changed(self, payload) -> None:
+        if not self._tts_payload_matches_current(payload):
+            return
+        state = str(payload.get("state", "") or "").strip() or "Buffering"
+        finish_buffering = False
+        with self._tts_render_condition:
+            if not self._tts_job_is_current_locked(
+                int(payload.get("job_id", 0) or 0),
+                str(payload.get("project_id", "") or ""),
+                str(payload.get("queue_signature", "") or ""),
+            ):
+                return
+            if state == "Ready" and self._tts_queue_state in {
+                "Preparing",
+                "Buffering",
+            }:
+                finish_buffering = bool(
+                    self._pending_autoplay_tts
+                    or self._tts_resume_after_buffering
+                    or self._tts_buffering_target_seconds is not None
+                )
+                self._tts_queue_state = "Buffering" if finish_buffering else "Ready"
+            elif state in {"Ready", "Rendering Ahead"} and self._tts_queue_state == "Paused":
+                pass
+            else:
+                self._tts_queue_state = state
+        if finish_buffering:
+            self._finish_tts_buffering_if_ready()
+        self._refresh_tts_buffer_ui()
+
+    def _on_tts_queue_failed(self, payload) -> None:
+        if not isinstance(payload, Mapping):
+            return
+        detail = str(payload.get("detail", "") or "TTS rendering failed.").strip()
+        reason = str(payload.get("reason", "") or "render_failed").strip()
+        if reason == "settings_changed":
+            state_payload = self._invalidate_tts_settings_change(payload)
+            if state_payload is None:
+                return
+            detail = str(state_payload.get("detail", "") or detail)
+        else:
+            if not self._tts_payload_matches_current(payload):
+                return
+            self._tts_settings_watch_timer.stop()
+            with self._tts_render_condition:
+                if not self._tts_job_is_current_locked(
+                    int(payload.get("job_id", 0) or 0),
+                    str(payload.get("project_id", "") or ""),
+                    str(payload.get("queue_signature", "") or ""),
+                ):
+                    return
+                self._tts_render_in_progress = False
+                self._tts_queue_state = "Failed"
+                self._tts_queue_error = detail
+                self._tts_queue_failure_reason = reason
+                self._pending_autoplay_tts = False
+                self._tts_pending_media_transition = None
+                self._tts_buffering_target_seconds = None
+                self._tts_resume_after_buffering = False
+                self._tts_render_condition.notify_all()
+                active_index, local_offset = self._tts_render_position_locked()
+                ready_seconds = ready_seconds_from(
+                    self._tts_ready_segments, active_index, local_offset
+                )
+            state_payload = {
+                "job_id": int(payload.get("job_id", 0) or 0),
+                "project_id": str(payload.get("project_id", "") or ""),
+                "queue_signature": str(
+                    payload.get("queue_signature", "") or ""
+                ),
+                "state": "Failed",
+                "ready_seconds": ready_seconds,
+                "ready_seconds_from_playhead": ready_seconds,
+                "autoplay_requested": False,
+                "reason": reason,
+            }
+        self.ttsQueueStateChanged.emit(state_payload)
+        self._set_status(f"TTS render failed: {detail}")
+        self._refresh_tts_buffer_ui()
+        self._refresh_controls()
+
+    def _on_tts_queue_complete(self, payload) -> None:
+        if not self._tts_payload_matches_current(payload):
+            return
+        audio_path = str(payload.get("audio_path", "") or "").strip()
+        signature = str(payload.get("signature", "") or "").strip()
+        bundle_identity = payload.get("bundle_identity")
+        plan = self._tts_queue_plan
+        if (
+            plan is None
+            or signature != plan.signature
+            or not audio_path
+            or not self._tts_bundle_identity_matches_commit(
+                bundle_identity, signature=signature
+            )
+            or audio_path
+            != str(dict(bundle_identity or {}).get("audio_path", "") or "")
+        ):
+            self._on_tts_queue_failed(
+                {
+                    "job_id": int(payload.get("job_id", 0) or 0),
+                    "project_id": str(payload.get("project_id", "") or ""),
+                    "queue_signature": str(
+                        payload.get("queue_signature", "") or ""
+                    ),
+                    "detail": "The consolidated TTS bundle is missing or stale.",
+                    "reason": "bundle_failed",
+                }
+            )
+            return
+        self._tts_settings_watch_timer.stop()
+        with self._tts_render_condition:
+            if not self._tts_job_is_current_locked(
+                int(payload.get("job_id", 0) or 0),
+                str(payload.get("project_id", "") or ""),
+                str(payload.get("queue_signature", "") or ""),
+            ):
+                return
+            self._tts_render_in_progress = False
+            self._tts_queue_state = "Complete"
+            self._tts_queue_error = ""
+            self._tts_queue_failure_reason = ""
+            self._tts_render_condition.notify_all()
+        self._tts_bundle = copy.deepcopy(dict(bundle_identity))
+        self._tts_bundle.pop("chunks", None)
+        self._tts_bundle["duration_seconds"] = max(
+            0.0, float(payload.get("duration_seconds", 0.0) or 0.0)
+        )
+        self._tts_signature = signature
+        rendered_chunks = list(payload.get("chunks", []) or [])
+        if rendered_chunks and len(rendered_chunks) == len(self.transcript_chunks):
+            self.transcript_chunks = [dict(item or {}) for item in rendered_chunks]
+        self._tts_cache_entry_count = max(
+            int(self._tts_cache_entry_count or 0), 3
+        )
+        state_payload = dict(payload)
+        state_payload.update(
+            {
+                "state": "Complete",
+                "autoplay_requested": False,
+            }
+        )
+        self.ttsQueueStateChanged.emit(state_payload)
+        self._set_status("TTS narration queue and full cast bundle are ready.")
+        self._refresh_tts_buffer_ui()
+        self._refresh_controls()
 
     def _compute_tts_signature(self):
         payload = {
@@ -3656,8 +9963,13 @@ class AudioStoryModeController(QtCore.QObject):
                 self._start_playback_with_visual_sync(self._player_position_seconds(), status_text="Playing TTS narration for the transcribed story.")
 
     def _on_tts_render_failed(self, detail: str):
-        self._tts_render_in_progress = False
-        self._pending_autoplay_tts = False
+        with self._tts_render_condition:
+            self._tts_render_in_progress = False
+            self._pending_autoplay_tts = False
+            self._tts_pending_media_transition = None
+            self._tts_buffering_target_seconds = None
+            self._tts_resume_after_buffering = False
+            self._tts_render_condition.notify_all()
         self._set_status(f"TTS render failed: {detail}")
         self._refresh_controls()
 
@@ -3679,6 +9991,13 @@ class AudioStoryModeController(QtCore.QObject):
                 break
         if not needs_generation:
             return int(self._image_generation_token or 0)
+        if self.current_story_project_id and not self._image_generation_worker_running:
+            pipeline_owner = self._begin_story_project_mutating_pipeline(
+                "image generation"
+            )
+            if pipeline_owner is None:
+                return int(self._image_generation_token or 0)
+            self._image_project_pipeline_owner = pipeline_owner
         with self._lock:
             if self._image_generation_worker_running and not force:
                 self._image_generation_requested_end_index = max(int(self._image_generation_requested_end_index), int(end_index))
@@ -3694,6 +10013,7 @@ class AudioStoryModeController(QtCore.QObject):
         threading.Thread(
             target=self._run_visual_generation,
             args=(token, int(start_index), int(end_index)),
+            kwargs={"ownership": self._story_image_launch_ownership(token)},
             daemon=True,
         ).start()
         return token
@@ -3728,15 +10048,29 @@ class AudioStoryModeController(QtCore.QObject):
         position_seconds = max(0.0, float(position_seconds or 0.0))
         if not self.transcript_chunks or self.audio_player is None:
             return
+        tts_playback = self._playback_mode_value() == "tts"
+        if tts_playback:
+            with self._tts_render_condition:
+                self._tts_resume_after_buffering = True
+                self._tts_render_condition.notify_all()
         start_index = self._chunk_index_for_position(position_seconds)
         chunk = dict(self.transcript_chunks[start_index] or {})
         cached = self._matching_cached_image_entry(start_index, str(chunk.get("prompt", "") or "").strip(), scene_entry=chunk)
         if cached.get("image_path"):
             self._pending_play_request = None
-            self.audio_player.setPosition(max(0, int(round(position_seconds * 1000.0))))
+            position_ready = self._set_player_global_position(position_seconds)
             self._current_chunk_index = -1
             self._sync_visual_to_position(position_seconds, force=True, allow_generation=True)
-            self.audio_player.play()
+            if tts_playback and not position_ready:
+                self._sync_visual_stream_playback_state(
+                    "paused", position_seconds=position_seconds
+                )
+                self._set_status(
+                    "Loading TTS narration at the requested position..."
+                )
+                return
+            if not tts_playback or not self._is_audio_story_currently_playing():
+                self.audio_player.play()
             self._sync_visual_stream_playback_state("playing", position_seconds=position_seconds)
             self._set_status(status_text)
             return
@@ -3749,32 +10083,89 @@ class AudioStoryModeController(QtCore.QObject):
         }
         self._set_status("Preparing the first story image before playback starts...")
 
-    def _run_visual_generation(self, token: int, start_index: int, end_index: int):
+    def _run_visual_generation(
+        self,
+        token: int,
+        start_index: int,
+        end_index: int,
+        *,
+        ownership: Mapping | None = None,
+        requested_indices: Sequence[int] | None = None,
+    ):
+        owner = dict(ownership or self._story_image_launch_ownership(token))
+        exact_indices = (
+            [
+                int(index)
+                for index in requested_indices
+                if 0 <= int(index) < len(self.transcript_chunks)
+            ]
+            if requested_indices is not None
+            else None
+        )
         index = max(0, int(start_index))
+        exact_position = 0
         try:
-            while index <= min(len(self.transcript_chunks) - 1, int(end_index)):
+            while (
+                exact_position < len(exact_indices)
+                if exact_indices is not None
+                else index <= min(len(self.transcript_chunks) - 1, int(end_index))
+            ):
+                if exact_indices is not None:
+                    index = exact_indices[exact_position]
                 if token != self._image_generation_token:
+                    return
+                if owner.get("project_id") and not self._story_image_result_is_current(
+                    owner
+                ):
                     return
                 chunk = dict(self.transcript_chunks[index] or {})
                 prompt_text = str(chunk.get("prompt", "") or "").strip()
                 source_text = str(chunk.get("text", "") or "").strip()
                 if not prompt_text:
-                    index += 1
+                    if exact_indices is not None:
+                        exact_position += 1
+                    else:
+                        index += 1
                     continue
                 cached = self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk)
                 if cached.get("image_path"):
-                    index += 1
-                    with self._lock:
-                        end_index = max(int(end_index), int(self._image_generation_requested_end_index))
+                    if exact_indices is not None:
+                        exact_position += 1
+                    else:
+                        index += 1
+                        with self._lock:
+                            end_index = max(int(end_index), int(self._image_generation_requested_end_index))
                     continue
+                context = {}
                 try:
                     scene_entry = self._scene_entry_for_index(index)
-                    image_entry = self._generate_visual_image(prompt_text, index=index, scene_entry=scene_entry)
+                    context = self._story_image_context(index)
+                    if owner.get("project_id"):
+                        image_entry = self._generate_visual_image(
+                            prompt_text,
+                            index=index,
+                            scene_entry=scene_entry,
+                            cache_result=False,
+                        )
+                    else:
+                        image_entry = self._generate_visual_image(
+                            prompt_text, index=index, scene_entry=scene_entry
+                        )
                     if token != self._image_generation_token:
                         return
                     ready_payload = {
+                        **owner,
                         "token": token,
                         "index": index,
+                        "project_id": str(owner.get("project_id") or ""),
+                        "project_generation": int(
+                            owner.get("project_generation", 0) or 0
+                        ),
+                        "input_fingerprint": str(
+                            owner.get("input_fingerprint") or ""
+                        ),
+                        "chapter_id": str(context.get("chapter_id") or ""),
+                        "scene_id": str(context.get("scene_id") or ""),
                         "image_path": str(image_entry.get("image_path", "") or "").strip(),
                         "prompt_text": prompt_text,
                         "source_text": source_text,
@@ -3782,35 +10173,91 @@ class AudioStoryModeController(QtCore.QObject):
                         "generation_mode": str(image_entry.get("generation_mode", "") or "").strip(),
                         "reference_image_paths": list(image_entry.get("reference_image_paths", []) or []),
                     }
-                    ready_entry = self._store_ready_image_entry(index, ready_payload, scene_entry=scene_entry, update_continuity=True)
-                    if index == self._current_chunk_index and ready_entry.get("image_path"):
-                        self._publish_ready_visual_entry(index, chunk=scene_entry, image_entry=ready_entry)
-                    ready_payload["already_stored"] = True
+                    if owner.get("project_id"):
+                        prepared_image = self._prepare_story_image_artifact(
+                            ready_payload
+                        )
+                        if prepared_image is None:
+                            return
+                        ready_payload["prepared_image"] = prepared_image
+                        ready_payload["image_path"] = str(
+                            prepared_image.get("image_path") or ""
+                        )
+                        with self._lock:
+                            cached_prompt = dict(
+                                self._prompt_image_cache.get(
+                                    str(ready_payload.get("prompt_signature") or "")
+                                )
+                                or {}
+                            )
+                            if str(cached_prompt.get("image_path") or "") == str(
+                                ready_payload.get("image_path") or ""
+                            ):
+                                self._prompt_image_cache.pop(
+                                    str(ready_payload.get("prompt_signature") or ""),
+                                    None,
+                                )
+                    else:
+                        ready_entry = self._store_ready_image_entry(index, ready_payload, scene_entry=scene_entry, update_continuity=True)
+                        if index == self._current_chunk_index and ready_entry.get("image_path"):
+                            self._publish_ready_visual_entry(index, chunk=scene_entry, image_entry=ready_entry)
+                        ready_payload["already_stored"] = True
                     self.imageReady.emit(ready_payload)
                 except Exception as exc:
                     detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
                     is_moderated = self._is_visual_moderation_error(detail)
                     self.imageFailed.emit(
                         {
+                            **owner,
                             "token": token,
                             "index": index,
+                            "project_id": str(owner.get("project_id") or ""),
+                            "project_generation": int(
+                                owner.get("project_generation", 0) or 0
+                            ),
+                            "input_fingerprint": str(
+                                owner.get("input_fingerprint") or ""
+                            ),
+                            "chapter_id": str(context.get("chapter_id") or "")
+                            if "context" in locals()
+                            else "",
+                            "scene_id": str(context.get("scene_id") or "")
+                            if "context" in locals()
+                            else "",
+                            "prompt_text": prompt_text,
+                            "source_text": source_text,
                             "detail": detail,
                             "moderated": bool(is_moderated),
                         }
                     )
                     if not is_moderated:
                         return
-                index += 1
-                with self._lock:
-                    end_index = max(int(end_index), int(self._image_generation_requested_end_index))
+                if exact_indices is not None:
+                    exact_position += 1
+                else:
+                    index += 1
+                    with self._lock:
+                        end_index = max(int(end_index), int(self._image_generation_requested_end_index))
         finally:
+            released_owner = None
             with self._lock:
                 if token == self._image_generation_token:
                     self._image_generation_worker_running = False
                     self._image_generation_active_start_index = -1
                     self._image_generation_requested_end_index = -1
+                    released_owner = self._image_project_pipeline_owner
+                    self._image_project_pipeline_owner = None
+            if released_owner:
+                self._end_story_project_mutating_pipeline(released_owner)
 
-    def _generate_visual_image(self, prompt_text: str, *, index: int, scene_entry=None):
+    def _generate_visual_image(
+        self,
+        prompt_text: str,
+        *,
+        index: int,
+        scene_entry=None,
+        cache_result: bool = True,
+    ):
         prompt_text = str(prompt_text or "").strip()
         if not prompt_text:
             raise RuntimeError("Visual prompt is empty.")
@@ -3830,10 +10277,15 @@ class AudioStoryModeController(QtCore.QObject):
             generation_mode=generation_mode,
             reference_image_paths=reference_image_paths,
         )
-        with self._lock:
-            cached_entry = dict(self._prompt_image_cache.get(prompt_signature) or {})
-        if cached_entry.get("image_path") and Path(str(cached_entry.get("image_path", "") or "")).exists():
-            return cached_entry
+        if cache_result:
+            with self._lock:
+                cached_entry = dict(
+                    self._prompt_image_cache.get(prompt_signature) or {}
+                )
+            if cached_entry.get("image_path") and Path(
+                str(cached_entry.get("image_path", "") or "")
+            ).exists():
+                return cached_entry
         if generation_mode in {"edit", "multi_reference"} and reference_image_paths and self._visual_provider_supports_reference_edits():
             try:
                 if generation_mode == "multi_reference" and len(reference_image_paths) > 1:
@@ -3858,8 +10310,9 @@ class AudioStoryModeController(QtCore.QObject):
         entry["generation_mode"] = generation_mode if generation_mode in {"fresh", "edit", "multi_reference"} else "fresh"
         entry["reference_image_paths"] = list(reference_image_paths or [])
         entry["scene_context"] = dict(scene_entry or {})
-        with self._lock:
-            self._prompt_image_cache[prompt_signature] = dict(entry)
+        if cache_result:
+            with self._lock:
+                self._prompt_image_cache[prompt_signature] = dict(entry)
         return entry
 
     def _store_ready_image_entry(self, index: int, payload: dict, *, scene_entry=None, update_continuity: bool = True):
@@ -3886,31 +10339,430 @@ class AudioStoryModeController(QtCore.QObject):
             self._update_continuity_memory_from_image(scene_entry=scene_entry, image_entry=entry, prompt_signature=prompt_signature)
         return entry
 
-    def _on_image_ready(self, payload):
-        token = int(payload.get("token", 0) or 0)
-        if token != self._image_generation_token:
+    def _owned_story_image_checkpoint_context(self, payload: Mapping):
+        data = dict(payload or {})
+        if not self._story_image_result_is_current(data):
+            return None
+        project_id = str(data.get("project_id") or "")
+        if not project_id:
+            return None
+        try:
+            index = int(data.get("index", -1))
+        except (TypeError, ValueError):
+            return None
+        context = self._story_image_context(index)
+        chapter_id = str(context.get("chapter_id") or "")
+        scene_id = str(context.get("scene_id") or "")
+        if not chapter_id or not scene_id:
+            return None
+        if data.get("chapter_id") and str(data.get("chapter_id")) != chapter_id:
+            return None
+        if data.get("scene_id") and str(data.get("scene_id")) != scene_id:
+            return None
+        if str(data.get("prompt_text") or "").strip() != str(
+            context.get("prompt_text") or ""
+        ):
+            return None
+        project = copy.deepcopy(dict(self._current_story_project or {}))
+        if str(project.get("project_id") or "") != project_id:
+            return None
+        chapter = dict(dict(project.get("chapters") or {}).get(chapter_id) or {})
+        if not chapter or not self._story_image_dependencies_valid(chapter):
+            return None
+        checkpoints = self._ensure_story_scene_checkpoints(project, chapter_id)
+        expected = self._story_image_input_fingerprint(
+            project["chapters"][chapter_id], context
+        )
+        return project, chapter_id, scene_id, index, context, checkpoints, expected
+
+    def _discard_provider_story_image(self, payload: Mapping) -> None:
+        data = dict(payload or {})
+        try:
+            index = int(data.get("index", -1))
+        except (TypeError, ValueError):
+            index = -1
+        provider_path = str(data.get("image_path") or "")
+        prompt_signature = str(data.get("prompt_signature") or "")
+        with self._lock:
+            cached = dict(self._image_cache.get(index) or {})
+            if str(cached.get("image_path") or "") == provider_path:
+                self._image_cache.pop(index, None)
+            prompt_cached = dict(
+                self._prompt_image_cache.get(prompt_signature) or {}
+            )
+            if str(prompt_cached.get("image_path") or "") == provider_path:
+                self._prompt_image_cache.pop(prompt_signature, None)
+
+    def _finalize_story_image_stage(
+        self, project: dict, chapter_id: str
+    ) -> None:
+        chapter = project["chapters"][chapter_id]
+        checkpoints = dict(chapter.get("scene_checkpoints") or {})
+        if not checkpoints or not all(
+            self._story_checkpoint_is_reusable(dict(checkpoint or {}))
+            for checkpoint in checkpoints.values()
+            if isinstance(checkpoint, Mapping)
+        ):
             return
-        index = int(payload.get("index", -1) or -1)
+        if any(
+            self._project_owned_story_image_path(
+                str(project.get("project_id") or ""),
+                chapter_id,
+                str(dict(checkpoint or {}).get("output_ref") or ""),
+            )
+            is None
+            for checkpoint in checkpoints.values()
+            if isinstance(checkpoint, Mapping)
+        ):
+            return
+        aggregate_input = checkpointing.settings_fingerprint(
+            {
+                scene_id: str(
+                    dict(checkpoint or {}).get("expected_input_fingerprint") or ""
+                )
+                for scene_id, checkpoint in sorted(checkpoints.items())
+            }
+        )
+        aggregate_output = checkpointing.settings_fingerprint(
+            {
+                scene_id: str(dict(checkpoint or {}).get("output_ref") or "")
+                for scene_id, checkpoint in sorted(checkpoints.items())
+            }
+        )
+        current = copy.deepcopy(chapter["stages"]["image_generation"])
+        if (
+            self._story_checkpoint_is_reusable(current)
+            and current.get("input_fingerprint") == aggregate_input
+        ):
+            return
+        if current.get("status") == "running":
+            current["status"] = "interrupted"
+        elif current.get("status") == "completed":
+            current["status"] = "stale"
+        provider_info = dict(self._visual_reply_generation_info() or {})
+        started = checkpointing.start_checkpoint(
+            current,
+            input_fingerprint=aggregate_input,
+            provider=str(provider_info.get("provider") or ""),
+            model=str(provider_info.get("model") or ""),
+        )
+        completed = checkpointing.complete_checkpoint(
+            started,
+            output_ref="scene_checkpoints",
+            output_fingerprint=aggregate_output,
+        )
+        completed["expected_input_fingerprint"] = aggregate_input
+        chapter["stages"]["image_generation"] = completed
+
+    def _checkpoint_ready_story_image(self, payload: Mapping) -> dict | None:
+        resolved = self._owned_story_image_checkpoint_context(payload)
+        if resolved is None:
+            return None
+        (
+            project,
+            chapter_id,
+            scene_id,
+            index,
+            context,
+            checkpoints,
+            expected,
+        ) = resolved
+        data = dict(payload or {})
+        prepared = data.get("prepared_image")
+        if not isinstance(prepared, Mapping):
+            return None
+        output_ref = str(prepared.get("output_ref") or "").strip()
+        output_fingerprint = str(
+            prepared.get("output_fingerprint") or ""
+        ).strip()
+        if not output_ref or not output_fingerprint:
+            return None
+        current = copy.deepcopy(checkpoints[scene_id])
+        if self._story_checkpoint_is_reusable(current):
+            existing_path = self._project_owned_story_image_path(
+                str(project["project_id"]),
+                chapter_id,
+                str(current.get("output_ref") or ""),
+            )
+            if existing_path is not None:
+                return {"image_path": str(existing_path), "checkpoint": current}
+            current["status"] = "stale"
+        if (
+            current.get("status") == "running"
+            and str(current.get("input_fingerprint") or "") != expected
+        ):
+            return None
+        if not self._story_image_result_is_current(data):
+            return None
+        try:
+            persisted_path = self._story_project_store.resolve_project_image(
+                str(project["project_id"]), chapter_id, output_ref
+            )
+        except (FileNotFoundError, project_store.ProjectCorruptError):
+            return None
+        if current.get("status") == "running":
+            started = current
+        else:
+            if current.get("status") == "completed":
+                current["status"] = "stale"
+            provider_info = dict(self._visual_reply_generation_info() or {})
+            started = checkpointing.start_checkpoint(
+                current,
+                input_fingerprint=expected,
+                provider=str(provider_info.get("provider") or ""),
+                model=str(provider_info.get("model") or ""),
+            )
+        completed = checkpointing.complete_checkpoint(
+            started,
+            output_ref=output_ref,
+            output_fingerprint=output_fingerprint,
+        )
+        completed["expected_input_fingerprint"] = expected
+        completed["scene_id"] = scene_id
+        completed["chapter_id"] = chapter_id
+        completed["chunk_index"] = index
+        completed["scene_index"] = int(
+            dict(context.get("scene_entry") or {}).get("scene_index", index + 1)
+            or index + 1
+        )
+        completed["prompt_text"] = str(data.get("prompt_text") or "")
+        completed["source_text"] = str(data.get("source_text") or "")
+        completed["prompt_signature"] = str(
+            data.get("prompt_signature") or ""
+        )
+        completed["generation_mode"] = str(
+            data.get("generation_mode") or context.get("generation_mode") or "fresh"
+        )
+        completed["reference_image_paths"] = list(
+            data.get("reference_image_paths")
+            or context.get("reference_image_paths")
+            or []
+        )
+        checkpoints[scene_id] = completed
+        self._finalize_story_image_stage(project, chapter_id)
+        self._current_story_project = copy.deepcopy(project)
+        self._replace_story_project_summary(project)
+        self._queue_story_project_autosave(project)
+        return {"image_path": str(persisted_path), "checkpoint": completed}
+
+    def _prepare_story_image_artifact(self, payload: Mapping) -> dict | None:
+        """Copy and hash provider output on the image worker before GUI publication."""
+        data = dict(payload or {})
+        resolved = self._owned_story_image_checkpoint_context(data)
+        if resolved is None:
+            return None
+        project, chapter_id, scene_id, _index, _context, _checkpoints, _expected = resolved
+        attempt_id = (
+            f"{int(data.get('token', 0) or 0)}-"
+            f"{uuid.uuid4().hex[:12]}"
+        )
+        prepared = self._story_project_store.persist_project_image_attempt(
+            str(project["project_id"]),
+            chapter_id,
+            scene_id,
+            str(data.get("image_path") or ""),
+            attempt_id,
+        )
+        if not self._story_image_result_is_current(data):
+            return None
+        current_context = self._owned_story_image_checkpoint_context(data)
+        if current_context is None:
+            return None
+        if (
+            str(current_context[1]) != chapter_id
+            or str(current_context[2]) != scene_id
+            or str(current_context[6]) != str(resolved[6])
+        ):
+            return None
+        return copy.deepcopy(prepared)
+
+    def _checkpoint_failed_story_image(
+        self, payload: Mapping, *, detail: str | None = None
+    ) -> dict | None:
+        resolved = self._owned_story_image_checkpoint_context(payload)
+        if resolved is None:
+            return None
+        (
+            project,
+            chapter_id,
+            scene_id,
+            index,
+            context,
+            checkpoints,
+            expected,
+        ) = resolved
+        current = copy.deepcopy(checkpoints[scene_id])
+        if self._story_checkpoint_is_reusable(current):
+            return current
+        if current.get("status") == "running":
+            if str(current.get("input_fingerprint") or "") != expected:
+                return None
+            started = current
+        else:
+            if current.get("status") == "completed":
+                current["status"] = "stale"
+            provider_info = dict(self._visual_reply_generation_info() or {})
+            started = checkpointing.start_checkpoint(
+                current,
+                input_fingerprint=expected,
+                provider=str(provider_info.get("provider") or ""),
+                model=str(provider_info.get("model") or ""),
+            )
+        previous_ref = str(started.get("previous_output_ref") or "")
+        previous_fingerprint = str(
+            started.get("previous_output_fingerprint") or ""
+        )
+        if previous_ref and previous_fingerprint:
+            try:
+                self._story_project_store.resolve_project_image(
+                    str(project["project_id"]), chapter_id, previous_ref
+                )
+            except (FileNotFoundError, project_store.ProjectCorruptError):
+                pass
+            else:
+                restored = copy.deepcopy(started)
+                restored["status"] = "completed"
+                restored["input_fingerprint"] = str(
+                    started.get("previous_input_fingerprint") or ""
+                )
+                restored["output_ref"] = previous_ref
+                restored["output_fingerprint"] = previous_fingerprint
+                restored["completed_at"] = started.get("previous_completed_at")
+                restored["error"] = ""
+                restored["last_retry_error"] = self._transcription_console_safe_message(
+                    str(
+                        detail
+                        if detail is not None
+                        else dict(payload or {}).get("detail")
+                        or "Visual generation failed."
+                    )
+                )
+                checkpoints[scene_id] = restored
+                self._current_story_project = copy.deepcopy(project)
+                self._replace_story_project_summary(project)
+                self._queue_story_project_autosave(project)
+                return restored
+        safe_error = self._transcription_console_safe_message(
+            str(detail if detail is not None else dict(payload or {}).get("detail") or "Visual generation failed.")
+        )
+        failed = checkpointing.fail_checkpoint(started, error=safe_error)
+        failed["expected_input_fingerprint"] = expected
+        failed["output_ref"] = ""
+        failed["output_fingerprint"] = ""
+        failed["scene_id"] = scene_id
+        failed["chapter_id"] = chapter_id
+        failed["chunk_index"] = index
+        failed["scene_index"] = int(
+            dict(context.get("scene_entry") or {}).get("scene_index", index + 1)
+            or index + 1
+        )
+        failed["prompt_text"] = str(context.get("prompt_text") or "")
+        failed["source_text"] = str(context.get("source_text") or "")
+        failed["generation_mode"] = str(context.get("generation_mode") or "fresh")
+        failed["reference_image_paths"] = list(
+            context.get("reference_image_paths") or []
+        )
+        checkpoints[scene_id] = failed
+        aggregate = project["chapters"][chapter_id]["stages"]["image_generation"]
+        if aggregate.get("status") == "completed":
+            aggregate["status"] = "stale"
+            aggregate["output_ref"] = ""
+            aggregate["output_fingerprint"] = ""
+            aggregate["completed_at"] = None
+        self._current_story_project = copy.deepcopy(project)
+        self._replace_story_project_summary(project)
+        self._queue_story_project_autosave(project)
+        return failed
+
+    def _publish_story_image_failure(
+        self, token: int, index: int, detail: str
+    ) -> None:
+        pending = dict(self._pending_play_request or {})
+        if (
+            pending
+            and int(pending.get("token", 0) or 0) == int(token)
+            and int(
+                pending.get("index")
+                if pending.get("index") is not None
+                else -1
+            )
+            == int(index)
+        ):
+            self._pending_play_request = None
+        self._visual_reply_set_state(
+            {
+                "status": "error",
+                "status_text": "Visual Reply failed",
+                "detail_text": str(detail or "Visual generation failed."),
+                "image_path": "",
+                "caption": "",
+                "request_id": f"audio_story_error_{int(time.time())}",
+                "updated_at": time.time(),
+            }
+        )
+        self._set_status(detail)
+
+    def _on_image_ready(self, payload):
+        data = dict(payload or {})
+        token = int(data.get("token", 0) or 0)
+        if not self._story_image_result_is_current(data):
+            return
+        if str(data.get("project_id") or ""):
+            checkpointed = self._checkpoint_ready_story_image(data)
+            if checkpointed is None:
+                return
+            data["image_path"] = str(checkpointed.get("image_path") or "")
+            data["already_stored"] = False
+        index = int(data.get("index") if data.get("index") is not None else -1)
         scene_entry = self._scene_entry_for_index(index)
-        if bool(payload.get("already_stored", False)):
+        if bool(data.get("already_stored", False)):
             with self._lock:
                 entry = dict(self._image_cache.get(int(index)) or {})
             if not entry:
-                entry = self._store_ready_image_entry(index, payload, scene_entry=scene_entry, update_continuity=False)
+                entry = self._store_ready_image_entry(index, data, scene_entry=scene_entry, update_continuity=False)
         else:
-            entry = self._store_ready_image_entry(index, payload, scene_entry=scene_entry, update_continuity=True)
+            entry = self._store_ready_image_entry(index, data, scene_entry=scene_entry, update_continuity=True)
         pending = dict(self._pending_play_request or {})
-        if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
+        if (
+            pending
+            and int(pending.get("token", 0) or 0) == token
+            and int(
+                pending.get("index")
+                if pending.get("index") is not None
+                else -1
+            )
+            == index
+        ):
             position_seconds = max(0.0, float(pending.get("position_seconds", 0.0) or 0.0))
             status_text = str(pending.get("status_text", "") or "").strip()
             self._pending_play_request = None
             if entry.get("image_path"):
                 self._publish_ready_visual_entry(index, chunk=scene_entry, image_entry=entry)
             if self.audio_player is not None:
-                self.audio_player.setPosition(max(0, int(round(position_seconds * 1000.0))))
+                position_ready = self._set_player_global_position(
+                    position_seconds
+                )
                 self._current_chunk_index = -1
                 self._sync_visual_to_position(position_seconds, force=True)
-                self.audio_player.play()
+                if (
+                    self._playback_mode_value() == "tts"
+                    and not position_ready
+                ):
+                    self._retain_pending_tts_resume_intent(
+                        position_seconds
+                    )
+                    self._sync_visual_stream_playback_state(
+                        "paused", position_seconds=position_seconds
+                    )
+                    self._set_status(
+                        "Loading TTS narration after preparing the story image..."
+                    )
+                    return
+                if (
+                    self._playback_mode_value() != "tts"
+                    or not self._is_audio_story_currently_playing()
+                ):
+                    self.audio_player.play()
                 self._sync_visual_stream_playback_state("playing", position_seconds=position_seconds)
                 self._set_status(status_text or "Playing audio story.")
             return
@@ -3921,26 +10773,59 @@ class AudioStoryModeController(QtCore.QObject):
                 self._publish_visual_for_index(index, keep_current_image=False)
 
     def _on_image_failed(self, payload):
-        token = int(payload.get("token", 0) or 0)
-        if token != self._image_generation_token:
+        data = dict(payload or {})
+        token = int(data.get("token", 0) or 0)
+        if not self._story_image_result_is_current(data):
             return
-        index = int(payload.get("index", -1) or -1)
-        detail = str(payload.get("detail", "") or "").strip() or "Visual generation failed."
-        if bool(payload.get("moderated", False)):
+        index = int(data.get("index") if data.get("index") is not None else -1)
+        detail = str(data.get("detail", "") or "").strip() or "Visual generation failed."
+        if str(data.get("project_id") or ""):
+            self._checkpoint_failed_story_image(data, detail=detail)
+            self._discard_provider_story_image(data)
+        if bool(data.get("moderated", False)):
             provider_label = "xAI / Grok" if str(self._visual_reply_generation_info().get("provider") or "") == "xai" else "image provider"
             status = f"{provider_label} rejected one story image prompt for content moderation. Skipping that chunk."
             self._set_status(status)
             current_state = dict(self._visual_reply_current_state() or {})
             current_image_path = str(current_state.get("image_path", "") or "").strip()
             pending = dict(self._pending_play_request or {})
-            if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
+            if (
+                pending
+                and int(pending.get("token", 0) or 0) == token
+                and int(
+                    pending.get("index")
+                    if pending.get("index") is not None
+                    else -1
+                )
+                == index
+            ):
                 self._pending_play_request = None
                 if self.audio_player is not None:
                     position_seconds = max(0.0, float(pending.get("position_seconds", 0.0) or 0.0))
                     status_text = str(pending.get("status_text", "") or "").strip()
-                    self.audio_player.setPosition(max(0, int(round(position_seconds * 1000.0))))
-                    self.audio_player.play()
-                    self._set_status(status_text or status)
+                    position_ready = self._set_player_global_position(
+                        position_seconds
+                    )
+                    if (
+                        self._playback_mode_value() == "tts"
+                        and not position_ready
+                    ):
+                        self._retain_pending_tts_resume_intent(
+                            position_seconds
+                        )
+                        self._sync_visual_stream_playback_state(
+                            "paused", position_seconds=position_seconds
+                        )
+                        self._set_status(
+                            "Loading TTS narration after the skipped story image..."
+                        )
+                    else:
+                        if (
+                            self._playback_mode_value() != "tts"
+                            or not self._is_audio_story_currently_playing()
+                        ):
+                            self.audio_player.play()
+                        self._set_status(status_text or status)
             if index == self._current_chunk_index and not current_image_path:
                 self._visual_reply_set_state(
                     {
@@ -3954,21 +10839,7 @@ class AudioStoryModeController(QtCore.QObject):
                 }
             )
             return
-        pending = dict(self._pending_play_request or {})
-        if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
-            self._pending_play_request = None
-        self._visual_reply_set_state(
-            {
-                "status": "error",
-                "status_text": "Visual Reply failed",
-                "detail_text": detail,
-                "image_path": "",
-                "caption": "",
-                "request_id": f"audio_story_error_{int(time.time())}",
-                "updated_at": time.time(),
-            }
-        )
-        self._set_status(detail)
+        self._publish_story_image_failure(token, index, detail)
 
     def _is_visual_moderation_error(self, detail: str):
         text = str(detail or "").strip().lower()
@@ -4047,8 +10918,20 @@ class AudioStoryModeController(QtCore.QObject):
         )
 
     def _active_timeline_duration_seconds(self):
-        if self._playback_mode_value() == "tts" and self._tts_bundle is not None:
-            return max(0.0, float(self._tts_bundle.get("duration_seconds", 0.0) or 0.0))
+        if self._playback_mode_value() == "tts":
+            plan = self._tts_queue_plan
+            if plan is not None and plan.segments:
+                duration_seconds = 0.0
+                for index, segment in enumerate(plan.segments):
+                    ready = self._tts_ready_segments.get(index)
+                    duration_seconds += (
+                        max(0.0, float(ready.duration_seconds or 0.0))
+                        if self._tts_ready_segment_matches_plan(index, ready, plan)
+                        else max(0.0, float(segment.estimated_seconds or 0.0))
+                    )
+                return max(0.0, duration_seconds)
+            if self._tts_bundle is not None:
+                return max(0.0, float(self._tts_bundle.get("duration_seconds", 0.0) or 0.0))
         return max(0.0, float(self.imported_audio_duration_seconds or 0.0))
 
     def _chunk_bounds_for_mode(self, chunk):
@@ -4057,12 +10940,134 @@ class AudioStoryModeController(QtCore.QObject):
             end_seconds = chunk.get("tts_end_seconds")
             if start_seconds is not None and end_seconds is not None:
                 return max(0.0, float(start_seconds or 0.0)), max(0.0, float(end_seconds or 0.0))
+            return None, None
         return max(0.0, float(chunk.get("start_seconds", 0.0) or 0.0)), max(0.0, float(chunk.get("end_seconds", 0.0) or 0.0))
+
+    def _planned_tts_window_bounds(
+        self, window_index: int
+    ) -> tuple[float, float] | None:
+        plan = self._tts_queue_plan
+        target_window_index = int(window_index)
+        if plan is None or not plan.segments:
+            return None
+        global_offset = 0.0
+        for segment_index, segment in enumerate(plan.segments):
+            ready = self._tts_ready_segments.get(segment_index)
+            segment_duration = (
+                max(0.0, float(ready.duration_seconds or 0.0))
+                if self._tts_ready_segment_matches_plan(
+                    segment_index, ready, plan
+                )
+                else max(0.001, float(segment.estimated_seconds or 0.0))
+            )
+            valid_window_indices = tuple(
+                int(index)
+                for index in segment.window_indices
+                if 0 <= int(index) < len(self.transcript_chunks)
+            )
+            if target_window_index in valid_window_indices:
+                source_durations = []
+                for index in valid_window_indices:
+                    chunk = dict(self.transcript_chunks[index] or {})
+                    source_start = max(
+                        0.0, float(chunk.get("start_seconds", 0.0) or 0.0)
+                    )
+                    source_end = max(
+                        source_start,
+                        float(chunk.get("end_seconds", source_start) or source_start),
+                    )
+                    source_durations.append(max(0.001, source_end - source_start))
+                total_source_duration = sum(source_durations)
+                position = valid_window_indices.index(target_window_index)
+                relative_start = sum(source_durations[:position]) / total_source_duration
+                relative_end = (
+                    sum(source_durations[: position + 1]) / total_source_duration
+                )
+                return (
+                    global_offset + segment_duration * relative_start,
+                    global_offset + segment_duration * relative_end,
+                )
+            global_offset += segment_duration
+        return None
+
+    def _planned_tts_window_index_for_position(
+        self, position_seconds: float
+    ) -> int:
+        plan = self._tts_queue_plan
+        if plan is None or not plan.segments:
+            return max(
+                0,
+                min(
+                    len(self.transcript_chunks) - 1,
+                    int(self._current_chunk_index if self._current_chunk_index >= 0 else 0),
+                ),
+            )
+        target = max(0.0, float(position_seconds or 0.0))
+        segment_index, global_offset = self._planned_tts_position(target)
+        segment = plan.segments[segment_index]
+        ready = self._tts_ready_segments.get(segment_index)
+        segment_duration = (
+            max(0.0, float(ready.duration_seconds or 0.0))
+            if self._tts_ready_segment_matches_plan(segment_index, ready, plan)
+            else max(0.001, float(segment.estimated_seconds or 0.0))
+        )
+        valid_window_indices = tuple(
+            int(index)
+            for index in segment.window_indices
+            if 0 <= int(index) < len(self.transcript_chunks)
+        )
+        if not valid_window_indices:
+            return max(
+                0,
+                min(
+                    len(self.transcript_chunks) - 1,
+                    int(self._current_chunk_index if self._current_chunk_index >= 0 else 0),
+                ),
+            )
+        source_durations = []
+        for index in valid_window_indices:
+            chunk = dict(self.transcript_chunks[index] or {})
+            source_start = max(
+                0.0, float(chunk.get("start_seconds", 0.0) or 0.0)
+            )
+            source_end = max(
+                source_start,
+                float(chunk.get("end_seconds", source_start) or source_start),
+            )
+            source_durations.append(max(0.001, source_end - source_start))
+        total_source_duration = sum(source_durations)
+        local_seconds = min(
+            segment_duration, max(0.0, target - float(global_offset))
+        )
+        relative_source_seconds = (
+            local_seconds / segment_duration * total_source_duration
+            if segment_duration > 0.0
+            else 0.0
+        )
+        elapsed_source_seconds = 0.0
+        for position, index in enumerate(valid_window_indices):
+            elapsed_source_seconds += source_durations[position]
+            if (
+                relative_source_seconds < elapsed_source_seconds
+                or position == len(valid_window_indices) - 1
+            ):
+                return index
+        return valid_window_indices[-1]
 
     def _chunk_index_for_position(self, position_seconds: float):
         seconds = max(0.0, float(position_seconds or 0.0))
         if not self.transcript_chunks:
             return 0
+        if self._playback_mode_value() == "tts":
+            for index, chunk in enumerate(self.transcript_chunks):
+                start_seconds, end_seconds = self._chunk_bounds_for_mode(chunk)
+                if start_seconds is None or end_seconds is None:
+                    continue
+                if start_seconds <= seconds < max(
+                    start_seconds + 0.001, end_seconds
+                ):
+                    return index
+            return self._planned_tts_window_index_for_position(seconds)
         last_index = len(self.transcript_chunks) - 1
         for index, chunk in enumerate(self.transcript_chunks):
             start_seconds, end_seconds = self._chunk_bounds_for_mode(chunk)
@@ -4080,6 +11085,13 @@ class AudioStoryModeController(QtCore.QObject):
         except Exception:
             return 0.0
         start_seconds, _end_seconds = self._chunk_bounds_for_mode(chunk)
+        if start_seconds is None:
+            planned_bounds = self._planned_tts_window_bounds(int(index))
+            return (
+                max(0.0, float(planned_bounds[0]))
+                if planned_bounds is not None
+                else 0.0
+            )
         return max(0.0, float(start_seconds or 0.0))
 
     def _sync_visual_to_position(self, position_seconds: float, *, force: bool = False, allow_generation: bool | None = None):
@@ -4112,7 +11124,18 @@ class AudioStoryModeController(QtCore.QObject):
     def _player_position_seconds(self):
         if self.audio_player is None:
             return 0.0
-        return max(0.0, float(self.audio_player.position() or 0) / 1000.0)
+        local_seconds = max(0.0, float(self.audio_player.position() or 0) / 1000.0)
+        if self._playback_mode_value() == "source" and self.imported_audio_sources:
+            return max(0.0, float(self._active_source_global_offset or 0.0) + local_seconds)
+        if self._playback_mode_value() == "tts" and self._tts_queue_plan is not None:
+            if self._tts_buffering_target_seconds is not None:
+                return max(0.0, float(self._tts_buffering_target_seconds))
+            return max(
+                0.0,
+                float(self._tts_active_segment_global_offset or 0.0)
+                + local_seconds,
+            )
+        return local_seconds
 
     def _update_slider_range(self):
         duration_seconds = self._active_timeline_duration_seconds()
@@ -4128,18 +11151,66 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _on_player_position_changed(self, position_ms: int):
         duration_seconds = self._active_timeline_duration_seconds()
-        position_seconds = max(0.0, float(position_ms or 0) / 1000.0)
+        local_seconds = max(0.0, float(position_ms or 0) / 1000.0)
+        playback_mode = self._playback_mode_value()
+        if playback_mode == "tts":
+            with self._tts_render_condition:
+                pending_transition = self._tts_pending_media_transition
+                pending_target_represented = bool(
+                    pending_transition is not None
+                    and abs(
+                        float(pending_transition.local_target_seconds)
+                        - local_seconds
+                    )
+                    <= 0.002
+                )
+            if pending_target_represented:
+                self._complete_pending_tts_media_transition()
+        with self._tts_render_condition:
+            buffering_target = self._tts_buffering_target_seconds
+        position_seconds = (
+            float(self._active_source_global_offset or 0.0) + local_seconds
+            if playback_mode == "source" and self.imported_audio_sources
+            else (
+                float(buffering_target)
+                if (
+                    playback_mode == "tts"
+                    and self._tts_queue_plan is not None
+                    and buffering_target is not None
+                )
+                else float(self._tts_active_segment_global_offset or 0.0)
+                + local_seconds
+                if playback_mode == "tts" and self._tts_queue_plan is not None
+                else local_seconds
+            )
+        )
+        with self._tts_render_condition:
+            if (
+                self._tts_queue_plan is not None
+                and self._tts_render_in_progress
+            ):
+                if self._tts_buffering_target_seconds is None:
+                    self._tts_playback_position_seconds = max(
+                        0.0,
+                        float(self._tts_active_segment_global_offset or 0.0)
+                        + local_seconds,
+                    )
+                self._tts_render_condition.notify_all()
         self._sync_visual_stream_playback_state(position_seconds=position_seconds)
         if hasattr(self, "audio_story_position_slider") and not self._user_scrubbing:
             self.audio_story_position_slider.blockSignals(True)
-            self.audio_story_position_slider.setValue(max(0, int(position_ms or 0)))
+            self.audio_story_position_slider.setValue(
+                max(0, int(round(position_seconds * 1000.0)))
+            )
             self.audio_story_position_slider.blockSignals(False)
         if hasattr(self, "audio_story_time_label"):
             self.audio_story_time_label.setText(f"{self._format_seconds(position_seconds)} / {self._format_seconds(duration_seconds)}")
         self._sync_visual_to_position(position_seconds)
+        if playback_mode == "tts":
+            self._refresh_tts_buffer_ui()
 
     def _on_player_duration_changed(self, duration_ms: int):
-        if duration_ms and self._playback_mode_value() == "source":
+        if duration_ms and self._playback_mode_value() == "source" and len(self.imported_audio_sources) <= 1:
             self.imported_audio_duration_seconds = max(0.0, float(duration_ms or 0) / 1000.0)
             self._sync_transcribe_seconds_slider()
             self._sync_transcription_range_controls()
@@ -4149,6 +11220,125 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_visual_stream_playback_state()
         self._refresh_controls()
 
+    def _on_player_seekable_changed(self, seekable: bool):
+        if bool(seekable):
+            self._complete_pending_tts_media_transition()
+
+    def _on_player_media_status_changed(self, status):
+        media_status_enum = getattr(getattr(QtMultimedia, "QMediaPlayer", object), "MediaStatus", None)
+        loaded_media = getattr(media_status_enum, "LoadedMedia", None) if media_status_enum is not None else getattr(getattr(QtMultimedia, "QMediaPlayer", object), "LoadedMedia", None)
+        buffered_media = getattr(media_status_enum, "BufferedMedia", None) if media_status_enum is not None else getattr(getattr(QtMultimedia, "QMediaPlayer", object), "BufferedMedia", None)
+        if status in {loaded_media, buffered_media}:
+            self._complete_pending_tts_media_transition()
+        end_of_media = getattr(media_status_enum, "EndOfMedia", None) if media_status_enum is not None else getattr(getattr(QtMultimedia, "QMediaPlayer", object), "EndOfMedia", None)
+        if status != end_of_media:
+            return
+        if self._playback_mode_value() == "tts" and self._tts_queue_plan is not None:
+            with self._tts_render_condition:
+                if self._tts_pending_media_transition is not None:
+                    return
+            plan = self._tts_queue_plan
+            active_index = max(0, int(self._tts_active_segment_index or 0))
+            active_ready = self._tts_ready_segments.get(active_index)
+            if (
+                not self._tts_resume_after_buffering
+                or not self._tts_ready_segment_matches_plan(
+                    active_index, active_ready, plan
+                )
+            ):
+                return
+            boundary = max(
+                0.0,
+                float(self._tts_active_segment_global_offset or 0.0)
+                + float(active_ready.duration_seconds or 0.0),
+            )
+            next_index = active_index + 1
+            if next_index >= len(plan.segments):
+                with self._tts_render_condition:
+                    self._tts_playback_position_seconds = boundary
+                    self._tts_buffering_target_seconds = None
+                    self._tts_render_target_segment_index = active_index
+                    self._tts_render_target_segment_global_offset = float(
+                        self._tts_active_segment_global_offset or 0.0
+                    )
+                    self._tts_resume_after_buffering = False
+                    self._pending_autoplay_tts = False
+                    self._tts_render_condition.notify_all()
+                self._sync_visual_stream_playback_state(
+                    "stopped", position_seconds=boundary
+                )
+                self._update_slider_range()
+                self._sync_visual_to_position(boundary, force=True)
+                self._set_status("Audio story playback complete.")
+                return
+            next_ready = self._tts_ready_segments.get(next_index)
+            if self._tts_ready_segment_matches_plan(next_index, next_ready, plan):
+                if not self._set_tts_segment_for_global_position(
+                    boundary, resume_playback=True
+                ):
+                    self._refresh_tts_buffer_ui()
+                    self._sync_visual_stream_playback_state(
+                        "paused", position_seconds=boundary
+                    )
+                    self._update_slider_range()
+                    self._sync_visual_to_position(boundary, force=True)
+                    self._set_status(
+                        "Loading the next TTS narration segment..."
+                    )
+                    return
+                if not self._is_audio_story_currently_playing():
+                    self.audio_player.play()
+                self._sync_visual_stream_playback_state(
+                    "playing", position_seconds=boundary
+                )
+                self._sync_visual_to_position(boundary, force=True)
+                self._set_status("Playing TTS narration for the transcribed story.")
+                return
+            self.audio_player.pause()
+            with self._tts_render_condition:
+                if plan is not self._tts_queue_plan:
+                    return
+                self._tts_buffering_target_seconds = boundary
+                self._tts_render_target_segment_index = next_index
+                self._tts_render_target_segment_global_offset = boundary
+                self._tts_playback_position_seconds = boundary
+                self._tts_resume_after_buffering = True
+                self._tts_queue_state = "Buffering"
+                self._tts_render_condition.notify_all()
+            self._refresh_tts_buffer_ui()
+            self._sync_visual_stream_playback_state(
+                "paused", position_seconds=boundary
+            )
+            self._update_slider_range()
+            self._sync_visual_to_position(boundary, force=True)
+            self._set_status("Buffering the next TTS narration segment...")
+            return
+        if self._playback_mode_value() != "source" or not self.imported_audio_sources:
+            return
+        if not self._source_playback_expected:
+            return
+        next_index = int(self._active_source_index) + 1
+        if next_index >= len(self.imported_audio_sources):
+            self._source_playback_expected = False
+            self._sync_visual_stream_playback_state(
+                "stopped", position_seconds=self.imported_audio_duration_seconds
+            )
+            self._set_status("Audio story playback complete.")
+            return
+        next_source = self.imported_audio_sources[next_index]
+        if not self._set_source_for_global_position(next_source.global_start_seconds):
+            self._source_playback_expected = False
+            self._set_status(f"Could not continue playback with {next_source.display_name}.")
+            return
+        set_current_audio_path(next_source.path)
+        self.audio_player.play()
+        self._sync_visual_stream_playback_state(
+            "playing", position_seconds=next_source.global_start_seconds
+        )
+        if bool(getattr(self, "_stored_chromecast_cast_active", False)) and not bool(getattr(self, "_stored_chromecast_stream_page_active", False)):
+            self._cast_current_visual_to_chromecast()
+        self._set_status(f"Playing {next_source.display_name}.")
+
     def _on_player_error(self, *_args):
         if self.audio_player is None:
             return
@@ -4156,6 +11346,16 @@ class AudioStoryModeController(QtCore.QObject):
             detail = str(self.audio_player.errorString() or "").strip()
         except Exception:
             detail = "Audio playback failed."
+        with self._tts_render_condition:
+            if self._tts_pending_media_transition is not None:
+                self._tts_pending_media_transition = None
+                self._tts_buffering_target_seconds = None
+                self._tts_resume_after_buffering = False
+                self._pending_autoplay_tts = False
+                self._tts_queue_state = "Failed"
+                self._tts_queue_error = detail or "Audio playback failed."
+                self._tts_queue_failure_reason = "media_load_failed"
+                self._tts_render_condition.notify_all()
         self._set_status(detail or "Audio playback failed.")
 
     def _on_slider_pressed(self):
@@ -4172,8 +11372,8 @@ class AudioStoryModeController(QtCore.QObject):
         if self.audio_player is None or not hasattr(self, "audio_story_position_slider"):
             return
         target_ms = max(0, int(self.audio_story_position_slider.value() or 0))
-        self.audio_player.setPosition(target_ms)
         target_seconds = max(0.0, float(target_ms) / 1000.0)
+        self._set_player_global_position(target_seconds)
         self._sync_visual_stream_playback_state(position_seconds=target_seconds)
         self._restart_visual_generation_from_position(target_seconds)
         self._sync_visual_to_position(target_seconds, force=True)
@@ -4218,7 +11418,25 @@ class AudioStoryModeController(QtCore.QObject):
             end_seconds = min(maximum, end_seconds)
         return start_seconds, end_seconds
 
+    def _transcription_scope_snapshot(self) -> tuple[bool, float, float]:
+        selected = bool(self._stored_selected_range_enabled)
+        if not selected:
+            return (
+                False,
+                0.0,
+                max(0.0, float(self.imported_audio_duration_seconds or 0.0)),
+            )
+        start_seconds, end_seconds = self._effective_transcription_range_seconds()
+        return True, float(start_seconds), float(end_seconds)
+
+    @staticmethod
+    def _normalize_tts_buffer_settings(startup, ahead) -> tuple[int, int]:
+        startup_value = max(5, min(120, int(startup or 30)))
+        ahead_value = max(30, min(600, int(ahead or 120)))
+        return startup_value, max(startup_value, ahead_value)
+
     def _sync_transcription_range_controls(self):
+        selected_checkbox = getattr(self, "audio_story_selected_range_checkbox", None)
         start_spin = getattr(self, "audio_story_transcription_start_spin", None)
         end_spin = getattr(self, "audio_story_transcription_end_spin", None)
         maximum = self._transcription_range_maximum()
@@ -4227,13 +11445,22 @@ class AudioStoryModeController(QtCore.QObject):
             end_seconds = start_seconds
         self._stored_transcription_start_seconds = start_seconds
         self._stored_transcription_end_seconds = end_seconds
+        if selected_checkbox is not None:
+            selected_checkbox.blockSignals(True)
+            selected_checkbox.setChecked(bool(self._stored_selected_range_enabled))
+            selected_checkbox.blockSignals(False)
         for spin, value in ((start_spin, start_seconds), (end_spin, end_seconds)):
             if spin is None:
                 continue
             spin.blockSignals(True)
             spin.setRange(0, maximum)
             spin.setValue(max(0, min(maximum, int(value or 0))))
+            spin.setEnabled(bool(self._stored_selected_range_enabled))
             spin.blockSignals(False)
+
+    def _on_selected_range_toggled(self, enabled: bool) -> None:
+        self._stored_selected_range_enabled = bool(enabled)
+        self._sync_transcription_range_controls()
 
     def _on_transcription_range_changed(self, _value: int):
         start_spin = getattr(self, "audio_story_transcription_start_spin", None)
@@ -4249,6 +11476,390 @@ class AudioStoryModeController(QtCore.QObject):
                 end_spin.blockSignals(True)
                 end_spin.setValue(self._stored_transcription_end_seconds)
                 end_spin.blockSignals(False)
+
+    def _sync_tts_buffer_controls(self) -> None:
+        startup_spin = getattr(self, "audio_story_tts_startup_buffer_spin", None)
+        ahead_spin = getattr(self, "audio_story_tts_render_ahead_spin", None)
+        startup_value, ahead_value = self._normalize_tts_buffer_settings(
+            self._stored_tts_startup_buffer_seconds,
+            self._stored_tts_render_ahead_seconds,
+        )
+        self._stored_tts_startup_buffer_seconds = startup_value
+        self._stored_tts_render_ahead_seconds = ahead_value
+        if startup_spin is not None:
+            startup_spin.blockSignals(True)
+            startup_spin.setRange(5, 120)
+            startup_spin.setSuffix(" s")
+            startup_spin.setValue(startup_value)
+            startup_spin.blockSignals(False)
+        if ahead_spin is not None:
+            ahead_spin.blockSignals(True)
+            ahead_spin.setRange(30, 600)
+            ahead_spin.setSuffix(" s")
+            ahead_spin.setValue(ahead_value)
+            ahead_spin.blockSignals(False)
+
+    def _refresh_tts_buffer_ui(self) -> None:
+        allowed_states = {
+            "Idle",
+            "Preparing",
+            "Ready",
+            "Rendering Ahead",
+            "Buffering",
+            "Paused",
+            "Complete",
+            "Failed",
+        }
+        with self._tts_render_condition:
+            state = str(self._tts_queue_state or "Idle")
+            if state not in allowed_states:
+                state = "Failed"
+                self._tts_queue_state = state
+            plan = self._tts_queue_plan
+            total = len(plan.segments) if plan is not None else 0
+            if state == "Buffering" and self._tts_buffering_target_seconds is not None:
+                current = max(0, int(self._tts_render_target_segment_index or 0))
+                local_offset = max(
+                    0.0,
+                    float(self._tts_buffering_target_seconds or 0.0)
+                    - float(self._tts_render_target_segment_global_offset or 0.0),
+                )
+            else:
+                current = max(0, int(self._tts_active_segment_index or 0))
+                local_offset = max(
+                    0.0,
+                    float(self._tts_playback_position_seconds or 0.0)
+                    - float(self._tts_active_segment_global_offset or 0.0),
+                )
+            ready_segments = dict(self._tts_ready_segments)
+            render_in_progress = bool(self._tts_render_in_progress)
+
+        owned_ready = {}
+        if plan is not None:
+            for index in range(current, len(plan.segments)):
+                ready = ready_segments.get(index)
+                if not self._tts_ready_segment_matches_plan(index, ready, plan):
+                    break
+                owned_ready[index] = ready
+        buffered = ready_seconds_from(owned_ready, current, local_offset)
+        startup_seconds, ahead_seconds = self._normalize_tts_buffer_settings(
+            self._stored_tts_startup_buffer_seconds,
+            self._stored_tts_render_ahead_seconds,
+        )
+        if state == "Complete":
+            target = buffered
+        elif render_in_progress and state in {
+            "Ready",
+            "Rendering Ahead",
+            "Paused",
+        }:
+            target = float(ahead_seconds)
+        else:
+            target = float(startup_seconds)
+
+        state_label = getattr(self, "audio_story_tts_state_label", None)
+        if state_label is not None:
+            try:
+                state_label.setText(state)
+            except RuntimeError:
+                pass
+        buffered_label = getattr(self, "audio_story_tts_buffered_label", None)
+        if buffered_label is not None:
+            try:
+                buffered_label.setText(
+                    f"Buffered: {self._format_seconds(buffered)} / "
+                    f"{self._format_seconds(target)}"
+                )
+            except RuntimeError:
+                pass
+        segment_label = getattr(self, "audio_story_tts_segment_label", None)
+        if segment_label is not None:
+            shown_current = min(current, max(0, total - 1))
+            try:
+                segment_label.setText(
+                    f"Segment: {shown_current + 1 if total else 0} / {total}"
+                )
+            except RuntimeError:
+                pass
+        retry_button = getattr(self, "audio_story_tts_retry_button", None)
+        if retry_button is not None:
+            try:
+                retry_button.setEnabled(
+                    state == "Failed" and not self._tts_cache_clear_in_progress
+                )
+            except RuntimeError:
+                pass
+        clear_button = getattr(self, "audio_story_tts_clear_cache_button", None)
+        if clear_button is not None:
+            try:
+                clear_button.setEnabled(
+                    not self._tts_cache_clear_in_progress
+                    and bool(
+                        self._tts_cache_entry_count
+                        or ready_segments
+                        or self._tts_bundle
+                    )
+                )
+            except RuntimeError:
+                pass
+
+    @staticmethod
+    def _tts_cache_entry_count_on_worker(cache_root: Path) -> int:
+        root = Path(cache_root).resolve()
+        count = 0
+        segment_root = root / "tts_segments"
+        try:
+            if segment_root.exists() or segment_root.is_symlink():
+                count += 1
+        except OSError:
+            count += 1
+        for pattern in ("tts_story_*.wav", "tts_story_*.json"):
+            try:
+                count += sum(1 for _item in root.glob(pattern))
+            except OSError:
+                continue
+        return count
+
+    def _request_tts_cache_scan(self) -> None:
+        self._tts_cache_scan_job_id += 1
+        scan_job_id = int(self._tts_cache_scan_job_id)
+        cache_root = Path(self._cache_root)
+
+        def worker() -> None:
+            try:
+                entry_count = self._tts_cache_entry_count_on_worker(cache_root)
+            except Exception:
+                entry_count = 0
+            self.ttsCacheScanFinished.emit(
+                {"scan_job_id": scan_job_id, "entry_count": entry_count}
+            )
+
+        threading.Thread(
+            target=worker,
+            name=f"audio-story-tts-cache-scan-{scan_job_id}",
+            daemon=True,
+        ).start()
+
+    @QtCore.Slot(object)
+    def _on_tts_cache_scan_finished(self, payload) -> None:
+        data = dict(payload or {})
+        if int(data.get("scan_job_id", 0) or 0) != self._tts_cache_scan_job_id:
+            return
+        self._tts_cache_entry_count = max(
+            0, int(data.get("entry_count", 0) or 0)
+        )
+        self._refresh_tts_buffer_ui()
+
+    def _on_tts_buffer_settings_changed(self, _value: int | None = None) -> None:
+        startup_spin = getattr(self, "audio_story_tts_startup_buffer_spin", None)
+        ahead_spin = getattr(self, "audio_story_tts_render_ahead_spin", None)
+        startup_value = (
+            startup_spin.value()
+            if startup_spin is not None
+            else self._stored_tts_startup_buffer_seconds
+        )
+        ahead_value = (
+            ahead_spin.value()
+            if ahead_spin is not None
+            else self._stored_tts_render_ahead_seconds
+        )
+        (
+            self._stored_tts_startup_buffer_seconds,
+            self._stored_tts_render_ahead_seconds,
+        ) = self._normalize_tts_buffer_settings(startup_value, ahead_value)
+        self._sync_tts_buffer_controls()
+        with self._tts_render_condition:
+            self._tts_render_condition.notify_all()
+        self._notify_audio_story_settings_changed()
+        self._refresh_tts_buffer_ui()
+
+    def _retry_tts_rendering(self) -> None:
+        if self._tts_cache_clear_is_in_progress():
+            self._report_tts_cache_clear_in_progress()
+            return
+        with self._tts_render_condition:
+            plan = self._tts_queue_plan
+            transcript_snapshot = tuple(
+                dict(item) for item in self._tts_queue_transcript_snapshot
+            )
+            settings_snapshot = dict(self._tts_queue_settings_snapshot)
+            settings_changed = self._tts_queue_failure_reason == "settings_changed"
+            can_retry = bool(
+                plan is not None
+                and self._tts_queue_state == "Failed"
+                and str(self.current_story_project_id or "") == plan.project_id
+                and transcript_snapshot
+            )
+            resume_after_buffering = bool(self._tts_resume_after_buffering)
+        if not can_retry or plan is None:
+            self._set_status("No failed TTS queue is available to retry.")
+            self._refresh_tts_buffer_ui()
+            return
+        self._pending_autoplay_tts = resume_after_buffering
+        self._start_tts_render(
+            transcript_chunks=transcript_snapshot,
+            settings_snapshot=None if settings_changed else settings_snapshot,
+            project_id=plan.project_id,
+            preserve_ready=not settings_changed,
+        )
+
+    def _clear_tts_cache_requested(self) -> None:
+        if self._tts_cache_clear_is_in_progress():
+            self._report_tts_cache_clear_in_progress()
+            return
+        parent = getattr(self, "audio_story_tab_widget", None)
+        answer = QtWidgets.QMessageBox.question(
+            parent,
+            "Clear TTS Cache",
+            "Clear only cached Audio Story TTS narration files?\n\n"
+            "Imported audio, transcripts, projects, and images will be kept.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            self._set_status("TTS cache clear cancelled.")
+            return
+
+        with self._tts_render_condition:
+            if self._tts_cache_clear_in_progress:
+                already_clearing = True
+                previous_worker = None
+                clear_job_id = int(self._tts_cache_clear_job_id)
+            else:
+                already_clearing = False
+                self._tts_cache_clear_in_progress = True
+                self._tts_cache_clear_job_id += 1
+                clear_job_id = int(self._tts_cache_clear_job_id)
+                previous_worker = self._tts_render_thread
+                self._tts_render_condition.notify_all()
+        if already_clearing:
+            self._report_tts_cache_clear_in_progress()
+            return
+        if self._playback_mode_value() == "tts" and self.audio_player is not None:
+            self.audio_player.stop()
+            try:
+                self.audio_player.setSource(QtCore.QUrl())
+            except Exception:
+                pass
+            self._player_source_key = ""
+        self._invalidate_tts_queue(clear_plan=False, state="Idle")
+        self._tts_cache_scan_job_id += 1
+        with self._tts_render_condition:
+            plan = self._tts_queue_plan
+            ownership = {
+                "clear_job_id": clear_job_id,
+                "tts_job_id": int(self._tts_render_job_id),
+                "project_id": str(self.current_story_project_id or ""),
+                "queue_signature": str(plan.signature if plan is not None else ""),
+            }
+        cache_root = Path(self._cache_root)
+        self._set_status("Clearing Audio Story TTS cache...")
+        self._refresh_tts_buffer_ui()
+        self._refresh_controls()
+        self._sync_chromecast_controls()
+
+        def worker() -> None:
+            try:
+                if (
+                    previous_worker is not None
+                    and previous_worker is not threading.current_thread()
+                    and previous_worker.is_alive()
+                ):
+                    previous_worker.join()
+                file_count, directory_count = clear_audio_story_tts_cache(
+                    cache_root
+                )
+                result = {
+                    **ownership,
+                    "file_count": int(file_count),
+                    "directory_count": int(directory_count),
+                    "error": "",
+                }
+            except Exception as exc:
+                result = {
+                    **ownership,
+                    "file_count": 0,
+                    "directory_count": 0,
+                    "error": str(exc or "TTS cache clear failed.").strip(),
+                }
+            self.ttsCacheClearFinished.emit(result)
+
+        threading.Thread(
+            target=worker,
+            name=f"audio-story-tts-cache-clear-{clear_job_id}",
+            daemon=True,
+        ).start()
+
+    @QtCore.Slot(object)
+    def _on_tts_cache_clear_finished(self, payload) -> None:
+        data = dict(payload or {})
+        try:
+            clear_job_id = int(data.get("clear_job_id", 0) or 0)
+            tts_job_id = int(data.get("tts_job_id", 0) or 0)
+        except (TypeError, ValueError):
+            return
+        project_id = str(data.get("project_id", "") or "")
+        queue_signature = str(data.get("queue_signature", "") or "")
+        with self._tts_render_condition:
+            if clear_job_id != self._tts_cache_clear_job_id:
+                return
+            plan = self._tts_queue_plan
+            owns_tts_state = bool(
+                tts_job_id == self._tts_render_job_id
+                and project_id == str(self.current_story_project_id or "")
+                and queue_signature
+                == str(plan.signature if plan is not None else "")
+            )
+            self._tts_cache_clear_in_progress = False
+            self._tts_render_condition.notify_all()
+        if not owns_tts_state:
+            self._refresh_tts_buffer_ui()
+            self._refresh_controls()
+            self._sync_chromecast_controls()
+            return
+        error = str(data.get("error", "") or "").strip()
+        if error:
+            self._set_status(f"Failed to clear TTS cache: {error}")
+            self._request_tts_cache_scan()
+            self._refresh_tts_buffer_ui()
+            self._refresh_controls()
+            self._sync_chromecast_controls()
+            return
+
+        with self._tts_render_condition:
+            self._tts_queue_plan = None
+            self._tts_ready_segments = {}
+            self._tts_queue_transcript_snapshot = ()
+            self._tts_queue_settings_snapshot = {}
+            self._tts_queue_state = "Idle"
+            self._tts_queue_error = ""
+            self._tts_queue_failure_reason = ""
+            self._tts_render_in_progress = False
+            self._tts_active_segment_index = 0
+            self._tts_active_segment_global_offset = 0.0
+            self._tts_playback_position_seconds = 0.0
+            self._tts_buffering_target_seconds = None
+            self._tts_render_target_segment_index = 0
+            self._tts_render_target_segment_global_offset = 0.0
+            self._tts_pending_media_transition = None
+            self._tts_resume_after_buffering = False
+            self._pending_autoplay_tts = False
+            self._tts_render_condition.notify_all()
+        self._tts_bundle = None
+        self._tts_signature = ""
+        self._tts_cache_entry_count = 0
+        self._rebuild_tts_transcript_timing()
+        file_count = max(0, int(data.get("file_count", 0) or 0))
+        directory_count = max(0, int(data.get("directory_count", 0) or 0))
+        file_word = "file" if file_count == 1 else "files"
+        directory_word = "directory" if directory_count == 1 else "directories"
+        self._set_status(
+            f"Cleared {file_count} TTS cache {file_word} and "
+            f"{directory_count} {directory_word}."
+        )
+        self._refresh_tts_buffer_ui()
+        self._refresh_controls()
+        self._sync_chromecast_controls()
 
     def _sync_image_frequency_slider(self):
         slider = getattr(self, "audio_story_image_frequency_slider", None)
@@ -4386,6 +11997,25 @@ class AudioStoryModeController(QtCore.QObject):
             checkbox.setChecked(bool(self._stored_use_llm_story_analysis))
             checkbox.blockSignals(False)
         self._sync_story_analysis_provider_controls()
+
+    def _sync_instructor_controls(self):
+        checkbox = getattr(self, "audio_story_instructor_beats_checkbox", None)
+        status = getattr(self, "audio_story_instructor_status_label", None)
+        availability = instructor_adapter.instructor_availability()
+        if checkbox is not None:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(self._stored_instructor_beats_enabled))
+            checkbox.blockSignals(False)
+            checkbox.setToolTip(
+                "Validates timestamped visual story beats with Pydantic. "
+                "The existing scene analyzer is used automatically if Instructor is unavailable."
+            )
+        if status is not None:
+            if availability.available:
+                version = f" {availability.module_version}" if availability.module_version else ""
+                status.setText(f"Instructor{version} is available. The selected LLM still performs story reasoning.")
+            else:
+                status.setText(f"{availability.reason} Existing scene analysis will be used.")
 
     def _normalize_story_analysis_provider_mode(self, value=None):
         normalized = str(value if value is not None else self._stored_story_analysis_provider_mode or "current").strip().lower()
@@ -4710,7 +12340,7 @@ class AudioStoryModeController(QtCore.QObject):
             scene_update = dict(update.get("scene") or {})
             scene_entry["story_bible_character_keys"] = list(scene_update.get("character_keys", []) or [])
             scene_entry["story_bible_location_key"] = str(scene_update.get("location_key", "") or "").strip()
-            if memory_changed:
+            if memory_changed and story_memory_store is not None:
                 story_memory_store.save(memory)
             prompt = self._build_story_bible_image_prompt(
                 text,
@@ -4883,7 +12513,18 @@ class AudioStoryModeController(QtCore.QObject):
             raise value
         return value
 
-    def _build_llm_story_analysis(self, *, full_text: str, image_chunks: list[dict], story_style_guide: str, continuity_strength: float, fallback_story_bible: dict, cancel_token: CancellationToken | None = None, deadline: JobDeadline | None = None):
+    def _build_llm_story_analysis(
+        self,
+        *,
+        full_text: str,
+        image_chunks: list[dict],
+        story_style_guide: str,
+        continuity_strength: float,
+        fallback_story_bible: dict,
+        continuity_seed: dict | None = None,
+        cancel_token: CancellationToken | None = None,
+        deadline: JobDeadline | None = None,
+    ):
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         provider, model = self._active_story_analysis_chat_provider()
@@ -4894,6 +12535,7 @@ class AudioStoryModeController(QtCore.QObject):
             image_chunks=image_chunks,
             story_style_guide=story_style_guide,
             continuity_strength=continuity_strength,
+            continuity_seed=continuity_seed,
         )
         cache_payload = {
             "provider": str(provider or "").strip().lower(),
@@ -4901,22 +12543,43 @@ class AudioStoryModeController(QtCore.QObject):
             "provider_mode": self._story_analysis_provider_mode(),
             "prompt_payload": prompt_payload,
             "fallback_story_bible": fallback_story_bible,
+            "instructor_beats_enabled": bool(self._stored_instructor_beats_enabled),
         }
         cache_key = hashlib.sha1(json.dumps(cache_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         with self._lock:
             cached = copy.deepcopy(dict(self._llm_story_analysis_cache.get(cache_key) or {}))
         if cached.get("scenes") and cached.get("story_bible"):
             return cached
-        raw_text = self._call_llm_story_analysis(provider=provider, model=model, prompt_payload=prompt_payload, cancel_token=cancel_token, deadline=deadline)
-        if cancel_token is not None:
-            cancel_token.raise_if_cancelled()
-        try:
-            parsed = self._parse_llm_json_object(raw_text)
-        except Exception:
-            repaired_text = self._repair_llm_story_analysis_json(raw_text, provider=provider, model=model, cancel_token=cancel_token, deadline=deadline)
+        parsed = None
+        analysis_source = "llm"
+        if self._stored_instructor_beats_enabled:
+            try:
+                parsed = self._call_instructor_story_analysis(
+                    provider=provider,
+                    model=model,
+                    prompt_payload=prompt_payload,
+                    cancel_token=cancel_token,
+                    deadline=deadline,
+                )
+            except Exception as exc:
+                print(
+                    "[AudioStoryMode] Instructor story analysis failed; "
+                    f"using normal LLM analysis: {exc}"
+                )
+                parsed = None
+            if parsed:
+                analysis_source = "instructor"
+        if not parsed:
+            raw_text = self._call_llm_story_analysis(provider=provider, model=model, prompt_payload=prompt_payload, cancel_token=cancel_token, deadline=deadline)
             if cancel_token is not None:
                 cancel_token.raise_if_cancelled()
-            parsed = self._parse_llm_json_object(repaired_text)
+            try:
+                parsed = self._parse_llm_json_object(raw_text)
+            except Exception:
+                repaired_text = self._repair_llm_story_analysis_json(raw_text, provider=provider, model=model, cancel_token=cancel_token, deadline=deadline)
+                if cancel_token is not None:
+                    cancel_token.raise_if_cancelled()
+                parsed = self._parse_llm_json_object(repaired_text)
         story_bible = self._normalize_llm_story_bible(
             parsed.get("story_bible") or {},
             fallback_story_bible=fallback_story_bible,
@@ -4926,7 +12589,7 @@ class AudioStoryModeController(QtCore.QObject):
         scenes = self._normalize_llm_scene_list(parsed.get("scenes") or [], image_chunks=image_chunks, story_bible=story_bible)
         if not scenes:
             raise RuntimeError("LLM story analysis returned no usable scenes.")
-        story_bible["analysis_source"] = "llm"
+        story_bible["analysis_source"] = analysis_source
         story_bible["analysis_provider_mode"] = self._story_analysis_provider_mode()
         story_bible["analysis_provider"] = chat_providers.provider_label(provider)
         story_bible["analysis_model"] = model
@@ -4942,7 +12605,15 @@ class AudioStoryModeController(QtCore.QObject):
                     break
         return result
 
-    def _llm_story_analysis_prompt_payload(self, *, full_text: str, image_chunks: list[dict], story_style_guide: str, continuity_strength: float):
+    def _llm_story_analysis_prompt_payload(
+        self,
+        *,
+        full_text: str,
+        image_chunks: list[dict],
+        story_style_guide: str,
+        continuity_strength: float,
+        continuity_seed: Mapping | None = None,
+    ):
         source_chunks = list(image_chunks or [])
         if len(source_chunks) > _AUDIO_STORY_LLM_ANALYSIS_MAX_CHUNKS:
             sampled = {}
@@ -4972,7 +12643,102 @@ class AudioStoryModeController(QtCore.QObject):
             "sampled_chunk_count": len(chunks),
             "total_chunk_count": len(source_chunks),
             "chunks": chunks,
+            "committed_story_bible": copy.deepcopy(dict(continuity_seed or {})),
+            "stable_entity_id_instruction": (
+                "Reuse entity IDs from committed_story_bible for every recurring "
+                "character, location, and prop; add a new ID only for a genuinely new entity."
+            ),
         }
+
+    def _call_instructor_story_analysis(self, *, provider: str, model: str, prompt_payload: dict, cancel_token: CancellationToken | None = None, deadline: JobDeadline | None = None):
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        availability = instructor_adapter.instructor_availability()
+        if not availability.available:
+            return None
+        system_prompt = (
+            "You extract timestamped, visible-only story beats for audiobook image generation. "
+            "Ground every beat in supplied transcript chunks. Do not turn dialogue, thoughts, or "
+            "sensations into visible facts. Preserve recurring character and location identifiers. "
+            "Reuse the exact stable entity IDs supplied in committed_story_bible."
+        )
+        candidate_prompt = (
+            "Extract candidate visual beats. Include only meaningful visible actions or setting changes. "
+            "Set image_worthy false for dialogue-only or redundant moments. Keep source_evidence brief.\n\n"
+            f"Input JSON:\n{json.dumps(prompt_payload, ensure_ascii=False)}"
+        )
+        candidate_params = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": candidate_prompt},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 3600,
+            "response_format": {"type": "json_object"},
+            "timeout": 120,
+        }
+        self._prepare_story_analysis_chat_request(
+            provider=provider,
+            model=model,
+            params=candidate_params,
+            additional_params={},
+            min_output_tokens=3600,
+            timeout_seconds=120,
+        )
+        if deadline is not None:
+            candidate_params["timeout"] = deadline.remaining_seconds(default=120.0, minimum=1.0)
+        logger = getattr(self.context, "logger", None) if self.context is not None else None
+        candidate = instructor_adapter.generate_story_beats(
+            provider=provider,
+            params=candidate_params,
+            client_factory=chat_providers.create_client,
+            logger=logger,
+        )
+        if not candidate:
+            return None
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        if deadline is not None and deadline.expired:
+            return None
+        consolidation_prompt = (
+            "Consolidate these candidate beats into the strongest non-duplicated visual timeline. "
+            "Merge boundary duplicates, keep timestamps and evidence grounded, preserve stable entity ids, "
+            "and retain non-image-worthy beats only when needed for continuity.\n\n"
+            f"Candidate JSON:\n{json.dumps(candidate, ensure_ascii=False)}"
+        )
+        consolidation_params = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": consolidation_prompt},
+            ],
+            "temperature": 0.05,
+            "max_tokens": 3600,
+            "response_format": {"type": "json_object"},
+            "timeout": 120,
+        }
+        self._prepare_story_analysis_chat_request(
+            provider=provider,
+            model=model,
+            params=consolidation_params,
+            additional_params={},
+            min_output_tokens=3600,
+            timeout_seconds=120,
+        )
+        if deadline is not None:
+            consolidation_params["timeout"] = deadline.remaining_seconds(default=120.0, minimum=1.0)
+        consolidated = instructor_adapter.generate_story_beats(
+            provider=provider,
+            params=consolidation_params,
+            client_factory=chat_providers.create_client,
+            logger=logger,
+        )
+        if not consolidated:
+            return None
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        return structured_models.story_beat_payload_to_existing_analysis(consolidated)
 
     def _call_llm_story_analysis(self, *, provider: str, model: str, prompt_payload: dict, cancel_token: CancellationToken | None = None, deadline: JobDeadline | None = None):
         system_prompt = (
@@ -4980,7 +12746,8 @@ class AudioStoryModeController(QtCore.QObject):
             "Return strict JSON only. Do not use markdown, comments, prose, code fences, or trailing commas. "
             "Create short, visible-only image briefs. Do not invent unnecessary characters, weapons, pregnancy, injuries, props, or location changes. "
             "Treat dialogue, inner thoughts, pain, fear, and body sensations as mood cues unless the transcript explicitly describes visible action. "
-            "Prefer stable, reusable visual anchors for recurring people, places, props, and world details."
+            "Prefer stable, reusable visual anchors for recurring people, places, props, and world details. "
+            "Reuse exact entity IDs from committed_story_bible for recurring entities."
         )
         user_prompt = (
             "Create structured visual continuity metadata for these transcript chunks.\n\n"
@@ -5021,6 +12788,7 @@ class AudioStoryModeController(QtCore.QObject):
             "Rules:\n"
             "- Return scene objects for the most important provided chunk_index values; missing chunks will be filled locally.\n"
             "- Use the exact same ids for recurring characters, locations, and props.\n"
+            "- When committed_story_bible provides an entity, reuse its exact existing id.\n"
             "- Scene text must be visible facts only, not copied raw transcript, dialogue, thoughts, or feelings.\n"
             "- image_prompt must be one natural-language visual sentence: subject + visible action + setting + mood/camera.\n"
             "- Do not describe pregnancy, guns, blood, wounds, children, monsters, or new cast members unless visibly explicit in this chunk.\n"
@@ -5315,7 +13083,7 @@ class AudioStoryModeController(QtCore.QObject):
             or ""
         ).strip()
         world_cues = self._llm_string_list(raw_bible.get("world_cues") or raw_bible.get("world_anchor") or fallback_story_bible.get("world_cues", []), limit=8)
-        return {
+        normalized = {
             "summary": _audio_story_truncate(str(raw_bible.get("summary") or fallback_story_bible.get("summary", "") or ""), 420),
             "global_style": global_style,
             "tone": self._llm_string_list(raw_bible.get("tone") or fallback_story_bible.get("tone", []), limit=6),
@@ -5327,6 +13095,9 @@ class AudioStoryModeController(QtCore.QObject):
             "locations": locations,
             "props": props,
         }
+        return self._merge_story_continuity_seed(
+            normalized, fallback_story_bible
+        )
 
     def _resolve_llm_entity_ids(self, raw_value, entities: dict, *, fallback_prefix: str, limit: int = 8):
         values = self._llm_string_list(raw_value, limit=limit)
@@ -5335,7 +13106,11 @@ class AudioStoryModeController(QtCore.QObject):
         entity_map = dict(entities or {})
         label_to_id = {}
         for entity_id, entity in entity_map.items():
-            labels = [str(entity.get("label", "") or "").strip(), *self._llm_string_list(entity.get("aliases", []), limit=12)]
+            labels = [
+                str(entity_id),
+                str(entity.get("label", "") or "").strip(),
+                *self._llm_string_list(entity.get("aliases", []), limit=12),
+            ]
             for label in labels:
                 if label:
                     label_to_id[label.lower()] = str(entity_id)
@@ -5358,7 +13133,8 @@ class AudioStoryModeController(QtCore.QObject):
             if not isinstance(item, dict):
                 continue
             try:
-                chunk_index = int(item.get("chunk_index", -1) or -1)
+                raw_chunk_index = item.get("chunk_index", -1)
+                chunk_index = int(-1 if raw_chunk_index is None else raw_chunk_index)
             except Exception:
                 continue
             if chunk_index < 0 or chunk_index > max_index:
@@ -6118,13 +13894,20 @@ class AudioStoryModeController(QtCore.QObject):
         story_memory = None
         story_analyzer = None
         if story_bible_mode:
-            store = self._story_bible_store(self.imported_audio_path)
-            story_memory = store.load()
+            project_id = str(self.current_story_project_id or "")
+            if project_id:
+                story_memory = self._load_committed_project_story_memory(project_id)
+            else:
+                store = self._story_bible_store(self.imported_audio_path)
+                story_memory = store.load()
             story_analyzer = StoryAnalyzer()
         scene_map = {}
         for scene_entry in list(self.scene_plan or []):
             if isinstance(scene_entry, dict):
-                scene_map[int(scene_entry.get("chunk_index", -1) or -1)] = dict(scene_entry)
+                raw_chunk_index = scene_entry.get("chunk_index", -1)
+                scene_map[
+                    int(-1 if raw_chunk_index is None else raw_chunk_index)
+                ] = dict(scene_entry)
         for index, chunk in enumerate(self.transcript_chunks):
             scene_entry = dict(scene_map.get(int(index)) or {})
             previous_scene = dict(scene_map.get(int(index - 1)) or {}) if index > 0 else None
@@ -6162,6 +13945,22 @@ class AudioStoryModeController(QtCore.QObject):
         if not self.transcript_chunks and not self._raw_transcript_segments:
             return
         if self._raw_transcript_segments and self._last_transcription_audio_duration > 0.0:
+            ownership = {
+                "job_id": int(self._transcription_job_id),
+                "project_id": str(self.current_story_project_id or ""),
+                "project_generation": int(self._story_project_generation),
+                "input_fingerprint": str(
+                    self._story_project_input_fingerprint or ""
+                ),
+            }
+            self._require_current_story_project_work(ownership)
+            project_story_memory = None
+            project_id = ownership["project_id"]
+            if project_id:
+                project_story_memory = self._load_committed_project_story_memory(
+                    project_id
+                )
+            self._require_current_story_project_work(ownership)
             payload = self._build_story_payload(
                 job_id=self._transcription_job_id,
                 path=self.imported_audio_path,
@@ -6170,7 +13969,10 @@ class AudioStoryModeController(QtCore.QObject):
                 chunk_seconds=int(self._stored_transcribe_seconds or 8),
                 image_frequency_seconds=int(self._stored_image_frequency_seconds or 12),
                 continuity_strength=float(self._stored_continuity_strength or 0.8),
+                continuity_seed=project_story_memory,
+                project_story_memory=project_story_memory,
             )
+            self._require_current_story_project_work(ownership)
             self.transcript_chunks = list(payload.get("transcript_chunks", []) or [])
             self.full_transcript_text = str(payload.get("full_text", "") or "").strip()
             self.story_style_guide = str(payload.get("story_style_guide", "") or "").strip()
@@ -6575,6 +14377,15 @@ class AudioStoryModeController(QtCore.QObject):
             )
         self._refresh_controls()
 
+    def _on_instructor_beats_toggled(self, checked: bool):
+        self._stored_instructor_beats_enabled = bool(checked)
+        self._sync_instructor_controls()
+        if self._raw_transcript_segments and self._stored_use_llm_story_analysis:
+            self._start_story_payload_rebuild_job(
+                status_text="Building structured visual story beats..."
+            )
+        self._refresh_controls()
+
     def _on_audio_story_analysis_mode_changed(self, _index: int):
         combo = getattr(self, "audio_story_analysis_mode_combo", None)
         if combo is not None:
@@ -6724,12 +14535,162 @@ class AudioStoryModeController(QtCore.QObject):
             return ""
         return server.url_for(f"audio?ts={int(time.time())}")
 
+    def _tts_cast_ready(self) -> bool:
+        if self._tts_cache_clear_is_in_progress():
+            return False
+        plan_signature = str(
+            getattr(self._tts_queue_plan, "signature", "") or ""
+        )
+        return bool(
+            self._tts_signature
+            and self._tts_signature == plan_signature
+            and self._tts_bundle_identity_matches_commit(
+                self._tts_bundle, signature=plan_signature
+            )
+        )
+
+    def _request_tts_bundle_validation_for_cast(
+        self, *, previous_device_name: str = ""
+    ) -> bool:
+        """Validate the full TTS bundle on a worker before exposing it to Cast."""
+        with self._tts_render_condition:
+            plan = self._tts_queue_plan
+            signature = str(getattr(plan, "signature", "") or "")
+            project_id = str(getattr(plan, "project_id", "") or "")
+            if (
+                plan is None
+                or not signature
+                or self._tts_signature != signature
+                or not self._tts_bundle_identity_matches_commit(
+                    self._tts_bundle, signature=signature
+                )
+            ):
+                return False
+            self._tts_cast_after_bundle_validation = True
+            self._tts_cast_validation_previous_device_name = str(
+                previous_device_name or ""
+            ).strip()
+            if self._tts_bundle_validation_pending:
+                return True
+            self._tts_bundle_validation_job_id += 1
+            validation_job_id = int(self._tts_bundle_validation_job_id)
+            self._tts_bundle_validation_pending = True
+        cache_root = Path(self._cache_root)
+        message = "Validating the TTS bundle for Chromecast..."
+        self._set_status(message)
+        status = getattr(self, "audio_story_cast_status_label", None)
+        if status is not None:
+            status.setText(message)
+        self._sync_chromecast_controls()
+
+        def worker() -> None:
+            try:
+                identity = self._validate_committed_tts_bundle(
+                    cache_root=cache_root,
+                    signature=signature,
+                    project_id=project_id,
+                )
+                error = ""
+            except Exception as exc:
+                identity = None
+                error = (
+                    "".join(
+                        traceback.format_exception_only(type(exc), exc)
+                    ).strip()
+                    or str(exc)
+                )
+            self.ttsBundleValidationFinished.emit(
+                {
+                    "validation_job_id": validation_job_id,
+                    "project_id": project_id,
+                    "signature": signature,
+                    "identity": identity,
+                    "error": error,
+                }
+            )
+
+        threading.Thread(
+            target=worker,
+            name=f"AudioStoryTtsBundleValidation-{validation_job_id}",
+            daemon=True,
+        ).start()
+        return True
+
+    @QtCore.Slot(object)
+    def _on_tts_bundle_validation_finished(self, payload) -> None:
+        data = dict(payload or {})
+        validation_job_id = int(data.get("validation_job_id", 0) or 0)
+        signature = str(data.get("signature", "") or "")
+        project_id = str(data.get("project_id", "") or "")
+        identity = data.get("identity")
+        error = str(data.get("error", "") or "").strip()
+        with self._tts_render_condition:
+            if validation_job_id != self._tts_bundle_validation_job_id:
+                return
+            self._tts_bundle_validation_pending = False
+            should_cast = bool(self._tts_cast_after_bundle_validation)
+            previous_device_name = self._tts_cast_validation_previous_device_name
+            self._tts_cast_after_bundle_validation = False
+            self._tts_cast_validation_previous_device_name = ""
+            plan = self._tts_queue_plan
+            result_is_current = bool(
+                plan is not None
+                and signature
+                and signature == str(plan.signature or "")
+                and project_id == str(plan.project_id or "")
+                and project_id == str(self.current_story_project_id or "")
+                and signature == self._tts_signature
+            )
+        valid_identity = bool(
+            result_is_current
+            and not error
+            and self._tts_bundle_identity_matches_commit(
+                identity, signature=signature
+            )
+        )
+        if not valid_identity:
+            if result_is_current:
+                self._tts_bundle = None
+                self._tts_signature = ""
+                self._tts_queue_state = "Failed"
+                self._tts_queue_failure_reason = "bundle_failed"
+                self._tts_queue_error = error or "The TTS bundle is missing or stale."
+                message = (
+                    "TTS bundle validation failed: "
+                    f"{self._tts_queue_error} Render the narration again."
+                )
+                self._set_status(message)
+                status = getattr(self, "audio_story_cast_status_label", None)
+                if status is not None:
+                    status.setText(message)
+            self._refresh_tts_buffer_ui()
+            self._refresh_controls()
+            self._sync_chromecast_controls()
+            return
+        validated_bundle = copy.deepcopy(dict(identity))
+        validated_bundle.pop("chunks", None)
+        self._tts_bundle = validated_bundle
+        self._tts_signature = signature
+        self._refresh_controls()
+        self._sync_chromecast_controls()
+        if should_cast:
+            self._cast_current_visual_to_chromecast(
+                previous_device_name=previous_device_name,
+                _bundle_validated=True,
+            )
+
     def _active_audio_story_stream_path(self):
         mode = self._playback_mode_value()
         if mode == "tts":
+            if not self._tts_cast_ready():
+                return ""
             path = str(dict(self._tts_bundle or {}).get("audio_path", "") or "").strip()
-            return path if path and Path(path).exists() else ""
-        path = str(self.imported_audio_path or "").strip()
+            return path
+        if self.imported_audio_sources:
+            index = max(0, min(len(self.imported_audio_sources) - 1, int(self._active_source_index or 0)))
+            path = str(self.imported_audio_sources[index].path or "").strip()
+        else:
+            path = str(self.imported_audio_path or "").strip()
         return path if path and Path(path).exists() else ""
 
     def _audio_story_playback_state_label(self):
@@ -6753,9 +14714,15 @@ class AudioStoryModeController(QtCore.QObject):
         set_current_audio_path(audio_path)
         if position_seconds is None:
             position_seconds = self._player_position_seconds()
+        stream_position_seconds = max(0.0, float(position_seconds or 0.0))
+        if self._playback_mode_value() == "source" and self.imported_audio_sources:
+            stream_position_seconds = max(
+                0.0,
+                stream_position_seconds - float(self._active_source_global_offset or 0.0),
+            )
         set_stream_playback_state(
             playback_state=playback_state or self._audio_story_playback_state_label(),
-            position_seconds=position_seconds,
+            position_seconds=stream_position_seconds,
             show_prompt=bool(getattr(self, "_stored_chromecast_show_prompt", False)),
         )
 
@@ -6785,6 +14752,14 @@ class AudioStoryModeController(QtCore.QObject):
         has_device = bool(str(self._stored_chromecast_device_name or "").strip())
         has_active_device = bool(str(getattr(self, "_active_chromecast_device_name", "") or "").strip())
         busy = bool(getattr(self, "_chromecast_busy", False))
+        tts_bundle_validation_pending = bool(
+            self._playback_mode_value() == "tts"
+            and self._tts_bundle_validation_pending
+        )
+        tts_cache_clear_blocks_cast = bool(
+            self._playback_mode_value() == "tts"
+            and self._tts_cache_clear_is_in_progress()
+        )
         for button_name in ("audio_story_cast_refresh_button", "audio_story_cast_button", "audio_story_cast_stop_button"):
             button = getattr(self, button_name, None)
             if button is not None:
@@ -6795,13 +14770,25 @@ class AudioStoryModeController(QtCore.QObject):
             install_button.setEnabled(not busy and bool(dependency_error))
         cast_button = getattr(self, "audio_story_cast_button", None)
         if cast_button is not None:
-            cast_button.setEnabled(not busy and not bool(dependency_error) and has_device)
+            cast_button.setEnabled(
+                not busy
+                and not bool(dependency_error)
+                and has_device
+                and not tts_cache_clear_blocks_cast
+                and not tts_bundle_validation_pending
+                and (
+                    self._playback_mode_value() != "tts"
+                    or self._tts_cast_ready()
+                )
+            )
         stop_button = getattr(self, "audio_story_cast_stop_button", None)
         if stop_button is not None:
             stop_button.setEnabled(not busy and not bool(dependency_error) and (has_device or has_active_device))
         status = getattr(self, "audio_story_cast_status_label", None)
         if status is not None:
-            if dependency_error:
+            if tts_bundle_validation_pending:
+                status.setText("Validating the TTS bundle for Chromecast...")
+            elif dependency_error:
                 status.setText(dependency_error)
             elif busy:
                 status.setText("Chromecast operation running...")
@@ -6926,7 +14913,43 @@ class AudioStoryModeController(QtCore.QObject):
         ):
             self._cast_current_visual_to_chromecast(previous_device_name=previous_active_device)
 
-    def _cast_current_visual_to_chromecast(self, *, previous_device_name: str = ""):
+    def _cast_current_visual_to_chromecast(
+        self,
+        *,
+        previous_device_name: str = "",
+        _bundle_validated: bool = False,
+    ):
+        if (
+            self._playback_mode_value() == "tts"
+            and self._tts_cache_clear_is_in_progress()
+        ):
+            message = "TTS cache clear is in progress."
+            self._set_status(message)
+            status = getattr(self, "audio_story_cast_status_label", None)
+            if status is not None:
+                status.setText(message)
+            return
+        if self._playback_mode_value() == "tts" and not self._tts_cast_ready():
+            message = "TTS is still preparing for Chromecast."
+            self._set_status(message)
+            status = getattr(self, "audio_story_cast_status_label", None)
+            if status is not None:
+                status.setText(message)
+            return
+        if (
+            self._playback_mode_value() == "tts"
+            and not _bundle_validated
+        ):
+            if self._request_tts_bundle_validation_for_cast(
+                previous_device_name=previous_device_name
+            ):
+                return
+            message = "TTS is still preparing for Chromecast."
+            self._set_status(message)
+            status = getattr(self, "audio_story_cast_status_label", None)
+            if status is not None:
+                status.setText(message)
+            return
         device_name = str(self._stored_chromecast_device_name or "").strip()
         previous_device_name = str(previous_device_name or getattr(self, "_active_chromecast_device_name", "") or "").strip()
         audio_path = self._active_audio_story_stream_path()
@@ -7508,15 +15531,33 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _refresh_controls(self):
         multimedia_available = QtMultimedia is not None
+        has_project = bool(self.current_story_project_id)
+        project_busy = bool(
+            self._story_project_busy
+            or self._story_project_pending_autosave is not None
+            or self._story_project_mutating_pipeline_owner is not None
+        )
         has_audio_path = bool(str(self.imported_audio_path or "").strip())
+        has_valid_audio_sources = bool(self.imported_audio_sources) and all(
+            item.valid for item in self.imported_audio_sources
+        )
         has_transcript = bool(self.transcript_chunks)
         mode_value = self._playback_mode_value()
         has_tts_bundle = bool(
             self._tts_bundle
             and str(self._tts_bundle.get("audio_path", "") or "").strip()
-            and Path(str(self._tts_bundle.get("audio_path", "") or "").strip()).exists()
         )
-        can_prepare_media = has_audio_path and has_transcript and (mode_value == "source" or has_tts_bundle)
+        has_tts_plan = bool(
+            self._tts_queue_plan is not None
+            and self._tts_queue_plan.segments
+        )
+        can_prepare_media = bool(
+            has_transcript
+            and (
+                (mode_value == "source" and has_audio_path)
+                or (mode_value == "tts" and (has_tts_plan or has_tts_bundle))
+            )
+        )
         is_rendering_tts = bool(mode_value == "tts" and self._tts_render_in_progress)
 
         state = None
@@ -7536,17 +15577,40 @@ class AudioStoryModeController(QtCore.QObject):
         has_position = self._player_position_seconds() > 0.0
 
         if hasattr(self, "audio_story_import_button"):
-            self.audio_story_import_button.setEnabled(True)
+            self.audio_story_import_button.setEnabled(has_project and not project_busy)
         if hasattr(self, "audio_story_path_edit"):
             self.audio_story_path_edit.setEnabled(True)
+        source_list = getattr(self, "audio_story_source_list", None)
+        has_selected_source = bool(source_list is not None and source_list.selectedItems())
+        for button_name in (
+            "audio_story_source_move_up_button",
+            "audio_story_source_move_down_button",
+            "audio_story_source_remove_button",
+        ):
+            button = getattr(self, button_name, None)
+            if button is not None:
+                button.setEnabled(has_selected_source and not is_playing and not is_paused)
+        clear_button = getattr(self, "audio_story_source_clear_button", None)
+        if clear_button is not None:
+            clear_button.setEnabled(bool(self.imported_audio_paths) and not is_playing and not is_paused)
         if hasattr(self, "audio_story_playback_mode_combo"):
             self.audio_story_playback_mode_combo.setEnabled(has_audio_path)
         if hasattr(self, "audio_story_transcribe_seconds_slider"):
             self.audio_story_transcribe_seconds_slider.setEnabled(has_audio_path and not is_playing and not is_paused)
         if hasattr(self, "audio_story_transcription_start_spin"):
-            self.audio_story_transcription_start_spin.setEnabled(has_audio_path and not is_playing and not is_paused)
+            self.audio_story_transcription_start_spin.setEnabled(
+                has_audio_path
+                and bool(self._stored_selected_range_enabled)
+                and not is_playing
+                and not is_paused
+            )
         if hasattr(self, "audio_story_transcription_end_spin"):
-            self.audio_story_transcription_end_spin.setEnabled(has_audio_path and not is_playing and not is_paused)
+            self.audio_story_transcription_end_spin.setEnabled(
+                has_audio_path
+                and bool(self._stored_selected_range_enabled)
+                and not is_playing
+                and not is_paused
+            )
         if hasattr(self, "audio_story_image_frequency_slider"):
             self.audio_story_image_frequency_slider.setEnabled(has_audio_path and not is_playing and not is_paused)
         if hasattr(self, "audio_story_continuity_slider"):
@@ -7586,16 +15650,42 @@ class AudioStoryModeController(QtCore.QObject):
         if hasattr(self, "audio_story_style_live_checkbox"):
             self.audio_story_style_live_checkbox.setEnabled(True)
         if hasattr(self, "audio_story_transcribe_button"):
-            self.audio_story_transcribe_button.setEnabled(has_audio_path and not is_playing and not is_paused)
+            self.audio_story_transcribe_button.setEnabled(
+                has_project
+                and has_valid_audio_sources
+                and not project_busy
+                and not is_playing
+                and not is_paused
+            )
 
         if hasattr(self, "audio_story_play_button"):
-            self.audio_story_play_button.setEnabled(multimedia_available and has_transcript and not is_rendering_tts)
+            self.audio_story_play_button.setEnabled(
+                multimedia_available
+                and has_transcript
+                and not (
+                    mode_value == "tts" and self._tts_cache_clear_in_progress
+                )
+            )
         if hasattr(self, "audio_story_pause_button"):
             self.audio_story_pause_button.setEnabled(multimedia_available and is_playing)
         if hasattr(self, "audio_story_stop_button"):
-            self.audio_story_stop_button.setEnabled(multimedia_available and (is_playing or is_paused or has_position))
+            self.audio_story_stop_button.setEnabled(
+                multimedia_available
+                and (
+                    is_playing
+                    or is_paused
+                    or has_position
+                    or is_rendering_tts
+                )
+            )
 
-        slider_enabled = multimedia_available and can_prepare_media and not is_rendering_tts
+        slider_enabled = bool(
+            multimedia_available
+            and can_prepare_media
+            and not (
+                mode_value == "tts" and self._tts_cache_clear_in_progress
+            )
+        )
         if hasattr(self, "audio_story_position_slider"):
             self.audio_story_position_slider.setEnabled(slider_enabled)
         if hasattr(self, "audio_story_stream_enabled_checkbox"):
@@ -7608,6 +15698,7 @@ class AudioStoryModeController(QtCore.QObject):
                 self.audio_story_status_label.setText("Qt Multimedia is unavailable in this environment.")
             elif is_rendering_tts:
                 self.audio_story_status_label.setText("Rendering TTS narration for timeline-accurate playback...")
+        self._refresh_tts_buffer_ui()
 
     def _format_seconds(self, total_seconds):
         total_seconds = max(0, int(round(float(total_seconds or 0.0))))

@@ -278,7 +278,7 @@ class BackendPresetBodyRuntimeMixin:
             self._refresh_sensory_feedback_source_tabs()
         if "sensory_feedback_source" in data and hasattr(self, "sensory_feedback_source_combo"):
             source_value = str(data["sensory_feedback_source"] or "off")
-            self.refresh_sensory_feedback_source_options(selected_value=source_value)
+            self.refresh_sensory_feedback_source_options(selected_value=source_value, explicit_selection=True)
             self.on_sensory_feedback_source_changed(source_value)
         if "sensory_feedback_interval_seconds" in data and hasattr(self, "sensory_feedback_interval_spin"):
             interval_seconds = max(2.0, float(data["sensory_feedback_interval_seconds"] or 7.0))

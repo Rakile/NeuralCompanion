@@ -26,6 +26,10 @@ def main() -> None:
         crash_log = runtime_dir / "crash_dumps" / "nc_crash_smoke.log"
         crash_log.write_text("traceback line\nsecret should not matter here\n", encoding="utf-8")
         (runtime_dir / "logs" / "sample.log").write_text("line one\nline two\n", encoding="utf-8")
+        (runtime_dir / "logs" / "tts_addon_latency.jsonl").write_text(
+            '{"event":"tts_playback_start","elapsed_ms":412.5}\n',
+            encoding="utf-8",
+        )
         (runtime_dir / "companion_orb" / "debug" / "companion_orb_debug.log").write_text(
             '{"event":"hidden_ping_attempt","accepted":true}\n',
             encoding="utf-8",
@@ -69,6 +73,7 @@ def main() -> None:
                 "addons.json",
                 "files/latest_crash.log",
                 "files/runtime_logs/sample.log",
+                "files/tts_addon_latency_tail.jsonl",
             }
             missing = sorted(required - names)
             if missing:

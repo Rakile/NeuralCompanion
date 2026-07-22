@@ -4,7 +4,7 @@ from ui.widgets.basic import NoWheelTabWidget
 
 
 from ui.runtime.engine_access import engine_module as _engine
-from core.sensory_source_selection import normalize_companion_orb_target_source_selection
+from core.sensory_source_selection import resolve_companion_orb_target_source_selection
 
 
 def _sensory():
@@ -320,7 +320,7 @@ class BackendSensoryConfigMixin:
         self.emit_tutorial_event("ui_changed", {"field": "sensory_pingpong_prompt_reset", "value": "recommended"})
         self.save_session()
 
-    def refresh_sensory_feedback_source_options(self, selected_value=None):
+    def refresh_sensory_feedback_source_options(self, selected_value=None, *, explicit_selection=False):
         target_provider_id = ""
         tabs = getattr(self, "sensory_feedback_tabs", None)
         if tabs is not None and tabs.count() > 1:
@@ -330,11 +330,14 @@ class BackendSensoryConfigMixin:
                     target_provider_id = str(provider_id or "").strip().lower()
                     break
         source_value = selected_value if selected_value is not None else _engine().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
-        requested = self._parse_sensory_feedback_source_values(source_value)
-        requested = normalize_companion_orb_target_source_selection(
-            requested,
+        requested = resolve_companion_orb_target_source_selection(
+            source_value,
             bool(_engine().RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False)),
+            explicit=explicit_selection,
         )
+        if explicit_selection:
+            orb_enabled = COMPANION_ORB_PROVIDER_ID in set(requested)
+            _engine().update_runtime_config("companion_orb_sensory_target_enabled", orb_enabled)
         if self._sensory_feedback_config_value(requested) != str(_engine().RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"):
             _engine().update_runtime_config("sensory_feedback_source", self._sensory_feedback_config_value(requested))
         entries = []

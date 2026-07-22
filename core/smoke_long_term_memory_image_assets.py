@@ -3,6 +3,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from PIL import Image, PngImagePlugin
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import long_term_memory
@@ -232,6 +234,144 @@ def test_retrieved_chunk_can_be_hydrated_with_linked_visual_assets() -> None:
         assert hydrated[0]["assets"][0]["blob"] == visual_reply.read_bytes()
 
 
+def test_visual_reply_prompt_participates_in_chunk_embedding_text() -> None:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+        root = Path(temp_dir)
+        db_path = root / "memory.sqlite3"
+        visual_reply = _write_bytes(root / "runtime" / "cornfield.png", b"\x89PNG\r\ncornfield")
+
+        turns_without_prompt = long_term_memory.sanitize_history_turns(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Here is the generated scene.",
+                    "visual_reply_image_path": str(visual_reply),
+                }
+            ]
+        )
+        chunk = long_term_memory.archive_history_chunk(
+            turns_without_prompt,
+            source_chat_id="embedding-prompt-test",
+            path=db_path,
+        )
+        assert chunk is not None
+        before = long_term_memory.embedding_text_for_chunk(chunk, path=db_path)
+        before_hash = long_term_memory.text_hash(before)
+        assert "woman in a green jacket" not in before
+        long_term_memory.upsert_embedding(
+            target_kind="chunk",
+            target_id=chunk["id"],
+            model="test-embedding-model@ctx8192",
+            text=before,
+            vector=[0.1, 0.2, 0.3],
+            path=db_path,
+        )
+
+        turns_with_prompt = long_term_memory.sanitize_history_turns(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Here is the generated scene.",
+                    "visual_reply_image_path": str(visual_reply),
+                    "visual_reply_prompt": (
+                        "A man in a red jacket and a woman in a green jacket standing in a cornfield."
+                    ),
+                }
+            ]
+        )
+        assert long_term_memory.ensure_history_chunk_assets(
+            chunk,
+            turns_with_prompt,
+            source_chat_id="embedding-prompt-test",
+            path=db_path,
+        ) == 1
+
+        after = long_term_memory.embedding_text_for_chunk(chunk, path=db_path)
+        assert "Linked image descriptions:" in after
+        assert "A man in a red jacket and a woman in a green jacket standing in a cornfield." in after
+        assert long_term_memory.text_hash(after) != before_hash
+        outdated = long_term_memory.list_embedding_targets(
+            model="test-embedding-model@ctx8192",
+            context_length=8192,
+            include_records=False,
+            only_missing=True,
+            path=db_path,
+        )
+        assert [target["id"] for target in outdated] == [chunk["id"]]
+
+
+def test_visual_reply_prompt_can_be_recovered_from_original_image_comment() -> None:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+        root = Path(temp_dir)
+        db_path = root / "memory.sqlite3"
+        prompt = "A silver lighthouse beneath a violet aurora."
+        png_path = root / "commented.png"
+        png_info = PngImagePlugin.PngInfo()
+        png_info.add_text("Comment", prompt)
+        Image.new("RGB", (8, 8), "navy").save(png_path, pnginfo=png_info)
+
+        turns = long_term_memory.sanitize_history_turns(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Here is the older generated image.",
+                    "visual_reply_image_path": str(png_path),
+                }
+            ]
+        )
+        chunk = long_term_memory.archive_history_chunk(
+            turns,
+            source_chat_id="comment-recovery-test",
+            path=db_path,
+        )
+        assert chunk is not None
+        linked_before = long_term_memory.list_assets_for_target("chunk", chunk["id"], path=db_path, include_blob=False)
+        assert "visual_reply_prompt" not in linked_before[0]["link_metadata"]
+
+        recovered = long_term_memory.backfill_target_visualization_prompts_from_original_paths(
+            "chunk",
+            chunk["id"],
+            path=db_path,
+        )
+        assert recovered == 1
+        linked_after = long_term_memory.list_assets_for_target("chunk", chunk["id"], path=db_path, include_blob=False)
+        assert linked_after[0]["link_metadata"]["visual_reply_prompt"] == prompt
+        assert linked_after[0]["metadata"]["visual_reply_prompt"] == prompt
+        assert prompt in long_term_memory.embedding_text_for_chunk(chunk, path=db_path)
+
+        jpeg_prompt = "A red tram crossing a snowy bridge."
+        jpeg_path = root / "commented.jpg"
+        Image.new("RGB", (8, 8), "white").save(jpeg_path, format="JPEG", comment=jpeg_prompt.encode("utf-8"))
+        assert long_term_memory.visualization_prompt_from_image_comment(jpeg_path) == jpeg_prompt
+
+
+def test_user_attachment_comment_is_not_reclassified_as_visual_reply_prompt() -> None:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+        root = Path(temp_dir)
+        db_path = root / "memory.sqlite3"
+        image_path = root / "user-image.png"
+        png_info = PngImagePlugin.PngInfo()
+        png_info.add_text("Comment", "Untrusted comment from an unrelated image editor.")
+        Image.new("RGB", (8, 8), "black").save(image_path, pnginfo=png_info)
+        turns = long_term_memory.sanitize_history_turns(
+            [{
+                "role": "user",
+                "content": "Look at this image.",
+                "attachment_image_path": str(image_path),
+                "attachment_source": "clipboard",
+            }]
+        )
+        chunk = long_term_memory.archive_history_chunk(turns, source_chat_id="user-comment-test", path=db_path)
+        assert chunk is not None
+
+        recovered = long_term_memory.backfill_target_visualization_prompts_from_original_paths(
+            "chunk", chunk["id"], path=db_path,
+        )
+        assert recovered == 0
+        embedding_text = long_term_memory.embedding_text_for_chunk(chunk, path=db_path)
+        assert "Untrusted comment" not in embedding_text
+
+
 def test_image_recall_query_gate() -> None:
     assert not long_term_memory.query_requests_image_recall("Hello, how are you?")
     assert not long_term_memory.query_requests_image_recall("Tell me what we discussed yesterday.")
@@ -285,6 +425,9 @@ def main() -> int:
         test_assistant_visual_reply_image_field_is_archived()
         test_existing_history_chunk_can_backfill_later_visual_reply_asset()
         test_retrieved_chunk_can_be_hydrated_with_linked_visual_assets()
+        test_visual_reply_prompt_participates_in_chunk_embedding_text()
+        test_visual_reply_prompt_can_be_recovered_from_original_image_comment()
+        test_user_attachment_comment_is_not_reclassified_as_visual_reply_prompt()
         test_image_recall_query_gate()
         test_asset_debug_label_includes_runtime_validation_fields()
         test_text_only_archive_has_no_assets()

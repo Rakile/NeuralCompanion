@@ -11,6 +11,8 @@ def main() -> int:
         "blockSignals(True)",
         "setUpdatesEnabled(False)",
         "item.setToolTip(_bounded_text(",
+        'return {_SESSION_KEY: {_ROLE_VOICES_KEY: dict(settings or {})}}',
+        'source.get(_LEGACY_ROLE_VOICES_KEY, {})',
     ]
     missing = [snippet for snippet in required_snippets if snippet not in source]
     if missing:

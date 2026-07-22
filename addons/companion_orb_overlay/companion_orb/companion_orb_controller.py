@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import ctypes
+from dataclasses import replace
+from datetime import datetime
+from io import BytesIO
 import json
 import math
+import queue
 import random
 import re
 import threading
@@ -18,7 +23,19 @@ except Exception:  # pragma: no cover
 
 from .companion_orb_bridge import CompanionOrbBridge
 from .external_runtime_client import ExternalOrbRuntimeClient
-from . import snapshot_ocr
+from . import (
+    click_target_overlay,
+    eye_tracking,
+    gaze_calibration,
+    gaze_calibration_overlay,
+    gaze_radial_menu,
+    interaction_settings,
+    pointer_clearance,
+    reading_actions,
+    reading_overlay,
+    snapshot_ocr,
+    windows_ui_automation,
+)
 from .sensory_source import COMPANION_ORB_TARGET_METADATA, COMPANION_ORB_TARGET_PINGPONG_PROMPT, PROVIDER_ID
 from .window_target_resolver import refresh_window_target, resolve_target_at, target_bounds
 
@@ -34,6 +51,72 @@ ORB_RESPONSE_STYLES = (
     ("Sensual / non-explicit", "sensual_non_explicit"),
 )
 VALID_ORB_RESPONSE_STYLES = {value for _label, value in ORB_RESPONSE_STYLES}
+ClickTargetFingerprint = tuple[
+    str,
+    str,
+    str,
+    bool,
+    tuple[int, ...],
+    tuple[int, int, int, int],
+    str,
+]
+ClickValidationPending = tuple[
+    int,
+    str,
+    tuple[int, ...],
+    ClickTargetFingerprint,
+    tuple[float, float],
+    int,
+]
+GAZE_RADIAL_VOICE_PAGE_SIZE = 5
+GAZE_CONTEXT_RETRY_INTERVAL_MS = 50
+GAZE_CONTEXT_RETRY_ATTEMPTS = 100
+GAZE_CLICK_VALIDATION_WATCHDOG_MS = 1000
+GAZE_CLICK_CAPTURE_UNLINK_ATTEMPTS = 3
+GAZE_CLICK_CAPTURE_UNLINK_DELAY_SECONDS = 0.01
+GAZE_CLICK_CAPTURE_DEFERRED_RETRY_WINDOW_SECONDS = 45.0
+GAZE_CLICK_CAPTURE_DEFERRED_RETRY_DELAY_SECONDS = 0.5
+GAZE_CLICK_NATIVE_CAPTURE_TIMEOUT_SECONDS = 1.8
+GAZE_CLICK_OCR_TIMEOUT_SECONDS = 4.8
+GAZE_CLICK_CLOAK_ACK_TIMEOUT_SECONDS = 0.35
+GAZE_CLICK_CLOAK_ACK_POLL_MS = 15
+GAZE_CLICK_CAPTURE_SUFFIXES = {".jpg", ".jpeg", ".png"}
+GAZE_READ_TEXT_ACTION = reading_actions.ReadingMenuAction(
+    "gaze_read_text",
+    "Read text",
+    "selection",
+    True,
+    False,
+)
+GAZE_CLICK_VISUAL_ACTIONS = (
+    ("inspect", "Inspect"),
+    ("read", "Read text"),
+    ("read_comment", "Read + comment"),
+    ("comment", "Comment"),
+)
+GAZE_CLICK_VISUAL_READING_ACTIONS = {
+    "read": "select_area_read",
+    "read_comment": "select_area_read_comment",
+    "comment": "select_area_comment",
+}
+EYE_TRACKING_CONTEXT_PROMPTS = {
+    "react": (
+        "React through the Companion Orb to the visible content in this selected screen crop. "
+        "Focus only on what is visible, do not mention how the area was selected, and keep the reply short."
+    ),
+    "describe": (
+        "Describe the visible content in this selected screen crop accurately and concisely. "
+        "Focus only on what is visible and do not mention how the area was selected."
+    ),
+    "explain": (
+        "Explain the visible content in this selected screen crop in a short, useful way. "
+        "Focus on what it means or how it works, and do not mention how the area was selected."
+    ),
+    "summarize": (
+        "Summarize the important visible content in this selected screen crop. "
+        "Be concise, preserve the main point, and do not mention how the area was selected."
+    ),
+}
 POLL_DRAG_THRESHOLD_PX = 8.0
 POINTER_SNAPSHOT_COOLDOWN_SECONDS = 10.0
 DROP_INSPECTION_COOLDOWN_SECONDS = 1.5
@@ -47,6 +130,7 @@ OCR_MAX_BACKGROUND_JOBS = 2
 OCR_BUSY_DEFER_SECONDS = 0.25
 OCR_BUSY_DEFER_ATTEMPTS = 24
 OCR_MAX_REGIONS = 36
+VALID_SMART_DROP_GUIDANCE_MODES = {"off", "fast", "smart"}
 FOCUS_GRID_COLUMNS = 12
 FOCUS_GRID_ROWS = 8
 FULL_SCREEN_CONTEXT_THUMBNAIL_SIZE = (1920, 1440)
@@ -275,9 +359,67 @@ def _no_shadow_window_hint():
     return getattr(QtCore.Qt, "NoDropShadowWindowHint", QtCore.Qt.WindowType(0))
 
 
+def _eye_tracking_calibration_offsets(runtime_config) -> tuple[float, float]:
+    settings = dict(runtime_config or {})
+    offsets: list[float] = []
+    for key in (
+        "companion_orb_eye_tracking_offset_x_px",
+        "companion_orb_eye_tracking_offset_y_px",
+    ):
+        try:
+            value = float(settings.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            value = 0.0
+        offsets.append(max(-400.0, min(400.0, value)))
+    return offsets[0], offsets[1]
+
+
 def _normalize_orb_response_style(value) -> str:
     style = str(value or "").strip().lower()
     return style if style in VALID_ORB_RESPONSE_STYLES else "friendly"
+
+
+def _eye_tracking_context_prompt(action_id: str) -> str:
+    normalized = str(action_id or "react").strip().lower()
+    return EYE_TRACKING_CONTEXT_PROMPTS.get(normalized, EYE_TRACKING_CONTEXT_PROMPTS["react"])
+
+
+def _reading_action_id(action: Any) -> str:
+    raw_id = getattr(action, "id", "") or getattr(action, "action_id", "")
+    return str(raw_id or "").strip()
+
+
+def _reading_action_comment_mode(action: Any) -> str:
+    raw_mode = getattr(action, "comment_mode", "") or _reading_action_id(action)
+    return str(raw_mode or "").strip()
+
+
+def _reading_menu_action_commands() -> tuple[tuple[str, str], ...]:
+    commands: list[tuple[str, str]] = []
+    for action in reading_actions.READING_MENU_ACTIONS:
+        action_id = _reading_action_id(action)
+        label = str(getattr(action, "label", "") or "").strip()
+        if action_id and label:
+            commands.append((action_id, label))
+    return tuple(commands)
+
+
+def _click_target_fingerprint(
+    target: eye_tracking.ClickTarget,
+) -> ClickTargetFingerprint:
+    def normalized(value: object) -> str:
+        return re.sub(r"\s+", " ", str(value or "")).strip()
+
+    left, top, width, height = (int(value) for value in target.bounds)
+    return (
+        normalized(target.label),
+        normalized(target.role),
+        normalized(target.source).casefold(),
+        bool(target.semantic),
+        tuple(int(value) for value in target.runtime_id),
+        (left, top, width, height),
+        normalized(target.kind),
+    )
 
 
 class _OrbCommandProxy(QtCore.QObject):
@@ -296,6 +438,13 @@ class _OrbCommandProxy(QtCore.QObject):
     snapshot_context_requested = QtCore.Signal(dict)
     ocr_result_requested = QtCore.Signal(dict)
     external_event_requested = QtCore.Signal(dict)
+    eye_sample_requested = QtCore.Signal(float, float)
+    eye_validity_requested = QtCore.Signal(bool)
+    eye_click_targets_requested = QtCore.Signal(dict)
+    eye_click_validation_requested = QtCore.Signal(int, str, list, bool, int)
+    eye_status_requested = QtCore.Signal(str, str)
+    eye_react_requested = QtCore.Signal(bool)
+    eye_reaction_result_requested = QtCore.Signal(bool, str)
 
 
 class CompanionOrbController(QtCore.QObject):
@@ -349,6 +498,8 @@ class CompanionOrbController(QtCore.QObject):
         self._active_snapshot_inspection_id = 0
         self._active_drop_trace_id = ""
         self._drop_trace_starts: dict[str, float] = {}
+        self._reading_job_lock = threading.Lock()
+        self._reading_job_active = False
         self._last_harassment_message_at = 0.0
         self._last_drop_ack_at = 0.0
         self._recent_canned_response_templates: dict[str, list[str]] = {}
@@ -364,6 +515,10 @@ class CompanionOrbController(QtCore.QObject):
         self._last_snapshot_image_path = ""
         self._snapshot_cloak_count = 0
         self._snapshot_restore_visible = False
+        self._external_cloak_ack_lock = threading.Lock()
+        self._external_cloak_ack_event = threading.Event()
+        self._external_cloak_ack_expected: bool | None = None
+        self._external_cloak_ack_enabled: bool | None = None
         self._debug_lock = threading.Lock()
         self._snapshot_capture_lock = threading.Lock()
         self._debug_last_timer_enabled: bool | None = None
@@ -374,6 +529,107 @@ class CompanionOrbController(QtCore.QObject):
         self._pending_comment_focus_label = ""
         self._target_info: dict[str, Any] = {}
         self._last_target_warning = ""
+        self._eye_tracking_policy = eye_tracking.GazeFocusPolicy()
+        self._eye_tracking_policy_key: tuple[str, bool, int, int, int, float] | None = None
+        self._blink_gesture_detector = eye_tracking.BlinkGestureDetector()
+        self._blink_click_policy = eye_tracking.BlinkClickPolicy()
+        self._eye_command_policy = eye_tracking.EyeCommandPolicy()
+        self._blink_policy_key: tuple[object, ...] | None = None
+        self._blink_pending_click_point: tuple[float, float] | None = None
+        self._blink_pending_click_timer = QtCore.QTimer(self)
+        self._blink_pending_click_timer.setSingleShot(True)
+        self._blink_pending_click_timer.timeout.connect(self._release_pending_quick_blink)
+        self._eye_tracking_reaction_gate = eye_tracking.GazeReactionGate()
+        self._eye_tracking_gate_key: tuple[int, int] | None = None
+        self._eye_tracking_connection_key: tuple[str, str] | None = None
+        self._eye_tracking_status_code = "off"
+        self._eye_tracking_status_message = "Eye tracking is off."
+        self._eye_tracking_latest_raw_point: tuple[float, float] | None = None
+        self._eye_tracking_latest_raw_at = 0.0
+        self._eye_tracking_latest_point: tuple[float, float] | None = None
+        self._eye_tracking_latest_at = 0.0
+        self._eye_tracking_stable_point: tuple[float, float] | None = None
+        self._eye_tracking_interaction_source_point: tuple[float, float] | None = None
+        self._eye_tracking_interaction_target: QtCore.QPointF | None = None
+        self._eye_tracking_interaction_until = 0.0
+        self._eye_tracking_last_external_target: QtCore.QPointF | None = None
+        self._eye_tracking_last_external_sent_at = 0.0
+        self._eye_tracking_last_timer_active = False
+        self._eye_tracking_last_timer_progress = 0.0
+        self._eye_tracking_last_timer_color = ""
+        self._eye_tracking_last_timer_sent_at = 0.0
+        self._eye_tracking_calibration_overlay: (
+            gaze_calibration_overlay.GazeCalibrationOverlay | None
+        ) = None
+        self._eye_tracking_calibration_active = False
+        self._eye_tracking_calibration_rect: tuple[float, float, float, float] = ()
+        self._eye_tracking_calibration_targets: tuple[tuple[float, float], ...] = ()
+        self._eye_tracking_calibration_target_index = -1
+        self._eye_tracking_calibration_target_started_at = 0.0
+        self._eye_tracking_calibration_samples: list[tuple[float, float]] = []
+        self._eye_tracking_calibration_observed: list[tuple[float, float]] = []
+        self._eye_tracking_calibration_status: dict[str, Any] = {
+            "state": "not_calibrated",
+            "message": "No gaze calibration is saved.",
+            "active": False,
+            "target_index": 0,
+            "target_count": 5,
+            "quality": "",
+            "average_error_px": 0.0,
+            "completed_at": "",
+        }
+        self._eye_tracking_calibration_cache_key: tuple[object, ...] | None = None
+        self._eye_tracking_calibration_cache: (
+            gaze_calibration.CalibrationTransform | None
+        ) = None
+        self._eye_tracking_pointer_clearance = (
+            pointer_clearance.PointerClearancePolicy()
+        )
+        self._eye_tracking_pointer_clearance_state = "clear"
+        self._eye_tracking_pointer_clearance_opacity = 1.0
+        self._external_pointer_clearance_state = "clear"
+        self._external_pointer_clearance_guard: bool | None = None
+        self._gaze_radial_menu: gaze_radial_menu.GazeRadialMenu | None = None
+        self._gaze_radial_menu_open = False
+        self._gaze_radial_anchor = QtCore.QPoint()
+        self._gaze_radial_context_point: tuple[float, float] | None = None
+        self._gaze_radial_context_hwnd = 0
+        self._gaze_radial_scroll_target_point: tuple[float, float] | None = None
+        self._gaze_radial_payloads: dict[str, Any] = {}
+        self._gaze_scroll_active = False
+        self._gaze_scroll_anchor_y = 0.0
+        self._gaze_scroll_target_hwnd = 0
+        self._gaze_scroll_target_point: tuple[float, float] | None = None
+        self._gaze_scroll_policy = eye_tracking.GazeScrollPolicy()
+        self._gaze_click_targets: dict[str, eye_tracking.ClickTarget] = {}
+        self._gaze_click_target_payloads: dict[str, dict[str, Any]] = {}
+        self._gaze_click_visual_targets: list[dict[str, Any]] = []
+        self._gaze_click_visual_page = 0
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index: int | None = None
+        self._gaze_click_target_highlight: click_target_overlay.ClickTargetHighlightOverlay | None = None
+        self._gaze_click_automation_available = False
+        self._gaze_click_automation_timed_out = False
+        self._gaze_click_automation_provider_error = False
+        self._gaze_click_target_page_open = False
+        self._gaze_click_scan_generation = 0
+        self._gaze_click_validation_pending: ClickValidationPending | None = None
+        self._gaze_click_validation_generation = 0
+        self._gaze_click_validation_cloak_active = False
+        self._gaze_click_validation_cloak_token: int | None = None
+        self._gaze_voice_page = 0
+        self._eye_tracking_reaction_lock = threading.Lock()
+        self._eye_tracking_reaction_active = False
+        self._eye_tracking_reaction_generation = 0
+        self._gaze_context_dispatch_generation = 0
+        self._eye_tracking_reaction_lifecycle_key: tuple[str, bool, str, str, int] | None = None
+        self._eye_tracking_reaction_shutting_down = False
+        self._external_gaze_timer_lock = threading.Lock()
+        self._external_gaze_timer_io_lock = threading.Lock()
+        self._external_gaze_timer_pending: dict[str, Any] | None = None
+        self._external_gaze_timer_worker_active = False
+        self._external_gaze_timer_generation = 0
         self._external_runtime: ExternalOrbRuntimeClient | None = None
         self._proxy = _OrbCommandProxy(self)
         self._proxy.state_requested.connect(self._set_ai_state, QtCore.Qt.QueuedConnection)
@@ -391,6 +647,25 @@ class CompanionOrbController(QtCore.QObject):
         self._proxy.snapshot_context_requested.connect(self._remember_snapshot_context, QtCore.Qt.QueuedConnection)
         self._proxy.ocr_result_requested.connect(self._apply_snapshot_ocr_result, QtCore.Qt.QueuedConnection)
         self._proxy.external_event_requested.connect(self._handle_external_runtime_event, QtCore.Qt.QueuedConnection)
+        self._proxy.eye_sample_requested.connect(self._handle_eye_tracking_sample, QtCore.Qt.QueuedConnection)
+        self._proxy.eye_validity_requested.connect(self._handle_eye_tracking_validity, QtCore.Qt.QueuedConnection)
+        self._proxy.eye_click_targets_requested.connect(
+            self._handle_gaze_click_targets_result,
+            QtCore.Qt.QueuedConnection,
+        )
+        self._proxy.eye_click_validation_requested.connect(
+            self._handle_gaze_click_validation_result,
+            QtCore.Qt.QueuedConnection,
+        )
+        self._proxy.eye_status_requested.connect(self._handle_eye_tracking_status, QtCore.Qt.QueuedConnection)
+        self._proxy.eye_react_requested.connect(self._request_eye_tracking_reaction, QtCore.Qt.QueuedConnection)
+        self._proxy.eye_reaction_result_requested.connect(self._handle_eye_tracking_reaction_result, QtCore.Qt.QueuedConnection)
+
+        self._eye_tracking_provider = eye_tracking.TobiiStreamEngineProvider(
+            on_sample=lambda x, y: self._proxy.eye_sample_requested.emit(float(x), float(y)),
+            on_validity=lambda valid: self._proxy.eye_validity_requested.emit(bool(valid)),
+            on_status=lambda code, message: self._proxy.eye_status_requested.emit(str(code), str(message)),
+        )
 
         self._return_home_timer = QtCore.QTimer(self)
         self._return_home_timer.setSingleShot(True)
@@ -641,6 +916,8 @@ class CompanionOrbController(QtCore.QObject):
         self._proxy.snapshot_context_requested.emit(dict(payload or {}))
 
     def _external_runtime_enabled(self) -> bool:
+        if bool(getattr(self, "_eye_tracking_reaction_shutting_down", False)):
+            return False
         if not bool(self._last_runtime_config.get("companion_orb_external_runtime_enabled", True)):
             return False
         if not bool(self._last_runtime_config.get("companion_orb_enabled", False)):
@@ -664,6 +941,45 @@ class CompanionOrbController(QtCore.QObject):
         except Exception as exc:
             self._log(f"Companion Orb external event queue failed: {exc}")
 
+    def _prepare_external_cloak_ack(self, enabled: bool) -> None:
+        expected = bool(enabled)
+        lock = getattr(self, "_external_cloak_ack_lock", None)
+        event = getattr(self, "_external_cloak_ack_event", None)
+        if lock is None or event is None:
+            lock = threading.Lock()
+            event = threading.Event()
+            self._external_cloak_ack_lock = lock
+            self._external_cloak_ack_event = event
+        with lock:
+            self._external_cloak_ack_expected = expected
+            self._external_cloak_ack_enabled = None
+            event.clear()
+
+    def _record_external_cloak_ack(self, enabled: bool) -> None:
+        acknowledged = bool(enabled)
+        lock = getattr(self, "_external_cloak_ack_lock", None)
+        event = getattr(self, "_external_cloak_ack_event", None)
+        if lock is None or event is None:
+            return
+        with lock:
+            if getattr(self, "_external_cloak_ack_expected", None) != acknowledged:
+                return
+            self._external_cloak_ack_enabled = acknowledged
+            event.set()
+
+    def _external_cloak_ack_ready(self, enabled: bool = True) -> bool:
+        expected = bool(enabled)
+        lock = getattr(self, "_external_cloak_ack_lock", None)
+        event = getattr(self, "_external_cloak_ack_event", None)
+        if lock is None or event is None:
+            return False
+        with lock:
+            return bool(
+                event.is_set()
+                and getattr(self, "_external_cloak_ack_expected", None) == expected
+                and getattr(self, "_external_cloak_ack_enabled", None) == expected
+            )
+
     @QtCore.Slot(dict)
     def _handle_external_runtime_event(self, event: dict[str, Any]) -> None:
         payload = dict(event or {})
@@ -678,7 +994,14 @@ class CompanionOrbController(QtCore.QObject):
             self._handle_external_orb_pointer_reached(payload)
         elif event_type == "orb.playful_nudge":
             self._handle_external_orb_playful_nudge(payload)
+        elif event_type == "orb.pointer_clearance_state":
+            self._handle_external_pointer_clearance_state(payload)
         elif event_type in {"orb.ready", "orb.cloak_changed"}:
+            if event_type == "orb.cloak_changed" and isinstance(payload.get("enabled"), bool):
+                CompanionOrbController._record_external_cloak_ack(
+                    self,
+                    bool(payload["enabled"]),
+                )
             self._debug_event("external_runtime_event", event_type=event_type, payload=payload)
 
     def _event_point(self, payload: dict[str, Any], key: str) -> QtCore.QPoint | None:
@@ -734,11 +1057,99 @@ class CompanionOrbController(QtCore.QObject):
         self._debug_event("external_playful_nudge", point=point, payload=payload)
         self._announce_harassment()
 
+    def _handle_external_pointer_clearance_state(
+        self,
+        payload: dict[str, Any],
+    ) -> None:
+        state = str(payload.get("state") or "clear").strip().lower()
+        self._external_pointer_clearance_state = (
+            state if state in {"clear", "avoiding", "timeout"} else "clear"
+        )
+
     def _stop_external_runtime(self) -> None:
+        self._cancel_external_gaze_timer_queue()
+        self._external_pointer_clearance_state = "clear"
+        self._external_pointer_clearance_guard = None
         runtime = self._external_runtime
         self._external_runtime = None
-        if runtime is not None:
-            runtime.stop()
+        if runtime is None:
+            return
+        request_stop = getattr(runtime, "request_stop", None)
+        if callable(request_stop):
+            try:
+                request_stop()
+            except Exception:
+                pass
+
+        def finish_stop() -> None:
+            with self._external_gaze_timer_io_lock:
+                runtime.stop()
+
+        try:
+            threading.Thread(
+                target=finish_stop,
+                daemon=True,
+                name="companion-orb-external-stop",
+            ).start()
+        except Exception:
+            pass
+
+    def _cancel_external_gaze_timer_queue(self) -> None:
+        with self._external_gaze_timer_lock:
+            self._external_gaze_timer_generation += 1
+            self._external_gaze_timer_pending = None
+            self._external_gaze_timer_worker_active = False
+
+    def _queue_external_gaze_timer(self, payload: dict[str, Any]) -> bool:
+        if not self._external_runtime_enabled():
+            return False
+        with self._external_gaze_timer_lock:
+            self._external_gaze_timer_pending = dict(payload or {})
+            generation = self._external_gaze_timer_generation
+            if self._external_gaze_timer_worker_active:
+                return True
+            self._external_gaze_timer_worker_active = True
+        worker = threading.Thread(
+            target=self._drain_external_gaze_timer_queue,
+            args=(generation,),
+            daemon=True,
+            name="companion-orb-gaze-timer-ipc",
+        )
+        try:
+            worker.start()
+        except Exception:
+            with self._external_gaze_timer_lock:
+                if generation == self._external_gaze_timer_generation:
+                    self._external_gaze_timer_pending = None
+                    self._external_gaze_timer_worker_active = False
+            return False
+        return True
+
+    def _drain_external_gaze_timer_queue(self, generation: int) -> None:
+        first_send = True
+        while True:
+            if not first_send:
+                time.sleep(0.05)
+            first_send = False
+            with self._external_gaze_timer_lock:
+                if generation != self._external_gaze_timer_generation:
+                    return
+                payload = self._external_gaze_timer_pending
+                self._external_gaze_timer_pending = None
+                if payload is None:
+                    self._external_gaze_timer_worker_active = False
+                    return
+            with self._external_gaze_timer_io_lock:
+                with self._external_gaze_timer_lock:
+                    if generation != self._external_gaze_timer_generation:
+                        return
+                runtime = self._external_runtime
+                if runtime is None or not self._external_runtime_enabled():
+                    continue
+                try:
+                    runtime.send(payload)
+                except Exception:
+                    continue
 
     def _send_external_runtime(self, payload: dict[str, Any]) -> bool:
         if not self._external_runtime_enabled():
@@ -755,6 +1166,14 @@ class CompanionOrbController(QtCore.QObject):
         self._send_external_runtime({"type": "state", "state": str(self.bridge.aiState or "idle")})
         self._send_external_runtime({"type": "audio_level", "level": float(self.bridge.audioLevel or 0.0)})
         self._send_external_runtime({"type": "mood", "mood": str(self.bridge.moodName or "neutral")})
+        self._send_external_runtime(
+            {
+                "type": "gaze_timer",
+                "active": bool(self.bridge.gazeTimerActive),
+                "progress": float(self.bridge.gazeTimerProgress),
+                "color": str(self.bridge.gazeTimerColor or "#facc15"),
+            }
+        )
         self._send_external_runtime(
             {
                 "type": "modes",
@@ -793,11 +1212,109 @@ class CompanionOrbController(QtCore.QObject):
 
     @QtCore.Slot(dict)
     def apply_runtime_config(self, runtime_config):
+        previous_click_target_enabled = interaction_settings.boolish(
+            self._last_runtime_config.get("companion_orb_eye_tracking_click_target_enabled", False),
+            default=False,
+        )
+        previous_eye_tracking_offsets = _eye_tracking_calibration_offsets(self._last_runtime_config)
+        previous_eye_tracking_calibration = self._last_runtime_config.get(
+            "companion_orb_eye_tracking_calibration",
+            {},
+        )
+        previous_eye_tracking_screen = self._last_runtime_config.get(
+            "companion_orb_eye_tracking_screen_index",
+            -1,
+        )
+        previous_pointer_clearance = (
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_pointer_clearance_enabled",
+                False,
+            ),
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_pointer_clearance_distance_px",
+                160,
+            ),
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_pointer_clearance_timeout_seconds",
+                8,
+            ),
+        )
         previous_include_process_name = bool(self._last_runtime_config.get("companion_orb_include_process_name", True))
         previous_debug_enabled = bool(self._last_runtime_config.get("companion_orb_debug_enabled", False))
         previous_target_mode = str(self._last_runtime_config.get("companion_orb_target_mode", "window") or "window").strip().lower()
-        self._last_runtime_config = dict(runtime_config or {})
+        self._last_runtime_config, migrated_interaction_defaults = interaction_settings.normalize_interaction_settings(
+            dict(runtime_config or {})
+        )
+        calibration_context_changed = (
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_calibration",
+                {},
+            )
+            != previous_eye_tracking_calibration
+            or self._last_runtime_config.get(
+                "companion_orb_eye_tracking_screen_index",
+                -1,
+            )
+            != previous_eye_tracking_screen
+        )
+        if (
+            calibration_context_changed
+            and bool(getattr(self, "_eye_tracking_calibration_active", False))
+        ):
+            cancel_calibration = getattr(
+                self,
+                "cancel_eye_tracking_calibration",
+                None,
+            )
+            if callable(cancel_calibration):
+                cancel_calibration()
+        if calibration_context_changed:
+            invalidate_calibration = getattr(
+                self,
+                "_invalidate_eye_tracking_calibration_cache",
+                None,
+            )
+            if callable(invalidate_calibration):
+                invalidate_calibration()
+            if not bool(getattr(self, "_eye_tracking_calibration_active", False)):
+                self._eye_tracking_calibration_status = {}
+                refresh_calibration = getattr(
+                    self,
+                    "_refresh_eye_tracking_calibration_status_from_config",
+                    None,
+                )
+                if callable(refresh_calibration):
+                    refresh_calibration()
+        pointer_clearance_changed = previous_pointer_clearance != (
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_pointer_clearance_enabled",
+                False,
+            ),
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_pointer_clearance_distance_px",
+                160,
+            ),
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_pointer_clearance_timeout_seconds",
+                8,
+            ),
+        )
+        if pointer_clearance_changed:
+            reset_clearance = getattr(
+                self,
+                "_reset_eye_tracking_pointer_clearance",
+                None,
+            )
+            if callable(reset_clearance):
+                reset_clearance()
+        radial_menu = getattr(self, "_gaze_radial_menu", None)
+        if radial_menu is not None:
+            radial_menu.set_menu_opacity(self._gaze_radial_menu_opacity())
+            radial_menu.set_focus_beam_enabled(self._gaze_radial_focus_beam_enabled())
+        if migrated_interaction_defaults:
+            self._persist_interaction_defaults_migration()
         self.bridge.apply_settings(self._last_runtime_config)
+        self._sync_eye_tracking_provider()
         self._apply_timer_intervals()
         if self._external_runtime_enabled():
             self._send_external_runtime_snapshot()
@@ -820,6 +1337,3801 @@ class CompanionOrbController(QtCore.QObject):
         self._apply_window_settings()
         self._refresh_visibility()
         self._sync_drift_timer()
+        if (
+            _eye_tracking_calibration_offsets(self._last_runtime_config)
+            != previous_eye_tracking_offsets
+            or calibration_context_changed
+        ):
+            self._reapply_eye_tracking_interaction_target()
+        self._refresh_gaze_radial_menu_after_click_target_disable(previous_click_target_enabled)
+
+    def _gaze_click_target_enabled(self) -> bool:
+        return interaction_settings.boolish(
+            self._last_runtime_config.get("companion_orb_eye_tracking_click_target_enabled", False),
+            default=False,
+        )
+
+    def _refresh_gaze_radial_menu_after_click_target_disable(self, previous_enabled: bool) -> None:
+        if (
+            not bool(previous_enabled)
+            or self._gaze_click_target_enabled()
+            or not (self._gaze_click_target_page_open or self._gaze_radial_menu_open)
+        ):
+            return
+        self._gaze_click_scan_generation = int(
+            getattr(self, "_gaze_click_scan_generation", 0)
+        ) + 1
+        CompanionOrbController._cancel_gaze_click_validation(self)
+        self._gaze_click_targets.clear()
+        getattr(self, "_gaze_click_target_payloads", {}).clear()
+        getattr(self, "_gaze_click_visual_targets", []).clear()
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index = None
+        clear_highlight = getattr(self, "_clear_gaze_click_target_highlight", None)
+        if callable(clear_highlight):
+            clear_highlight()
+        self._eye_tracking_interaction_source_point = None
+        self._eye_tracking_interaction_target = None
+        self._eye_tracking_interaction_until = 0.0
+        self._eye_tracking_last_external_target = None
+        self._eye_tracking_last_external_sent_at = 0.0
+        self._send_external_runtime({"type": "interaction_target_clear"})
+        self._gaze_click_target_page_open = False
+        point = self._eye_tracking_latest_point or (
+            self._gaze_radial_anchor.x(),
+            self._gaze_radial_anchor.y(),
+        )
+        self._show_gaze_radial_main_menu(point)
+
+    def _eye_tracking_orb_active(self) -> bool:
+        return bool(self._last_runtime_config.get("companion_orb_enabled", False)) and str(
+            self._last_runtime_config.get("companion_orb_display_mode", "off") or "off"
+        ).strip().lower() != "off"
+
+    def _sync_eye_tracking_provider(self, *, force: bool = False) -> None:
+        CompanionOrbController._sync_blink_policies(self)
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+        )
+        try:
+            dwell_ms = max(300, min(2000, int(self._last_runtime_config.get("companion_orb_eye_tracking_dwell_ms", 700) or 700)))
+        except (TypeError, ValueError):
+            dwell_ms = 700
+        try:
+            long_dwell_ms = max(
+                1000,
+                min(
+                    15000,
+                    int(self._last_runtime_config.get("companion_orb_eye_tracking_long_gaze_ms", 3000) or 3000),
+                ),
+            )
+        except (TypeError, ValueError):
+            long_dwell_ms = 3000
+        long_gaze_enabled = interaction_settings.boolish(
+            self._last_runtime_config.get("companion_orb_eye_tracking_long_gaze_enabled", False),
+            default=False,
+        )
+        try:
+            radius_px = max(24, min(180, int(self._last_runtime_config.get("companion_orb_eye_tracking_radius_px", 60) or 60)))
+        except (TypeError, ValueError):
+            radius_px = 60
+        try:
+            smoothing = max(0.05, min(0.85, float(self._last_runtime_config.get("companion_orb_eye_tracking_smoothing", 0.28) or 0.28)))
+        except (TypeError, ValueError):
+            smoothing = 0.28
+        policy_key = (
+            mode,
+            long_gaze_enabled,
+            dwell_ms,
+            long_dwell_ms,
+            radius_px,
+            round(smoothing, 4),
+        )
+        if policy_key != self._eye_tracking_policy_key:
+            self._eye_tracking_policy = eye_tracking.GazeFocusPolicy(
+                dwell_ms=dwell_ms,
+                long_dwell_ms=long_dwell_ms,
+                radius_px=radius_px,
+                smoothing=smoothing,
+                sample_gap_seconds=0.5,
+            )
+            self._eye_tracking_policy_key = policy_key
+            self._clear_eye_tracking_state(send_external=True)
+
+        try:
+            cooldown = max(
+                10,
+                min(
+                    300,
+                    int(
+                        self._last_runtime_config.get(
+                            "companion_orb_eye_tracking_reaction_cooldown_seconds",
+                            45,
+                        )
+                        or 45
+                    ),
+                ),
+            )
+        except (TypeError, ValueError):
+            cooldown = 45
+        gate_key = (cooldown, 8)
+        if gate_key != self._eye_tracking_gate_key:
+            self._eye_tracking_reaction_gate = eye_tracking.GazeReactionGate(
+                cooldown_seconds=float(cooldown),
+                minimum_signature_distance=8,
+            )
+            self._eye_tracking_gate_key = gate_key
+
+        dll_path = str(self._last_runtime_config.get("companion_orb_eye_tracking_dll_path", "") or "").strip()
+        orb_active = self._eye_tracking_orb_active()
+        reaction_mode = eye_tracking.normalize_reaction_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_reaction_mode", "meaningful")
+        )
+        try:
+            screen_index = int(self._last_runtime_config.get("companion_orb_eye_tracking_screen_index", -1))
+        except (TypeError, ValueError):
+            screen_index = -1
+        reaction_lifecycle_key = (mode, orb_active, reaction_mode, dll_path, screen_index)
+        if reaction_lifecycle_key != self._eye_tracking_reaction_lifecycle_key:
+            with self._eye_tracking_reaction_lock:
+                self._eye_tracking_reaction_generation += 1
+            self._eye_tracking_reaction_lifecycle_key = reaction_lifecycle_key
+        desired_connection = ("on" if mode != "off" and orb_active else "off", dll_path)
+        if mode == "off" or not orb_active:
+            self._eye_tracking_connection_key = desired_connection
+            self._eye_tracking_provider.stop(timeout_seconds=0.0)
+            provider_stopping = bool(self._eye_tracking_provider.is_running)
+            self._clear_eye_tracking_state(send_external=True)
+            if provider_stopping:
+                self._eye_tracking_status_code = "stopping"
+                self._eye_tracking_status_message = "Eye tracking is stopping; no new samples will be used."
+            elif mode == "off":
+                self._eye_tracking_status_code = "off"
+                self._eye_tracking_status_message = "Eye tracking is off."
+            else:
+                self._eye_tracking_status_code = "orb_disabled"
+                self._eye_tracking_status_message = "Enable and show the Companion Orb to start eye tracking."
+            return
+        if not force and desired_connection == self._eye_tracking_connection_key:
+            return
+        self._eye_tracking_connection_key = desired_connection
+        self._eye_tracking_provider.stop(timeout_seconds=0.0)
+        self._clear_eye_tracking_state(send_external=True)
+        QtCore.QTimer.singleShot(
+            0,
+            lambda expected=desired_connection: self._start_eye_tracking_provider_if_current(expected),
+        )
+
+    def _start_eye_tracking_provider_if_current(self, expected_connection: tuple[str, str]) -> None:
+        if expected_connection != self._eye_tracking_connection_key or expected_connection[0] != "on":
+            return
+        if self._eye_tracking_provider.is_running:
+            QtCore.QTimer.singleShot(
+                150,
+                lambda expected=expected_connection: self._start_eye_tracking_provider_if_current(expected),
+            )
+            return
+        self._eye_tracking_provider.start(expected_connection[1])
+
+    def _sync_blink_policies(self) -> None:
+        config = self._last_runtime_config
+        allowed = interaction_settings.boolish(
+            config.get("companion_orb_eye_tracking_blink_click_allowed", True),
+            default=True,
+        )
+
+        def bounded(key: str, default: int, minimum: int, maximum: int) -> int:
+            try:
+                value = int(config.get(key, default) or default)
+            except (TypeError, ValueError):
+                value = default
+            return max(minimum, min(maximum, value))
+
+        minimum_ms = bounded("companion_orb_eye_tracking_blink_min_ms", 80, 40, 300)
+        slow_minimum_ms = bounded("companion_orb_eye_tracking_blink_slow_min_ms", 260, 150, 700)
+        maximum_ms = bounded("companion_orb_eye_tracking_blink_max_ms", 900, 400, 1500)
+        recovery_ms = bounded("companion_orb_eye_tracking_blink_recovery_ms", 80, 30, 300)
+        double_gap_ms = bounded("companion_orb_eye_tracking_blink_double_gap_ms", 1200, 400, 2500)
+        click_cooldown_ms = bounded(
+            "companion_orb_eye_tracking_blink_click_cooldown_ms",
+            450,
+            200,
+            1500,
+        )
+        menu_minimum_ms = bounded(
+            "companion_orb_eye_tracking_menu_blink_min_ms",
+            1000,
+            700,
+            1800,
+        )
+        menu_maximum_ms = bounded(
+            "companion_orb_eye_tracking_menu_blink_max_ms",
+            2000,
+            1200,
+            3000,
+        )
+        triple_gap_ms = bounded(
+            "companion_orb_eye_tracking_triple_blink_gap_ms",
+            450,
+            200,
+            900,
+        )
+        back_cooldown_ms = bounded(
+            "companion_orb_eye_tracking_back_cooldown_ms",
+            1500,
+            500,
+            5000,
+        )
+        scroll_speed = bounded("companion_orb_eye_tracking_scroll_speed", 5, 1, 10)
+        scroll_dead_zone_px = bounded(
+            "companion_orb_eye_tracking_scroll_dead_zone_px",
+            100,
+            40,
+            300,
+        )
+        maximum_ms = max(minimum_ms + 20, maximum_ms)
+        slow_minimum_ms = max(minimum_ms, min(maximum_ms, slow_minimum_ms))
+        menu_minimum_ms = max(slow_minimum_ms + 20, menu_minimum_ms)
+        menu_maximum_ms = max(menu_minimum_ms + 20, menu_maximum_ms)
+        policy_key = (
+            allowed,
+            minimum_ms,
+            slow_minimum_ms,
+            maximum_ms,
+            recovery_ms,
+            double_gap_ms,
+            click_cooldown_ms,
+            menu_minimum_ms,
+            menu_maximum_ms,
+            triple_gap_ms,
+            back_cooldown_ms,
+            scroll_speed,
+            scroll_dead_zone_px,
+        )
+        if policy_key == getattr(self, "_blink_policy_key", None):
+            return
+        self._blink_gesture_detector = eye_tracking.BlinkGestureDetector(
+            minimum_closed_ms=minimum_ms,
+            maximum_closed_ms=max(maximum_ms, menu_maximum_ms),
+            recovery_ms=recovery_ms,
+            stable_before_ms=max(100, recovery_ms),
+        )
+        self._blink_click_policy = eye_tracking.BlinkClickPolicy(
+            slow_blink_minimum_ms=slow_minimum_ms,
+            double_blink_gap_ms=double_gap_ms,
+            click_cooldown_ms=click_cooldown_ms,
+            activation_arm_ms=max(2500, double_gap_ms * 2 + 500),
+        )
+        self._eye_command_policy = eye_tracking.EyeCommandPolicy(
+            fast_blink_maximum_ms=slow_minimum_ms,
+            blink_maximum_ms=maximum_ms,
+            menu_toggle_minimum_ms=menu_minimum_ms,
+            menu_toggle_maximum_ms=menu_maximum_ms,
+            triple_blink_gap_ms=triple_gap_ms,
+            back_cooldown_ms=back_cooldown_ms,
+        )
+        self._gaze_scroll_policy = eye_tracking.GazeScrollPolicy(
+            speed=scroll_speed,
+            dead_zone_px=scroll_dead_zone_px,
+        )
+        pending_timer = getattr(self, "_blink_pending_click_timer", None)
+        if pending_timer is not None:
+            pending_timer.stop()
+        self._blink_pending_click_point = None
+        self._blink_policy_key = policy_key
+
+    @QtCore.Slot(str, str)
+    def _handle_eye_tracking_status(self, code: str, message: str) -> None:
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+        )
+        normalized_code = str(code or "error").strip().lower() or "error"
+        if mode == "off" and normalized_code not in {"stopping", "off"}:
+            return
+        if mode != "off" and not self._eye_tracking_orb_active():
+            if normalized_code == "stopping":
+                self._eye_tracking_status_code = "stopping"
+                self._eye_tracking_status_message = str(message or "").strip() or "Eye tracking is stopping."
+            else:
+                self._eye_tracking_status_code = "orb_disabled"
+                self._eye_tracking_status_message = "Enable and show the Companion Orb to start eye tracking."
+            return
+        self._eye_tracking_status_code = normalized_code
+        self._eye_tracking_status_message = str(message or "").strip() or "Tobii eye-tracker status changed."
+        if normalized_code in {"no_device", "reconnecting", "error", "off"}:
+            if bool(getattr(self, "_eye_tracking_calibration_active", False)):
+                self._finish_eye_tracking_calibration(
+                    restore_saved_status=True,
+                )
+            self._clear_eye_tracking_state(send_external=True)
+
+    def eye_tracking_status(self) -> dict[str, Any]:
+        code = str(self._eye_tracking_status_code or "off")
+        message = str(self._eye_tracking_status_message or "Eye tracking is off.")
+        provider = self._eye_tracking_provider
+        provider_code = str(getattr(provider, "status_code", "") or "").strip().lower()
+        provider_message = str(getattr(provider, "status_message", "") or "").strip()
+        if code in {
+            "off",
+            "orb_disabled",
+            "stopping",
+            "connecting",
+            "reconnecting",
+            "no_dll",
+            "no_device",
+            "error",
+        }:
+            connection_code = code
+            connection_message = message
+        else:
+            connection_code = provider_code or code
+            connection_message = provider_message or message
+        calibration_refresher = getattr(
+            self,
+            "_refresh_eye_tracking_calibration_status_from_config",
+            None,
+        )
+        if callable(calibration_refresher):
+            calibration_refresher()
+        calibration_state = dict(
+            getattr(self, "_eye_tracking_calibration_status", {}) or {}
+        )
+        calibration = {
+            "state": str(
+                calibration_state.get("state") or "not_calibrated"
+            ),
+            "message": str(
+                calibration_state.get("message")
+                or "No gaze calibration is saved."
+            ),
+            "active": bool(calibration_state.get("active", False)),
+            "target_index": int(calibration_state.get("target_index", 0) or 0),
+            "target_count": 5,
+            "quality": str(calibration_state.get("quality") or ""),
+            "average_error_px": float(
+                calibration_state.get("average_error_px", 0.0) or 0.0
+            ),
+            "completed_at": str(calibration_state.get("completed_at") or ""),
+        }
+        clearance_enabled = interaction_settings.boolish(
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_pointer_clearance_enabled",
+                False,
+            ),
+            default=False,
+        )
+        external_enabled = False
+        external_checker = getattr(self, "_external_runtime_enabled", None)
+        if callable(external_checker):
+            try:
+                external_enabled = bool(external_checker())
+            except Exception:
+                external_enabled = False
+        clearance_state = str(
+            getattr(
+                self,
+                (
+                    "_external_pointer_clearance_state"
+                    if external_enabled
+                    else "_eye_tracking_pointer_clearance_state"
+                ),
+                "clear",
+            )
+            or "clear"
+        ).strip().lower()
+        if clearance_state not in {"clear", "avoiding", "timeout"}:
+            clearance_state = "clear"
+        return {
+            "code": code,
+            "message": message,
+            "mode": eye_tracking.normalize_tracking_mode(
+                self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+            ),
+            "connection_code": connection_code,
+            "connection_message": connection_message,
+            "dll_path": str(getattr(provider, "resolved_dll_path", "") or ""),
+            "running": bool(getattr(provider, "is_running", False)),
+            "blink_click_allowed": interaction_settings.boolish(
+                self._last_runtime_config.get("companion_orb_eye_tracking_blink_click_allowed", True),
+                default=True,
+            ),
+            "blink_click_enabled": bool(
+                getattr(getattr(self, "_blink_click_policy", None), "enabled", False)
+            ),
+            "calibration": calibration,
+            "pointer_clearance": {
+                "enabled": bool(clearance_enabled),
+                "state": clearance_state,
+            },
+        }
+
+    def reconnect_eye_tracking(self) -> dict[str, Any]:
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+        )
+        if mode == "off" or not self._eye_tracking_orb_active():
+            self._sync_eye_tracking_provider(force=True)
+            error = "Eye tracking is off." if mode == "off" else "Enable and show the Companion Orb first."
+            return {"ok": False, "error": error, **self.eye_tracking_status()}
+        self._eye_tracking_connection_key = None
+        self._sync_eye_tracking_provider(force=True)
+        return {"ok": True, **self.eye_tracking_status()}
+
+    def _selected_eye_tracking_screen(self):
+        app = QtWidgets.QApplication.instance()
+        screens = list(app.screens() or []) if app is not None else []
+        try:
+            screen_index = int(
+                self._last_runtime_config.get(
+                    "companion_orb_eye_tracking_screen_index",
+                    -1,
+                )
+            )
+        except (TypeError, ValueError):
+            screen_index = -1
+        screen = screens[screen_index] if 0 <= screen_index < len(screens) else None
+        return screen or QtWidgets.QApplication.primaryScreen()
+
+    def _eye_tracking_display_descriptor(self) -> gaze_calibration.DisplayDescriptor:
+        screen = self._selected_eye_tracking_screen()
+        if screen is None:
+            left, top, width, height = self._eye_tracking_screen_bounds()
+            return gaze_calibration.DisplayDescriptor(
+                identity=f"display:{int(left)}:{int(top)}:{int(width)}:{int(height)}",
+                geometry=(int(left), int(top), int(width), int(height)),
+                physical_size_mm=(0.0, 0.0),
+            )
+        geometry = screen.geometry()
+        identity_parts: list[str] = []
+        for attribute_name in ("name", "manufacturer", "model", "serialNumber"):
+            value = getattr(screen, attribute_name, "")
+            try:
+                value = value() if callable(value) else value
+            except Exception:
+                value = ""
+            text = str(value or "").strip()
+            if text:
+                identity_parts.append(text)
+        identity = "|".join(identity_parts) or (
+            f"display:{geometry.x()}:{geometry.y()}:{geometry.width()}:{geometry.height()}"
+        )
+        physical_size = screen.physicalSize()
+        return gaze_calibration.DisplayDescriptor(
+            identity=identity,
+            geometry=(
+                int(geometry.x()),
+                int(geometry.y()),
+                int(geometry.width()),
+                int(geometry.height()),
+            ),
+            physical_size_mm=(
+                float(physical_size.width()),
+                float(physical_size.height()),
+            ),
+        )
+
+    def _active_eye_tracking_calibration(
+        self,
+    ) -> gaze_calibration.CalibrationTransform | None:
+        payload = self._last_runtime_config.get(
+            "companion_orb_eye_tracking_calibration",
+            {},
+        )
+        try:
+            display = self._eye_tracking_display_descriptor()
+        except Exception:
+            return None
+        cache_key = (
+            id(payload),
+            str(display.identity),
+            tuple(display.geometry),
+        )
+        if cache_key == getattr(
+            self,
+            "_eye_tracking_calibration_cache_key",
+            None,
+        ):
+            return getattr(self, "_eye_tracking_calibration_cache", None)
+        transform = gaze_calibration.calibration_from_payload(
+            payload,
+            display=display,
+        )
+        self._eye_tracking_calibration_cache_key = cache_key
+        self._eye_tracking_calibration_cache = transform
+        return transform
+
+    def _invalidate_eye_tracking_calibration_cache(self) -> None:
+        self._eye_tracking_calibration_cache_key = None
+        self._eye_tracking_calibration_cache = None
+
+    def _calibrate_eye_tracking_point(
+        self,
+        point,
+    ) -> tuple[float, float]:
+        try:
+            mapped = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            return 0.0, 0.0
+        transform = self._active_eye_tracking_calibration()
+        return transform.apply(mapped) if transform is not None else mapped
+
+    def _refresh_eye_tracking_calibration_status_from_config(self) -> None:
+        if bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            return
+        current_status = dict(
+            getattr(self, "_eye_tracking_calibration_status", {}) or {}
+        )
+        if str(current_status.get("state") or "").strip().lower() == "error":
+            return
+        payload = self._last_runtime_config.get(
+            "companion_orb_eye_tracking_calibration",
+            {},
+        )
+        transform = self._active_eye_tracking_calibration()
+        if transform is not None:
+            self._eye_tracking_calibration_status = {
+                "state": "calibrated",
+                "message": f"{transform.quality} gaze calibration is active.",
+                "active": False,
+                "target_index": 0,
+                "target_count": 5,
+                "quality": str(transform.quality),
+                "average_error_px": round(float(transform.median_error_px), 1),
+                "completed_at": str(transform.completed_at),
+            }
+        elif isinstance(payload, dict) and payload:
+            self._eye_tracking_calibration_status = {
+                "state": "recalibration_required",
+                "message": "The saved gaze calibration does not match the selected display.",
+                "active": False,
+                "target_index": 0,
+                "target_count": 5,
+                "quality": "",
+                "average_error_px": 0.0,
+                "completed_at": "",
+            }
+        else:
+            self._eye_tracking_calibration_status = {
+                "state": "not_calibrated",
+                "message": "No gaze calibration is saved.",
+                "active": False,
+                "target_index": 0,
+                "target_count": 5,
+                "quality": "",
+                "average_error_px": 0.0,
+                "completed_at": "",
+            }
+
+    def _ensure_eye_tracking_calibration_overlay(
+        self,
+    ) -> gaze_calibration_overlay.GazeCalibrationOverlay:
+        overlay = getattr(self, "_eye_tracking_calibration_overlay", None)
+        if overlay is None:
+            overlay = gaze_calibration_overlay.GazeCalibrationOverlay()
+            overlay.target_elapsed.connect(
+                self._complete_eye_tracking_calibration_target,
+                QtCore.Qt.QueuedConnection,
+            )
+            overlay.cancel_requested.connect(
+                self.cancel_eye_tracking_calibration,
+                QtCore.Qt.QueuedConnection,
+            )
+            self._eye_tracking_calibration_overlay = overlay
+        return overlay
+
+    def start_eye_tracking_calibration(self) -> dict[str, Any]:
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_mode",
+                "dwell",
+            )
+        )
+        if mode == "off":
+            return {"ok": False, "error": "Eye tracking is off."}
+        if not self._eye_tracking_orb_active():
+            return {
+                "ok": False,
+                "error": "Enable and show the Companion Orb before calibration.",
+            }
+        if bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            return {
+                "ok": False,
+                "error": "Gaze calibration is already running.",
+            }
+        provider = getattr(self, "_eye_tracking_provider", None)
+        connection_codes = {
+            str(getattr(self, "_eye_tracking_status_code", "") or "").strip().lower(),
+            str(getattr(provider, "status_code", "") or "").strip().lower(),
+        }
+        now = time.monotonic()
+        latest_raw = getattr(self, "_eye_tracking_latest_raw_point", None)
+        latest_raw_at = float(getattr(self, "_eye_tracking_latest_raw_at", 0.0) or 0.0)
+        if latest_raw is None or now - latest_raw_at > 2.5:
+            if "connected" not in connection_codes or not bool(
+                getattr(provider, "is_running", False)
+            ):
+                return {
+                    "ok": False,
+                    "error": "The Tobii eye stream is not connected.",
+                }
+            return {
+                "ok": False,
+                "error": "Look at the selected display until a current gaze sample is available.",
+            }
+        try:
+            display = self._eye_tracking_display_descriptor()
+            calibration_rect = gaze_calibration.supported_calibration_rect(
+                display.geometry,
+                display.physical_size_mm,
+            )
+            targets = gaze_calibration.calibration_target_points(calibration_rect)
+            overlay = self._ensure_eye_tracking_calibration_overlay()
+            radial_menu = getattr(self, "_gaze_radial_menu", None)
+            if radial_menu is not None and radial_menu.isVisible():
+                self._dismiss_gaze_radial_menu()
+            self._eye_tracking_policy.reset()
+            self._eye_tracking_interaction_target = None
+            self._eye_tracking_interaction_until = 0.0
+            self._eye_tracking_last_external_target = None
+            self._eye_tracking_last_external_sent_at = 0.0
+            self._send_external_runtime({"type": "interaction_target_clear"})
+            guard = getattr(self, "_sync_external_pointer_clearance_guard", None)
+            if callable(guard):
+                guard(True)
+            self._eye_tracking_calibration_active = True
+            self._eye_tracking_calibration_rect = tuple(calibration_rect)
+            self._eye_tracking_calibration_targets = tuple(targets)
+            self._eye_tracking_calibration_target_index = 0
+            self._eye_tracking_calibration_target_started_at = now
+            self._eye_tracking_calibration_samples = []
+            self._eye_tracking_calibration_observed = []
+            self._eye_tracking_calibration_status = {
+                "state": "calibrating",
+                "message": "Hold your gaze on target 1 of 5.",
+                "active": True,
+                "target_index": 1,
+                "target_count": 5,
+                "quality": "",
+                "average_error_px": 0.0,
+                "completed_at": "",
+            }
+            overlay.begin(
+                screen_geometry=display.geometry,
+                calibration_rect=calibration_rect,
+                targets=targets,
+                theme_color=str(self.bridge.primaryColor or "#22d3ee"),
+            )
+        except Exception as exc:
+            try:
+                self._finish_eye_tracking_calibration(
+                    restore_saved_status=False,
+                )
+            except Exception:
+                self._eye_tracking_calibration_active = False
+            self._eye_tracking_calibration_status = {
+                "state": "error",
+                "message": str(exc) or "Gaze calibration could not start.",
+                "active": False,
+                "target_index": 0,
+                "target_count": 5,
+                "quality": "",
+                "average_error_px": 0.0,
+                "completed_at": "",
+            }
+            return {
+                "ok": False,
+                "error": self._eye_tracking_calibration_status["message"],
+            }
+        return {
+            "ok": True,
+            "calibration": dict(self._eye_tracking_calibration_status),
+        }
+
+    def _finish_eye_tracking_calibration(
+        self,
+        *,
+        restore_saved_status: bool,
+    ) -> None:
+        overlay = getattr(self, "_eye_tracking_calibration_overlay", None)
+        if overlay is not None:
+            overlay.finish()
+        self._eye_tracking_calibration_active = False
+        self._eye_tracking_calibration_rect = ()
+        self._eye_tracking_calibration_targets = ()
+        self._eye_tracking_calibration_target_index = -1
+        self._eye_tracking_calibration_target_started_at = 0.0
+        self._eye_tracking_calibration_samples = []
+        self._eye_tracking_calibration_observed = []
+        guard = getattr(self, "_sync_external_pointer_clearance_guard", None)
+        if callable(guard):
+            guard(False)
+        if restore_saved_status:
+            self._refresh_eye_tracking_calibration_status_from_config()
+        sync_drift = getattr(self, "_sync_drift_timer", None)
+        if callable(sync_drift):
+            sync_drift()
+
+    def cancel_eye_tracking_calibration(self) -> dict[str, Any]:
+        if not bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            return {"ok": False, "error": "Gaze calibration is not running."}
+        self._finish_eye_tracking_calibration(restore_saved_status=True)
+        return {
+            "ok": True,
+            "calibration": dict(self._eye_tracking_calibration_status),
+        }
+
+    def reset_eye_tracking_calibration(self) -> dict[str, Any]:
+        if bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            self._finish_eye_tracking_calibration(restore_saved_status=False)
+        self._last_runtime_config["companion_orb_eye_tracking_calibration"] = {}
+        invalidate_calibration = getattr(
+            self,
+            "_invalidate_eye_tracking_calibration_cache",
+            None,
+        )
+        if callable(invalidate_calibration):
+            invalidate_calibration()
+        self._save_runtime_setting("companion_orb_eye_tracking_calibration", {})
+        policy = getattr(self, "_eye_tracking_policy", None)
+        if policy is not None:
+            policy.reset()
+        self._eye_tracking_calibration_status = {
+            "state": "not_calibrated",
+            "message": "No gaze calibration is saved.",
+            "active": False,
+            "target_index": 0,
+            "target_count": 5,
+            "quality": "",
+            "average_error_px": 0.0,
+            "completed_at": "",
+        }
+        self._reapply_eye_tracking_interaction_target()
+        return {
+            "ok": True,
+            "calibration": dict(self._eye_tracking_calibration_status),
+        }
+
+    def _collect_eye_tracking_calibration_sample(
+        self,
+        point,
+        *,
+        now: float,
+    ) -> None:
+        if not bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            return
+        started_at = float(
+            getattr(self, "_eye_tracking_calibration_target_started_at", 0.0)
+            or 0.0
+        )
+        if float(now) - started_at < gaze_calibration_overlay.SETTLING_DURATION_SECONDS:
+            return
+        try:
+            sample = float(point[0]), float(point[1])
+            left, top, width, height = self._eye_tracking_screen_bounds()
+        except (TypeError, ValueError, IndexError):
+            return
+        if not all(math.isfinite(value) for value in sample):
+            return
+        if not (
+            left <= sample[0] <= left + width
+            and top <= sample[1] <= top + height
+        ):
+            return
+        self._eye_tracking_calibration_samples.append(sample)
+
+    @QtCore.Slot(int)
+    def _complete_eye_tracking_calibration_target(self, target_index: int) -> None:
+        if not bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            return
+        current_index = int(
+            getattr(self, "_eye_tracking_calibration_target_index", -1)
+        )
+        if int(target_index) != current_index:
+            return
+        reduction = gaze_calibration.reduce_target_samples(
+            tuple(self._eye_tracking_calibration_samples)
+        )
+        calibration_rect = tuple(self._eye_tracking_calibration_rect)
+        dispersion_limit = (
+            max(18.0, min(80.0, min(calibration_rect[2], calibration_rect[3]) * 0.04))
+            if len(calibration_rect) == 4
+            else 18.0
+        )
+        overlay = getattr(self, "_eye_tracking_calibration_overlay", None)
+        if reduction is None or reduction.dispersion_px > dispersion_limit:
+            self._eye_tracking_calibration_samples = []
+            self._eye_tracking_calibration_target_started_at = time.monotonic()
+            self._eye_tracking_calibration_status["message"] = "Hold gaze steady."
+            if overlay is not None:
+                overlay.restart_target("Hold gaze steady")
+            return
+
+        self._eye_tracking_calibration_observed.append(reduction.point)
+        next_index = current_index + 1
+        if next_index < len(self._eye_tracking_calibration_targets):
+            self._eye_tracking_calibration_target_index = next_index
+            self._eye_tracking_calibration_target_started_at = time.monotonic()
+            self._eye_tracking_calibration_samples = []
+            self._eye_tracking_calibration_status.update(
+                {
+                    "state": "calibrating",
+                    "message": f"Hold your gaze on target {next_index + 1} of 5.",
+                    "active": True,
+                    "target_index": next_index + 1,
+                }
+            )
+            if overlay is not None:
+                overlay.show_target(next_index)
+            return
+
+        result = gaze_calibration.solve_calibration(
+            observed_points=tuple(self._eye_tracking_calibration_observed),
+            target_points=tuple(self._eye_tracking_calibration_targets),
+            display=self._eye_tracking_display_descriptor(),
+            calibration_rect=calibration_rect,
+            completed_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        )
+        if not result.accepted or result.transform is None:
+            self._eye_tracking_calibration_status = {
+                "state": "error",
+                "message": str(result.message),
+                "active": False,
+                "target_index": 0,
+                "target_count": 5,
+                "quality": "",
+                "average_error_px": 0.0,
+                "completed_at": "",
+            }
+            self._finish_eye_tracking_calibration(restore_saved_status=False)
+            return
+
+        payload = result.transform.to_payload()
+        self._last_runtime_config["companion_orb_eye_tracking_calibration"] = payload
+        self._invalidate_eye_tracking_calibration_cache()
+        self._save_runtime_setting(
+            "companion_orb_eye_tracking_calibration",
+            payload,
+        )
+        self._eye_tracking_calibration_status = {
+            "state": "calibrated",
+            "message": str(result.message),
+            "active": False,
+            "target_index": 0,
+            "target_count": 5,
+            "quality": str(result.quality),
+            "average_error_px": round(
+                float(result.transform.median_error_px),
+                1,
+            ),
+            "completed_at": str(result.transform.completed_at),
+        }
+        self._finish_eye_tracking_calibration(restore_saved_status=False)
+        self._eye_tracking_policy.reset()
+        latest_raw = getattr(self, "_eye_tracking_latest_raw_point", None)
+        if latest_raw is not None:
+            corrected = self._calibrate_eye_tracking_point(latest_raw)
+            self._eye_tracking_latest_point = corrected
+            self._eye_tracking_latest_at = time.monotonic()
+            self._eye_tracking_stable_point = corrected
+            self._eye_tracking_interaction_source_point = corrected
+        self._reapply_eye_tracking_interaction_target()
+
+    def _eye_tracking_screen_bounds(self) -> tuple[float, float, float, float]:
+        screen = self._selected_eye_tracking_screen()
+        geometry = screen.geometry() if screen is not None else QtCore.QRect(0, 0, 1280, 720)
+        return float(geometry.x()), float(geometry.y()), float(geometry.width()), float(geometry.height())
+
+    def _eye_tracking_pointer_clearance_enabled(self) -> bool:
+        return interaction_settings.boolish(
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_pointer_clearance_enabled",
+                False,
+            ),
+            default=False,
+        )
+
+    def _eye_tracking_pointer_clearance_distance(self) -> float:
+        try:
+            value = float(
+                self._last_runtime_config.get(
+                    "companion_orb_eye_tracking_pointer_clearance_distance_px",
+                    160,
+                )
+                or 160
+            )
+        except (TypeError, ValueError):
+            value = 160.0
+        return max(40.0, min(400.0, value))
+
+    def _eye_tracking_pointer_clearance_timeout(self) -> float:
+        try:
+            value = float(
+                self._last_runtime_config.get(
+                    "companion_orb_eye_tracking_pointer_clearance_timeout_seconds",
+                    8,
+                )
+                or 8
+            )
+        except (TypeError, ValueError):
+            value = 8.0
+        return max(1.0, min(30.0, value))
+
+    def _eye_tracking_pointer_clearance_suspended(self) -> bool:
+        radial_menu = getattr(self, "_gaze_radial_menu", None)
+        try:
+            radial_visible = bool(
+                radial_menu is not None and radial_menu.isVisible()
+            )
+        except RuntimeError:
+            radial_visible = False
+        bridge = getattr(self, "bridge", None)
+        return bool(
+            getattr(self, "_eye_tracking_calibration_active", False)
+            or getattr(bridge, "editMode", False)
+            or getattr(bridge, "placementMode", False)
+            or getattr(self, "_menu_open", False)
+            or getattr(self, "_gaze_radial_menu_open", False)
+            or radial_visible
+            or getattr(self, "_gaze_click_target_page_open", False)
+            or getattr(self, "_gaze_click_visual_page_open", False)
+            or getattr(self, "_gaze_click_visual_action_menu_open", False)
+            or getattr(self, "_gaze_click_validation_pending", None) is not None
+            or getattr(self, "_drag_offset", None) is not None
+            or getattr(self, "_poll_drag_active", False)
+            or getattr(self, "_eye_tracking_reaction_active", False)
+            or int(getattr(self, "_snapshot_cloak_count", 0) or 0) > 0
+            or not self._eye_tracking_orb_active()
+        )
+
+    def _set_pointer_clearance_state(self, state: str) -> None:
+        normalized = str(state or "clear").strip().lower()
+        if normalized not in {"clear", "avoiding", "timeout"}:
+            normalized = "clear"
+        self._eye_tracking_pointer_clearance_state = normalized
+
+    def _reset_eye_tracking_pointer_clearance(self) -> None:
+        policy = getattr(self, "_eye_tracking_pointer_clearance", None)
+        if policy is not None:
+            policy.reset()
+        self._eye_tracking_pointer_clearance_opacity = 1.0
+        self._set_pointer_clearance_state("clear")
+
+    def _apply_eye_tracking_pointer_clearance(
+        self,
+        normal_target: QtCore.QPointF,
+        *,
+        current_top_left: QtCore.QPointF,
+        now: float,
+    ) -> QtCore.QPointF:
+        policy = getattr(self, "_eye_tracking_pointer_clearance", None)
+        if policy is None:
+            policy = pointer_clearance.PointerClearancePolicy()
+            self._eye_tracking_pointer_clearance = policy
+        cursor = QtGui.QCursor.pos()
+        decision = policy.update(
+            normal_target=(float(normal_target.x()), float(normal_target.y())),
+            current_top_left=(
+                float(current_top_left.x()),
+                float(current_top_left.y()),
+            ),
+            pointer=(
+                float(cursor.x()),
+                float(cursor.y()),
+            ),
+            screen_bounds=self._eye_tracking_screen_bounds(),
+            orb_size=float(self._window_size()),
+            move_distance_px=self._eye_tracking_pointer_clearance_distance(),
+            timeout_seconds=self._eye_tracking_pointer_clearance_timeout(),
+            now=float(now),
+            enabled=self._eye_tracking_pointer_clearance_enabled(),
+            suspended=self._eye_tracking_pointer_clearance_suspended(),
+        )
+        self._eye_tracking_pointer_clearance_opacity = float(decision.opacity)
+        self._set_pointer_clearance_state(decision.state)
+        return QtCore.QPointF(float(decision.target[0]), float(decision.target[1]))
+
+    def _sync_external_pointer_clearance_guard(
+        self,
+        suspended: bool | None = None,
+    ) -> None:
+        guarded = (
+            self._eye_tracking_pointer_clearance_suspended()
+            if suspended is None
+            else bool(suspended)
+        )
+        if getattr(self, "_external_pointer_clearance_guard", None) is guarded:
+            return
+        self._external_pointer_clearance_guard = guarded
+        self._send_external_runtime(
+            {
+                "type": "pointer_clearance_guard",
+                "suspended": guarded,
+            }
+        )
+
+    @QtCore.Slot(bool)
+    def _handle_eye_tracking_validity(self, valid: bool) -> None:
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+        )
+        allowed = interaction_settings.boolish(
+            self._last_runtime_config.get("companion_orb_eye_tracking_blink_click_allowed", True),
+            default=True,
+        )
+        detector = self._blink_gesture_detector
+        policy = self._blink_click_policy
+        if bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            detector.reset()
+            policy.reset()
+            self._eye_command_policy.reset()
+            self._blink_pending_click_timer.stop()
+            self._blink_pending_click_point = None
+            return
+        if mode == "off" or not self._eye_tracking_orb_active() or not allowed:
+            detector.reset()
+            policy.reset()
+            self._eye_command_policy.reset()
+            self._blink_pending_click_timer.stop()
+            self._blink_pending_click_point = None
+            return
+        now = time.monotonic()
+        detector.ingest_validity(bool(valid), now=now)
+        if bool(valid):
+            return
+        radial_menu = getattr(self, "_gaze_radial_menu", None)
+        if (
+            radial_menu is not None
+            and radial_menu.isVisible()
+            and bool(radial_menu.selection_candidate_id)
+        ):
+            policy.arm_activation(now=now)
+            radial_menu.reset_gaze_selection()
+            self._set_gaze_timer_state(False, 0.0)
+
+    @QtCore.Slot(float, float)
+    def _handle_eye_tracking_sample(self, normalized_x: float, normalized_y: float) -> None:
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+        )
+        if mode == "off" or not self._eye_tracking_orb_active():
+            return
+        mapped = eye_tracking.map_normalized_point(
+            (float(normalized_x), float(normalized_y)),
+            self._eye_tracking_screen_bounds(),
+        )
+        now = time.monotonic()
+        self._eye_tracking_latest_raw_point = mapped
+        self._eye_tracking_latest_raw_at = now
+        if bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            collector = getattr(
+                self,
+                "_collect_eye_tracking_calibration_sample",
+                None,
+            )
+            if callable(collector):
+                collector(mapped, now=now)
+            return
+        calibrator = getattr(self, "_calibrate_eye_tracking_point", None)
+        if callable(calibrator):
+            mapped = calibrator(mapped)
+        radial_menu = getattr(self, "_gaze_radial_menu", None)
+        blink_detector = getattr(self, "_blink_gesture_detector", None)
+        gesture = blink_detector.ingest_valid_sample(now=now) if blink_detector is not None else None
+        if gesture is not None:
+            self._handle_blink_gesture(gesture, mapped, now=now)
+            radial_menu = getattr(self, "_gaze_radial_menu", None)
+        radial_visible = radial_menu is not None and radial_menu.isVisible()
+        if bool(getattr(self, "_gaze_scroll_active", False)) and not radial_visible:
+            wheel_delta = self._gaze_scroll_policy.ingest(
+                mapped[1],
+                anchor_y=self._gaze_scroll_anchor_y,
+                now=now,
+            )
+            if wheel_delta and not self._perform_gaze_scroll(
+                self._gaze_scroll_target_hwnd,
+                wheel_delta,
+                self._gaze_scroll_target_point or mapped,
+            ):
+                self._eye_tracking_status_message = (
+                    "Gaze scrolling stopped because the target window is unavailable."
+                )
+                self._stop_gaze_scrolling()
+                self._play_blink_notification(False)
+                return
+        if radial_menu is not None and radial_menu.isVisible():
+            if mode not in {"continuous", "dwell"}:
+                radial_menu.cancel()
+                self._set_gaze_timer_state(False, 0.0)
+            else:
+                radial_menu.feed_gaze(
+                    QtCore.QPointF(mapped[0], mapped[1]),
+                    now=now,
+                )
+                if radial_menu.isVisible():
+                    self._set_gaze_timer_state(
+                        bool(radial_menu.selection_candidate_id),
+                        radial_menu.selection_progress,
+                    )
+                else:
+                    self._set_gaze_timer_state(False, 0.0)
+                return
+        decision = self._eye_tracking_policy.ingest(mapped[0], mapped[1], now=now)
+        self._eye_tracking_latest_point = decision.point
+        self._eye_tracking_latest_at = now
+        if decision.stable:
+            self._eye_tracking_stable_point = decision.point
+        elif mode != "continuous":
+            self._eye_tracking_stable_point = None
+        if mode in {"continuous", "dwell"}:
+            target_hold_seconds = 2.0 if mode == "dwell" else 0.75
+            self._set_eye_tracking_interaction_target(
+                decision.point,
+                duration_seconds=target_hold_seconds,
+            )
+        long_gaze_enabled = interaction_settings.boolish(
+            self._last_runtime_config.get("companion_orb_eye_tracking_long_gaze_enabled", False),
+            default=False,
+        )
+        try:
+            dwell_ms = max(
+                300,
+                min(2000, int(self._last_runtime_config.get("companion_orb_eye_tracking_dwell_ms", 700) or 700)),
+            )
+        except (TypeError, ValueError):
+            dwell_ms = 700
+        try:
+            long_dwell_ms = max(
+                1000,
+                min(
+                    15000,
+                    int(self._last_runtime_config.get("companion_orb_eye_tracking_long_gaze_ms", 3000) or 3000),
+                ),
+            )
+        except (TypeError, ValueError):
+            long_dwell_ms = 3000
+        timer_progress = eye_tracking.gaze_timer_visual_progress(
+            hold_seconds=decision.hold_seconds,
+            dwell_ms=dwell_ms,
+            long_dwell_ms=long_dwell_ms,
+            long_gaze_enabled=long_gaze_enabled,
+        )
+        timer_active = mode in {"continuous", "dwell"} and (
+            long_gaze_enabled
+            or (not long_gaze_enabled and (not decision.stable or decision.dwell_triggered))
+        )
+        timer_setter = getattr(self, "_set_gaze_timer_state", None)
+        if callable(timer_setter):
+            timer_setter(timer_active, timer_progress)
+        if (
+            mode in {"continuous", "dwell"}
+            and long_gaze_enabled
+            and decision.long_dwell_triggered
+        ):
+            self._set_eye_tracking_interaction_target(
+                decision.point,
+                duration_seconds=12.0,
+                force_external_send=True,
+            )
+            opened = self._show_gaze_radial_main_menu(decision.point)
+            if opened is False and callable(timer_setter):
+                timer_setter(False, 0.0)
+            return
+        reaction_mode = eye_tracking.normalize_reaction_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_reaction_mode", "meaningful")
+        )
+        if mode in {"dwell", "continuous"} and decision.dwell_triggered and reaction_mode != "off":
+            self._request_eye_tracking_reaction(False)
+
+    def _handle_blink_gesture(
+        self,
+        gesture: eye_tracking.BlinkGesture,
+        point: tuple[float, float],
+        *,
+        now: float,
+    ) -> None:
+        if not interaction_settings.boolish(
+            self._last_runtime_config.get("companion_orb_eye_tracking_blink_click_allowed", True),
+            default=True,
+        ):
+            return
+        radial_menu = getattr(self, "_gaze_radial_menu", None)
+        menu_visible = bool(
+            getattr(self, "_gaze_radial_menu_open", False)
+            or (radial_menu is not None and radial_menu.isVisible())
+        )
+        command = self._eye_command_policy.ingest_blink(
+            gesture,
+            now=now,
+            menu_visible=menu_visible,
+        )
+        if command.action == "long_gaze_toggle":
+            self._blink_pending_click_timer.stop()
+            self._blink_pending_click_point = None
+            self._play_blink_notification(self._toggle_long_gaze_radial_menu())
+            return
+        if command.action == "browser_back":
+            self._blink_pending_click_timer.stop()
+            self._blink_pending_click_point = None
+            self._play_blink_notification(self._perform_browser_back())
+            return
+        if command.action == "quick_pending":
+            self._blink_pending_click_point = self._blink_click_point(point)
+            deadline = self._eye_command_policy.pending_quick_deadline
+            delay_ms = 1 if deadline is None else max(1, int(math.ceil((deadline - now) * 1000.0)))
+            self._blink_pending_click_timer.start(delay_ms)
+            return
+        if command.action != "passthrough":
+            return
+        decision = self._blink_click_policy.ingest_blink(
+            gesture.closed_ms,
+            now=now,
+            menu_visible=menu_visible,
+        )
+        if decision.action == "enable":
+            self._play_blink_notification(True)
+            if menu_visible:
+                self._dismiss_gaze_radial_menu()
+            return
+        if decision.action == "disable":
+            self._play_blink_notification(False)
+            return
+        if decision.action == "click" and not menu_visible:
+            self._queue_gaze_left_click(self._blink_click_point(point))
+
+    def _toggle_long_gaze_radial_menu(self) -> bool:
+        key = "companion_orb_eye_tracking_long_gaze_enabled"
+        enabled = not interaction_settings.boolish(
+            self._last_runtime_config.get(key, False),
+            default=False,
+        )
+        self._last_runtime_config[key] = enabled
+        self._save_runtime_setting(key, enabled)
+        return enabled
+
+    @QtCore.Slot()
+    def _release_pending_quick_blink(self) -> None:
+        now = time.monotonic()
+        gesture = self._eye_command_policy.release_pending_quick(now=now)
+        if gesture is None:
+            deadline = self._eye_command_policy.pending_quick_deadline
+            if deadline is not None:
+                self._blink_pending_click_timer.start(
+                    max(1, int(math.ceil((deadline - now) * 1000.0)))
+                )
+            return
+        point = self._blink_pending_click_point
+        self._blink_pending_click_point = None
+        radial_menu = getattr(self, "_gaze_radial_menu", None)
+        menu_visible = bool(
+            getattr(self, "_gaze_radial_menu_open", False)
+            or (radial_menu is not None and radial_menu.isVisible())
+        )
+        decision = self._blink_click_policy.ingest_blink(
+            gesture.closed_ms,
+            now=now,
+            menu_visible=menu_visible,
+        )
+        if decision.action == "click" and not menu_visible and point is not None:
+            self._queue_gaze_left_click(point)
+
+    def _blink_click_point(self, fallback_point: tuple[float, float]) -> tuple[float, float]:
+        size = float(self._window_size())
+        window = getattr(self, "_window", None)
+        if not self._external_runtime_enabled() and window is not None:
+            geometry = window.frameGeometry()
+            return (
+                float(geometry.x()) + float(geometry.width()) * 0.5,
+                float(geometry.y()) + float(geometry.height()) * 0.5,
+            )
+        interaction_target = getattr(self, "_eye_tracking_interaction_target", None)
+        if interaction_target is not None:
+            return (
+                float(interaction_target.x()) + size * 0.5,
+                float(interaction_target.y()) + size * 0.5,
+            )
+        external_top_left = getattr(self, "_external_orb_top_left", None)
+        if external_top_left is not None:
+            return (
+                float(external_top_left.x()) + size * 0.5,
+                float(external_top_left.y()) + size * 0.5,
+            )
+        try:
+            return float(fallback_point[0]), float(fallback_point[1])
+        except (TypeError, ValueError, IndexError):
+            return 0.0, 0.0
+
+    def _perform_gaze_left_click(self, point: tuple[float, float]) -> bool:
+        try:
+            x, y = int(round(float(point[0]))), int(round(float(point[1])))
+        except (TypeError, ValueError, IndexError):
+            return False
+        if not (math.isfinite(float(x)) and math.isfinite(float(y))):
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            if not bool(user32.SetCursorPos(x, y)):
+                return False
+            user32.mouse_event(0x0002, 0, 0, 0, 0)
+            user32.mouse_event(0x0004, 0, 0, 0, 0)
+            return True
+        except Exception:
+            return False
+
+    def _perform_browser_back(self) -> bool:
+        try:
+            user32 = ctypes.windll.user32
+            user32.keybd_event(0x12, 0, 0, 0)
+            user32.keybd_event(0x25, 0, 0, 0)
+            user32.keybd_event(0x25, 0, 0x0002, 0)
+            user32.keybd_event(0x12, 0, 0x0002, 0)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _window_handle_at_point(point: tuple[float, float]) -> int:
+        try:
+            x, y = int(round(float(point[0]))), int(round(float(point[1])))
+            user32 = ctypes.windll.user32
+
+            class WinPoint(ctypes.Structure):
+                _fields_ = (("x", ctypes.c_long), ("y", ctypes.c_long))
+
+            hwnd = int(user32.WindowFromPoint(WinPoint(x, y)) or 0)
+            if hwnd:
+                hwnd = int(user32.GetAncestor(hwnd, 2) or hwnd)
+            return hwnd or int(user32.GetForegroundWindow() or 0)
+        except Exception:
+            return 0
+
+    def _perform_gaze_scroll(
+        self,
+        hwnd: int,
+        wheel_delta: int,
+        point: tuple[float, float],
+    ) -> bool:
+        try:
+            target = int(hwnd)
+            delta = int(wheel_delta)
+            x, y = int(round(float(point[0]))), int(round(float(point[1])))
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return False
+        if not target or not delta:
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            if not bool(user32.IsWindow(target)):
+                return False
+
+            class WinPoint(ctypes.Structure):
+                _fields_ = (("x", ctypes.c_long), ("y", ctypes.c_long))
+
+            original = WinPoint()
+            if not bool(user32.GetCursorPos(ctypes.byref(original))):
+                return CompanionOrbController._perform_gaze_scroll_keys(
+                    user32,
+                    target,
+                    delta,
+                )
+            if not bool(user32.SetCursorPos(x, y)):
+                return CompanionOrbController._perform_gaze_scroll_keys(
+                    user32,
+                    target,
+                    delta,
+                )
+            try:
+                user32.mouse_event(
+                    0x0800,
+                    0,
+                    0,
+                    ctypes.c_uint32(delta).value,
+                    0,
+                )
+            finally:
+                user32.SetCursorPos(int(original.x), int(original.y))
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _perform_gaze_scroll_keys(user32, target: int, wheel_delta: int) -> bool:
+        try:
+            previous = int(user32.GetForegroundWindow() or 0)
+            if previous != int(target) and not bool(user32.SetForegroundWindow(int(target))):
+                return False
+            key = 0x26 if int(wheel_delta) > 0 else 0x28
+            repeats = max(1, min(6, abs(int(wheel_delta)) // 120))
+            for _index in range(repeats):
+                user32.keybd_event(key, 0, 0, 0)
+                user32.keybd_event(key, 0, 0x0002, 0)
+            if previous and previous != int(target):
+                user32.SetForegroundWindow(previous)
+            return True
+        except Exception:
+            return False
+
+    def _queue_gaze_left_click(
+        self,
+        point: tuple[float, float],
+        *,
+        cloak_already_active: bool = False,
+        require_click_target_enabled: bool = False,
+    ) -> None:
+        try:
+            click_point = (float(point[0]), float(point[1]))
+        except (TypeError, ValueError, IndexError):
+            if cloak_already_active:
+                self._set_snapshot_cloak(False)
+            return
+        external_required = CompanionOrbController._external_runtime_enabled(self)
+        click_target_generation = (
+            int(getattr(self, "_gaze_click_scan_generation", 0))
+            if require_click_target_enabled
+            else None
+        )
+        if not cloak_already_active:
+            self._set_snapshot_cloak(True)
+
+        def click_target_current() -> bool:
+            if not require_click_target_enabled:
+                return True
+            return bool(self._gaze_click_target_enabled()) and int(
+                getattr(self, "_gaze_click_scan_generation", -1)
+            ) == int(click_target_generation)
+
+        def click_under_orb() -> None:
+            try:
+                if click_target_current():
+                    self._perform_gaze_left_click(click_point)
+            finally:
+                QtCore.QTimer.singleShot(70, lambda: self._set_snapshot_cloak(False))
+
+        if not external_required:
+            QtCore.QTimer.singleShot(55, click_under_orb)
+            return
+
+        deadline = time.monotonic() + GAZE_CLICK_CLOAK_ACK_TIMEOUT_SECONDS
+        state = {"finished": False, "released": False}
+
+        def release_once() -> None:
+            if state["released"]:
+                return
+            state["released"] = True
+            self._set_snapshot_cloak(False)
+
+        def finish_click() -> None:
+            if state["finished"]:
+                return
+            state["finished"] = True
+            try:
+                self._perform_gaze_left_click(click_point)
+            finally:
+                QtCore.QTimer.singleShot(70, release_once)
+
+        def poll_cloak_ack() -> None:
+            if state["finished"]:
+                return
+            if bool(getattr(self, "_eye_tracking_reaction_shutting_down", False)):
+                state["finished"] = True
+                release_once()
+                return
+            if not click_target_current():
+                state["finished"] = True
+                release_once()
+                return
+            if not CompanionOrbController._external_runtime_enabled(self):
+                state["finished"] = True
+                release_once()
+                return
+            if CompanionOrbController._external_cloak_ack_ready(self, True):
+                finish_click()
+                return
+            if time.monotonic() >= deadline:
+                state["finished"] = True
+                release_once()
+                return
+            QtCore.QTimer.singleShot(GAZE_CLICK_CLOAK_ACK_POLL_MS, poll_cloak_ack)
+
+        QtCore.QTimer.singleShot(55, poll_cloak_ack)
+
+    def _queue_gaze_click_target_left_click(self, point: tuple[float, float]) -> None:
+        self._queue_gaze_left_click(
+            point,
+            require_click_target_enabled=True,
+        )
+
+    def _hide_gaze_click_target_source_visuals(self) -> None:
+        self._clear_gaze_click_target_highlight()
+        menu = getattr(self, "_gaze_radial_menu", None)
+        if menu is not None:
+            menu.hide()
+        self._set_gaze_timer_state(False, 0.0)
+
+    def _consume_gaze_click_validation(
+        self,
+        token: int,
+        *,
+        transfer_cloak: bool = False,
+    ) -> tuple[ClickValidationPending | None, bool]:
+        pending = getattr(self, "_gaze_click_validation_pending", None)
+        try:
+            expected_token = int(token)
+        except (TypeError, ValueError, OverflowError):
+            return None, False
+        if (
+            not isinstance(pending, tuple)
+            or len(pending) != 6
+            or int(pending[5]) != expected_token
+        ):
+            return None, False
+        self._gaze_click_validation_pending = None
+        owns_cloak = bool(
+            getattr(self, "_gaze_click_validation_cloak_active", False)
+            and getattr(self, "_gaze_click_validation_cloak_token", None) == expected_token
+        )
+        if owns_cloak:
+            self._gaze_click_validation_cloak_active = False
+            self._gaze_click_validation_cloak_token = None
+            if not transfer_cloak:
+                self._set_snapshot_cloak(False)
+        return pending, bool(owns_cloak and transfer_cloak)
+
+    def _cancel_gaze_click_validation(self) -> bool:
+        self._gaze_click_validation_pending = None
+        if not bool(getattr(self, "_gaze_click_validation_cloak_active", False)):
+            return False
+        self._gaze_click_validation_cloak_active = False
+        self._gaze_click_validation_cloak_token = None
+        self._set_snapshot_cloak(False)
+        return True
+
+    def _handle_gaze_click_validation_watchdog(self, token: int) -> None:
+        pending, _transferred = self._consume_gaze_click_validation(token)
+        if pending is None:
+            return
+        if (
+            not bool(getattr(self, "_eye_tracking_reaction_shutting_down", False))
+            and bool(getattr(self, "_gaze_radial_menu_open", False))
+            and self._gaze_click_target_enabled()
+        ):
+            self._show_gaze_click_target_menu()
+
+    def _queue_confirmed_target_click(
+        self,
+        target: eye_tracking.ClickTarget,
+        *,
+        action_id: str,
+    ) -> None:
+        if not eye_tracking.is_semantic_direct_target(target):
+            return
+        generation = int(getattr(self, "_gaze_click_scan_generation", 0))
+        normalized_action = str(action_id or "").strip().lower()
+        runtime_id = tuple(int(value) for value in target.runtime_id)
+        fingerprint = _click_target_fingerprint(target)
+        captured_center = (float(target.center[0]), float(target.center[1]))
+        if not normalized_action:
+            return
+        CompanionOrbController._cancel_gaze_click_validation(self)
+        self._gaze_click_validation_generation = int(
+            getattr(self, "_gaze_click_validation_generation", 0)
+        ) + 1
+        validation_token = self._gaze_click_validation_generation
+        self._gaze_click_validation_pending = (
+            generation,
+            normalized_action,
+            runtime_id,
+            fingerprint,
+            captured_center,
+            validation_token,
+        )
+        self._gaze_click_validation_cloak_active = True
+        self._gaze_click_validation_cloak_token = validation_token
+        self._set_snapshot_cloak(True)
+        pending = getattr(self, "_gaze_click_validation_pending", None)
+        if (
+            not isinstance(pending, tuple)
+            or len(pending) != 6
+            or pending[5] != validation_token
+            or not bool(getattr(self, "_gaze_click_validation_cloak_active", False))
+            or getattr(self, "_gaze_click_validation_cloak_token", None) != validation_token
+        ):
+            return
+        self._hide_gaze_click_target_source_visuals()
+        QtCore.QTimer.singleShot(
+            GAZE_CLICK_VALIDATION_WATCHDOG_MS,
+            lambda token=validation_token: self._handle_gaze_click_validation_watchdog(token),
+        )
+        try:
+            threading.Thread(
+                target=self._validate_gaze_semantic_target_click,
+                args=(
+                    target,
+                    target.center,
+                    generation,
+                    normalized_action,
+                    runtime_id,
+                    validation_token,
+                ),
+                daemon=True,
+                name="companion-orb-click-target-validation",
+            ).start()
+        except Exception:
+            pending, _transferred = self._consume_gaze_click_validation(validation_token)
+            if pending is not None and self._gaze_click_target_enabled():
+                self._show_gaze_click_target_menu()
+
+    def _validate_gaze_semantic_target_click(
+        self,
+        target: eye_tracking.ClickTarget,
+        point: tuple[float, float],
+        generation: int,
+        action_id: str,
+        runtime_id: tuple[int, ...],
+        validation_token: int,
+    ) -> None:
+        valid = windows_ui_automation.validate_semantic_target(target, point)
+        self._proxy.eye_click_validation_requested.emit(
+            int(generation),
+            str(action_id),
+            list(runtime_id),
+            bool(valid),
+            int(validation_token),
+        )
+
+    @QtCore.Slot(int, str, list, bool, int)
+    def _handle_gaze_click_validation_result(
+        self,
+        generation: int,
+        action_id: str,
+        runtime_id: list[int],
+        valid: bool,
+        validation_token: int,
+    ) -> None:
+        try:
+            result_generation = int(generation)
+            normalized_action = str(action_id or "").strip().lower()
+            result_runtime_id = tuple(int(value) for value in list(runtime_id or []))
+            result_validation_token = int(validation_token)
+        except (TypeError, ValueError, OverflowError):
+            return
+        result_token = (
+            result_generation,
+            normalized_action,
+            result_runtime_id,
+        )
+        pending = getattr(self, "_gaze_click_validation_pending", None)
+        if (
+            not isinstance(pending, tuple)
+            or len(pending) != 6
+            or pending[5] != result_validation_token
+        ):
+            return
+        captured_fingerprint = pending[3]
+        captured_center = pending[4]
+        target = getattr(self, "_gaze_click_targets", {}).get(normalized_action)
+        if (
+            bool(getattr(self, "_eye_tracking_reaction_shutting_down", False))
+            or result_generation != int(getattr(self, "_gaze_click_scan_generation", 0))
+            or not bool(getattr(self, "_gaze_radial_menu_open", False))
+            or not self._gaze_click_target_enabled()
+            or pending[:3] != result_token
+            or not isinstance(target, eye_tracking.ClickTarget)
+            or _click_target_fingerprint(target) != captured_fingerprint
+            or not bool(valid)
+            or not result_runtime_id
+        ):
+            consumed, _transferred = self._consume_gaze_click_validation(
+                result_validation_token
+            )
+            if (
+                consumed is not None
+                and not bool(getattr(self, "_eye_tracking_reaction_shutting_down", False))
+                and result_generation == int(getattr(self, "_gaze_click_scan_generation", 0))
+                and bool(getattr(self, "_gaze_radial_menu_open", False))
+                and self._gaze_click_target_enabled()
+            ):
+                self._show_gaze_click_target_menu()
+            return
+        consumed, cloak_transferred = self._consume_gaze_click_validation(
+            result_validation_token,
+            transfer_cloak=True,
+        )
+        if consumed is None:
+            return
+        self._dismiss_gaze_radial_menu()
+        self._queue_gaze_left_click(
+            captured_center,
+            cloak_already_active=cloak_transferred,
+            require_click_target_enabled=True,
+        )
+
+    def _play_blink_notification(self, enabled: bool) -> None:
+        sequence = ((880, 55), (1175, 75)) if enabled else ((520, 65), (330, 85))
+
+        def play() -> None:
+            try:
+                import winsound
+
+                for frequency, duration_ms in sequence:
+                    winsound.Beep(int(frequency), int(duration_ms))
+            except Exception:
+                pass
+
+        threading.Thread(
+            target=play,
+            daemon=True,
+            name="companion-orb-blink-notification",
+        ).start()
+
+    def _reapply_eye_tracking_interaction_target(self) -> None:
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+        )
+        if mode not in {"dwell", "continuous"} or not self._eye_tracking_orb_active():
+            return
+        if not self._eye_tracking_interaction_ready():
+            return
+        source_point = self._eye_tracking_interaction_source_point
+        latest_raw = getattr(self, "_eye_tracking_latest_raw_point", None)
+        calibrator = getattr(self, "_calibrate_eye_tracking_point", None)
+        if latest_raw is not None and callable(calibrator):
+            source_point = calibrator(latest_raw)
+            self._eye_tracking_interaction_source_point = source_point
+        if source_point is None:
+            return
+        duration_seconds = 2.0 if mode == "dwell" else 0.75
+        self._set_eye_tracking_interaction_target(
+            source_point,
+            duration_seconds=duration_seconds,
+            force_external_send=True,
+        )
+
+    def _set_eye_tracking_interaction_target(
+        self,
+        point,
+        *,
+        duration_seconds: float,
+        force_external_send: bool = False,
+    ) -> None:
+        try:
+            screen_point = (float(point[0]), float(point[1]))
+        except (TypeError, ValueError, IndexError):
+            return
+        offset_x, offset_y = _eye_tracking_calibration_offsets(self._last_runtime_config)
+        target = eye_tracking.orb_top_left_for_point(
+            screen_point,
+            self._eye_tracking_screen_bounds(),
+            orb_size=float(self._window_size()),
+            offset_px=max(64.0, min(140.0, float(self._window_size()) * 0.55)),
+            offset_x_px=offset_x,
+            offset_y_px=offset_y,
+        )
+        clamped = self._clamp_top_left_to_screen(QtCore.QPointF(target[0], target[1]))
+        self._eye_tracking_interaction_source_point = screen_point
+        self._eye_tracking_interaction_target = QtCore.QPointF(clamped)
+        now = time.monotonic()
+        lifetime = max(0.2, min(12.0, float(duration_seconds)))
+        self._eye_tracking_interaction_until = now + lifetime
+        self._return_home_timer.stop()
+        if not self.bridge.editMode and not self.bridge.placementMode and self._motion_timer.isActive():
+            self._motion_timer.stop()
+            self._move_start_point = None
+            self._move_target_point = None
+        if self._external_runtime_enabled():
+            previous = self._eye_tracking_last_external_target
+            distance = (
+                math.hypot(clamped.x() - previous.x(), clamped.y() - previous.y())
+                if previous is not None
+                else float("inf")
+            )
+            if force_external_send or now - self._eye_tracking_last_external_sent_at >= 0.05 or distance >= 3.0:
+                self._send_external_runtime(
+                    {
+                        "type": "interaction_target",
+                        "point": [int(round(clamped.x())), int(round(clamped.y()))],
+                        "duration_seconds": lifetime,
+                        "pointer_clearance_suspended": bool(
+                            self._eye_tracking_pointer_clearance_suspended()
+                        ),
+                    }
+                )
+                self._eye_tracking_last_external_target = QtCore.QPointF(clamped)
+                self._eye_tracking_last_external_sent_at = now
+        else:
+            self._sync_drift_timer()
+
+    def _eye_tracking_interaction_ready(self) -> bool:
+        target = self._eye_tracking_interaction_target
+        if target is None:
+            return False
+        if time.monotonic() <= float(self._eye_tracking_interaction_until or 0.0):
+            return True
+        self._eye_tracking_interaction_target = None
+        self._eye_tracking_interaction_until = 0.0
+        return False
+
+    def _clear_eye_tracking_state(self, *, send_external: bool) -> None:
+        self._eye_tracking_policy.reset()
+        detector = getattr(self, "_blink_gesture_detector", None)
+        if detector is not None:
+            detector.reset()
+        blink_policy = getattr(self, "_blink_click_policy", None)
+        if blink_policy is not None:
+            blink_policy.reset()
+        command_policy = getattr(self, "_eye_command_policy", None)
+        if command_policy is not None:
+            command_policy.reset()
+        pending_timer = getattr(self, "_blink_pending_click_timer", None)
+        if pending_timer is not None:
+            pending_timer.stop()
+        self._blink_pending_click_point = None
+        stop_scrolling = getattr(self, "_stop_gaze_scrolling", None)
+        if callable(stop_scrolling):
+            stop_scrolling()
+        reset_clearance = getattr(
+            self,
+            "_reset_eye_tracking_pointer_clearance",
+            None,
+        )
+        if callable(reset_clearance):
+            reset_clearance()
+        self._eye_tracking_latest_raw_point = None
+        self._eye_tracking_latest_raw_at = 0.0
+        self._eye_tracking_latest_point = None
+        self._eye_tracking_latest_at = 0.0
+        self._eye_tracking_stable_point = None
+        self._eye_tracking_interaction_source_point = None
+        self._eye_tracking_interaction_target = None
+        self._eye_tracking_interaction_until = 0.0
+        self._eye_tracking_last_external_target = None
+        self._eye_tracking_last_external_sent_at = 0.0
+        self._gaze_context_dispatch_generation = int(
+            getattr(self, "_gaze_context_dispatch_generation", 0)
+        ) + 1
+        self._gaze_click_scan_generation = int(
+            getattr(self, "_gaze_click_scan_generation", 0)
+        ) + 1
+        CompanionOrbController._cancel_gaze_click_validation(self)
+        getattr(self, "_gaze_click_targets", {}).clear()
+        getattr(self, "_gaze_click_target_payloads", {}).clear()
+        getattr(self, "_gaze_click_visual_targets", []).clear()
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index = None
+        self._gaze_click_target_page_open = False
+        clear_highlight = getattr(self, "_clear_gaze_click_target_highlight", None)
+        if callable(clear_highlight):
+            clear_highlight()
+        menu = getattr(self, "_gaze_radial_menu", None)
+        if menu is not None and menu.isVisible():
+            menu.hide()
+        self._gaze_radial_menu_open = False
+        self._gaze_radial_context_point = None
+        self._gaze_radial_context_hwnd = 0
+        self._gaze_radial_scroll_target_point = None
+        self._gaze_radial_payloads.clear()
+        self._set_gaze_timer_state(False, 0.0, force_external=send_external)
+        if send_external:
+            self._send_external_runtime({"type": "interaction_target_clear"})
+
+    def _set_gaze_timer_state(
+        self,
+        active: bool,
+        progress: float,
+        *,
+        force_external: bool = False,
+    ) -> None:
+        enabled = bool(active)
+        value = max(0.0, min(1.0, float(progress))) if enabled else 0.0
+        color = str(
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_gaze_timer_color",
+                "#facc15",
+            )
+            or "#facc15"
+        ).strip()
+        self.bridge.setGazeTimerState(enabled, value, color)
+        now = time.monotonic()
+        transition = (
+            enabled != self._eye_tracking_last_timer_active
+            or color != self._eye_tracking_last_timer_color
+        )
+        completed = enabled and value >= 1.0 and self._eye_tracking_last_timer_progress < 1.0
+        if force_external or transition or completed or now - self._eye_tracking_last_timer_sent_at >= 0.05:
+            self._queue_external_gaze_timer(
+                {
+                    "type": "gaze_timer",
+                    "active": enabled,
+                    "progress": value,
+                    "color": color,
+                }
+            )
+            self._eye_tracking_last_timer_active = enabled
+            self._eye_tracking_last_timer_progress = value
+            self._eye_tracking_last_timer_color = color
+            self._eye_tracking_last_timer_sent_at = now
+
+    def _gaze_radial_button_dwell_ms(self) -> int:
+        try:
+            value = int(
+                self._last_runtime_config.get(
+                    "companion_orb_eye_tracking_radial_button_gaze_ms",
+                    650,
+                )
+                or 650
+            )
+        except (TypeError, ValueError):
+            value = 650
+        return max(250, min(3000, value))
+
+    def _gaze_radial_menu_opacity(self) -> float:
+        return gaze_radial_menu.normalize_radial_menu_opacity(
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_radial_menu_opacity",
+                gaze_radial_menu.RADIAL_MENU_DEFAULT_OPACITY,
+            )
+        )
+
+    def _gaze_radial_focus_beam_enabled(self) -> bool:
+        return interaction_settings.boolish(
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_radial_focus_beam_enabled",
+                True,
+            ),
+            default=True,
+        )
+
+    def _gaze_radial_theme(self) -> dict[str, str]:
+        app = QtWidgets.QApplication.instance()
+        palette = app.palette() if app is not None else QtGui.QPalette()
+        return {
+            "background": palette.color(QtGui.QPalette.Window).name(),
+            "surface": palette.color(QtGui.QPalette.Base).name(),
+            "text": palette.color(QtGui.QPalette.Text).name(),
+            "muted": palette.color(QtGui.QPalette.PlaceholderText).name(),
+            "primary": str(self.bridge.primaryColor or "#38bdf8"),
+            "secondary": str(self.bridge.secondaryColor or "#22d3ee"),
+            "accent": str(self.bridge.accentColor or "#a78bfa"),
+            "glow": str(self.bridge.glowColor or "#67e8f9"),
+            "timer": str(
+                self._last_runtime_config.get(
+                    "companion_orb_eye_tracking_gaze_timer_color",
+                    "#facc15",
+                )
+                or "#facc15"
+            ),
+        }
+
+    def _ensure_gaze_radial_menu(self) -> gaze_radial_menu.GazeRadialMenu:
+        menu = self._gaze_radial_menu
+        if menu is None:
+            menu = gaze_radial_menu.GazeRadialMenu()
+            menu.action_selected.connect(self._handle_gaze_radial_action)
+            menu.cancelled.connect(self._finish_gaze_radial_menu)
+            menu.candidate_changed.connect(
+                self._handle_gaze_click_candidate_changed,
+                QtCore.Qt.QueuedConnection,
+            )
+            self._gaze_radial_menu = menu
+        return menu
+
+    def _ensure_gaze_click_target_highlight_overlay(
+        self,
+    ) -> click_target_overlay.ClickTargetHighlightOverlay:
+        overlay = self._gaze_click_target_highlight
+        if overlay is None:
+            overlay = click_target_overlay.ClickTargetHighlightOverlay()
+            self._gaze_click_target_highlight = overlay
+        return overlay
+
+    @QtCore.Slot()
+    def _clear_gaze_click_target_highlight(self) -> None:
+        overlay = getattr(self, "_gaze_click_target_highlight", None)
+        if overlay is not None:
+            overlay.clear_target()
+
+    def _gaze_radial_anchor_for_point(self, point) -> QtCore.QPoint:
+        target = self._eye_tracking_interaction_target
+        size = self._window_size()
+        if target is not None:
+            return QtCore.QPoint(
+                int(round(target.x() + size * 0.5)),
+                int(round(target.y() + size * 0.5)),
+            )
+        try:
+            focus = (float(point[0]), float(point[1]))
+        except (TypeError, ValueError, IndexError):
+            return QtGui.QCursor.pos()
+        offset_x, offset_y = _eye_tracking_calibration_offsets(self._last_runtime_config)
+        top_left = eye_tracking.orb_top_left_for_point(
+            focus,
+            self._eye_tracking_screen_bounds(),
+            orb_size=float(size),
+            offset_px=max(64.0, min(140.0, float(size) * 0.55)),
+            offset_x_px=offset_x,
+            offset_y_px=offset_y,
+        )
+        return QtCore.QPoint(
+            int(round(top_left[0] + size * 0.5)),
+            int(round(top_left[1] + size * 0.5)),
+        )
+
+    def _show_gaze_radial_actions(
+        self,
+        actions,
+        *,
+        title: str,
+        center_label: str,
+        center_action_id: str,
+        confirmation_lens: bool = False,
+        enlarged_visual: bool = False,
+    ) -> None:
+        menu = self._ensure_gaze_radial_menu()
+        guard = getattr(self, "_sync_external_pointer_clearance_guard", None)
+        if callable(guard):
+            guard(True)
+        menu.show_actions(
+            tuple(actions or ()),
+            anchor=self._gaze_radial_anchor,
+            dwell_ms=self._gaze_radial_button_dwell_ms(),
+            theme=self._gaze_radial_theme(),
+            opacity=self._gaze_radial_menu_opacity(),
+            focus_beam_enabled=self._gaze_radial_focus_beam_enabled(),
+            title=title,
+            center_label=center_label,
+            center_action_id=center_action_id,
+            confirmation_lens=confirmation_lens,
+            enlarged_visual=enlarged_visual,
+        )
+
+    def _gaze_main_actions(self) -> tuple[gaze_radial_menu.RadialAction, ...]:
+        enabled = self._gaze_click_target_enabled()
+        actions: list[gaze_radial_menu.RadialAction] = []
+        for action in gaze_radial_menu.MAIN_GAZE_ACTIONS:
+            if action.action_id != "action":
+                actions.append(action)
+                continue
+            actions.append(
+                replace(
+                    action,
+                    enabled=enabled,
+                    tooltip=(
+                        "Find and select a control in the active Windows application or browser."
+                        if enabled
+                        else "Enable the Action gaze button in Eye Tracking settings."
+                    ),
+                )
+            )
+        return tuple(actions)
+
+    def _show_gaze_radial_main_menu(self, point) -> bool:
+        if self._menu_open:
+            return False
+        self._gaze_click_target_page_open = False
+        self._gaze_click_scan_generation = int(
+            getattr(self, "_gaze_click_scan_generation", 0)
+        ) + 1
+        getattr(self, "_gaze_click_targets", {}).clear()
+        getattr(self, "_gaze_click_target_payloads", {}).clear()
+        getattr(self, "_gaze_click_visual_targets", []).clear()
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index = None
+        self._clear_gaze_click_target_highlight()
+        if not self._gaze_radial_menu_open:
+            try:
+                self._gaze_radial_context_point = (float(point[0]), float(point[1]))
+            except (TypeError, ValueError, IndexError):
+                self._gaze_radial_context_point = self._eye_tracking_latest_point
+        self._gaze_radial_anchor = self._gaze_radial_anchor_for_point(point)
+        if not self._gaze_radial_menu_open:
+            self._gaze_radial_scroll_target_point = (
+                float(self._gaze_radial_anchor.x()),
+                float(self._gaze_radial_anchor.y()),
+            )
+            self._gaze_radial_context_hwnd = self._window_handle_at_point(
+                self._gaze_radial_scroll_target_point
+            )
+        self._gaze_radial_menu_open = True
+        self._gaze_radial_payloads.clear()
+        self._gaze_voice_page = 0
+        self._return_home_timer.stop()
+        self._drift_timer.stop()
+        self._motion_timer.stop()
+        self._show_gaze_radial_actions(
+            self._gaze_main_actions(),
+            title="",
+            center_label="Close",
+            center_action_id="__cancel__",
+        )
+        self._set_gaze_timer_state(False, 0.0)
+        return True
+
+    def _eye_tracking_click_target_bounds(self, point: tuple[float, float]) -> list[int]:
+        screen_left, screen_top, screen_width, screen_height = self._eye_tracking_screen_bounds()
+        width = int(max(420.0, min(1040.0, screen_width)))
+        height = int(max(320.0, min(720.0, screen_height)))
+        center_x, center_y = float(point[0]), float(point[1])
+        left = max(screen_left, min(center_x - width * 0.5, screen_left + screen_width - width))
+        top = max(screen_top, min(center_y - height * 0.5, screen_top + screen_height - height))
+        return [int(round(left)), int(round(top)), width, height]
+
+    @staticmethod
+    def _click_target_preview(
+        image_path: Path,
+        target: eye_tracking.ClickTarget,
+        capture_bounds: list[int],
+        *,
+        enlarged: bool = False,
+    ) -> tuple[bytes, tuple[float, float]]:
+        try:
+            from PIL import Image
+
+            capture_left, capture_top, capture_width, capture_height = (
+                int(value) for value in list(capture_bounds)[:4]
+            )
+            if capture_width <= 0 or capture_height <= 0:
+                return b"", (0.5, 0.5)
+            target_left, target_top, target_width, target_height = target.bounds
+            with Image.open(image_path) as source:
+                image = source.convert("RGB")
+                if image.width <= 0 or image.height <= 0:
+                    return b"", (0.5, 0.5)
+                scale_x = float(image.width) / float(capture_width)
+                scale_y = float(image.height) / float(capture_height)
+                center_x = (
+                    float(target_left - capture_left) + float(target_width) * 0.5
+                ) * scale_x
+                center_y = (
+                    float(target_top - capture_top) + float(target_height) * 0.5
+                ) * scale_y
+                crop_width = min(
+                    image.width,
+                    max(
+                        1,
+                        int(round(180.0 * scale_x)),
+                        int(round((float(target_width) + 72.0) * scale_x)),
+                    ),
+                )
+                crop_height = min(
+                    image.height,
+                    max(
+                        1,
+                        int(round(108.0 * scale_y)),
+                        int(round((float(target_height) + 64.0) * scale_y)),
+                    ),
+                )
+                crop_left = max(0, min(int(round(center_x - crop_width * 0.5)), image.width - crop_width))
+                crop_top = max(0, min(int(round(center_y - crop_height * 0.5)), image.height - crop_height))
+                dispatch_x, dispatch_y = target.center
+                dispatch_image_x = float(dispatch_x - capture_left) * scale_x
+                dispatch_image_y = float(dispatch_y - capture_top) * scale_y
+                crosshair = (
+                    max(0.0, min(1.0, (dispatch_image_x - crop_left) / float(crop_width))),
+                    max(0.0, min(1.0, (dispatch_image_y - crop_top) / float(crop_height))),
+                )
+                preview = image.crop(
+                    (crop_left, crop_top, crop_left + crop_width, crop_top + crop_height)
+                )
+                resampling = getattr(Image, "Resampling", Image)
+                preview.thumbnail((360, 216) if enlarged else (240, 144), resampling.LANCZOS)
+                buffer = BytesIO()
+                preview.save(buffer, format="PNG", optimize=True)
+                return buffer.getvalue(), crosshair
+        except Exception:
+            return b"", (0.5, 0.5)
+
+    @staticmethod
+    def _click_target_preview_png(
+        image_path: Path,
+        target: eye_tracking.ClickTarget,
+        capture_bounds: list[int],
+        *,
+        enlarged: bool = False,
+    ) -> bytes:
+        preview_png, _crosshair = CompanionOrbController._click_target_preview(
+            image_path,
+            target,
+            capture_bounds,
+            enlarged=enlarged,
+        )
+        return preview_png
+
+    @staticmethod
+    def _click_target_capture_path(output_path: Path, output_dir: Path) -> Path | None:
+        try:
+            candidate = Path(output_path)
+            directory = Path(output_dir)
+            if candidate.parent.resolve(strict=False) != directory.resolve(strict=False):
+                return None
+        except Exception:
+            return None
+        return candidate
+
+    @staticmethod
+    def _remove_click_target_capture(output_path: Path, output_dir: Path) -> bool:
+        candidate = CompanionOrbController._click_target_capture_path(output_path, output_dir)
+        if candidate is None:
+            return False
+        for attempt in range(GAZE_CLICK_CAPTURE_UNLINK_ATTEMPTS):
+            try:
+                candidate.unlink(missing_ok=True)
+                return True
+            except Exception:
+                if attempt + 1 < GAZE_CLICK_CAPTURE_UNLINK_ATTEMPTS:
+                    time.sleep(GAZE_CLICK_CAPTURE_UNLINK_DELAY_SECONDS)
+        return False
+
+    @staticmethod
+    def _deferred_remove_click_target_capture(output_path: Path, output_dir: Path) -> None:
+        deadline = time.monotonic() + GAZE_CLICK_CAPTURE_DEFERRED_RETRY_WINDOW_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(GAZE_CLICK_CAPTURE_DEFERRED_RETRY_DELAY_SECONDS)
+            if CompanionOrbController._remove_click_target_capture(output_path, output_dir):
+                return
+
+    @staticmethod
+    def _schedule_click_target_capture_cleanup(output_path: Path, output_dir: Path) -> bool:
+        if CompanionOrbController._remove_click_target_capture(output_path, output_dir):
+            return True
+        try:
+            threading.Thread(
+                target=CompanionOrbController._deferred_remove_click_target_capture,
+                args=(Path(output_path), Path(output_dir)),
+                daemon=True,
+                name="companion-orb-click-target-cleanup",
+            ).start()
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def _sweep_stale_click_target_captures(output_dir: Path) -> None:
+        directory = Path(output_dir)
+        try:
+            candidates = tuple(directory.iterdir()) if directory.is_dir() else ()
+        except Exception:
+            return
+        for candidate in candidates:
+            try:
+                known_name = candidate.name.casefold().startswith("companion_orb_read_")
+                known_suffix = candidate.suffix.casefold() in GAZE_CLICK_CAPTURE_SUFFIXES
+                if not known_name or not known_suffix or not candidate.is_file():
+                    continue
+            except Exception:
+                continue
+            CompanionOrbController._schedule_click_target_capture_cleanup(
+                candidate,
+                directory,
+            )
+
+    def _serialize_click_target(
+        self,
+        target: eye_tracking.ClickTarget,
+        output_path: Path | None,
+        capture_bounds: list[int],
+        *,
+        enlarged: bool = False,
+    ) -> dict[str, object]:
+        confidence = float(target.confidence)
+        if not math.isfinite(confidence):
+            confidence = 0.0
+        preview_png = b""
+        preview_crosshair = (0.5, 0.5)
+        if output_path is not None:
+            preview_png, preview_crosshair = self._click_target_preview(
+                output_path,
+                target,
+                capture_bounds,
+                enlarged=enlarged,
+            )
+        return {
+            "label": str(target.label or ""),
+            "bounds": [int(value) for value in target.bounds],
+            "kind": str(target.kind or ""),
+            "confidence": confidence,
+            "role": str(target.role or ""),
+            "source": str(target.source or ""),
+            "semantic": bool(target.semantic),
+            "runtime_id": [int(value) for value in target.runtime_id],
+            "click_point": [float(value) for value in target.click_point or ()],
+            "preview_png": preview_png,
+            "preview_crosshair": [float(value) for value in preview_crosshair],
+        }
+
+    @staticmethod
+    def _click_target_from_payload(item: Any) -> eye_tracking.ClickTarget | None:
+        if not isinstance(item, dict):
+            return None
+        try:
+            bounds = tuple(int(value) for value in list(item.get("bounds") or [])[:4])
+            confidence = float(item.get("confidence") or 0.0)
+            runtime_id = tuple(int(value) for value in list(item.get("runtime_id") or []))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if len(bounds) != 4 or bounds[2] <= 0 or bounds[3] <= 0:
+            return None
+        if not math.isfinite(confidence):
+            confidence = 0.0
+        return eye_tracking.ClickTarget(
+            label=re.sub(r"\s+", " ", str(item.get("label") or "")).strip(),
+            bounds=bounds,
+            kind=str(item.get("kind") or ""),
+            confidence=confidence,
+            role=re.sub(r"\s+", " ", str(item.get("role") or "")).strip(),
+            source=str(item.get("source") or ""),
+            semantic=interaction_settings.boolish(item.get("semantic"), default=False),
+            runtime_id=runtime_id,
+            click_point=item.get("click_point"),
+        )
+
+    @staticmethod
+    def _click_target_payload_preview(item: Any) -> bytes:
+        if not isinstance(item, dict):
+            return b""
+        value = item.get("preview_png")
+        return bytes(value) if isinstance(value, (bytes, bytearray)) else b""
+
+    @staticmethod
+    def _click_target_payload_crosshair(item: Any) -> tuple[float, float]:
+        if not isinstance(item, dict):
+            return 0.5, 0.5
+        value = item.get("preview_crosshair")
+        if not isinstance(value, (list, tuple)):
+            return 0.5, 0.5
+        try:
+            values = tuple(value)
+            if len(values) != 2:
+                return 0.5, 0.5
+            crosshair = float(values[0]), float(values[1])
+        except (TypeError, ValueError, OverflowError):
+            return 0.5, 0.5
+        if not all(math.isfinite(coordinate) for coordinate in crosshair):
+            return 0.5, 0.5
+        return (
+            max(0.0, min(1.0, crosshair[0])),
+            max(0.0, min(1.0, crosshair[1])),
+        )
+
+    def _show_gaze_click_target_menu(self) -> None:
+        if not self._gaze_click_target_enabled():
+            return
+        self._clear_gaze_click_target_highlight()
+        self._gaze_click_target_page_open = True
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index = None
+        fallback = self._gaze_radial_context_point or self._eye_tracking_latest_point or (
+            float(self._gaze_radial_anchor.x()),
+            float(self._gaze_radial_anchor.y()),
+        )
+        focus_point = self._blink_click_point(fallback)
+        capture_bounds = self._eye_tracking_click_target_bounds(focus_point)
+        self._gaze_click_scan_generation = int(
+            getattr(self, "_gaze_click_scan_generation", 0)
+        ) + 1
+        CompanionOrbController._cancel_gaze_click_validation(self)
+        generation = self._gaze_click_scan_generation
+        self._gaze_click_targets.clear()
+        self._gaze_click_target_payloads.clear()
+        self._gaze_click_visual_targets.clear()
+        self._show_gaze_radial_actions(
+            (
+                gaze_radial_menu.RadialAction(
+                    "click_target_scanning",
+                    "Scanning",
+                    enabled=False,
+                ),
+            ),
+            title="Click target",
+            center_label="Back",
+            center_action_id="back",
+        )
+        QtCore.QTimer.singleShot(
+            80,
+            lambda: self._begin_gaze_click_target_scan(
+                capture_bounds,
+                focus_point,
+                generation,
+            ),
+        )
+
+    def _begin_gaze_click_target_scan(
+        self,
+        capture_bounds: list[int],
+        focus_point: tuple[float, float],
+        generation: int,
+    ) -> None:
+        if (
+            int(generation) != int(getattr(self, "_gaze_click_scan_generation", 0))
+            or not self._gaze_radial_menu_open
+            or not self._gaze_click_target_enabled()
+        ):
+            return
+        self._clear_gaze_click_target_highlight()
+        menu = getattr(self, "_gaze_radial_menu", None)
+        if menu is not None:
+            menu.hide()
+        self._set_gaze_timer_state(False, 0.0)
+        virtual_rect = self._virtual_desktop_rect()
+        virtual_bounds = (
+            [
+                int(virtual_rect.x()),
+                int(virtual_rect.y()),
+                int(virtual_rect.width()),
+                int(virtual_rect.height()),
+            ]
+            if virtual_rect is not None and not virtual_rect.isEmpty()
+            else list(capture_bounds)
+        )
+        threading.Thread(
+            target=self._scan_gaze_click_targets,
+            args=(
+                list(capture_bounds),
+                tuple(focus_point),
+                int(generation),
+                virtual_bounds,
+            ),
+            daemon=True,
+            name="companion-orb-click-target-scan",
+        ).start()
+
+    @staticmethod
+    def _run_bounded_daemon_stage(
+        stage,
+        *,
+        timeout_seconds: float,
+        name: str,
+        late_result_handler=None,
+    ) -> tuple[bool, Any]:
+        results: queue.Queue[Any] = queue.Queue(maxsize=1)
+        cancellation = threading.Event()
+        delivery_lock = threading.Lock()
+        delivery_state = {"accepting": True}
+
+        def handle_late(value: Any) -> None:
+            if not callable(late_result_handler):
+                return
+            try:
+                late_result_handler(value)
+            except Exception:
+                pass
+
+        def run_stage() -> None:
+            try:
+                value = stage(cancellation)
+            except Exception:
+                value = {"limited": True}
+            delivered = False
+            with delivery_lock:
+                if delivery_state["accepting"]:
+                    try:
+                        results.put_nowait(value)
+                        delivered = True
+                    except queue.Full:
+                        pass
+            if not delivered:
+                handle_late(value)
+
+        try:
+            threading.Thread(
+                target=run_stage,
+                daemon=True,
+                name=str(name or "companion-orb-bounded-stage"),
+            ).start()
+        except Exception:
+            cancellation.set()
+            return False, None
+
+        try:
+            return True, results.get(timeout=max(0.01, float(timeout_seconds)))
+        except queue.Empty:
+            late_value: Any = None
+            has_late_value = False
+            with delivery_lock:
+                delivery_state["accepting"] = False
+                cancellation.set()
+                try:
+                    late_value = results.get_nowait()
+                    has_late_value = True
+                except queue.Empty:
+                    pass
+            if has_late_value:
+                handle_late(late_value)
+            return False, None
+
+    @staticmethod
+    def _click_target_native_capture_stage(
+        capture_bounds: list[int],
+        virtual_bounds: list[int],
+        output_dir: Path,
+        cancellation: threading.Event,
+    ) -> dict[str, Any]:
+        limited = False
+        try:
+            native_regions = [
+                dict(region)
+                for region in list(
+                    snapshot_ocr.extract_window_text_regions(
+                        list(capture_bounds),
+                        max_regions=64,
+                    )
+                    or []
+                )
+                if isinstance(region, dict)
+            ]
+        except Exception:
+            native_regions = []
+            limited = True
+        if cancellation.is_set():
+            return {
+                "native_regions": [],
+                "output_path": None,
+                "limited": True,
+            }
+        try:
+            output_path = Path(
+                reading_overlay.capture_region_image(
+                    list(capture_bounds),
+                    Path(output_dir),
+                    virtual_bounds=list(virtual_bounds),
+                )
+            )
+        except Exception:
+            output_path = None
+            limited = True
+        return {
+            "native_regions": native_regions,
+            "output_path": output_path,
+            "limited": bool(limited),
+        }
+
+    @staticmethod
+    def _click_target_ocr_stage(
+        output_path: Path,
+        capture_bounds: list[int],
+        cancellation: threading.Event,
+    ) -> dict[str, Any]:
+        if cancellation.is_set():
+            return {"regions": [], "limited": True}
+        try:
+            result = snapshot_ocr.extract_snapshot_regions(
+                Path(output_path),
+                screen_bounds=list(capture_bounds),
+                max_regions=64,
+            )
+            regions = [
+                dict(region)
+                for region in list((result or {}).get("regions") or [])
+                if isinstance(region, dict)
+            ]
+            return {"regions": regions, "limited": False}
+        except Exception:
+            return {"regions": [], "limited": True}
+
+    def _scan_gaze_click_targets(
+        self,
+        capture_bounds: list[int],
+        focus_point: tuple[float, float],
+        generation: int,
+        virtual_bounds: list[int] | None = None,
+    ) -> None:
+        def scan_current() -> bool:
+            return bool(self._gaze_click_target_enabled()) and int(generation) == int(
+                getattr(self, "_gaze_click_scan_generation", -1)
+            )
+
+        if not scan_current():
+            return
+        primitive_virtual_bounds = list(virtual_bounds or capture_bounds)
+        root = Path(getattr(self.context, "app_root", Path.cwd()) or Path.cwd())
+        output_dir = root / "runtime" / "companion_orb" / "click_targets"
+        CompanionOrbController._sweep_stale_click_target_captures(output_dir)
+        output_path: Path | None = None
+        acquired = False
+        cloaked = False
+        emit_payload = True
+        limited = False
+        scan_started = False
+        stage_completed = False
+        stage_result: Any = None
+        automation_targets: tuple[eye_tracking.ClickTarget, ...] = ()
+        native_regions: list[dict[str, Any]] = []
+        ocr_regions: list[dict[str, Any]] = []
+        payload: dict[str, Any] = {
+            "generation": int(generation),
+            "automation_available": False,
+            "automation_timed_out": False,
+            "automation_provider_error": False,
+            "direct": [],
+            "visual": [],
+        }
+
+        def cleanup_late_stage_result(value: Any) -> None:
+            if not isinstance(value, dict):
+                return
+            candidate = CompanionOrbController._click_target_capture_path(
+                value.get("output_path"),
+                output_dir,
+            )
+            if candidate is not None:
+                CompanionOrbController._schedule_click_target_capture_cleanup(
+                    candidate,
+                    output_dir,
+                )
+
+        try:
+            try:
+                acquired = self._snapshot_capture_lock.acquire(blocking=False)
+                if not acquired:
+                    limited = True
+                elif not scan_current():
+                    emit_payload = False
+                else:
+                    cloaked = CompanionOrbController._apply_click_target_scan_cloak_blocking(
+                        self
+                    )
+                    if not cloaked:
+                        limited = True
+                    else:
+                        time.sleep(0.04)
+                        if not scan_current():
+                            emit_payload = False
+                        else:
+                            scan_started = True
+                            try:
+                                automation = windows_ui_automation.discover_semantic_targets(
+                                    capture_bounds,
+                                    max_nodes=320,
+                                    timeout_seconds=0.45,
+                                )
+                                automation_targets = tuple(automation.targets)
+                                payload["automation_available"] = bool(automation.available)
+                                payload["automation_timed_out"] = bool(automation.timed_out)
+                                payload["automation_provider_error"] = bool(
+                                    str(getattr(automation, "error", "") or "").strip()
+                                )
+                                if scan_current():
+                                    semantic_targets = eye_tracking.aggregate_click_targets(
+                                        semantic_targets=automation_targets,
+                                        regions=(),
+                                        focus_point=focus_point,
+                                        capture_bounds=capture_bounds,
+                                        direct_limit=8,
+                                        visual_limit=12,
+                                    )
+                                    payload["direct"] = [
+                                        self._serialize_click_target(target, None, capture_bounds)
+                                        for target in semantic_targets.direct
+                                    ]
+                                else:
+                                    emit_payload = False
+                            except Exception:
+                                limited = True
+                            if not scan_current():
+                                emit_payload = False
+                            else:
+                                stage_completed, stage_result = (
+                                    CompanionOrbController._run_bounded_daemon_stage(
+                                        lambda cancellation: CompanionOrbController._click_target_native_capture_stage(
+                                            list(capture_bounds),
+                                            primitive_virtual_bounds,
+                                            output_dir,
+                                            cancellation,
+                                        ),
+                                        timeout_seconds=GAZE_CLICK_NATIVE_CAPTURE_TIMEOUT_SECONDS,
+                                        name="companion-orb-click-target-native-capture",
+                                        late_result_handler=cleanup_late_stage_result,
+                                    )
+                                )
+                                if not stage_completed:
+                                    limited = True
+            finally:
+                if cloaked:
+                    self._apply_snapshot_cloak_blocking(False)
+                if acquired:
+                    try:
+                        self._snapshot_capture_lock.release()
+                    except RuntimeError:
+                        pass
+
+            if stage_completed and isinstance(stage_result, dict):
+                native_regions = [
+                    dict(region)
+                    for region in list(stage_result.get("native_regions") or [])
+                    if isinstance(region, dict)
+                ]
+                raw_output_path = stage_result.get("output_path")
+                output_path = CompanionOrbController._click_target_capture_path(
+                    raw_output_path,
+                    output_dir,
+                )
+                if raw_output_path is not None and output_path is None:
+                    limited = True
+                limited = limited or bool(stage_result.get("limited"))
+            elif stage_completed:
+                limited = True
+
+            if not scan_current():
+                emit_payload = False
+
+            if emit_payload and output_path is not None:
+                ocr_completed, ocr_result = CompanionOrbController._run_bounded_daemon_stage(
+                    lambda cancellation: CompanionOrbController._click_target_ocr_stage(
+                        output_path,
+                        list(capture_bounds),
+                        cancellation,
+                    ),
+                    timeout_seconds=GAZE_CLICK_OCR_TIMEOUT_SECONDS,
+                    name="companion-orb-click-target-ocr",
+                )
+                if ocr_completed and isinstance(ocr_result, dict):
+                    ocr_regions = [
+                        dict(region)
+                        for region in list(ocr_result.get("regions") or [])
+                        if isinstance(region, dict)
+                    ]
+                    limited = limited or bool(ocr_result.get("limited"))
+                else:
+                    limited = True
+
+            if not scan_current():
+                emit_payload = False
+
+            if emit_payload and scan_started:
+                try:
+                    target_set = eye_tracking.aggregate_click_targets(
+                        semantic_targets=automation_targets,
+                        regions=native_regions + ocr_regions,
+                        focus_point=focus_point,
+                        capture_bounds=capture_bounds,
+                        direct_limit=8,
+                        visual_limit=12,
+                    )
+                    visual_targets = tuple(target_set.visual)
+                    if output_path is None:
+                        visual_targets = tuple(
+                            target
+                            for target in visual_targets
+                            if target.kind != "zoom_tile"
+                        )
+                    payload["direct"] = [
+                        self._serialize_click_target(target, output_path, capture_bounds)
+                        for target in target_set.direct
+                    ]
+                    payload["visual"] = [
+                        self._serialize_click_target(
+                            target,
+                            output_path,
+                            capture_bounds,
+                            enlarged=True,
+                        )
+                        for target in visual_targets
+                    ]
+                except Exception:
+                    limited = True
+        except Exception:
+            limited = True
+        finally:
+            if output_path is not None:
+                CompanionOrbController._schedule_click_target_capture_cleanup(
+                    output_path,
+                    output_dir,
+                )
+            if limited:
+                payload["error"] = "Click targets could not be scanned."
+            if emit_payload and scan_current():
+                self._proxy.eye_click_targets_requested.emit(payload)
+
+    @QtCore.Slot(dict)
+    def _handle_gaze_click_targets_result(self, payload: dict[str, Any]) -> None:
+        data = dict(payload or {})
+        try:
+            generation = int(data.get("generation") or 0)
+        except (TypeError, ValueError):
+            return
+        if (
+            generation != int(getattr(self, "_gaze_click_scan_generation", 0))
+            or not self._gaze_radial_menu_open
+            or not self._gaze_click_target_enabled()
+        ):
+            return
+        self._gaze_click_targets.clear()
+        self._gaze_click_target_payloads.clear()
+        self._gaze_click_visual_targets.clear()
+        self._gaze_click_visual_page = 0
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index = None
+        self._gaze_click_automation_available = bool(data.get("automation_available"))
+        self._gaze_click_automation_timed_out = bool(data.get("automation_timed_out"))
+        self._gaze_click_automation_provider_error = bool(
+            data.get("automation_provider_error")
+        )
+        for index, item in enumerate(list(data.get("direct") or [])[:8]):
+            target = self._click_target_from_payload(item)
+            if not eye_tracking.is_semantic_direct_target(target):
+                continue
+            action_id = f"click_target:{index}"
+            self._gaze_click_targets[action_id] = target
+            self._gaze_click_target_payloads[action_id] = dict(item)
+        for item in list(data.get("visual") or [])[:12]:
+            if self._click_target_from_payload(item) is not None:
+                self._gaze_click_visual_targets.append(dict(item))
+        self._gaze_click_scan_error = bool(str(data.get("error") or "").strip())
+        if self._gaze_click_targets:
+            self._show_gaze_click_target_direct_page()
+        elif self._gaze_click_visual_targets:
+            self._show_gaze_click_target_visual_page(0)
+        else:
+            self._show_gaze_click_target_direct_page()
+
+    def _show_gaze_click_target_direct_page(self) -> None:
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index = None
+        actions: list[gaze_radial_menu.RadialAction] = []
+        for action_id, target in self._gaze_click_targets.items():
+            if not eye_tracking.is_semantic_direct_target(target):
+                continue
+            item = self._gaze_click_target_payloads.get(action_id, {})
+            crosshair_x, crosshair_y = CompanionOrbController._click_target_payload_crosshair(item)
+            actions.append(
+                gaze_radial_menu.RadialAction(
+                    action_id,
+                    target.label,
+                    tooltip=target.display_label,
+                    role=target.role,
+                    preview_png=self._click_target_payload_preview(item),
+                    crosshair_x=crosshair_x,
+                    crosshair_y=crosshair_y,
+                )
+            )
+        if self._gaze_click_visual_targets:
+            actions.append(gaze_radial_menu.RadialAction("click_target_inspect", "Inspect nearby"))
+        if not actions:
+            message = "Scan failed" if getattr(self, "_gaze_click_scan_error", False) else "No targets\nfound"
+            actions.append(
+                gaze_radial_menu.RadialAction(
+                    "click_target_unavailable",
+                    message,
+                    enabled=False,
+                )
+            )
+        status_action = self._gaze_click_automation_status_action()
+        if status_action is not None:
+            actions.append(status_action)
+        self._show_gaze_radial_actions(
+            actions,
+            title="Click target",
+            center_label="Back",
+            center_action_id="back",
+            confirmation_lens=True,
+        )
+
+    def _gaze_click_automation_status_action(self) -> gaze_radial_menu.RadialAction | None:
+        if not bool(getattr(self, "_gaze_click_automation_available", False)):
+            label = "App controls unavailable"
+        elif bool(getattr(self, "_gaze_click_automation_provider_error", False)):
+            label = "App controls limited"
+        elif bool(getattr(self, "_gaze_click_automation_timed_out", False)):
+            label = "App controls partial"
+        else:
+            return None
+        return gaze_radial_menu.RadialAction(
+            "click_target_automation_status",
+            label,
+            enabled=False,
+        )
+
+    def _gaze_click_visual_page_entries(
+        self,
+    ) -> tuple[tuple[int, dict[str, Any], eye_tracking.ClickTarget], ...]:
+        start = max(0, int(getattr(self, "_gaze_click_visual_page", 0))) * 4
+        entries: list[tuple[int, dict[str, Any], eye_tracking.ClickTarget]] = []
+        for absolute_index, item in enumerate(
+            self._gaze_click_visual_targets[start : start + 4],
+            start=start,
+        ):
+            target = self._click_target_from_payload(item)
+            if target is not None:
+                entries.append((absolute_index, item, target))
+        return tuple(entries)
+
+    def _show_gaze_click_target_visual_page(self, page: int = 0) -> None:
+        count = len(self._gaze_click_visual_targets)
+        if count <= 0:
+            self._show_gaze_click_target_direct_page()
+            return
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index = None
+        page_count = max(1, math.ceil(count / 4))
+        self._gaze_click_visual_page = max(0, min(int(page), page_count - 1))
+        self._gaze_click_visual_page_open = True
+        entries = self._gaze_click_visual_page_entries()
+        actions: list[gaze_radial_menu.RadialAction] = []
+        for absolute_index, item, target in entries:
+            crosshair_x, crosshair_y = CompanionOrbController._click_target_payload_crosshair(item)
+            actions.append(
+                gaze_radial_menu.RadialAction(
+                    f"click_target_visual:{absolute_index}",
+                    target.display_label or f"View {absolute_index + 1}",
+                    tooltip=target.display_label or f"Visual target {absolute_index + 1}",
+                    role=target.role,
+                    preview_png=self._click_target_payload_preview(item),
+                    crosshair_x=crosshair_x,
+                    crosshair_y=crosshair_y,
+                )
+            )
+        status_action = self._gaze_click_automation_status_action()
+        if status_action is not None:
+            actions.append(status_action)
+        if self._gaze_click_visual_page > 0:
+            actions.append(gaze_radial_menu.RadialAction("click_target_visual_previous", "Previous"))
+        if self._gaze_click_visual_page + 1 < page_count:
+            actions.append(gaze_radial_menu.RadialAction("click_target_visual_next", "Next"))
+        title = "Inspect nearby" if page_count == 1 else f"Inspect nearby {self._gaze_click_visual_page + 1}/{page_count}"
+        self._show_gaze_radial_actions(
+            actions,
+            title=title,
+            center_label="Back",
+            center_action_id="back",
+            enlarged_visual=True,
+        )
+        overlay = self._ensure_gaze_click_target_highlight_overlay()
+        overlay.show_candidates(
+            tuple(
+                (
+                    f"click_target_visual:{absolute_index}",
+                    target.bounds,
+                    str(absolute_index + 1),
+                )
+                for absolute_index, _item, target in entries
+            ),
+            active_id="",
+            theme=self._gaze_radial_theme(),
+        )
+
+    def _show_gaze_click_visual_action_menu(self, index: int) -> None:
+        try:
+            selected_index = int(index)
+            if selected_index < 0:
+                raise IndexError(selected_index)
+            item = self._gaze_click_visual_targets[selected_index]
+        except (IndexError, TypeError, ValueError):
+            self._clear_gaze_click_target_highlight()
+            return
+        target = CompanionOrbController._click_target_from_payload(item)
+        if target is None:
+            self._clear_gaze_click_target_highlight()
+            return
+        self._gaze_click_visual_selected_index = selected_index
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = True
+        actions = tuple(
+            gaze_radial_menu.RadialAction(
+                f"click_target_visual_action:{action_id}",
+                label,
+            )
+            for action_id, label in GAZE_CLICK_VISUAL_ACTIONS
+        )
+        self._show_gaze_radial_actions(
+            actions,
+            title="Context action",
+            center_label="Back",
+            center_action_id="back",
+        )
+        self._ensure_gaze_click_target_highlight_overlay().show_target(
+            target.bounds,
+            target.display_label or "Selected context",
+            self._gaze_radial_theme(),
+        )
+
+    def _gaze_click_visual_context_bounds(
+        self,
+        target: eye_tracking.ClickTarget,
+    ) -> list[int]:
+        try:
+            target_left, target_top, target_width, target_height = (
+                int(value) for value in target.bounds
+            )
+            screen_left, screen_top, screen_width, screen_height = (
+                float(value) for value in self._eye_tracking_screen_bounds()
+            )
+        except (TypeError, ValueError):
+            return []
+        if (
+            target_width <= 0
+            or target_height <= 0
+            or screen_width <= 0.0
+            or screen_height <= 0.0
+        ):
+            return []
+        context_width = min(
+            int(round(screen_width)),
+            max(180, target_width + 72),
+        )
+        context_height = min(
+            int(round(screen_height)),
+            max(108, target_height + 64),
+        )
+        center_x = float(target_left) + float(target_width) * 0.5
+        center_y = float(target_top) + float(target_height) * 0.5
+        max_left = screen_left + screen_width - float(context_width)
+        max_top = screen_top + screen_height - float(context_height)
+        context_left = max(screen_left, min(center_x - context_width * 0.5, max_left))
+        context_top = max(screen_top, min(center_y - context_height * 0.5, max_top))
+        return [
+            int(round(context_left)),
+            int(round(context_top)),
+            context_width,
+            context_height,
+        ]
+
+    @QtCore.Slot(str)
+    def _handle_gaze_click_candidate_changed(self, action_id: str) -> None:
+        if not self._gaze_click_target_enabled():
+            self._clear_gaze_click_target_highlight()
+            return
+        normalized = str(action_id or "").strip().lower()
+        target = self._gaze_click_targets.get(normalized)
+        if target is not None:
+            self._ensure_gaze_click_target_highlight_overlay().show_target(
+                target.bounds,
+                target.display_label,
+                self._gaze_radial_theme(),
+            )
+            return
+        if bool(getattr(self, "_gaze_click_visual_action_menu_open", False)):
+            try:
+                selected_index = int(self._gaze_click_visual_selected_index)
+                item = self._gaze_click_visual_targets[selected_index]
+            except (IndexError, TypeError, ValueError):
+                self._clear_gaze_click_target_highlight()
+                return
+            selected_target = CompanionOrbController._click_target_from_payload(item)
+            if selected_target is None:
+                self._clear_gaze_click_target_highlight()
+                return
+            self._ensure_gaze_click_target_highlight_overlay().show_target(
+                selected_target.bounds,
+                selected_target.display_label or "Selected context",
+                self._gaze_radial_theme(),
+            )
+            return
+        if bool(getattr(self, "_gaze_click_visual_page_open", False)):
+            entries = self._gaze_click_visual_page_entries()
+            current_ids = {f"click_target_visual:{index}" for index, _item, _target in entries}
+            if not normalized or normalized in current_ids:
+                self._ensure_gaze_click_target_highlight_overlay().show_candidates(
+                    tuple(
+                        (
+                            f"click_target_visual:{index}",
+                            visual_target.bounds,
+                            str(index + 1),
+                        )
+                        for index, _item, visual_target in entries
+                    ),
+                    active_id=normalized,
+                    theme=self._gaze_radial_theme(),
+                )
+                return
+        self._clear_gaze_click_target_highlight()
+
+    def _show_gaze_voice_menu(self, page: int = 0) -> None:
+        voices = self._available_voice_files()
+        self._gaze_radial_payloads.clear()
+        if not voices:
+            actions = (
+                gaze_radial_menu.RadialAction(
+                    "voice_unavailable",
+                    "No voices\nfound",
+                    enabled=False,
+                ),
+            )
+            self._show_gaze_radial_actions(
+                actions,
+                title="Voice",
+                center_label="Back",
+                center_action_id="back",
+            )
+            return
+        page_count = max(1, math.ceil(len(voices) / GAZE_RADIAL_VOICE_PAGE_SIZE))
+        self._gaze_voice_page = max(0, min(page_count - 1, int(page)))
+        start = self._gaze_voice_page * GAZE_RADIAL_VOICE_PAGE_SIZE
+        selected_voices = voices[start:start + GAZE_RADIAL_VOICE_PAGE_SIZE]
+        current_path = self._normalized_voice_config_path(
+            self._last_runtime_config.get("voice_path", "")
+        )
+        actions: list[gaze_radial_menu.RadialAction] = []
+        for offset, voice_file in enumerate(selected_voices):
+            index = start + offset
+            action_id = f"voice_select:{index}"
+            self._gaze_radial_payloads[action_id] = Path(voice_file)
+            relative = self._voice_config_path(Path(voice_file))
+            actions.append(
+                gaze_radial_menu.RadialAction(
+                    action_id,
+                    self._voice_menu_label(Path(voice_file)),
+                    checked=self._normalized_voice_config_path(relative) == current_path,
+                    tooltip=str(voice_file),
+                )
+            )
+        if self._gaze_voice_page > 0:
+            actions.append(gaze_radial_menu.RadialAction("voice_prev", "Previous"))
+        if self._gaze_voice_page + 1 < page_count:
+            actions.append(gaze_radial_menu.RadialAction("voice_next", "Next"))
+        title = "Voice" if page_count == 1 else f"Voice {self._gaze_voice_page + 1}/{page_count}"
+        self._show_gaze_radial_actions(
+            actions,
+            title=title,
+            center_label="Back",
+            center_action_id="back",
+        )
+
+    def _show_gaze_reply_style_menu(self) -> None:
+        current = _normalize_orb_response_style(
+            self._last_runtime_config.get("companion_orb_response_style", "friendly")
+        )
+        actions = tuple(
+            gaze_radial_menu.RadialAction(
+                f"reply_style:{value}",
+                label.replace(" / ", "\n"),
+                checked=value == current,
+            )
+            for label, value in ORB_RESPONSE_STYLES
+        )
+        self._show_gaze_radial_actions(
+            actions,
+            title="Reply style",
+            center_label="Back",
+            center_action_id="back",
+        )
+
+    def _dispatch_gaze_click_visual_action(self, action_id: str) -> dict[str, Any]:
+        normalized = str(action_id or "").strip().lower()
+        try:
+            selected_index = int(self._gaze_click_visual_selected_index)
+            if selected_index < 0:
+                raise IndexError(selected_index)
+            item = self._gaze_click_visual_targets[selected_index]
+        except (IndexError, TypeError, ValueError):
+            return {"ok": False, "error": "The selected visual context is no longer available."}
+        target = CompanionOrbController._click_target_from_payload(item)
+        if target is None:
+            return {"ok": False, "error": "The selected visual context is invalid."}
+        if normalized == "inspect":
+            bounds = self._gaze_click_visual_context_bounds(target)
+            if not bounds:
+                return {
+                    "ok": False,
+                    "error": "The selected visual context is outside the active display.",
+                }
+            self._dismiss_gaze_radial_menu()
+            return self._queue_gaze_radial_context_action(
+                "react",
+                target.center,
+                bounds_override=bounds,
+            )
+
+        reading_action_id = GAZE_CLICK_VISUAL_READING_ACTIONS.get(normalized, "")
+        action = reading_actions.action_for_id(reading_action_id)
+        if action is None:
+            return {"ok": False, "error": "Unknown visual context action."}
+        if not self._begin_reading_job(reading_action_id):
+            return {
+                "ok": False,
+                "error": "Another Companion Orb reading action is still running.",
+            }
+        try:
+            bounds = self._gaze_click_visual_context_bounds(target)
+            if not bounds:
+                raise RuntimeError("The selected visual context is outside the active display.")
+            self._dismiss_gaze_radial_menu()
+            self._start_reading_worker(
+                action,
+                selected_text="",
+                bounds=bounds,
+                private_bounds=True,
+            )
+        except Exception as exc:
+            self._finish_reading_job(reading_action_id, reason="failed")
+            return {
+                "ok": False,
+                "error": f"Could not prepare the selected visual context: {exc}",
+            }
+        return {"ok": True, "queued": True}
+
+    def _start_gaze_scrolling(self) -> bool:
+        target_point = (
+            getattr(self, "_gaze_radial_scroll_target_point", None)
+            or (float(self._gaze_radial_anchor.x()), float(self._gaze_radial_anchor.y()))
+        )
+        target_hwnd = int(getattr(self, "_gaze_radial_context_hwnd", 0) or 0)
+        if not target_hwnd:
+            target_hwnd = self._window_handle_at_point(target_point)
+        if not target_hwnd:
+            self._eye_tracking_status_message = (
+                "Gaze scrolling could not find a target window under the current focus."
+            )
+            self._play_blink_notification(False)
+            return False
+        anchor_y = float(target_point[1])
+        self._dismiss_gaze_radial_menu()
+        self._gaze_scroll_active = True
+        self._gaze_scroll_anchor_y = anchor_y
+        self._gaze_scroll_target_hwnd = target_hwnd
+        self._gaze_scroll_target_point = (float(target_point[0]), float(target_point[1]))
+        self._gaze_scroll_policy.reset()
+        self._play_blink_notification(True)
+        return True
+
+    def _stop_gaze_scrolling(self) -> bool:
+        was_active = bool(getattr(self, "_gaze_scroll_active", False))
+        self._gaze_scroll_active = False
+        self._gaze_scroll_anchor_y = 0.0
+        self._gaze_scroll_target_hwnd = 0
+        self._gaze_scroll_target_point = None
+        policy = getattr(self, "_gaze_scroll_policy", None)
+        if policy is not None:
+            policy.reset()
+        return was_active
+
+    @QtCore.Slot(str)
+    def _handle_gaze_radial_action(self, action_id: str) -> None:
+        normalized = str(action_id or "").strip().lower()
+        if not normalized:
+            return
+        if normalized == "scrolling":
+            if bool(getattr(self, "_gaze_scroll_active", False)):
+                self._stop_gaze_scrolling()
+                self._dismiss_gaze_radial_menu()
+                self._play_blink_notification(False)
+            else:
+                self._start_gaze_scrolling()
+            return
+        if normalized == "action":
+            if not self._gaze_click_target_enabled():
+                self._clear_gaze_click_target_highlight()
+                return
+            self._show_gaze_click_target_menu()
+            return
+        if normalized == "back":
+            if bool(getattr(self, "_gaze_click_visual_action_menu_open", False)):
+                self._show_gaze_click_target_visual_page(self._gaze_click_visual_page)
+                return
+            self._clear_gaze_click_target_highlight()
+            if (
+                bool(getattr(self, "_gaze_click_visual_page_open", False))
+                and bool(getattr(self, "_gaze_click_targets", {}))
+            ):
+                self._show_gaze_click_target_direct_page()
+                return
+            self._gaze_click_scan_generation = int(
+                getattr(self, "_gaze_click_scan_generation", 0)
+            ) + 1
+            CompanionOrbController._cancel_gaze_click_validation(self)
+            getattr(self, "_gaze_click_targets", {}).clear()
+            getattr(self, "_gaze_click_target_payloads", {}).clear()
+            getattr(self, "_gaze_click_visual_targets", []).clear()
+            self._gaze_click_visual_page_open = False
+            self._gaze_click_visual_action_menu_open = False
+            self._gaze_click_visual_selected_index = None
+            point = self._eye_tracking_latest_point or (self._gaze_radial_anchor.x(), self._gaze_radial_anchor.y())
+            self._show_gaze_radial_main_menu(point)
+            return
+        if normalized.startswith("click_target") and not self._gaze_click_target_enabled():
+            self._clear_gaze_click_target_highlight()
+            return
+        if normalized == "click_target":
+            self._show_gaze_click_target_menu()
+            return
+        if normalized == "click_target_inspect":
+            self._show_gaze_click_target_visual_page(0)
+            return
+        if normalized == "click_target_visual_previous":
+            self._show_gaze_click_target_visual_page(self._gaze_click_visual_page - 1)
+            return
+        if normalized == "click_target_visual_next":
+            self._show_gaze_click_target_visual_page(self._gaze_click_visual_page + 1)
+            return
+        if normalized.startswith("click_target_visual_action:"):
+            result = self._dispatch_gaze_click_visual_action(
+                normalized.split(":", 1)[1],
+            )
+            if not bool(result.get("ok")):
+                self._eye_tracking_status_message = str(
+                    result.get("error") or "The selected visual context action failed."
+                )
+            return
+        if normalized.startswith("click_target_visual:"):
+            try:
+                index = int(normalized.split(":", 1)[1])
+                if index < 0:
+                    raise IndexError(index)
+                item = self._gaze_click_visual_targets[index]
+            except (IndexError, TypeError, ValueError):
+                self._clear_gaze_click_target_highlight()
+                return
+            target = self._click_target_from_payload(item)
+            if target is None:
+                self._clear_gaze_click_target_highlight()
+                return
+            self._show_gaze_click_visual_action_menu(index)
+            return
+        if normalized.startswith("click_target:"):
+            target = getattr(self, "_gaze_click_targets", {}).get(normalized)
+            if isinstance(target, eye_tracking.ClickTarget):
+                self._queue_confirmed_target_click(target, action_id=normalized)
+            else:
+                self._clear_gaze_click_target_highlight()
+            return
+        if normalized == "voice":
+            self._show_gaze_voice_menu(0)
+            return
+        if normalized == "voice_prev":
+            self._show_gaze_voice_menu(self._gaze_voice_page - 1)
+            return
+        if normalized == "voice_next":
+            self._show_gaze_voice_menu(self._gaze_voice_page + 1)
+            return
+        if normalized == "reply_style":
+            self._show_gaze_reply_style_menu()
+            return
+        if normalized == "chat":
+            chat_anchor = QtCore.QPoint(self._gaze_radial_anchor)
+            self._dismiss_gaze_radial_menu()
+            self._show_chat_input_popup(chat_anchor)
+            return
+        if normalized.startswith("voice_select:"):
+            voice_file = self._gaze_radial_payloads.get(normalized)
+            self._dismiss_gaze_radial_menu()
+            if isinstance(voice_file, Path):
+                self._select_voice_file(voice_file)
+            return
+        if normalized.startswith("reply_style:"):
+            self._dismiss_gaze_radial_menu()
+            self._set_response_style(normalized.split(":", 1)[1])
+            return
+        if normalized == "read_text":
+            context_point = self._gaze_radial_context_point
+            self._dismiss_gaze_radial_menu()
+            result = self._start_gaze_read_text(point=context_point)
+            if not bool(result.get("ok")):
+                self._eye_tracking_status_message = str(
+                    result.get("error") or "The visible text could not be read."
+                )
+            return
+        if normalized in EYE_TRACKING_CONTEXT_PROMPTS:
+            context_point = self._gaze_radial_context_point
+            self._dismiss_gaze_radial_menu()
+            result = self._queue_gaze_radial_context_action(normalized, context_point)
+            if not bool(result.get("ok")):
+                self._eye_tracking_status_message = str(
+                    result.get("error") or "The visual response could not be prepared."
+                )
+
+    def _schedule_gaze_context_retry(self, delay_ms: int, callback) -> None:
+        QtCore.QTimer.singleShot(max(0, int(delay_ms)), callback)
+
+    def _queue_gaze_radial_context_action(
+        self,
+        action_id: str,
+        point,
+        *,
+        bounds_override=None,
+    ) -> dict[str, Any]:
+        normalized = str(action_id or "").strip().lower()
+        if normalized not in EYE_TRACKING_CONTEXT_PROMPTS:
+            return {"ok": False, "error": "Unknown visual response action."}
+        try:
+            context_point = (float(point[0]), float(point[1]))
+        except (TypeError, ValueError, IndexError):
+            return {"ok": False, "error": "No eye-tracker context is available for this action."}
+        if bool(getattr(self, "_eye_tracking_reaction_shutting_down", False)):
+            return {"ok": False, "error": "Companion Orb is shutting down."}
+        private_bounds: list[int] | None = None
+        if bounds_override is not None:
+            try:
+                private_bounds = [
+                    int(value) for value in list(bounds_override)[:4]
+                ]
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "The selected visual context bounds are invalid."}
+            if (
+                len(private_bounds) != 4
+                or private_bounds[2] <= 0
+                or private_bounds[3] <= 0
+            ):
+                return {"ok": False, "error": "The selected visual context bounds are invalid."}
+        generation = int(getattr(self, "_gaze_context_dispatch_generation", 0)) + 1
+        self._gaze_context_dispatch_generation = generation
+        if private_bounds is not None:
+            return self._try_gaze_radial_context_action(
+                normalized,
+                context_point,
+                generation,
+                0,
+                bounds_override=private_bounds,
+            )
+        return self._try_gaze_radial_context_action(
+            normalized,
+            context_point,
+            generation,
+            0,
+        )
+
+    def _try_gaze_radial_context_action(
+        self,
+        action_id: str,
+        point: tuple[float, float],
+        generation: int,
+        attempt: int,
+        *,
+        bounds_override: list[int] | None = None,
+    ) -> dict[str, Any]:
+        if (
+            int(generation) != int(getattr(self, "_gaze_context_dispatch_generation", 0))
+            or bool(getattr(self, "_eye_tracking_reaction_shutting_down", False))
+        ):
+            return {"ok": False, "cancelled": True, "error": "Visual response action was cancelled."}
+        if bounds_override is None:
+            result = self._request_eye_tracking_reaction(
+                True,
+                action_id=action_id,
+                point_override=point,
+            )
+        else:
+            result = self._request_eye_tracking_reaction(
+                True,
+                action_id=action_id,
+                point_override=point,
+                bounds_override=list(bounds_override),
+            )
+        if bool(result.get("ok")):
+            self._debug_event("gaze_context_action_dispatched", action_id=action_id)
+            return result
+        if bool(result.get("busy")) and int(attempt) + 1 < GAZE_CONTEXT_RETRY_ATTEMPTS:
+            next_attempt = int(attempt) + 1
+            if int(attempt) == 0:
+                self._debug_event(
+                    "gaze_context_action_waiting",
+                    action_id=action_id,
+                )
+            if bounds_override is None:
+                callback = lambda: self._try_gaze_radial_context_action(
+                    action_id,
+                    point,
+                    generation,
+                    next_attempt,
+                )
+            else:
+                callback = lambda: self._try_gaze_radial_context_action(
+                    action_id,
+                    point,
+                    generation,
+                    next_attempt,
+                    bounds_override=list(bounds_override),
+                )
+            self._schedule_gaze_context_retry(
+                GAZE_CONTEXT_RETRY_INTERVAL_MS,
+                callback,
+            )
+            return {"ok": True, "queued": True, "waiting": True}
+        error = str(result.get("error") or "The visual response could not be prepared.")
+        self._eye_tracking_status_message = error
+        self._debug_event(
+            "gaze_context_action_failed",
+            action_id=action_id,
+            error=error,
+        )
+        return {"ok": False, "error": error}
+
+    def _dismiss_gaze_radial_menu(self) -> None:
+        menu = self._gaze_radial_menu
+        if menu is not None:
+            menu.hide()
+        self._finish_gaze_radial_menu()
+
+    @QtCore.Slot()
+    def _finish_gaze_radial_menu(self) -> None:
+        stop_scrolling = getattr(self, "_stop_gaze_scrolling", None)
+        if callable(stop_scrolling):
+            stop_scrolling()
+        self._gaze_click_scan_generation = int(
+            getattr(self, "_gaze_click_scan_generation", 0)
+        ) + 1
+        CompanionOrbController._cancel_gaze_click_validation(self)
+        getattr(self, "_gaze_click_targets", {}).clear()
+        getattr(self, "_gaze_click_target_payloads", {}).clear()
+        getattr(self, "_gaze_click_visual_targets", []).clear()
+        self._gaze_click_visual_page_open = False
+        self._gaze_click_visual_action_menu_open = False
+        self._gaze_click_visual_selected_index = None
+        self._clear_gaze_click_target_highlight()
+        self._gaze_click_target_page_open = False
+        self._gaze_radial_menu_open = False
+        self._gaze_radial_context_point = None
+        self._gaze_radial_context_hwnd = 0
+        self._gaze_radial_scroll_target_point = None
+        self._gaze_radial_payloads.clear()
+        self._set_gaze_timer_state(False, 0.0)
+        self._eye_tracking_interaction_target = None
+        self._eye_tracking_interaction_until = 0.0
+        self._eye_tracking_last_external_target = None
+        self._eye_tracking_last_external_sent_at = 0.0
+        self._send_external_runtime({"type": "interaction_target_clear"})
+        guard = getattr(self, "_sync_external_pointer_clearance_guard", None)
+        if callable(guard):
+            guard(False)
+        self._mark_user_interaction()
+        self._sync_drift_timer()
+
+    def _eye_tracking_read_text_bounds(self, point) -> list[int]:
+        base_bounds = list(self._eye_tracking_reaction_bounds(point) or [])
+        if len(base_bounds) != 4:
+            return []
+        try:
+            left, top, width, height = (int(value) for value in base_bounds)
+        except (TypeError, ValueError):
+            return []
+        if width <= 0 or height <= 0:
+            return []
+        expand = interaction_settings.boolish(
+            self._last_runtime_config.get(
+                "companion_orb_eye_tracking_expand_read_text_area",
+                True,
+            ),
+            default=True,
+        )
+        if not expand:
+            return [left, top, width, height]
+        screen_left, _screen_top, screen_width, _screen_height = self._eye_tracking_screen_bounds()
+        available_width = max(1, int(float(screen_width)))
+        if available_width < width:
+            return [left, top, width, height]
+        expanded_width = min(width * 2, available_width)
+        max_left = float(screen_left) + float(screen_width) - expanded_width
+        expanded_left = max(float(screen_left), min(float(left), max_left))
+        return [int(round(expanded_left)), top, expanded_width, height]
+
+    def _start_gaze_read_text(self, *, point=None) -> dict[str, Any]:
+        selected_point = point if point is not None else self._eye_tracking_latest_point
+        if selected_point is None or (
+            point is None and time.monotonic() - self._eye_tracking_latest_at > 2.5
+        ):
+            return {"ok": False, "error": "No recent eye-tracker focus is available."}
+        action_id = _reading_action_id(GAZE_READ_TEXT_ACTION)
+        if not self._begin_reading_job(action_id):
+            return {"ok": False, "error": "Another Companion Orb reading action is still running."}
+        try:
+            bounds = self._eye_tracking_read_text_bounds(selected_point)
+            if not bounds:
+                raise RuntimeError("The focused screen area is unavailable.")
+            self._start_reading_worker(
+                GAZE_READ_TEXT_ACTION,
+                selected_text="",
+                bounds=bounds,
+                private_bounds=True,
+            )
+        except Exception as exc:
+            self._finish_reading_job(action_id, reason="failed")
+            return {"ok": False, "error": f"Could not prepare visible text reading: {exc}"}
+        return {"ok": True, "queued": True}
+
+    def react_at_gaze(self, *, force: bool = True) -> dict[str, Any]:
+        with self._eye_tracking_reaction_lock:
+            if self._eye_tracking_reaction_shutting_down:
+                return {"ok": False, "error": "Companion Orb is shutting down."}
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+        )
+        if mode == "off":
+            return {"ok": False, "error": "Eye tracking is off."}
+        if not self._eye_tracking_orb_active():
+            return {"ok": False, "error": "Enable and show the Companion Orb first."}
+        if self._eye_tracking_latest_point is None or time.monotonic() - self._eye_tracking_latest_at > 2.5:
+            return {"ok": False, "error": "No recent eye-tracker focus is available."}
+        if self.thread() == QtCore.QThread.currentThread():
+            return self._request_eye_tracking_reaction(bool(force))
+        self._proxy.eye_react_requested.emit(bool(force))
+        return {"ok": True, "queued": True}
+
+    def _eye_tracking_reaction_is_current(self, generation: int, *, force: bool) -> bool:
+        with self._eye_tracking_reaction_lock:
+            if self._eye_tracking_reaction_shutting_down:
+                return False
+            if int(generation) != int(self._eye_tracking_reaction_generation):
+                return False
+        mode = eye_tracking.normalize_tracking_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_mode", "dwell")
+        )
+        if mode == "off" or not self._eye_tracking_orb_active():
+            return False
+        if not force:
+            reaction_mode = eye_tracking.normalize_reaction_mode(
+                self._last_runtime_config.get("companion_orb_eye_tracking_reaction_mode", "meaningful")
+            )
+            if mode == "manual" or reaction_mode == "off":
+                return False
+        return True
+
+    @QtCore.Slot(bool)
+    def _request_eye_tracking_reaction(
+        self,
+        force: bool = False,
+        *,
+        action_id: str = "react",
+        point_override=None,
+        bounds_override=None,
+    ) -> dict[str, Any]:
+        reaction_mode = eye_tracking.normalize_reaction_mode(
+            self._last_runtime_config.get("companion_orb_eye_tracking_reaction_mode", "meaningful")
+        )
+        if not force and reaction_mode == "off":
+            return {"ok": False, "error": "Automatic eye-tracker comments are off."}
+        point = point_override if point_override is not None else self._eye_tracking_latest_point
+        if point is None or (
+            point_override is None and time.monotonic() - self._eye_tracking_latest_at > 2.5
+        ):
+            return {"ok": False, "error": "No recent eye-tracker focus is available."}
+        with self._eye_tracking_reaction_lock:
+            if self._eye_tracking_reaction_shutting_down:
+                return {"ok": False, "error": "Companion Orb is shutting down."}
+            if self._eye_tracking_reaction_active:
+                return {
+                    "ok": False,
+                    "busy": True,
+                    "error": "An eye-tracker visual reaction is already being prepared.",
+                }
+            self._eye_tracking_reaction_active = True
+            reaction_generation = int(self._eye_tracking_reaction_generation)
+        try:
+            self._set_eye_tracking_interaction_target(point, duration_seconds=4.0)
+            if bounds_override is None:
+                capture_bounds = self._eye_tracking_reaction_bounds(point)
+            else:
+                capture_bounds = [
+                    int(value) for value in list(bounds_override)[:4]
+                ]
+                if (
+                    len(capture_bounds) != 4
+                    or capture_bounds[2] <= 0
+                    or capture_bounds[3] <= 0
+                ):
+                    raise RuntimeError("The selected visual context bounds are invalid.")
+            virtual_rect = self._virtual_desktop_rect()
+            if virtual_rect is not None:
+                virtual_rect = QtCore.QRect(virtual_rect)
+            worker = threading.Thread(
+                target=self._capture_eye_tracking_reaction,
+                args=(
+                    capture_bounds,
+                    virtual_rect,
+                    bool(force),
+                    reaction_generation,
+                    _eye_tracking_context_prompt(action_id),
+                ),
+                daemon=True,
+                name="companion-orb-eye-reaction",
+            )
+            worker.start()
+        except Exception as exc:
+            with self._eye_tracking_reaction_lock:
+                self._eye_tracking_reaction_active = False
+            return {"ok": False, "error": f"Could not prepare the visual reaction: {exc}"}
+        return {"ok": True, "queued": True}
+
+    def _eye_tracking_reaction_bounds(self, point) -> list[int]:
+        left, top, screen_width, screen_height = self._eye_tracking_screen_bounds()
+        width = int(max(320.0, min(720.0, screen_width)))
+        height = int(max(240.0, min(520.0, screen_height)))
+        center_x, center_y = float(point[0]), float(point[1])
+        crop_left = max(left, min(center_x - width * 0.5, left + screen_width - width))
+        crop_top = max(top, min(center_y - height * 0.5, top + screen_height - height))
+        return [int(round(crop_left)), int(round(crop_top)), width, height]
+
+    def _capture_eye_tracking_reaction(
+        self,
+        capture_bounds: list[int],
+        virtual_rect,
+        force: bool,
+        reaction_generation: int,
+        request_content: str = "",
+    ) -> None:
+        from PIL import ImageGrab
+
+        acquired = False
+        output_path: Path | None = None
+        try:
+            if not self._eye_tracking_reaction_is_current(reaction_generation, force=bool(force)):
+                return
+            acquired = self._snapshot_capture_lock.acquire(blocking=False)
+            if not acquired:
+                self._proxy.eye_reaction_result_requested.emit(False, "Another Companion Orb capture is already running.")
+                return
+            cloaked = self._apply_snapshot_cloak_blocking(True)
+            if cloaked:
+                time.sleep(0.04)
+            try:
+                desktop = ImageGrab.grab(all_screens=True).convert("RGB")
+            finally:
+                if cloaked:
+                    self._apply_snapshot_cloak_blocking(False)
+            if not self._eye_tracking_reaction_is_current(reaction_generation, force=bool(force)):
+                return
+
+            crop, crop_box = self._crop_desktop_image_to_bounds(
+                desktop,
+                capture_bounds,
+                virtual_rect,
+            )
+            if not crop_box or crop.width < 2 or crop.height < 2:
+                raise RuntimeError("The selected screen area could not be captured.")
+            crop.thumbnail((960, 720))
+            signature = eye_tracking.average_image_hash(crop)
+            if not self._eye_tracking_reaction_is_current(reaction_generation, force=bool(force)):
+                return
+            reaction_mode = eye_tracking.normalize_reaction_mode(
+                self._last_runtime_config.get("companion_orb_eye_tracking_reaction_mode", "meaningful")
+            )
+            accepted = self._eye_tracking_reaction_gate.accept(
+                signature,
+                now=time.monotonic(),
+                meaningful=reaction_mode == "meaningful",
+                force=bool(force),
+            )
+            if not accepted:
+                return
+            if not self._eye_tracking_reaction_is_current(reaction_generation, force=bool(force)):
+                return
+
+            service = self.context.get_service("qt.user_image_turns") if getattr(self, "context", None) is not None else None
+            queue_image_turn = getattr(service, "queue_image_turn", None)
+            if not callable(queue_image_turn):
+                raise RuntimeError("The main chat image pipeline is unavailable.")
+            output_root = (
+                Path(getattr(self.context, "app_root", Path.cwd()) or Path.cwd())
+                / "runtime"
+                / "companion_orb"
+                / "visual_reactions"
+            )
+            output_root.mkdir(parents=True, exist_ok=True)
+            output_path = output_root / f"companion_orb_reaction_{time.time_ns()}.jpg"
+            crop.save(output_path, format="JPEG", quality=86, optimize=True)
+            if not self._eye_tracking_reaction_is_current(reaction_generation, force=bool(force)):
+                output_path.unlink(missing_ok=True)
+                output_path = None
+                return
+            content = str(request_content or "").strip() or _eye_tracking_context_prompt("react")
+            queue_image_turn(
+                str(output_path),
+                content=content,
+                source="companion_orb_target",
+            )
+            self._proxy.eye_reaction_result_requested.emit(True, "Visual reaction queued in Main Chat.")
+        except Exception as exc:
+            if output_path is not None:
+                try:
+                    output_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            self._proxy.eye_reaction_result_requested.emit(False, f"Eye-tracker visual reaction failed: {exc}")
+        finally:
+            if acquired:
+                try:
+                    self._snapshot_capture_lock.release()
+                except RuntimeError:
+                    pass
+            with self._eye_tracking_reaction_lock:
+                self._eye_tracking_reaction_active = False
+
+    @QtCore.Slot(bool, str)
+    def _handle_eye_tracking_reaction_result(self, success: bool, message: str) -> None:
+        self._eye_tracking_status_message = str(message or "").strip()
+        if not success:
+            self._eye_tracking_status_code = "reaction_error"
 
     def _apply_window_settings(self):
         window = self._window
@@ -837,10 +5149,11 @@ class CompanionOrbController(QtCore.QObject):
             window.setWindowFlags(self._window_flags())
         except Exception:
             pass
-        click_through = bool(self._last_runtime_config.get("companion_orb_click_through_default", True))
-        right_drag_focus = bool(self._last_runtime_config.get("companion_orb_right_drag_focus_enabled", False))
-        if self.bridge.editMode or self.bridge.placementMode or right_drag_focus:
-            click_through = False
+        click_through = interaction_settings.effective_click_through(
+            self._last_runtime_config,
+            edit_mode=bool(self.bridge.editMode),
+            placement_mode=bool(self.bridge.placementMode),
+        )
         self.bridge.set_modes(click_through=click_through)
         self._apply_click_through(click_through)
         self._apply_mouse_near_opacity()
@@ -1096,6 +5409,7 @@ class CompanionOrbController(QtCore.QObject):
             return
         harassment_enabled = bool(self._last_runtime_config.get("companion_orb_harassment_enabled", False))
         comment_focus_enabled = self._comment_focus_ready()
+        eye_interaction_enabled = self._eye_tracking_interaction_ready()
         enabled = (
             (
                 bool(self._last_runtime_config.get("companion_orb_movement_enabled", True))
@@ -1103,6 +5417,7 @@ class CompanionOrbController(QtCore.QObject):
             )
             or harassment_enabled
             or comment_focus_enabled
+            or eye_interaction_enabled
             or bool(self._last_runtime_config.get("companion_orb_mouse_near_fade", False))
             or bool(self._last_runtime_config.get("companion_orb_avoid_mouse", False))
         ) and (
@@ -2020,8 +6335,28 @@ class CompanionOrbController(QtCore.QObject):
         window = self._window
         if window is None:
             return
-        opacity = 1.0
-        if not reset and bool(self._last_runtime_config.get("companion_orb_mouse_near_fade", False)):
+        opacity = (
+            1.0
+            if reset
+            else max(
+                0.0,
+                min(
+                    1.0,
+                    float(
+                        getattr(
+                            self,
+                            "_eye_tracking_pointer_clearance_opacity",
+                            1.0,
+                        )
+                    ),
+                ),
+            )
+        )
+        if (
+            opacity > 0.0
+            and not reset
+            and bool(self._last_runtime_config.get("companion_orb_mouse_near_fade", False))
+        ):
             cursor = QtGui.QCursor.pos()
             center = window.frameGeometry().center()
             distance = math.hypot(float(center.x() - cursor.x()), float(center.y() - cursor.y()))
@@ -2032,7 +6367,10 @@ class CompanionOrbController(QtCore.QObject):
                 near_opacity = 0.28
             if distance < fade_distance:
                 mix = max(0.0, min(1.0, distance / fade_distance))
-                opacity = near_opacity + (1.0 - near_opacity) * mix
+                opacity = min(
+                    opacity,
+                    near_opacity + (1.0 - near_opacity) * mix,
+                )
         try:
             window.setWindowOpacity(opacity)
         except Exception:
@@ -2124,8 +6462,28 @@ class CompanionOrbController(QtCore.QObject):
         amount = float(self._movement_range()) if movement_enabled else 0.0
         speed = self._movement_speed()
         comment_focus_ready = self._comment_focus_ready()
-        harassment_ready = self._harassment_ready()
-        if comment_focus_ready:
+        eye_interaction_ready = self._eye_tracking_interaction_ready()
+        if not eye_interaction_ready:
+            self._reset_eye_tracking_pointer_clearance()
+        harassment_ready = False if eye_interaction_ready else self._harassment_ready()
+        if eye_interaction_ready:
+            target = self._eye_tracking_interaction_target or QtCore.QPointF(base)
+            cleared_target = self._apply_eye_tracking_pointer_clearance(
+                QtCore.QPointF(target),
+                current_top_left=QtCore.QPointF(
+                    float(window.x()),
+                    float(window.y()),
+                ),
+                now=now,
+            )
+            target_x = cleared_target.x()
+            target_y = cleared_target.y()
+            target_kind = "interaction"
+            target_deadzone = 3.0
+            target_blend = 0.34
+            if self._harassment_active:
+                self._harassment_active = False
+        elif comment_focus_ready:
             target = self._aware_focus_hover_target(self._comment_focus_target(), now=now, amount=max(amount, float(self._movement_range())))
             target_x = target.x()
             target_y = target.y()
@@ -2167,7 +6525,12 @@ class CompanionOrbController(QtCore.QObject):
                 amount=amount,
                 speed=speed,
             )
-        if bool(self._last_runtime_config.get("companion_orb_avoid_mouse", False)) and not harassment_ready and not comment_focus_ready:
+        if (
+            bool(self._last_runtime_config.get("companion_orb_avoid_mouse", False))
+            and not harassment_ready
+            and not comment_focus_ready
+            and not eye_interaction_ready
+        ):
             cursor = QtGui.QCursor.pos()
             center_x = target_x + window.width() * 0.5
             center_y = target_y + window.height() * 0.5
@@ -2192,15 +6555,25 @@ class CompanionOrbController(QtCore.QObject):
         current = self._drift_current_point
         if current is None:
             current = QtCore.QPointF(float(window.x()), float(window.y()))
-        smoothing = 0.14 if comment_focus_ready else (0.11 if harassment_ready else max(0.055, min(0.18, 0.055 + speed * 0.055)))
+        smoothing = (
+            0.16
+            if target_kind == "interaction"
+            else (0.14 if target_kind == "comment" else (0.11 if harassment_ready else max(0.055, min(0.18, 0.055 + speed * 0.055))))
+        )
         smoothing = self._time_scaled_blend(smoothing, frame_scale)
         next_x = current.x() + (target_x - current.x()) * smoothing
         next_y = current.y() + (target_y - current.y()) * smoothing
         self._drift_current_point = QtCore.QPointF(next_x, next_y)
-        should_move = comment_focus_ready or harassment_ready or movement_enabled or bool(self._last_runtime_config.get("companion_orb_avoid_mouse", False))
+        should_move = (
+            comment_focus_ready
+            or eye_interaction_ready
+            or harassment_ready
+            or movement_enabled
+            or bool(self._last_runtime_config.get("companion_orb_avoid_mouse", False))
+        )
         if should_move:
             window.move(QtCore.QPoint(int(round(next_x)), int(round(next_y))))
-        if target_kind in {"comment", "harassment"} or should_move:
+        if target_kind != "interaction" and (target_kind in {"comment", "harassment"} or should_move):
             self._debug_move_sample(
                 kind=target_kind,
                 desired=desired_target,
@@ -2320,17 +6693,41 @@ class CompanionOrbController(QtCore.QObject):
     @QtCore.Slot(bool)
     def set_click_through(self, enabled):
         self._last_runtime_config["companion_orb_click_through_default"] = bool(enabled)
-        self.bridge.set_modes(click_through=bool(enabled))
+        self._last_runtime_config["companion_orb_interaction_defaults_version"] = (
+            interaction_settings.CURRENT_INTERACTION_DEFAULTS_VERSION
+        )
+        self._last_runtime_config["companion_orb_click_through_explicit"] = bool(enabled)
+        effective_enabled = interaction_settings.effective_click_through(
+            self._last_runtime_config,
+            edit_mode=bool(self.bridge.editMode),
+            placement_mode=bool(self.bridge.placementMode),
+        )
+        self.bridge.set_modes(click_through=effective_enabled)
+        self._send_external_runtime({"type": "settings", "settings": dict(self._last_runtime_config or {})})
         self._send_external_runtime(
             {
                 "type": "modes",
                 "edit_mode": bool(self.bridge.editMode),
                 "placement_mode": bool(self.bridge.placementMode),
-                "click_through": bool(enabled),
+                "click_through": bool(effective_enabled),
             }
         )
-        self._apply_click_through(bool(enabled))
+        self._apply_click_through(bool(effective_enabled))
+        self._save_runtime_setting(
+            "companion_orb_interaction_defaults_version",
+            interaction_settings.CURRENT_INTERACTION_DEFAULTS_VERSION,
+        )
+        self._save_runtime_setting("companion_orb_click_through_explicit", bool(enabled))
         self._save_runtime_setting("companion_orb_click_through_default", bool(enabled))
+
+    def _persist_interaction_defaults_migration(self) -> None:
+        self._save_runtime_setting("companion_orb_click_through_default", False)
+        self._save_runtime_setting("companion_orb_right_drag_focus_enabled", True)
+        self._save_runtime_setting("companion_orb_click_through_explicit", False)
+        self._save_runtime_setting(
+            "companion_orb_interaction_defaults_version",
+            interaction_settings.CURRENT_INTERACTION_DEFAULTS_VERSION,
+        )
 
     def _apply_click_through(self, enabled: bool):
         for widget in (self._window, self._quick):
@@ -2341,7 +6738,21 @@ class CompanionOrbController(QtCore.QObject):
             except Exception:
                 pass
         self._apply_windows_click_through(bool(enabled))
+        self._apply_orb_cursor(click_through=bool(enabled))
         self._sync_menu_poll_timer()
+
+    def _apply_orb_cursor(self, *, click_through: bool, dragging: bool = False) -> None:
+        for widget in (self._window, self._quick):
+            if widget is None:
+                continue
+            try:
+                if bool(click_through):
+                    widget.unsetCursor()
+                else:
+                    cursor_shape = QtCore.Qt.ClosedHandCursor if bool(dragging) else QtCore.Qt.OpenHandCursor
+                    widget.setCursor(QtGui.QCursor(cursor_shape))
+            except Exception:
+                pass
 
     def _apply_windows_click_through(self, enabled: bool):
         if self._window is None or not sys_platform_windows():
@@ -2478,7 +6889,7 @@ class CompanionOrbController(QtCore.QObject):
             return True
         if event.type() == QtCore.QEvent.MouseButtonPress:
             self._mark_user_interaction()
-            right_drag_focus = bool(self._last_runtime_config.get("companion_orb_right_drag_focus_enabled", False))
+            right_drag_focus = interaction_settings.right_drag_focus_enabled(self._last_runtime_config)
             event_pos = self._event_global_pos(event)
             if (self.bridge.placementMode or right_drag_focus) and event.button() == QtCore.Qt.RightButton:
                 self._drift_timer.stop()
@@ -2486,6 +6897,7 @@ class CompanionOrbController(QtCore.QObject):
                 self._drag_offset = event_pos - self._window.frameGeometry().topLeft()
                 self._drag_start_global_pos = QtCore.QPoint(event_pos)
                 self._drag_moved = False
+                self._apply_orb_cursor(click_through=False, dragging=True)
                 return True
             if event.button() == QtCore.Qt.RightButton:
                 self._show_command_menu(event_pos)
@@ -2496,6 +6908,7 @@ class CompanionOrbController(QtCore.QObject):
                 self._drag_offset = event_pos - self._window.frameGeometry().topLeft()
                 self._drag_start_global_pos = QtCore.QPoint(event_pos)
                 self._drag_moved = False
+                self._apply_orb_cursor(click_through=False, dragging=True)
                 return True
         if event.type() == QtCore.QEvent.MouseMove and self._drag_offset is not None:
             self._mark_user_interaction()
@@ -2524,7 +6937,8 @@ class CompanionOrbController(QtCore.QObject):
             self._drag_offset = None
             self._drag_start_global_pos = None
             self._drag_moved = False
-            right_drag_focus = bool(self._last_runtime_config.get("companion_orb_right_drag_focus_enabled", False))
+            self._apply_orb_cursor(click_through=bool(self.bridge.clickThrough), dragging=False)
+            right_drag_focus = interaction_settings.right_drag_focus_enabled(self._last_runtime_config)
             if (self.bridge.placementMode or right_drag_focus) and event.button() == QtCore.Qt.RightButton:
                 if not drag_moved:
                     self._apply_window_settings()
@@ -2668,7 +7082,7 @@ class CompanionOrbController(QtCore.QObject):
             return False
 
     def _show_command_menu(self, global_pos: QtCore.QPoint | None = None):
-        if self._window is None or self._menu_open:
+        if self._window is None or self._menu_open or self._gaze_radial_menu_open:
             return
         previous_click_through = bool(self.bridge.clickThrough)
         self._menu_open = True
@@ -2693,6 +7107,15 @@ class CompanionOrbController(QtCore.QObject):
                 continue
             action = menu.addAction(label)
             action.triggered.connect(lambda _checked=False, command=label, anchor=QtCore.QPoint(point): self._handle_menu_command(command, anchor))
+        reading_commands = _reading_menu_action_commands()
+        if reading_commands:
+            menu.addSeparator()
+            for action_id, label in reading_commands:
+                action = menu.addAction(label)
+                action.setData(action_id)
+                action.triggered.connect(
+                    lambda _checked=False, selected_action_id=action_id: self._handle_reading_menu_action(selected_action_id)
+                )
         menu.aboutToHide.connect(lambda: self._finish_command_menu(previous_click_through))
         try:
             menu.popup(point)
@@ -2712,6 +7135,526 @@ class CompanionOrbController(QtCore.QObject):
             self._show_chat_input_popup(global_pos)
             return
         self._log(f"Companion Orb menu command selected: {command}")
+
+    def _handle_reading_menu_action(self, action_id: str):
+        self._mark_user_interaction()
+        action = reading_actions.action_for_id(action_id)
+        if action is None:
+            self._debug_event("reading_action_rejected", action_id=str(action_id or ""), reason="unknown_action")
+            self._log(f"Companion Orb reading action ignored: unknown action id {action_id!r}.")
+            return
+        normalized_action_id = _reading_action_id(action)
+        if not self._begin_reading_job(normalized_action_id):
+            return
+        try:
+            source = str(getattr(action, "text_source", "") or "").strip().lower()
+            if source == "clipboard":
+                text = self._read_clipboard_text()
+                cleaned = reading_actions.clean_readable_text(text)
+                if not cleaned:
+                    self._debug_event("reading_action_cancelled", action_id=normalized_action_id, reason="empty_clipboard")
+                    self._log("Companion Orb clipboard read skipped because the clipboard has no readable text.")
+                    self._finish_reading_job(normalized_action_id, reason="empty_clipboard")
+                    return
+                self._start_reading_worker(action, selected_text=cleaned, bounds=[])
+                return
+            if source == "selection":
+                bounds = self._select_reading_region(normalized_action_id)
+                if not bounds:
+                    self._debug_event("reading_action_cancelled", action_id=normalized_action_id, reason="selection_cancelled")
+                    self._finish_reading_job(normalized_action_id, reason="selection_cancelled")
+                    return
+                self._start_reading_worker(action, selected_text="", bounds=bounds)
+                return
+            self._debug_event("reading_action_rejected", action_id=normalized_action_id, reason="unsupported_source", text_source=source)
+            self._log(f"Companion Orb reading action ignored: unsupported source {source!r}.")
+            self._finish_reading_job(normalized_action_id, reason="unsupported_source")
+        except Exception as exc:
+            self._debug_event("reading_action_failed", console=True, action_id=normalized_action_id, error=str(exc))
+            self._log(f"Companion Orb reading action failed: {exc}")
+            self._finish_reading_job(normalized_action_id, reason="failed")
+
+    def _begin_reading_job(self, action_id: str) -> bool:
+        with self._reading_job_lock:
+            if self._reading_job_active:
+                self._debug_event("reading_action_skipped", action_id=str(action_id or ""), reason="busy")
+                self._log("Companion Orb reading action skipped because another reading action is still running.")
+                return False
+            self._reading_job_active = True
+        self._debug_event("reading_action_started", action_id=str(action_id or ""))
+        return True
+
+    def _finish_reading_job(self, action_id: str, *, reason: str = "finished") -> None:
+        with self._reading_job_lock:
+            self._reading_job_active = False
+        self._debug_event("reading_action_finished", action_id=str(action_id or ""), reason=str(reason or "finished"))
+
+    def _read_clipboard_text(self) -> str:
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return ""
+        try:
+            return str(app.clipboard().text() or "")
+        except Exception as exc:
+            self._debug_event("reading_clipboard_failed", console=True, error=str(exc))
+            self._log(f"Companion Orb clipboard read failed: {exc}")
+            return ""
+
+    def _select_reading_region(self, action_id: str = "") -> list[int]:
+        safe_action_id = str(action_id or "").strip()
+        try:
+            bounds = self._normalize_bounds(reading_overlay.select_region(self._window))
+        except Exception as exc:
+            self._debug_event("reading_selection_failed", console=True, action_id=safe_action_id, error=str(exc))
+            self._log(f"Companion Orb reading area selection failed: {exc}")
+            return []
+        if bounds:
+            self._debug_event("reading_region_selected", action_id=safe_action_id, bounds=bounds)
+        else:
+            self._debug_event("reading_region_cancelled", action_id=safe_action_id)
+        return bounds
+
+    def _start_reading_worker(
+        self,
+        action: Any,
+        *,
+        selected_text: str,
+        bounds: list[int],
+        private_bounds: bool = False,
+    ) -> None:
+        action_id = _reading_action_id(action)
+        safe_bounds = self._normalize_bounds(bounds)
+        diagnostic_bounds = [] if private_bounds else safe_bounds
+        initial_text = reading_actions.clean_readable_text(selected_text)
+
+        def worker() -> None:
+            finish_reason = "finished"
+            try:
+                text = initial_text
+                if str(getattr(action, "text_source", "") or "").strip().lower() == "selection":
+                    if private_bounds:
+                        text = self._extract_selected_reading_text(
+                            safe_bounds,
+                            action_id,
+                            private_bounds=True,
+                        )
+                    else:
+                        text = self._extract_selected_reading_text(safe_bounds, action_id)
+                if not text:
+                    finish_reason = "empty_text"
+                    self._debug_event("reading_action_no_text", action_id=action_id, bounds=diagnostic_bounds)
+                    self._log("Companion Orb reading action found no readable text.")
+                    return
+                speech_ctrl = None
+                if bool(getattr(action, "speaks_text", False)):
+                    speech_ctrl = self._speak_reading_text(text, action_id=action_id, phase="selected_text")
+                if bool(getattr(action, "requests_comment", False)):
+                    if speech_ctrl is not None:
+                        self._wait_for_reading_speech(speech_ctrl, action_id=action_id, phase="selected_text")
+                    comment = self._generate_reading_comment(text, action)
+                    if comment:
+                        self._speak_reading_text(comment, action_id=action_id, phase="comment")
+            except Exception as exc:
+                finish_reason = "failed"
+                self._debug_event(
+                    "reading_worker_failed",
+                    console=True,
+                    action_id=action_id,
+                    bounds=diagnostic_bounds,
+                    error=str(exc),
+                )
+                self._log(f"Companion Orb reading worker failed: {exc}")
+            finally:
+                self._finish_reading_job(action_id, reason=finish_reason)
+
+        threading.Thread(target=worker, daemon=True, name="companion-orb-reading").start()
+
+    def _extract_selected_reading_text(
+        self,
+        bounds: list[int],
+        action_id: str,
+        *,
+        private_bounds: bool = False,
+    ) -> str:
+        if not bounds:
+            return ""
+        diagnostic_bounds = [] if private_bounds else bounds
+        window_regions: list[dict[str, Any]] = []
+        window_backend = "none"
+        try:
+            window_regions = list(snapshot_ocr.extract_window_text_regions(bounds) or [])
+            if window_regions:
+                window_backend = "win32_window_text"
+        except Exception as exc:
+            self._debug_event(
+                "reading_text_extract_failed",
+                action_id=action_id,
+                bounds=diagnostic_bounds,
+                error=str(exc),
+            )
+        window_text = reading_actions.clean_readable_text(snapshot_ocr.readable_text_from_regions(window_regions))
+        window_score = self._selected_reading_text_score(window_text)
+        self._debug_event(
+            "reading_window_text_probe",
+            action_id=action_id,
+            bounds=diagnostic_bounds,
+            backend=window_backend,
+            region_count=len(window_regions),
+            char_count=len(window_text),
+            score=window_score,
+        )
+        ocr_result = self._extract_selected_reading_ocr(
+            bounds,
+            action_id,
+            allow_vision_fallback=window_score < 120,
+            private_bounds=private_bounds,
+        )
+        ocr_regions = list((ocr_result or {}).get("regions") or [])
+        ocr_backend = str((ocr_result or {}).get("backend") or "none")
+        ocr_text = reading_actions.clean_readable_text(
+            snapshot_ocr.readable_text_from_regions(ocr_regions)
+            or str((ocr_result or {}).get("text") or "")
+        )
+        ocr_score = self._selected_reading_text_score(ocr_text)
+        if ocr_text and (not window_text or window_score < 120 or ocr_score >= window_score):
+            text = ocr_text
+            regions = ocr_regions
+            backend = ocr_backend
+        else:
+            text = window_text
+            regions = window_regions
+            backend = window_backend
+        self._debug_event(
+            "reading_text_extracted",
+            action_id=action_id,
+            bounds=diagnostic_bounds,
+            backend=backend,
+            region_count=len(regions),
+            char_count=len(text),
+            window_char_count=len(window_text),
+            ocr_char_count=len(ocr_text),
+        )
+        return text
+
+    @staticmethod
+    def _selected_reading_text_score(text: str) -> int:
+        cleaned = reading_actions.clean_readable_text(str(text or ""))
+        if not cleaned:
+            return 0
+        lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+        words = re.findall(r"\w+", cleaned)
+        long_lines = sum(1 for line in lines if len(line) >= 24)
+        sentence_marks = len(re.findall(r"[.!?;:]", cleaned))
+        return len(cleaned) + (len(words) * 6) + (long_lines * 24) + (sentence_marks * 8)
+
+    def _extract_selected_reading_ocr(
+        self,
+        bounds: list[int],
+        action_id: str,
+        *,
+        allow_vision_fallback: bool = True,
+        private_bounds: bool = False,
+    ) -> dict[str, Any]:
+        output_path: Path | None = None
+        diagnostic_bounds = [] if private_bounds else bounds
+        try:
+            root = Path(getattr(self.context, "app_root", Path.cwd()) or Path.cwd())
+            keep_debug_crop = self._keep_reading_debug_crops()
+            output_dir = (
+                root / "runtime" / "companion_orb" / "debug" / "reading_crops"
+                if keep_debug_crop
+                else root / "runtime" / "companion_orb" / "reading_ocr"
+            )
+            cloaked = bool(private_bounds and self._apply_snapshot_cloak_blocking(True))
+            if cloaked:
+                time.sleep(0.04)
+            try:
+                output_path = reading_overlay.capture_region_image(bounds, output_dir)
+            finally:
+                if cloaked:
+                    self._apply_snapshot_cloak_blocking(False)
+            self._debug_event(
+                "reading_ocr_capture_saved",
+                action_id=action_id,
+                bounds=diagnostic_bounds,
+                image_path=output_path,
+                allow_vision_fallback=bool(allow_vision_fallback),
+            )
+            result = snapshot_ocr.extract_snapshot_regions(
+                output_path,
+                screen_bounds=bounds,
+                max_regions=OCR_MAX_REGIONS,
+            )
+            readable_text = reading_actions.clean_readable_text(
+                snapshot_ocr.readable_text_from_regions((result or {}).get("regions") or [])
+                or str((result or {}).get("text") or "")
+            )
+            if not readable_text and allow_vision_fallback:
+                vision_text = self._extract_selected_reading_text_with_vision_llm(
+                    output_path,
+                    bounds,
+                    action_id,
+                    private_bounds=private_bounds,
+                )
+                if vision_text:
+                    result = dict(result or {})
+                    result["backend"] = "vision_llm"
+                    result["text"] = vision_text
+                    result["regions"] = []
+            self._debug_event(
+                "reading_ocr_extract_finished",
+                action_id=action_id,
+                bounds=diagnostic_bounds,
+                image_path=output_path,
+                backend=str((result or {}).get("backend") or "none"),
+                region_count=len((result or {}).get("regions") or []),
+                char_count=len(readable_text or str((result or {}).get("text") or "")),
+                allow_vision_fallback=bool(allow_vision_fallback),
+            )
+            return dict(result or {})
+        except Exception as exc:
+            self._debug_event(
+                "reading_ocr_extract_failed",
+                action_id=action_id,
+                bounds=diagnostic_bounds,
+                image_path=output_path,
+                error=str(exc),
+            )
+            return {}
+        finally:
+            if output_path is not None:
+                if self._keep_reading_debug_crops():
+                    self._debug_event(
+                        "reading_ocr_debug_crop_kept",
+                        action_id=action_id,
+                        bounds=diagnostic_bounds,
+                        image_path=output_path,
+                    )
+                else:
+                    try:
+                        Path(output_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+    def _extract_selected_reading_text_with_vision_llm(
+        self,
+        image_path: Path,
+        bounds: list[int],
+        action_id: str,
+        *,
+        private_bounds: bool = False,
+    ) -> str:
+        diagnostic_bounds = [] if private_bounds else bounds
+        try:
+            import engine
+
+            extractor = getattr(engine, "extract_companion_orb_selected_text_from_image", None)
+            if not callable(extractor):
+                self._debug_event(
+                    "reading_vision_text_unavailable",
+                    action_id=action_id,
+                    bounds=diagnostic_bounds,
+                    image_path=image_path,
+                )
+                return ""
+            text = extractor(
+                image_path=str(image_path),
+                screen_bounds=[] if private_bounds else list(bounds or []),
+            )
+            cleaned = reading_actions.clean_readable_text(str(text or ""))
+            self._debug_event(
+                "reading_vision_text_extracted" if cleaned else "reading_vision_text_empty",
+                action_id=action_id,
+                bounds=diagnostic_bounds,
+                image_path=image_path,
+                char_count=len(cleaned),
+            )
+            return cleaned
+        except Exception as exc:
+            self._debug_event(
+                "reading_vision_text_failed",
+                action_id=action_id,
+                bounds=diagnostic_bounds,
+                image_path=image_path,
+                error=str(exc),
+            )
+            return ""
+
+    def _reading_max_chunk_chars(self) -> int | None:
+        raw_value = self._last_runtime_config.get("companion_orb_reading_max_chunk_chars", None)
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            return None
+        return value if 100 <= value <= 5000 else None
+
+    def _reading_chunks(self, text: str) -> list[str]:
+        max_chars = self._reading_max_chunk_chars()
+        if max_chars is None:
+            return reading_actions.chunk_text_for_tts(text)
+        return reading_actions.chunk_text_for_tts(text, max_chars=max_chars)
+
+    def _keep_reading_debug_crops(self) -> bool:
+        settings = dict(getattr(self, "_last_runtime_config", {}) or {})
+        if not bool(settings.get("companion_orb_debug_enabled", False)):
+            return False
+        value = settings.get("companion_orb_reading_keep_debug_crops", False)
+        if isinstance(value, str):
+            return value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(value)
+
+    def _interrupt_audio_for_reading_action(self, *, action_id: str, phase: str) -> None:
+        try:
+            import engine
+
+            interrupter = getattr(engine, "interrupt_tts_playback", None)
+            if callable(interrupter):
+                try:
+                    result = interrupter(
+                        reason=f"companion_orb_reading:{action_id}:{phase}",
+                        cancel_llm_streams=True,
+                    )
+                except TypeError:
+                    result = interrupter(reason=f"companion_orb_reading:{action_id}:{phase}")
+                self._debug_event(
+                    "reading_audio_interrupted",
+                    action_id=action_id,
+                    phase=phase,
+                    cancelled_controllers=int(dict(result or {}).get("cancelled_controllers", 0) or 0),
+                    cancelled_streams=int(dict(result or {}).get("cancelled_streams", 0) or 0),
+                )
+                return
+            stop_playback = getattr(engine, "stop_playback", None)
+            if getattr(stop_playback, "set", None):
+                stop_playback.set()
+            pause_after_chunk = getattr(engine, "pause_after_chunk", None)
+            if getattr(pause_after_chunk, "clear", None):
+                pause_after_chunk.clear()
+            playback_paused = getattr(engine, "playback_paused", None)
+            if getattr(playback_paused, "clear", None):
+                playback_paused.clear()
+            manual_pause_active = getattr(engine, "manual_pause_active", None)
+            if getattr(manual_pause_active, "clear", None):
+                manual_pause_active.clear()
+            try:
+                getattr(engine, "sd").stop()
+            except Exception:
+                pass
+            self._debug_event("reading_audio_interrupted", action_id=action_id, phase=phase, fallback=True)
+        except Exception as exc:
+            self._debug_event("reading_audio_interrupt_failed", action_id=action_id, phase=phase, error=str(exc))
+
+    def _speak_reading_text(self, text: str, *, action_id: str, phase: str):
+        chunks = self._reading_chunks(text)
+        if not chunks:
+            self._debug_event("reading_speech_skipped", action_id=action_id, phase=phase, reason="empty_text")
+            return None
+        if not self._tts_runtime_ready():
+            self._debug_event("reading_speech_skipped", console=True, action_id=action_id, phase=phase, reason="tts_not_ready")
+            self._log("Companion Orb reading speech skipped because TTS is not initialized yet.")
+            return None
+        try:
+            import engine
+
+            speak_async = getattr(engine, "speak_async", None)
+            if not callable(speak_async):
+                self._debug_event("reading_speech_skipped", action_id=action_id, phase=phase, reason="missing_speak_async")
+                self._log("Companion Orb reading speech skipped because speak_async is unavailable.")
+                return None
+            self._interrupt_audio_for_reading_action(action_id=action_id, phase=phase)
+            ctrl = speak_async("", text_iterable=chunks)
+            self._debug_event(
+                "reading_speech_queued",
+                action_id=action_id,
+                phase=phase,
+                chunk_count=len(chunks),
+                char_count=sum(len(chunk) for chunk in chunks),
+            )
+            return ctrl
+        except Exception as exc:
+            self._debug_event("reading_speech_failed", console=True, action_id=action_id, phase=phase, error=str(exc))
+            self._log(f"Companion Orb reading speech failed: {exc}")
+            return None
+
+    def _wait_for_reading_speech(self, ctrl, *, action_id: str, phase: str) -> None:
+        done = getattr(ctrl, "done", None)
+        wait = getattr(done, "wait", None)
+        if not callable(wait):
+            return
+        self._debug_event("reading_speech_wait_started", action_id=action_id, phase=phase)
+        try:
+            while True:
+                if wait(timeout=0.25):
+                    break
+        except Exception as exc:
+            self._debug_event("reading_speech_wait_failed", action_id=action_id, phase=phase, error=str(exc))
+            return
+        self._debug_event("reading_speech_wait_finished", action_id=action_id, phase=phase)
+
+    def _reading_runtime_setting(self, primary_key: str, legacy_key: str, default: Any) -> Any:
+        settings = self._last_runtime_config
+        if primary_key in settings:
+            return settings.get(primary_key)
+        if legacy_key in settings:
+            return settings.get(legacy_key)
+        return reading_actions.READING_SETTINGS_DEFAULTS.get(primary_key, default)
+
+    def _reading_exclude_from_memory(self) -> bool:
+        value = self._reading_runtime_setting(
+            "companion_orb_reader_exclude_from_memory",
+            "companion_orb_reading_exclude_from_memory",
+            True,
+        )
+        if isinstance(value, str):
+            return value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(value)
+
+    def _reading_comment_prompt(self) -> str:
+        default_prompt = str(
+            reading_actions.READING_SETTINGS_DEFAULTS.get(
+                "companion_orb_reader_commentary_prompt",
+                reading_actions.DEFAULT_COMMENTARY_PROMPT,
+            )
+            or reading_actions.DEFAULT_COMMENTARY_PROMPT
+        )
+        prompt = str(
+            self._reading_runtime_setting(
+                "companion_orb_reader_commentary_prompt",
+                "companion_orb_reading_comment_prompt",
+                default_prompt,
+            )
+            or ""
+        ).strip()
+        return prompt or default_prompt
+
+    def _generate_reading_comment(self, selected_text: str, action: Any) -> str:
+        action_id = _reading_action_id(action)
+        if not self._tts_runtime_ready():
+            self._debug_event("reading_comment_skipped", console=True, action_id=action_id, reason="tts_not_ready")
+            self._log("Companion Orb reading comment skipped because TTS is not initialized yet.")
+            return ""
+        try:
+            import engine
+
+            generate_comment = getattr(engine, "generate_companion_orb_ephemeral_comment", None)
+            if not callable(generate_comment):
+                self._debug_event("reading_comment_skipped", action_id=action_id, reason="missing_engine_helper")
+                self._log("Companion Orb reading comment skipped because the engine helper is unavailable.")
+                return ""
+            comment = generate_comment(
+                selected_text=selected_text,
+                behavior_prompt=self._reading_comment_prompt(),
+                response_style_label=self._response_style_label(),
+                exclude_from_memory=self._reading_exclude_from_memory(),
+                mode=_reading_action_comment_mode(action),
+            )
+            cleaned = reading_actions.clean_readable_text(comment)
+            self._debug_event("reading_comment_generated", action_id=action_id, char_count=len(cleaned))
+            return cleaned
+        except Exception as exc:
+            self._debug_event("reading_comment_failed", console=True, action_id=action_id, error=str(exc))
+            self._log(f"Companion Orb reading comment failed: {exc}")
+            return ""
 
     def _populate_response_style_menu(self, menu: QtWidgets.QMenu):
         current = _normalize_orb_response_style(self._last_runtime_config.get("companion_orb_response_style", "friendly"))
@@ -3479,7 +8422,62 @@ class CompanionOrbController(QtCore.QObject):
 
         threading.Thread(target=worker, daemon=True, name="companion-orb-hidden-inspection").start()
 
-    def _deliver_drop_snapshot_immediately(self, image_path: str, *, reason: str, trace_id: str = "") -> bool:
+    def _smart_drop_guidance_mode(self) -> str:
+        if not bool(self._last_runtime_config.get("companion_orb_smart_drop_guidance_enabled", False)):
+            return "off"
+        mode = str(self._last_runtime_config.get("companion_orb_smart_drop_guidance_mode", "off") or "off").strip().lower()
+        return mode if mode in VALID_SMART_DROP_GUIDANCE_MODES else "off"
+
+    def _fast_drop_guidance_payload(self, metadata: dict[str, Any]) -> dict[str, str]:
+        metadata = dict(metadata or {})
+        ocr_text = re.sub(r"\s+", " ", str(metadata.get("ocr_text") or "").strip())
+        target = dict(metadata.get("target") or {}) if isinstance(metadata.get("target"), dict) else {}
+        target_title = re.sub(r"\s+", " ", str(target.get("title") or "").strip())
+        subject = ocr_text[:160] if ocr_text else (target_title[:160] if target_title else "the selected screen crop")
+        return {
+            "scene_type": "desktop_crop",
+            "main_subject": subject,
+            "mood": "observant",
+            "response_style_hint": f"short natural Companion Orb comment in {self._response_style_label()} style",
+            "what_to_comment_on": "the most useful visible detail in the selected crop",
+            "what_to_avoid": "do not mention dragging, dropping, screenshots, coordinates, or hidden delivery mechanics",
+        }
+
+    def _prepare_drop_response_guidance(self, image_path: str, metadata: dict[str, Any], *, trace_id: str = "") -> tuple[dict[str, str], str]:
+        mode = self._smart_drop_guidance_mode()
+        trace = str(trace_id or self._active_drop_trace_id or "").strip()
+        if mode == "off":
+            return {}, ""
+        try:
+            import engine
+
+            formatter = getattr(engine, "format_companion_orb_drop_response_guidance", None)
+            if mode == "fast":
+                guidance = self._fast_drop_guidance_payload(metadata)
+            else:
+                generator = getattr(engine, "generate_companion_orb_drop_response_guidance", None)
+                if not callable(generator):
+                    self._drop_trace_event("smart_drop_guidance_unavailable", trace, console=True, reason="missing_engine_helper")
+                    return {}, ""
+                guidance = dict(
+                    generator(
+                        image_path=str(image_path or ""),
+                        snapshot_metadata=dict(metadata or {}),
+                        response_style_label=self._response_style_label(),
+                    )
+                    or {}
+                )
+            guidance_text = str(formatter(guidance) if callable(formatter) else "").strip()
+            if not guidance_text:
+                return {}, ""
+            self._drop_trace_event("smart_drop_guidance_ready", trace, console=True, mode=mode, guidance=guidance)
+            return guidance, guidance_text
+        except Exception as exc:
+            self._drop_trace_event("smart_drop_guidance_failed", trace, console=True, mode=mode, error=str(exc))
+            self._log(f"Companion Orb smart drop guidance failed: {exc}")
+            return {}, ""
+
+    def _deliver_drop_snapshot_immediately(self, image_path: str, *, reason: str, trace_id: str = "", guidance_text: str = "") -> bool:
         path = str(image_path or "").strip()
         trace = str(trace_id or self._active_drop_trace_id or "").strip()
         if not path or not Path(path).is_file():
@@ -3498,6 +8496,13 @@ class CompanionOrbController(QtCore.QObject):
             "Focus only on the visible content inside the crop. "
             "Do not describe the drag/drop action or the upload itself. Keep the reply short."
         )
+        one_shot_guidance = str(guidance_text or "").strip()
+        if one_shot_guidance:
+            content = (
+                content
+                + "\n\nTemporary response guidance for this one snapshot:\n"
+                + one_shot_guidance[:1400]
+            )
         try:
             service.queue_image_turn(
                 path,
@@ -3557,7 +8562,17 @@ class CompanionOrbController(QtCore.QObject):
             metadata["manual_inspection_id"] = inspection_id
             metadata["drop_trace_id"] = trace
             metadata["priority_drop"] = True
-            immediate_delivery = self._deliver_drop_snapshot_immediately(image_path, reason=reason, trace_id=trace)
+            guidance, guidance_text = self._prepare_drop_response_guidance(image_path, metadata, trace_id=trace)
+            if guidance:
+                metadata["smart_drop_guidance"] = guidance
+            if guidance_text:
+                metadata["smart_drop_guidance_text"] = guidance_text[:1400]
+            immediate_delivery = self._deliver_drop_snapshot_immediately(
+                image_path,
+                reason=reason,
+                trace_id=trace,
+                guidance_text=guidance_text,
+            )
             metadata["immediate_image_delivery"] = bool(immediate_delivery)
             metadata["suppress_hidden_proactive"] = bool(immediate_delivery)
             result["metadata"] = metadata
@@ -3754,6 +8769,7 @@ class CompanionOrbController(QtCore.QObject):
             ("companion_orb_clear_target_hotkey", "Ctrl+Alt+Backspace", self.clear_target),
             ("companion_orb_click_through_hotkey", "Ctrl+Alt+C", lambda: self.set_click_through(not self.bridge.clickThrough)),
             ("companion_orb_reset_position_hotkey", "Ctrl+Alt+R", self.reset_position),
+            ("companion_orb_eye_tracking_hotkey", "Ctrl+Alt+G", lambda: self.react_at_gaze(force=True)),
         ]
         for key, default, callback in checks:
             if self._event_matches_sequence(event, str(self._last_runtime_config.get(key, default) or default)):
@@ -3788,7 +8804,9 @@ class CompanionOrbController(QtCore.QObject):
     def _set_snapshot_cloak(self, enabled: bool):
         window = self._window
         if enabled:
+            self._clear_gaze_click_target_highlight()
             if self._snapshot_cloak_count <= 0:
+                CompanionOrbController._prepare_external_cloak_ack(self, True)
                 self._send_external_runtime({"type": "cloak", "enabled": True})
                 self._snapshot_restore_visible = bool(window is not None and window.isVisible())
                 if window is not None and window.isVisible():
@@ -3800,6 +8818,7 @@ class CompanionOrbController(QtCore.QObject):
             if self._snapshot_cloak_count <= 0:
                 restore_visible = bool(self._snapshot_restore_visible)
                 self._snapshot_restore_visible = False
+                CompanionOrbController._prepare_external_cloak_ack(self, False)
                 self._send_external_runtime({"type": "cloak", "enabled": False})
                 self._debug_event("snapshot_cloak_disabled", restore_visible=restore_visible)
                 self._refresh_visibility()
@@ -3828,6 +8847,34 @@ class CompanionOrbController(QtCore.QObject):
         except Exception as exc:
             self._debug_event("snapshot_cloak_failed", console=True, enabled=bool(enabled), error=str(exc))
             return False
+
+    def _apply_click_target_scan_cloak_blocking(
+        self,
+        *,
+        timeout_seconds: float = GAZE_CLICK_CLOAK_ACK_TIMEOUT_SECONDS,
+    ) -> bool:
+        external_required = CompanionOrbController._external_runtime_enabled(self)
+        if not self._apply_snapshot_cloak_blocking(True):
+            return False
+        if not external_required:
+            return True
+        thread_method = getattr(self, "thread", None)
+        if callable(thread_method):
+            try:
+                if thread_method() == QtCore.QThread.currentThread():
+                    self._apply_snapshot_cloak_blocking(False)
+                    return False
+            except Exception:
+                pass
+        event = getattr(self, "_external_cloak_ack_event", None)
+        ready = CompanionOrbController._external_cloak_ack_ready(self, True)
+        if not ready and isinstance(event, threading.Event):
+            event.wait(max(0.01, float(timeout_seconds)))
+            ready = CompanionOrbController._external_cloak_ack_ready(self, True)
+        if ready:
+            return True
+        self._apply_snapshot_cloak_blocking(False)
+        return False
 
     def _grab_desktop_without_orb(self, image_grab, *, cloak_delay_seconds: float = 0.08, trace_id: str = ""):
         started_at = time.monotonic()
@@ -4379,11 +9426,47 @@ class CompanionOrbController(QtCore.QObject):
         return None
 
     def shutdown(self):
+        with self._eye_tracking_reaction_lock:
+            self._eye_tracking_reaction_shutting_down = True
+            self._eye_tracking_reaction_generation += 1
+        self._gaze_context_dispatch_generation += 1
+        self._eye_tracking_connection_key = ("off", "")
+        calibration_overlay = getattr(
+            self,
+            "_eye_tracking_calibration_overlay",
+            None,
+        )
+        if bool(getattr(self, "_eye_tracking_calibration_active", False)):
+            self._finish_eye_tracking_calibration(
+                restore_saved_status=False,
+            )
+        if calibration_overlay is not None:
+            calibration_overlay.finish()
+            calibration_overlay.deleteLater()
+            self._eye_tracking_calibration_overlay = None
+        self._clear_eye_tracking_state(send_external=True)
+        self._eye_tracking_provider.stop(timeout_seconds=1.25)
         self._drift_timer.stop()
         self._motion_timer.stop()
         self._return_home_timer.stop()
         self._menu_poll_timer.stop()
         self._save_timer.stop()
+        radial_menu = self._gaze_radial_menu
+        self._gaze_radial_menu = None
+        if radial_menu is not None:
+            try:
+                radial_menu.hide()
+                radial_menu.deleteLater()
+            except Exception:
+                pass
+        highlight = self._gaze_click_target_highlight
+        self._gaze_click_target_highlight = None
+        if highlight is not None:
+            try:
+                highlight.clear_target()
+                highlight.deleteLater()
+            except Exception:
+                pass
         self._stop_external_runtime()
         self._unregister_sensory_provider()
         try:

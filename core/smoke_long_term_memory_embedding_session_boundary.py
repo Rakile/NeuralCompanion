@@ -21,6 +21,13 @@ def main() -> int:
     assert "def _long_term_memory_embedding_write_blocked" in engine_text, "embedding writes must be guarded by chat-session embedding model"
     assert "_embed_long_term_memory_target(target, *, allow_session_mismatch=False)" in engine_text, "normal embedding writes must reject session model mismatches by default"
     assert "allow_session_mismatch=bool(clear_existing)" in engine_text, "explicit rebuild must be the only model-change embedding escape hatch"
+    rebuild_start = engine_text.index("def rebuild_long_term_memory_embeddings")
+    rebuild_end = engine_text.index("def create_long_term_memory_record", rebuild_start)
+    rebuild_text = engine_text[rebuild_start:rebuild_end]
+    assert "_refresh_long_term_memory_assets_for_current_chat()" in rebuild_text, "rebuild must backfill saved visualization prompts before hashing embedding targets"
+    assert rebuild_text.index("_refresh_long_term_memory_assets_for_current_chat()") < rebuild_text.index("list_embedding_targets("), "asset metadata refresh must happen before embedding targets are calculated"
+    assert "backfill_all_visualization_prompts_from_original_paths()" in rebuild_text, "rebuild must recover legacy prompts from matching original image comments"
+    assert rebuild_text.index("backfill_all_visualization_prompts_from_original_paths()") < rebuild_text.index("list_embedding_targets("), "image comment recovery must happen before embedding targets are calculated"
     assert "writes_blocked" in engine_text, "embedding status must expose blocked writes for UI warnings"
     assert "long_term_memory_embedding_blocked_event" in engine_text, "blocked archive embedding attempts must be exposed to the UI"
     assert "_record_long_term_memory_embedding_blocked_attempt" in engine_text, "blocked embedding attempts must create a user-visible event"

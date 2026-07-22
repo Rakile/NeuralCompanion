@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { AudioChunk, AudioState } from '../api/types';
 import type { PlaybackState } from '../hooks/useAudioQueue';
+import { useInterfaceMode } from '../context/InterfaceModeContext';
 import { colors, spacing } from '../styles/theme';
 
 type Props = {
@@ -18,6 +19,8 @@ function latestAudioChunk(items: AudioChunk[] | undefined): AudioChunk | undefin
 }
 
 export function MediaPanel({ audio, playback, disabled = false, demoMode = false, onClearQueue }: Props) {
+  const { mode, policy } = useInterfaceMode();
+  const nowPlayingPrimary = policy.primaryFirst;
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState('');
   const latest = latestAudioChunk(audio?.items);
@@ -40,26 +43,34 @@ export function MediaPanel({ audio, playback, disabled = false, demoMode = false
       setClearing(false);
     }
   };
-  return (
-    <View style={styles.panel}>
-      <View style={styles.row}>
-        <Text style={styles.title}>TTS</Text>
-        <Text style={styles.meta} numberOfLines={2}>{audio?.status || 'idle'} - {audio?.items?.length ?? 0} chunks - {playback.playedCount} played{backendPlaybackText}</Text>
+  const statusRow = (
+    <View style={[styles.row, !policy.cards && styles.cleanRow]}>
+      <Text style={styles.title}>TTS</Text>
+      <Text style={styles.meta} numberOfLines={2}>{audio?.status || 'idle'} - {audio?.items?.length ?? 0} chunks - {playback.playedCount} played{backendPlaybackText}</Text>
+    </View>
+  );
+  const latestRow = latest ? (
+    <View style={[styles.row, nowPlayingPrimary && styles.primaryNowPlaying, mode === 'flat' && styles.cleanRow]}>
+      <View style={styles.latestCopy}>
+        {nowPlayingPrimary ? <Text style={styles.nowPlayingLabel}>Now playing</Text> : null}
+        <Text style={[styles.latest, nowPlayingPrimary && styles.primaryLatest]} numberOfLines={nowPlayingPrimary ? 3 : 1}>{latest.speaker || 'Assistant'} - {latest.text || latest.id}</Text>
       </View>
+      <Pressable disabled={playbackDisabled} style={[styles.button, playbackDisabled && styles.disabled]} onPress={() => playback.playNow(latest)}>
+        <Text style={styles.buttonText}>{demoMode ? 'Demo chunk' : playback.playingId === latest.id ? 'Playing' : 'Replay latest'}</Text>
+      </Pressable>
+    </View>
+  ) : null;
+  return (
+    <View style={[styles.panel, !policy.cards && styles.cleanPanel, mode === 'immersive' && styles.immersivePanel]}>
+      {nowPlayingPrimary ? latestRow : statusRow}
+      {nowPlayingPrimary ? statusRow : null}
       <View style={styles.controls}>
         <Pressable style={[styles.secondaryButton, playback.enabled && styles.activeButton]} onPress={() => playback.setEnabled(!playback.enabled)}>
           <Text style={styles.buttonText}>{playback.enabled ? 'Autoplay on' : 'Autoplay off'}</Text>
         </Pressable>
         <Text style={styles.meta}>Volume {Math.round(playback.volume * 100)}%</Text>
       </View>
-      {latest ? (
-        <View style={styles.row}>
-          <Text style={styles.latest} numberOfLines={1}>{latest.speaker || 'Assistant'} - {latest.text || latest.id}</Text>
-          <Pressable disabled={playbackDisabled} style={[styles.button, playbackDisabled && styles.disabled]} onPress={() => playback.playNow(latest)}>
-            <Text style={styles.buttonText}>{demoMode ? 'Demo chunk' : playback.playingId === latest.id ? 'Playing' : 'Replay latest'}</Text>
-          </Pressable>
-        </View>
-      ) : null}
+      {!nowPlayingPrimary ? latestRow : null}
       {audio?.items?.length ? (
         <View style={styles.controls}>
           <Pressable disabled={!playback.playingId} style={[styles.secondaryButton, !playback.playingId && styles.disabled]} onPress={playback.stop}>
@@ -91,12 +102,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  cleanPanel: { backgroundColor: 'transparent', borderTopWidth: 0, gap: spacing.sm, paddingHorizontal: 0 },
+  immersivePanel: { backgroundColor: '#000000' },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
     justifyContent: 'space-between',
   },
+  cleanRow: { borderBottomColor: colors.border, borderBottomWidth: 1, paddingVertical: spacing.md },
+  primaryNowPlaying: { alignItems: 'flex-start', flexDirection: 'column', paddingHorizontal: spacing.md, paddingVertical: spacing.lg },
+  latestCopy: { flex: 1, minWidth: 0 },
+  nowPlayingLabel: { color: colors.ok, fontSize: 10, fontWeight: '900', marginBottom: spacing.xs, textTransform: 'uppercase' },
+  primaryLatest: { fontSize: 16, lineHeight: 23 },
   title: {
     color: colors.text,
     fontSize: 13,

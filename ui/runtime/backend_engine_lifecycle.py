@@ -5,6 +5,7 @@ from PySide6 import QtCore
 
 
 from core import long_term_memory
+from ui.runtime import chat_transcript_window
 from ui.runtime.engine_access import engine_module as _engine
 
 
@@ -107,6 +108,12 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("proactive_delay_seconds", round(float(self.proactive_delay_spin.value()), 1) if hasattr(self, "proactive_delay_spin") else 10.0)
         _update_runtime_config("chat_context_window_messages", max(4, int(self.chat_context_window_spin.value())) if hasattr(self, "chat_context_window_spin") else 20)
         _update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
+        _update_runtime_config(
+            "chat_visual_batch_size",
+            chat_transcript_window.normalize_visual_batch_size(self.chat_visual_batch_size_spin.value())
+            if hasattr(self, "chat_visual_batch_size_spin")
+            else chat_transcript_window.DEFAULT_VISUAL_BATCH_SIZE,
+        )
         _update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
         _update_runtime_config("spellcheck_enabled", bool(self.spellcheck_enabled_checkbox.isChecked()) if hasattr(self, "spellcheck_enabled_checkbox") else bool(runtime_config.get("spellcheck_enabled", True)))
         _update_runtime_config("spellcheck_language", str(self.spellcheck_language_combo.currentText() or "en_US").strip() if hasattr(self, "spellcheck_language_combo") else str(runtime_config.get("spellcheck_language", "en_US") or "en_US"))
@@ -116,7 +123,9 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("continuity_memory_inject", bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else False)
         _update_runtime_config("continuity_memory_max_chars", max(500, int(self.long_term_memory_max_chars_spin.value())) if hasattr(self, "long_term_memory_max_chars_spin") else 3000)
         _update_runtime_config("long_term_memory_retrieval_enabled", bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False)
+        _update_runtime_config("long_term_memory_image_review_enabled", bool(self.long_term_memory_image_review_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_image_review_enabled_checkbox") else bool(runtime_config.get("long_term_memory_image_review_enabled", False)))
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6)
+        _update_runtime_config("long_term_memory_recall_text_budget", long_term_memory.normalize_recall_text_budget(self.long_term_memory_recall_text_budget_spin.value(), default=-1) if hasattr(self, "long_term_memory_recall_text_budget_spin") else -1)
         _update_runtime_config("long_term_memory_recall_image_limit", long_term_memory.normalize_image_recall_limit(self.long_term_memory_recall_image_limit_spin.value(), default=1) if hasattr(self, "long_term_memory_recall_image_limit_spin") else long_term_memory.normalize_image_recall_limit(runtime_config.get("long_term_memory_recall_image_limit", 1), default=1))
         _update_runtime_config("long_term_memory_auto_archive_enabled", bool(self.long_term_memory_auto_archive_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") else False)
         _update_runtime_config("long_term_memory_archive_batch_turns", max(1, min(10000, int(self.long_term_memory_archive_batch_turns_spin.value()))) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120))
@@ -175,7 +184,9 @@ class BackendEngineLifecycleMixin:
             "continuity_memory_inject": bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else False,
             "continuity_memory_max_chars": max(500, int(self.long_term_memory_max_chars_spin.value())) if hasattr(self, "long_term_memory_max_chars_spin") else 3000,
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False,
+            "long_term_memory_image_review_enabled": bool(self.long_term_memory_image_review_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_image_review_enabled_checkbox") else bool(runtime_config.get("long_term_memory_image_review_enabled", False)),
             "long_term_memory_retrieval_max_items": max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6,
+            "long_term_memory_recall_text_budget": long_term_memory.normalize_recall_text_budget(self.long_term_memory_recall_text_budget_spin.value(), default=-1) if hasattr(self, "long_term_memory_recall_text_budget_spin") else -1,
             "long_term_memory_recall_image_limit": long_term_memory.normalize_image_recall_limit(self.long_term_memory_recall_image_limit_spin.value(), default=1) if hasattr(self, "long_term_memory_recall_image_limit_spin") else long_term_memory.normalize_image_recall_limit(runtime_config.get("long_term_memory_recall_image_limit", 1), default=1),
             "long_term_memory_auto_archive_enabled": bool(self.long_term_memory_auto_archive_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") else False,
             "long_term_memory_archive_batch_turns": max(1, min(10000, int(self.long_term_memory_archive_batch_turns_spin.value()))) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120),
@@ -258,6 +269,9 @@ class BackendEngineLifecycleMixin:
         if bool(getattr(self, "_engine_stop_in_progress", False)):
             return
         self._engine_stop_in_progress = True
+        review_coordinator = getattr(self, "_long_term_memory_image_review_coordinator", None)
+        if review_coordinator is not None:
+            review_coordinator.cancel_pending()
         engine = _engine()
         try:
             print("[QtGUI] Stopping...")

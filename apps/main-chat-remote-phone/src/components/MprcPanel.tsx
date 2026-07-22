@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { MprcAction, MprcCastAction, MprcSendOptions } from '../api/client';
 import type { MprcCastDevice, MprcChoice, MprcMemoryState, MprcPersona, MprcSegment, MprcState } from '../api/types';
+import { useInterfaceMode } from '../context/InterfaceModeContext';
+import { ModeSection } from './ModeSurface';
 import { colors, spacing } from '../styles/theme';
 
 type Props = {
@@ -66,6 +68,8 @@ function memoryStatus(memory: MprcMemoryState | undefined): string {
 }
 
 export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAction, onRefresh }: Props) {
+  const { mode, policy } = useInterfaceMode();
+  const primaryFirst = policy.primaryFirst;
   const [text, setText] = useState('');
   const [intent, setIntent] = useState('Auto');
   const [speakerId, setSpeakerId] = useState('');
@@ -143,9 +147,84 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
   };
 
   const disabledControls = !available || Boolean(busy);
+  const sectionTabs = (
+    <View style={styles.sectionTabs}>
+      {storySections.map((item) => (
+        <Pressable
+          key={item.id}
+          style={[styles.sectionTab, section === item.id && styles.sectionTabActive]}
+          onPress={() => setSection(item.id)}
+        >
+          <Text style={[styles.sectionTabText, section === item.id && styles.sectionTabTextActive]}>{item.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+  const composerBlock = (
+    <View style={styles.inputBlock}>
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        editable={!disabledControls}
+        multiline
+        placeholder={selectedSpeaker ? `Message as ${personaName(selectedSpeaker)}` : 'Story message'}
+        placeholderTextColor={colors.muted}
+        style={styles.input}
+      />
+      <Pressable disabled={disabledControls || !text.trim()} style={[styles.sendButton, (disabledControls || !text.trim()) && styles.disabled]} onPress={send}>
+        <Text style={styles.buttonText}>{busy === 'send' ? 'Sending' : 'Send'}</Text>
+      </Pressable>
+    </View>
+  );
+  const choiceList = choices.length ? (
+    <View style={styles.choiceList}>
+      {choices.map((choice, index) => {
+        const value = choiceText(choice);
+        return (
+          <Pressable
+            key={`${choice.id || index}-${value}`}
+            disabled={disabledControls}
+            style={[styles.choiceButton, disabledControls && styles.disabled]}
+            onPress={() => run(`choice-${index}`, () => onChoice(value))}
+          >
+            <Text style={styles.choiceText}>{value}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  ) : null;
+  const classicChoices = choiceList ? <><Text style={styles.sectionTitle}>Choices</Text>{choiceList}</> : null;
+  const choicesBlock = policy.cards ? classicChoices : choiceList ? <ModeSection title="Choices">{choiceList}</ModeSection> : null;
+  const storySegments = (
+    <View style={styles.segmentList}>
+      {segments.length ? segments.map((segment, index) => (
+        <View key={`${segment.segment_id || index}-${segmentTitle(segment)}`} style={[styles.segment, !policy.cards && styles.cleanSegment]}>
+          <Text style={styles.segmentSpeaker}>{segmentTitle(segment)}</Text>
+          <Text style={styles.segmentText}>{clean(segment.text, '')}</Text>
+        </View>
+      )) : (
+        <Text style={styles.emptyText}>{clean(mprc?.latest_reply, available ? 'No story reply yet.' : 'Connect to view story mode.')}</Text>
+      )}
+    </View>
+  );
+  const classicLatestStory = (
+    <>
+      <View style={styles.storyHeader}>
+        <Text style={styles.sectionTitle}>Latest Story</Text>
+        <Text style={styles.meta}>{speechItems.length} voice chunks</Text>
+      </View>
+      {storySegments}
+    </>
+  );
+  const latestStoryBlock = policy.cards ? classicLatestStory : (
+    <ModeSection title="Latest Story">
+      <Text style={styles.meta}>{speechItems.length} voice chunks</Text>
+      {storySegments}
+    </ModeSection>
+  );
 
   return (
-    <View style={styles.panel}>
+    <View style={[styles.panel, !policy.cards && styles.cleanPanel, mode === 'immersive' && styles.immersivePanel]}>
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={styles.title}>Multi Persona Story</Text>
@@ -163,17 +242,16 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
         </View>
       ) : null}
 
-      <View style={styles.sectionTabs}>
-        {storySections.map((item) => (
-          <Pressable
-            key={item.id}
-            style={[styles.sectionTab, section === item.id && styles.sectionTabActive]}
-            onPress={() => setSection(item.id)}
-          >
-            <Text style={[styles.sectionTabText, section === item.id && styles.sectionTabTextActive]}>{item.label}</Text>
-          </Pressable>
-        ))}
-      </View>
+      {cast?.casting || cast?.dependency_error ? (
+        <ModeSection title="Cast status">
+          <Text style={[styles.meta, cast?.casting ? styles.castOk : styles.castWarning]}>{castStatus}</Text>
+          {cast?.dependency_error ? <Text style={styles.warningText}>{cast.dependency_error}</Text> : null}
+        </ModeSection>
+      ) : null}
+
+      {section === 'play' && primaryFirst ? <>{latestStoryBlock}{choicesBlock}{composerBlock}</> : null}
+      {!primaryFirst ? sectionTabs : null}
+      {primaryFirst ? sectionTabs : null}
 
       {section === 'play' ? <>
       <Text style={styles.sectionTitle}>Story Controls</Text>
@@ -330,56 +408,9 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
         ))}
       </View>
 
-      <View style={styles.inputBlock}>
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          editable={!disabledControls}
-          multiline
-          placeholder={selectedSpeaker ? `Message as ${personaName(selectedSpeaker)}` : 'Story message'}
-          placeholderTextColor={colors.muted}
-          style={styles.input}
-        />
-        <Pressable disabled={disabledControls || !text.trim()} style={[styles.sendButton, (disabledControls || !text.trim()) && styles.disabled]} onPress={send}>
-          <Text style={styles.buttonText}>{busy === 'send' ? 'Sending' : 'Send'}</Text>
-        </Pressable>
-      </View>
-
-      {choices.length ? (
-        <>
-          <Text style={styles.sectionTitle}>Choices</Text>
-          <View style={styles.choiceList}>
-            {choices.map((choice, index) => {
-              const value = choiceText(choice);
-              return (
-                <Pressable
-                  key={`${choice.id || index}-${value}`}
-                  disabled={disabledControls}
-                  style={[styles.choiceButton, disabledControls && styles.disabled]}
-                  onPress={() => run(`choice-${index}`, () => onChoice(value))}
-                >
-                  <Text style={styles.choiceText}>{value}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      ) : null}
-
-      <View style={styles.storyHeader}>
-        <Text style={styles.sectionTitle}>Latest Story</Text>
-        <Text style={styles.meta}>{speechItems.length} voice chunks</Text>
-      </View>
-      <View style={styles.segmentList}>
-        {segments.length ? segments.map((segment, index) => (
-          <View key={`${segment.segment_id || index}-${segmentTitle(segment)}`} style={styles.segment}>
-            <Text style={styles.segmentSpeaker}>{segmentTitle(segment)}</Text>
-            <Text style={styles.segmentText}>{clean(segment.text, '')}</Text>
-          </View>
-        )) : (
-          <Text style={styles.emptyText}>{clean(mprc?.latest_reply, available ? 'No story reply yet.' : 'Connect to view story mode.')}</Text>
-        )}
-      </View>
+      {!primaryFirst ? composerBlock : null}
+      {!primaryFirst ? choicesBlock : null}
+      {!primaryFirst ? latestStoryBlock : null}
       </> : null}
 
       {section === 'visual' ? (
@@ -421,6 +452,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md,
   },
+  cleanPanel: { backgroundColor: 'transparent', borderTopWidth: 0, paddingHorizontal: 0 },
+  immersivePanel: { backgroundColor: '#000000' },
   header: {
     alignItems: 'flex-start',
     flexDirection: 'row',
@@ -642,6 +675,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.sm,
   },
+  cleanSegment: { backgroundColor: 'transparent', borderBottomColor: colors.border, borderBottomWidth: 1, borderRadius: 0 },
   segmentSpeaker: {
     color: colors.text,
     fontSize: 12,

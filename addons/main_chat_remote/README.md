@@ -41,9 +41,9 @@ The LAN backend strips phone-facing credential query keys before proxying to the
 
    If that venv does not exist yet, the system Python can run the backend for local smoke testing because it only uses the standard library.
 
-4. Enter the LAN URL and numeric pairing code in the Expo/React Native phone app.
+4. Scan the QR code shown in the addon tab, copy the `ncchatremote://pair` setup link into the phone app, or enter the LAN URL and numeric pairing code manually.
 
-When the addon tab starts the backend, it generates the numeric pairing code and displays it in the tab along with the LAN URL and readiness health. When the CLI starts the backend, the backend prints the pairing code to the console or backend log.
+When the addon tab starts the backend, it generates the numeric pairing code and displays it with the LAN URL, readiness health, a scannable QR code, and a copyable phone setup link. QR rendering uses the optional `qrcode[pil]` dependency and falls back to copy/manual pairing if unavailable. The setup link is desktop-only and is not added to phone-facing state or logs. When the CLI starts the backend, the backend prints the pairing code to the console or backend log.
 
 If the addon tab or CLI helper already knows the pairing code, it passes the code to the child backend through `NC_MAIN_CHAT_REMOTE_CODE` and suppresses code echo in backend stdout logs. When the CLI helper starts without a valid `--pairing-code`, it clears stale pairing-code environment variables before launching so the backend generates and prints a fresh code. The CLI helper and direct backend entry point validate bridge-info freshness before serving. Direct backend starts that let the backend generate a code still print that generated code for pairing.
 
@@ -72,6 +72,9 @@ Endpoints:
 - `GET /api/audio`: lists captured generated TTS chunks.
 - `GET /api/audio/file/<id>`: returns a captured TTS audio chunk with the cached file's content type.
 - `POST /api/stt`: body `{"audio_base64": "...", "format": "wav", "send_to_chat": true}` transcribes phone audio with the selected NC STT backend and optionally queues the transcript into main chat. Uploaded phone clips are stored under `runtime/main_chat_remote/stt_uploads/` with bounded addon-local retention.
+- `POST /api/image`: body `{"image_base64": "...", "format": "jpg", "prompt": "Describe this"}` stores a phone photo and queues it through the existing NC image-turn pipeline. PNG, JPEG, and WebP are accepted.
+- `GET /api/image/file/<id>`: returns an authenticated phone image used in the projected chat feed.
+- `POST /api/debug`: accepts a bounded, credential-redacted phone event batch. The desktop keeps a rotating JSONL log at `runtime/main_chat_remote/phone_debug/phone_remote.log`.
 - `GET /api/visual`: returns current Visual Reply settings, display state, and recent phone-request status.
 - `POST /api/visual`: body `{"prompt": "...", "action": "generate"}` queues a Visual Reply request through the existing Visual Reply service. Supported actions are `snapshot`, `show`, `hide`, `clear`, and `generate`.
 - `GET /api/visual/image`: returns the current Visual Reply image when one exists.
@@ -81,16 +84,21 @@ Endpoints:
 
 JSON payloads are capped at 25 MB. Phone microphone uploads should be short clips, not long recordings. The Expo app rejects recordings larger than 18 MB before base64 encoding so the bridge stays under the JSON cap.
 
+Phone TTS capture is explicit: typed messages, microphone messages, and image turns started by the phone open the phone media capture window. Hidden proactive replies from Spotify Sense, Companion Orb, and similar desktop context sources remain available on the desktop but are omitted from the phone chat projection and phone audio queue.
+
+Buddy Chat provider failures are exposed in the phone-safe status without provider credentials. The addon also keeps an ASCII-safe JSONL record at `runtime/addons/nc.buddy_chat/buddy_chat_debug.log`.
+
 ## WebSocket
 
 `GET /ws?code=<code>` upgrades to a dependency-free WebSocket connection.
 
-Periodic WebSocket state snapshots use a short bridge timeout so a stalled desktop bridge reports an error quickly instead of freezing the phone state stream. Command messages still use the normal bridge timeout.
+Periodic WebSocket state snapshots use a short bridge timeout so a stalled desktop bridge reports an error quickly instead of freezing the phone state stream. Changed TTS audio snapshots are checked independently every 250 ms, so a slow state request cannot delay a new phone playback chunk. The Expo phone app consumes these `audio` messages immediately, starts the first authenticated HTTP audio file directly, and prepares one following file while the current chunk plays. Full-state and polling updates remain fallback paths. Audio bytes are not sent as binary WebSocket frames. Command messages still use the normal bridge timeout.
 
 Server messages:
 
 - `{"type": "hello", "remote": {...}}`
 - `{"type": "state", "payload": {...}}`
+- `{"type": "audio", "payload": {...}}`
 - `{"type": "send_result", "request_id": "...", "payload": {...}}`
 - `{"type": "control_result", "request_id": "...", "payload": {...}}`
 - `{"type": "engine_start_result", "request_id": "...", "payload": {...}}`
@@ -114,6 +122,7 @@ Client messages:
 
 - Text send, chat feed, runtime status, runtime controls, LAN pairing, WebSocket state, HTTP TTS chunk access, JSON/base64 phone STT upload, Visual Reply snapshot/request controls, MuseTalk frame polling, and an MJPEG-style MuseTalk frame stream are scaffolded.
 - Phone STT uses the selected NC STT backend and can be slow while the model loads.
+- The phone debug upload records timing boundaries for text acknowledgement, STT completion, audio snapshot receipt, player preparation, and playback without including message/transcript content or credentials.
 - MuseTalk phone display prefers the frame stream and falls back to frame polling/feed access. It is still not WebRTC-grade smooth video.
 - The Expo app scaffold lives in `apps/main-chat-remote-phone/` and targets Expo SDK 54 / Expo Go client 54.0.8.
 - Internet access remains out of scope until a relay/tunnel/auth layer is deliberately added.

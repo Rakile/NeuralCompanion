@@ -11,13 +11,14 @@ from typing import Any
 
 
 DEFAULT_CAPTURE_SECONDS = 900.0
+CAPTURE_CHUNK_IDLE_SECONDS = 45.0
 SUPPORTED_AUDIO_EXTENSIONS = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".wav", ".webm"}
 
 
 class MainChatMediaBridge:
     """Copies runtime TTS chunks into an addon-local cache for phone playback."""
 
-    def __init__(self, cache_dir: Path, logger=None):
+    def __init__(self, cache_dir: Path, logger=None, *, allow_auto_capture: bool = True):
         self._cache_dir = Path(cache_dir)
         self._logger = logger
         self._lock = threading.RLock()
@@ -28,8 +29,10 @@ class MainChatMediaBridge:
         self._suppress_backend_playback_until = 0.0
         self._suppress_backend_playback_generation = 0
         self._phone_audio_capture_generation = 0
+        self._capture_id = ""
         self._source_excerpt = ""
         self._next_index = 1
+        self._allow_auto_capture = bool(allow_auto_capture)
 
     def begin_tts_capture(
         self,
@@ -38,6 +41,7 @@ class MainChatMediaBridge:
         capture_seconds: float = DEFAULT_CAPTURE_SECONDS,
         suppress_backend_playback: bool = False,
         capture_phone_audio: bool = True,
+        capture_id: str = "",
     ) -> None:
         with self._lock:
             old_items = self._begin_capture_locked(
@@ -46,6 +50,7 @@ class MainChatMediaBridge:
                 now=time.time(),
                 suppress_backend_playback=bool(suppress_backend_playback),
                 capture_phone_audio=bool(capture_phone_audio),
+                capture_id=str(capture_id or ""),
             )
         for item in old_items:
             self._unlink_cached_item(item)
@@ -56,6 +61,7 @@ class MainChatMediaBridge:
             self._suppress_backend_playback_until = 0.0
             self._suppress_backend_playback_generation = 0
             self._phone_audio_capture_generation = 0
+            self._capture_id = ""
             if not self._items:
                 self._status = "idle"
 
@@ -66,22 +72,42 @@ class MainChatMediaBridge:
         if not source_path.exists() or not source_path.is_file() or not suffix:
             return None
         now = time.time()
+        meta = dict(data.get("source_meta") or {}) if isinstance(data.get("source_meta"), dict) else {}
+        incoming_capture_id = str(meta.get("remote_capture_id") or "").strip()
         old_items: list[dict[str, Any]] = []
         with self._lock:
             if now > float(self._capture_until or 0.0):
+                if not self._allow_auto_capture:
+                    return {
+                        "captured": False,
+                        "skip_local_playback": False,
+                    }
                 old_items = self._begin_capture_locked(
                     self._auto_capture_excerpt(data),
                     capture_seconds=DEFAULT_CAPTURE_SECONDS,
                     now=now,
                     suppress_backend_playback=False,
                     capture_phone_audio=True,
+                    capture_id="",
                 )
+            expected_capture_id = str(self._capture_id or "")
+            if bool(meta.get("hidden_proactive", False)) or (
+                expected_capture_id and incoming_capture_id != expected_capture_id
+            ):
+                return {
+                    "captured": False,
+                    "skip_local_playback": False,
+                }
             generation = int(self._generation or 0)
             skip_backend_playback = bool(
                 self._suppress_backend_playback_generation == generation
                 and now <= float(self._suppress_backend_playback_until or 0.0)
             )
             capture_phone_audio = bool(self._phone_audio_capture_generation == generation)
+            if capture_phone_audio:
+                self._capture_until = now + CAPTURE_CHUNK_IDLE_SECONDS
+                if self._suppress_backend_playback_generation == generation:
+                    self._suppress_backend_playback_until = float(self._capture_until)
             index = max(1, int(self._next_index or 1))
             self._next_index = index + 1
         for item in old_items:
@@ -99,7 +125,6 @@ class MainChatMediaBridge:
         except Exception as exc:
             self._log("warning", "Could not copy TTS chunk for phone audio: %s", exc)
             return None
-        meta = dict(data.get("source_meta") or {}) if isinstance(data.get("source_meta"), dict) else {}
         item = {
             "id": target_id,
             "_file_path": str(target_path),
@@ -191,6 +216,7 @@ class MainChatMediaBridge:
         now: float | None = None,
         suppress_backend_playback: bool = False,
         capture_phone_audio: bool = True,
+        capture_id: str = "",
     ) -> list[dict[str, Any]]:
         self._generation += 1
         old_items = list(self._items)
@@ -205,6 +231,7 @@ class MainChatMediaBridge:
             self._suppress_backend_playback_generation = 0
             self._suppress_backend_playback_until = 0.0
         self._phone_audio_capture_generation = int(self._generation or 0) if capture_phone_audio else 0
+        self._capture_id = str(capture_id or "").strip()
         self._source_excerpt = self._compact(source_text, 240)
         return old_items
 

@@ -10,7 +10,7 @@ Do not commit these to the main repository:
 - model weights or checkpoints
 - prepared MuseTalk avatar packs
 - generated `.npy`, `.npz`, frame caches, rendered chunks, or videos
-- voice reference samples
+- voice reference samples other than the two approved defaults
 - user screenshots, clipboard captures, visual replies, or story outputs
 - logs, runtime snapshots, temporary files, or local session files
 - bundled third-party applications or local virtual environments
@@ -41,8 +41,10 @@ Voice reference files belong in:
 voices/
 ```
 
-They are ignored by Git by default. Only distribute voice samples when you have
-clear rights and consent to do so.
+They are ignored by Git by default, except for the approved
+`Echo_default_voice.wav` and `Eon_default_voice.wav` samples shipped with NC.
+Only distribute additional voice samples when you have clear rights and consent
+to do so.
 
 ## Generated Runtime Data
 

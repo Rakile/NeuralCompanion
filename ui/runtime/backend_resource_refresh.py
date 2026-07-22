@@ -3,6 +3,7 @@ import os
 
 
 from ui.runtime.engine_access import engine_module as _engine
+from ui.runtime import chat_transcript_window
 
 
 def _runtime_config():
@@ -85,6 +86,16 @@ class BackendResourceRefreshMixin:
         self.input_role_combo.setCurrentText(self._input_role_label_from_value(input_role))
         if hasattr(self, "chat_context_window_spin"):
             self.chat_context_window_spin.setValue(max(4, int(runtime_config.get("chat_context_window_messages", 20) or 20)))
+        if hasattr(self, "chat_visual_batch_size_spin"):
+            blocker = self.chat_visual_batch_size_spin.blockSignals(True)
+            try:
+                self.chat_visual_batch_size_spin.setValue(
+                    chat_transcript_window.normalize_visual_batch_size(
+                        runtime_config.get("chat_visual_batch_size", chat_transcript_window.DEFAULT_VISUAL_BATCH_SIZE)
+                    )
+                )
+            finally:
+                self.chat_visual_batch_size_spin.blockSignals(blocker)
         if hasattr(self, "chat_overflow_policy_combo"):
             self.chat_overflow_policy_combo.setCurrentText(self._chat_overflow_policy_label_from_value(runtime_config.get("chat_context_overflow_policy", "rolling_window")))
         self.stream_mode_combo.setCurrentText("On" if bool(runtime_config.get("stream_mode", False)) else "Off")

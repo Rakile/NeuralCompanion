@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 
+import { resolveInterfaceStyle } from '../utils/interfaceMode';
+import type { InterfaceStyle } from '../utils/interfaceMode';
+
+export type { InterfaceStyle } from '../utils/interfaceMode';
+
 export type SendMode = 'text_only' | 'phone_tts' | 'visual_reply';
 export type MicBehavior = 'transcribe_only' | 'send_auto';
 export type MuseTalkQuality = 'low_latency' | 'balanced' | 'quality';
+export type ChatLayout = 'standard' | 'clean';
+export type ChatTextColor = 'white' | 'green' | 'amber' | 'cyan';
+export type ChatIndicatorStyle = 'dot' | 'pulse' | 'line' | 'text';
 
 export type PhoneSettings = {
   phoneTtsAutoplay: boolean;
@@ -15,6 +23,10 @@ export type PhoneSettings = {
   keepAwake: boolean;
   pollingIntervalMs: number;
   museTalkQuality: MuseTalkQuality;
+  chatLayout: ChatLayout;
+  chatTextColor: ChatTextColor;
+  chatIndicatorStyle: ChatIndicatorStyle;
+  interfaceStyle: InterfaceStyle;
 };
 
 const SETTINGS_KEY = 'nc-main-chat-remote.phone-settings';
@@ -31,6 +43,10 @@ export const DEFAULT_PHONE_SETTINGS: PhoneSettings = {
   keepAwake: true,
   pollingIntervalMs: 1800,
   museTalkQuality: 'balanced',
+  chatLayout: 'standard',
+  chatTextColor: 'white',
+  chatIndicatorStyle: 'dot',
+  interfaceStyle: 'classic',
 };
 
 function boolValue(value: unknown, fallback: boolean): boolean {
@@ -61,6 +77,10 @@ function normalizeSettings(value: unknown): PhoneSettings {
     keepAwake: boolValue(data.keepAwake, DEFAULT_PHONE_SETTINGS.keepAwake),
     pollingIntervalMs: Math.round(boundedNumber(data.pollingIntervalMs, DEFAULT_PHONE_SETTINGS.pollingIntervalMs, MIN_POLL_INTERVAL_MS, MAX_POLL_INTERVAL_MS)),
     museTalkQuality: enumValue(data.museTalkQuality, ['low_latency', 'balanced', 'quality'] as const, DEFAULT_PHONE_SETTINGS.museTalkQuality),
+    chatLayout: enumValue(data.chatLayout, ['standard', 'clean'] as const, DEFAULT_PHONE_SETTINGS.chatLayout),
+    chatTextColor: enumValue(data.chatTextColor, ['white', 'green', 'amber', 'cyan'] as const, DEFAULT_PHONE_SETTINGS.chatTextColor),
+    chatIndicatorStyle: enumValue(data.chatIndicatorStyle, ['dot', 'pulse', 'line', 'text'] as const, DEFAULT_PHONE_SETTINGS.chatIndicatorStyle),
+    interfaceStyle: resolveInterfaceStyle(data.interfaceStyle, data.chatLayout),
   };
 }
 

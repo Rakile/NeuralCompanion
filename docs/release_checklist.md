@@ -7,9 +7,9 @@ Use this checklist before tagging or publishing a public release.
 - Run `python tools/release_preflight.py` in the sync/release checkout.
 - Run `python tools/addon_smoke.py` in the sync/release checkout.
 - Confirm `git status --short` is clean.
-- Confirm no model weights, voice samples, avatar packs, frame caches, generated images, logs, or session files are staged.
+- Confirm no model weights, unapproved voice samples, avatar packs, frame caches, generated images, logs, or session files are staged.
 - Keep demo avatar packs outside the main repo, in `Rakile/NeuralCompanion-AvatarPacks` release assets.
-- Keep `avatar_packs/` and `voices/` as placeholder folders only in the main repo.
+- Keep `avatar_packs/` as a placeholder folder and allow only the approved Echo and Eon default samples under `voices/`.
 - Confirm the developer-folder runtime-tested changes have been synced to the release checkout before tagging.
 
 ## Release-Candidate Gate

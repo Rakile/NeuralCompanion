@@ -119,12 +119,13 @@ class StreamingChunkAssembler:
             return self._emergency_force_cut(working, effective_max, self.min_chunk_size, quality_floor=0.2, reason_prefix="final")
         target_chars = self.target_chars
         configured_first_min = int(self._config("stream_first_chunk_min_chars", STREAM_FIRST_CHUNK_MIN_CHARS) or STREAM_FIRST_CHUNK_MIN_CHARS)
-        min_force_chars = configured_first_min if self.emission_count == 0 else max(self.min_chunk_size, self.target_chars // 2)
+        first_target_chars = max(self.min_chunk_size, min(configured_first_min, self.target_chars))
+        min_force_chars = first_target_chars if self.emission_count == 0 else max(self.min_chunk_size, self.target_chars // 2)
         if force and effective_max >= min_force_chars:
             return self._emergency_force_cut(working, effective_max, min_force_chars)
 
         if self.emission_count == 0:
-            target_chars = max(configured_first_min, self.target_chars)
+            target_chars = first_target_chars
 
         elapsed_time = 0.0
         if self.buffer_started_at is not None:

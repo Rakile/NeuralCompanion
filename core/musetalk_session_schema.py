@@ -22,6 +22,7 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("musetalk_debug_show_mask_overlay", ("preprocess", "debug_show_mask_overlay")),
         ("musetalk_debug_brush_size", ("preprocess", "debug_brush_size")),
         ("musetalk_debug_brush_feather", ("preprocess", "debug_brush_feather")),
+        ("musetalk_debug_brush_transparency", ("preprocess", "debug_brush_transparency")),
         ("musetalk_parsing_mode", ("preprocess", "parsing_mode")),
         ("musetalk_extra_margin", ("preprocess", "extra_margin")),
         ("musetalk_left_cheek_width", ("preprocess", "left_cheek_width")),

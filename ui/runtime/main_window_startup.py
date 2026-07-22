@@ -20,6 +20,7 @@ from ui.runtime.main_window_theme import (
     _apply_readable_input_palettes,
     _normalize_app_theme_preset_id,
 )
+from ui.runtime.long_term_memory_image_review import ManualImageReviewCoordinator
 
 
 def start_api(preview_state_getter=None):
@@ -88,6 +89,9 @@ class MainWindowStartupMixin:
         self.chat_auto_scroll = True
         self.chat_edit_mode = False
         self._chat_edit_snapshot_text = ""
+        self._chat_edit_snapshot_full_history = None
+        self._chat_edit_snapshot_visible_indexes = ()
+        self._chat_edit_snapshot_entries = None
         self._chat_provider_field_widgets = {}
         self._chat_provider_field_meta = {}
         self._preset_reference_name = ""
@@ -101,6 +105,7 @@ class MainWindowStartupMixin:
         self._active_app_theme_preset = _normalize_app_theme_preset_id(RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
         self._theme_apply_in_progress = False
         self._chat_runtime_border_paused = None
+        self._long_term_memory_image_review_coordinator = None
 
     def _initialize_console_redirect(self):
         self._console_bridge = QtConsoleBridge()
@@ -133,6 +138,7 @@ class MainWindowStartupMixin:
         self._connect_console_bridge()
         self._build_status_timer()
         self._mount_initialized_addons()
+        self._install_long_term_memory_image_review()
         self._build_ui_hotkey_timer()
         self._build_preview_dock()
         self._apply_disabled_addon_surfaces()
@@ -160,6 +166,20 @@ class MainWindowStartupMixin:
         self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
         self.refresh_tutorial_list()
         QtCore.QTimer.singleShot(250, self.maybe_prompt_first_run_tutorial)
+
+    def _install_long_term_memory_image_review(self):
+        coordinator = ManualImageReviewCoordinator(self)
+        self._long_term_memory_image_review_coordinator = coordinator
+        if hasattr(engine, "register_long_term_memory_image_review_callback"):
+            engine.register_long_term_memory_image_review_callback(coordinator.review)
+
+    def _shutdown_long_term_memory_image_review(self):
+        coordinator = getattr(self, "_long_term_memory_image_review_coordinator", None)
+        if coordinator is not None:
+            if hasattr(engine, "unregister_long_term_memory_image_review_callback"):
+                engine.unregister_long_term_memory_image_review_callback(coordinator.review)
+            coordinator.shutdown()
+        self._long_term_memory_image_review_coordinator = None
 
     def _install_visual_presence_overlay(self):
         self.visual_presence_controller = None
@@ -200,6 +220,7 @@ class MainWindowStartupMixin:
 
     def closeEvent(self, event):
         self._closing = True
+        self._shutdown_long_term_memory_image_review()
         self.save_session()
         controller = getattr(self, "visual_presence_controller", None)
         if controller is not None and hasattr(controller, "shutdown"):

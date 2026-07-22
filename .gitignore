@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 .venv/
 .venvs/
+.worktrees/
 /runtime/
 tools/ffmpeg/
 qt_session.json
@@ -40,3 +41,8 @@ VaMtest/input.wav
 VaMtest/last_sent_*.json
 body_configs/*.json
 !body_configs/.gitkeep
+/.codex_mockups/
+/.superpowers/
+/docs/superpowers/
+/artifacts/
+/apps/main-chat-remote-phone/builds/

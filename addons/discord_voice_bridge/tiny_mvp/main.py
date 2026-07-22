@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import threading
 import time
@@ -19,7 +20,6 @@ except Exception:  # pragma: no cover - non-Windows fallback
 
 
 APP_DIR = Path(__file__).resolve().parent
-SETTINGS_PATH = APP_DIR / "settings.example.json"
 
 
 @dataclass
@@ -49,6 +49,7 @@ class TinyRoomState:
         self.moderator_state = self._default_moderator_state()
         self.playback_epoch = 0
         self.last_playback_stop_reason = ""
+        self.last_dead_air_target_id = ""
         self.started_at = datetime.now().isoformat(timespec="seconds")
         self.load_settings()
 
@@ -81,24 +82,7 @@ class TinyRoomState:
         }
 
     def load_settings(self) -> None:
-        settings = {
-            "participants": [
-                {"id": "echo", "name": "Echo", "type": "bot", "connected": True},
-                {"id": "nova", "name": "Nova", "type": "bot", "connected": True},
-                {"id": "rakila", "name": "Rakila", "type": "human", "connected": True},
-            ]
-        }
-        if SETTINGS_PATH.exists():
-            settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
         with self.lock:
-            for item in settings.get("participants", []):
-                self.upsert_participant(
-                    str(item.get("id") or "").strip(),
-                    str(item.get("name") or item.get("id") or "").strip(),
-                    str(item.get("type") or item.get("kind") or "bot").strip().lower(),
-                    bool(item.get("connected", True)),
-                    log=False,
-                )
             self.add_flow("system", "", "room", "TinyMVP room initialized.")
             self.ensure_capture_owner("startup")
 
@@ -120,6 +104,7 @@ class TinyRoomState:
         self.moderator_state = self._default_moderator_state()
         self.playback_epoch += 1
         self.last_playback_stop_reason = f"room reset: {reason}"
+        self.last_dead_air_target_id = ""
         self.ensure_capture_owner("room reset")
         self.add_flow("reset", "", "", f"Room reset | {reason}")
         with self.playback_condition:
@@ -289,6 +274,87 @@ class TinyRoomState:
         muted = {str(item or "").strip() for item in self.moderator_state.get("muted_bot_ids", []) if str(item or "").strip()}
         return participant_id in muted
 
+    def _resolve_participant_id(self, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        lowered = text.casefold()
+        for participant in self.participants.values():
+            if participant.id.casefold() == lowered or participant.name.casefold() == lowered:
+                return participant.id
+        return ""
+
+    def _eligible_dead_air_participants(self, source_id: str = "") -> list[Participant]:
+        source_id = self._resolve_participant_id(source_id) or str(source_id or "").strip()
+        candidates: list[Participant] = []
+        for participant in self.participants.values():
+            if not participant.connected:
+                continue
+            if self.participant_is_muted(participant.id):
+                continue
+            allowed, _lock_reason = self.route_allowed_by_speaker_lock(participant.id)
+            if not allowed:
+                continue
+            candidates.append(participant)
+        if len(candidates) > 1:
+            non_current = [item for item in candidates if item.id != self.current_id]
+            if non_current:
+                candidates = non_current
+        if len(candidates) > 1 and source_id:
+            non_source = [item for item in candidates if item.id != source_id]
+            if non_source:
+                candidates = non_source
+        return candidates
+
+    def _candidate_by_id(self, candidates: list[Participant], value: str) -> Participant | None:
+        target_id = self._resolve_participant_id(value)
+        if not target_id:
+            return None
+        return next((item for item in candidates if item.id == target_id), None)
+
+    def _candidate_mentioned_in_reason(self, candidates: list[Participant], reason: str) -> Participant | None:
+        text = str(reason or "")
+        if not text:
+            return None
+        matches: list[tuple[int, Participant]] = []
+        for participant in candidates:
+            terms = {participant.id, participant.name}
+            for term in terms:
+                term = str(term or "").strip()
+                if not term:
+                    continue
+                pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", re.IGNORECASE)
+                match = pattern.search(text)
+                if match:
+                    matches.append((match.start(), participant))
+                    break
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item[0])
+        return matches[0][1]
+
+    def _round_robin_dead_air_candidate(self, candidates: list[Participant], source_id: str = "") -> Participant | None:
+        if not candidates:
+            return None
+        ids = [item.id for item in self.participants.values()]
+        anchors = [
+            self.last_dead_air_target_id,
+            self._resolve_participant_id(source_id),
+            self.current_id,
+        ]
+        start = 0
+        for anchor in anchors:
+            if anchor and anchor in ids:
+                start = ids.index(anchor) + 1
+                break
+        ordered_ids = ids[start:] + ids[:start]
+        candidate_by_id = {item.id: item for item in candidates}
+        for participant_id in ordered_ids:
+            candidate = candidate_by_id.get(participant_id)
+            if candidate:
+                return candidate
+        return candidates[0]
+
     def apply_route_decision(self, source_id: str, target_id: str, reason: str, answer: bool) -> bool:
         source_id = str(source_id or "").strip()
         target_id = str(target_id or "").strip()
@@ -298,6 +364,9 @@ class TinyRoomState:
             return False
         if not answer or not target_id:
             self.route_decision(source_id, target_id, reason, False)
+            return False
+        if source_id and target_id == source_id:
+            self.route_decision(source_id, target_id, f"self_route:{reason}", False)
             return False
         try:
             target = self.require_participant(target_id)
@@ -461,31 +530,43 @@ class TinyRoomState:
         participant.updated_at = self.now()
         self.add_flow("speech", speaker_id, "", f"{participant.name}: {text}")
 
-    def dead_air(self, reason: str = "dead air") -> str:
-        preferred_id = str(self.moderator_state.get("enforcer_bot_id") or "").strip()
-        preferred = self.participants.get(preferred_id) if preferred_id else None
-        if preferred and preferred.kind == "bot" and preferred.connected and preferred.id != self.current_id:
-            target = preferred
-        else:
-            target = next(
-                (
-                    item
-                    for item in self.participants.values()
-                    if item.kind == "bot" and item.connected and item.id != self.current_id
-                ),
-                None,
-            )
+    def dead_air(
+        self,
+        reason: str = "dead air",
+        *,
+        source_id: str = "",
+        strategy: str = "",
+        fallback_target: str = "",
+        preferred_target: str = "",
+    ) -> str:
+        strategy = str(strategy or "llm_choose").strip().lower()
+        candidates = self._eligible_dead_air_participants(source_id)
+        target = self._candidate_by_id(candidates, preferred_target)
+        if not target and strategy == "selected_fallback":
+            target = self._candidate_by_id(candidates, fallback_target)
         if not target:
-            self.add_flow("dead_air", "", "", "No connected bot available for dead-air recovery.")
+            target = self._candidate_mentioned_in_reason(candidates, reason)
+        if not target:
+            enforcer_id = str(self.moderator_state.get("enforcer_bot_id") or "").strip()
+            target = self._candidate_by_id(candidates, enforcer_id)
+        if not target and strategy == "round_robin":
+            target = self._round_robin_dead_air_candidate(candidates, source_id)
+        if not target and fallback_target:
+            target = self._candidate_by_id(candidates, fallback_target)
+        if not target:
+            target = self._round_robin_dead_air_candidate(candidates, source_id)
+        if not target:
+            self.add_flow("dead_air", "", "", "No connected participant available for dead-air recovery.")
             return ""
         self.set_next(target.id, reason)
+        self.last_dead_air_target_id = target.id
         self.add_flow("dead_air", "", target.id, f"Dead-air recovery chose {target.name}.")
         return target.id
 
-    def maybe_recover_dead_air(self, reason: str = "dead air") -> str:
+    def maybe_recover_dead_air(self, reason: str = "dead air", **options: Any) -> str:
         if self.current_id:
             self.clear_current(f"dead-air recovery: {reason}")
-        return self.dead_air(reason)
+        return self.dead_air(reason, **options)
 
     def play_wav(self, participant_id: str, wav_path: str, *, playback_epoch: int | None = None) -> bool:
         path = Path(wav_path)
@@ -536,6 +617,10 @@ class TinyRoomState:
         self.playback_epoch += 1
         self.last_playback_stop_reason = reason
         self.playback_owner_id = ""
+        if reason.endswith("turn finished") and old_owner and self.next_id == old_owner:
+            self.next_id = ""
+            self._clear_pending_routes(last_command="clear_pending")
+            self.add_flow("route", old_owner, "", f"Next cleared | stale self route after {reason}")
         if "speech probe" in reason or "user speech" in reason:
             old_next = self.next_id
             self.next_id = ""
@@ -813,7 +898,13 @@ class TinyRoomHandler(BaseHTTPRequestHandler):
                 elif path == "/clear/next":
                     ROOM.clear_next(str(payload.get("reason") or "external command").strip())
                 elif path == "/dead-air":
-                    target = ROOM.dead_air(str(payload.get("reason") or "dead air").strip())
+                    target = ROOM.dead_air(
+                        str(payload.get("reason") or "dead air").strip(),
+                        source_id=str(payload.get("source_id") or payload.get("speaker_id") or "").strip(),
+                        strategy=str(payload.get("strategy") or "").strip(),
+                        fallback_target=str(payload.get("fallback_target") or payload.get("selected_fallback_target") or "").strip(),
+                        preferred_target=str(payload.get("preferred_target") or payload.get("preferred_target_id") or "").strip(),
+                    )
                     self.send_json({"ok": True, "target_id": target, "state": ROOM.snapshot()})
                     return
                 elif path == "/play":
@@ -855,6 +946,12 @@ class TinyRoomHandler(BaseHTTPRequestHandler):
             return
 
     def log_message(self, format: str, *args: Any) -> None:
+        try:
+            status = str(args[1] if len(args) > 1 else "")
+            if status == "200":
+                return
+        except Exception:
+            pass
         print(f"[TinyMVP] {self.address_string()} - {format % args}")
 
 
@@ -1074,8 +1171,8 @@ def run_monitor(url: str, interval_ms: int = 500) -> int:
 
 def run_self_test() -> int:
     contract_room = TinyRoomState()
+    assert contract_room.participants == {}
     with contract_room.lock:
-        contract_room.participants.clear()
         contract_room.route_flow.clear()
         contract_room.current_id = ""
         contract_room.next_id = ""
@@ -1098,6 +1195,11 @@ def run_self_test() -> int:
         contract_room.playback_owner_id = "echo"
         contract_room.stop_playback("echo turn finished")
         quiet_after_finish_state = contract_room.snapshot()
+        contract_room.set_current("echo", "self-test active bot with stale self next")
+        contract_room.set_next("echo", "self-test stale self route")
+        contract_room.playback_owner_id = "echo"
+        contract_room.stop_playback("echo turn finished")
+        stale_self_next_finished_state = contract_room.snapshot()
         contract_room.set_next("nova", "self-test bot next")
         bot_next_state = contract_room.snapshot()
         contract_room.set_allow_only("echo", "self-test speaker lock")
@@ -1144,6 +1246,13 @@ def run_self_test() -> int:
         locked_echo_accepted = contract_room.apply_route_decision("rakila", "echo", "direct echo", True)
         locked_nova_accepted = contract_room.apply_route_decision("rakila", "nova", "direct nova", True)
         locked_route_state = contract_room.snapshot()
+        contract_room.clear_all_moderator("self-test reset before self route")
+        contract_room.playback_owner_id = ""
+        contract_room.current_id = "echo"
+        contract_room.next_id = ""
+        contract_room._sync_flags()
+        self_route_accepted = contract_room.apply_route_decision("echo", "echo", "open room question", True)
+        self_route_state = contract_room.snapshot()
         contract_room.clear_all_moderator("self-test reset before human lock")
         contract_room.playback_owner_id = ""
         contract_room.current_id = ""
@@ -1165,6 +1274,27 @@ def run_self_test() -> int:
         contract_room.apply_route_decision("rakila", "", "no route after human speech", False)
         recovered_target = contract_room.maybe_recover_dead_air("no route after human speech")
         recovery_state = contract_room.snapshot()
+        contract_room.clear_all_moderator("self-test reset before mentioned recovery")
+        contract_room.handle_moderator_command(
+            {
+                "action": "moderator_set_enforcer",
+                "target_bot_id": "moderator",
+                "reason": "self-test appointed moderator",
+            }
+        )
+        contract_room.set_current("moderator", "self-test active moderator")
+        mentioned_recovery_target = contract_room.dead_air(
+            "dead_air_recovery:The moderator's turn is complete; awaiting responses from Kalle or Nova.",
+            strategy="llm_choose",
+        )
+        mentioned_recovery_state = contract_room.snapshot()
+        contract_room.clear_all_moderator("self-test reset before round-robin recovery")
+        contract_room.set_current("moderator", "self-test active moderator")
+        round_robin_target = contract_room.dead_air(
+            "dead_air_recovery:The moderator is asking the whole room.",
+            strategy="llm_choose",
+        )
+        round_robin_state = contract_room.snapshot()
         contract_room.clear_all_moderator("self-test reset before mute enforcement")
         contract_room.handle_moderator_command(
             {
@@ -1185,6 +1315,9 @@ def run_self_test() -> int:
     assert human_promoted_state["next_id"] == ""
     assert quiet_after_finish_state["current_id"] == ""
     assert quiet_after_finish_state["next_id"] == ""
+    assert stale_self_next_finished_state["current_id"] == ""
+    assert stale_self_next_finished_state["next_id"] == ""
+    assert stale_self_next_finished_state["moderator_state"]["pending_route"] == {}
     assert bot_next_state["next_id"] == "nova"
     assert bot_next_state["moderator_state"]["pending_route"]["target_bot_id"] == "nova"
     assert locked_state["moderator_state"]["floor_target_bot_id"] == "echo"
@@ -1212,12 +1345,21 @@ def run_self_test() -> int:
     assert locked_nova_accepted is False
     assert locked_route_state["next_id"] == "echo"
     assert any("speaker_lock" in item["message"] for item in locked_route_state["route_flow"])
+    assert self_route_accepted is False
+    assert self_route_state["next_id"] == ""
+    assert self_route_state["moderator_state"]["pending_route"] == {}
+    assert any("self_route" in item["message"] for item in self_route_state["route_flow"])
     assert human_locked_bot_accepted is False
     assert human_locked_self_accepted is True
     assert human_lock_route_state["current_id"] == "rakila"
     assert recovered_target == "moderator"
     assert recovery_state["next_id"] == recovered_target
     assert recovery_state["current_id"] == ""
+    assert mentioned_recovery_target in {"rakila", "nova"}
+    assert mentioned_recovery_state["next_id"] == mentioned_recovery_target
+    assert mentioned_recovery_target != "echo"
+    assert round_robin_target != "echo"
+    assert round_robin_state["next_id"] == round_robin_target
     assert muted_route_accepted is False
     assert muted_enforced_state["current_id"] == ""
     assert muted_enforced_state["next_id"] == ""

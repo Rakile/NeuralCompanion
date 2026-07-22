@@ -1419,7 +1419,8 @@ async function maybeQueueDeadAirRecovery(decision, turn, routeKey, source, optio
     });
     return false;
   }
-  const state = readModeratorState();
+  let state = readModeratorState();
+  state = clearStaleSelfPendingRouteForRecovery(state, turn, options);
   if (moderatorBotTargetIsMuted(moderatorId, state)) {
     appendModeratorRecoveryStatus({
       last_reason: "disabled_moderator_muted",
@@ -2523,6 +2524,33 @@ function moderatorHasCurrentOrPendingSpeaker(state = readModeratorState()) {
     || moderatorPendingHumanRoute(state)
     || moderatorPendingBotRoute(state)
   );
+}
+
+function clearStaleSelfPendingRouteForRecovery(state, turn, options = {}) {
+  if (!options?.allowActiveCompletedCurrent) {
+    return state;
+  }
+  const currentBot = safeFileSegment(state?.current_bot_id || "").toLowerCase();
+  const speakerBot = safeFileSegment(turn?.speakerBotId || "").toLowerCase();
+  const pending = moderatorPendingBotRoute(state);
+  if (!currentBot || !speakerBot || currentBot !== speakerBot || pending?.target !== currentBot) {
+    return state;
+  }
+  updateModeratorState((current) => {
+    const latestCurrent = safeFileSegment(current?.current_bot_id || "").toLowerCase();
+    const latestPending = safeFileSegment(current?.pending_route?.target_bot_id || "").toLowerCase();
+    if (latestCurrent !== currentBot || latestPending !== currentBot) {
+      return current;
+    }
+    return {
+      ...current,
+      pending_route: {},
+      route_next_target_bot_id: "",
+      last_error: ""
+    };
+  });
+  console.log(`[DiscordBridgeModerator] Cleared stale self-pending route ${currentBot} before dead-air recovery.`);
+  return readModeratorState();
 }
 
 function markBotCurrentForTurn(turnState, reason) {

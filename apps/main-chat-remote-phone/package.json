@@ -8,19 +8,27 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "smoke:discovery": "node --no-warnings --experimental-strip-types scripts/smoke-lan-discovery.mjs",
+    "smoke:pairing-qr": "node --no-warnings --experimental-strip-types scripts/smoke-pairing-qr.mjs",
+    "smoke:swipe-controls": "node --no-warnings --experimental-strip-types scripts/smoke-swipe-controls.mjs",
+    "smoke:interface-mode": "node --no-warnings --experimental-strip-types scripts/smoke-interface-mode.mjs",
+    "smoke:audio-fast-start": "node --no-warnings --experimental-strip-types scripts/smoke-audio-fast-start.mjs",
     "typecheck": "tsc --noEmit",
     "validate:temp": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-temp.ps1"
   },
   "dependencies": {
-    "expo": "54.0.8",
-    "expo-audio": "1.0.12",
-    "expo-file-system": "19.0.14",
+    "expo": "~54.0.35",
+    "expo-asset": "~12.0.13",
+    "expo-audio": "~1.1.1",
+    "expo-camera": "~17.0.10",
+    "expo-file-system": "~19.0.23",
     "expo-keep-awake": "~15.0.7",
     "expo-media-library": "~18.2.1",
-    "expo-secure-store": "15.0.7",
+    "expo-network": "~8.0.8",
+    "expo-secure-store": "~15.0.8",
     "expo-sharing": "~14.0.8",
     "react": "19.1.0",
-    "react-native": "0.81.4"
+    "react-native": "0.81.5"
   },
   "devDependencies": {
     "@types/react": "~19.1.17",

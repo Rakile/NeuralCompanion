@@ -29,6 +29,7 @@
   "ar_use_persona_profiles": true,
   "ar_pacing": "Slow / Audiobook",
   "ar_interaction_frequency": "Ask sometimes",
+  "ar_dialogue_density": "Balanced narrator + character dialogue",
   "ar_state": {
     "current_scene": "A rain-glossed city of old hotels, private galleries, forbidden archives, and rooftop gardens. The night begins with an invitation written in silver ink.",
     "location": "The Velvet Lantern Hotel, a restored art-deco hideaway above a stormy harbor.",

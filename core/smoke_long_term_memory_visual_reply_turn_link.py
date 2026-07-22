@@ -61,6 +61,8 @@ def test_visual_reply_image_links_to_matching_assistant_turn_and_archive_asset()
             assert linked[0]["origin"] == "assistant_visual_reply"
             assert linked[0]["relation"] == "generated_by_reply"
             assert linked[0]["blob"] == image_path.read_bytes()
+            assert linked[0]["metadata"]["visual_reply_prompt"] == "A small neon harbor at night."
+            assert linked[0]["link_metadata"]["visual_reply_prompt"] == "A small neon harbor at night."
     finally:
         long_term_memory.set_default_db_path(previous_db_path)
 

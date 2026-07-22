@@ -12,6 +12,8 @@ if str(ROOT) not in sys.path:
 
 from PySide6 import QtWidgets
 
+import engine
+from core import sensory
 from addons.spotify_sense.intent_router import infer_music_mood, route_music_intent
 from addons.spotify_sense.settings import SpotifySenseSettings
 from addons.spotify_sense.controller import SpotifySenseController
@@ -61,14 +63,29 @@ class _Events:
         self.published.append((event_name, payload or {}))
 
 
+class _SensoryService:
+    def register_provider(self, **kwargs):
+        return sensory.register_provider(**kwargs).to_summary()
+
+    def unregister_provider(self, provider_id):
+        return sensory.unregister_provider(provider_id)
+
+    def register_prompt_contributor(self, **kwargs):
+        return sensory.register_prompt_contributor(**kwargs).to_summary()
+
+    def unregister_prompt_contributor(self, contributor_id):
+        return sensory.unregister_prompt_contributor(contributor_id)
+
+
 class _Context:
-    def __init__(self, storage):
+    def __init__(self, storage, services=None):
         self.storage = storage
         self.logger = _Logger()
         self.events = _Events()
+        self.services = dict(services or {})
 
-    def get_service(self, _name, default=None):
-        return default
+    def get_service(self, name, default=None):
+        return self.services.get(str(name or ""), default)
 
 
 class _FakeSpotifyResponse:
@@ -190,7 +207,81 @@ def main():
         assert routed["args"]["comment"] is True
         assert infer_music_mood({"name": "dark cyberpunk focus", "artists": ["Example"]}) in {"dark", "focus"}
 
-        controller = SpotifySenseController(_Context(settings.storage))
+        sensory_service = _SensoryService()
+        controller = SpotifySenseController(_Context(settings.storage, {"qt.sensory": sensory_service}))
+        assert engine._sensory_behavior_prompt_active(["spotify_sense"])
+        spotify_prompt = engine._sensory_pingpong_source_prompt_text(["spotify_sense"])
+        assert "Spotify Sense" in spotify_prompt
+        assert "should_speak=true" in spotify_prompt
+        original_tts_model = engine.tts_model
+        original_hidden_speech = engine.RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech")
+        with engine.sensory_pingpong_lock:
+            original_action_state = dict(engine.sensory_hidden_action_state)
+        try:
+            engine.tts_model = object()
+            engine.RUNTIME_CONFIG["sensory_allow_hidden_proactive_speech"] = True
+            with engine.sensory_pingpong_lock:
+                engine.sensory_hidden_action_state.update(
+                    {
+                        "pending_proactive": None,
+                        "active_proactive": None,
+                        "last_proactive_key": "",
+                        "last_proactive_at": 0.0,
+                        "last_proactive_candidate_key": "",
+                        "last_proactive_candidate_at": 0.0,
+                    }
+                )
+            engine._apply_sensory_pong_result(
+                {
+                    "keep": True,
+                    "emotion": "neutral",
+                    "attention": "music",
+                    "summary": "Spotify metadata is present but no fresh hidden response was approved.",
+                    "proactive_candidate": "That track has a nice late-night pulse.",
+                    "should_speak": True,
+                },
+                [{"source": "spotify_sense", "content": "metadata-only Spotify context", "metadata": {"provider": "spotify"}}],
+            )
+            with engine.sensory_pingpong_lock:
+                assert engine.sensory_hidden_action_state.get("pending_proactive") is None
+                engine.sensory_hidden_action_state.update(
+                    {
+                        "pending_proactive": None,
+                        "active_proactive": None,
+                        "last_proactive_key": "",
+                        "last_proactive_at": 0.0,
+                        "last_proactive_candidate_key": "",
+                        "last_proactive_candidate_at": 0.0,
+                    }
+                )
+            engine._apply_sensory_pong_result(
+                {
+                    "keep": True,
+                    "emotion": "neutral",
+                    "attention": "music",
+                    "summary": "A fresh cooldown-approved Spotify song-change reaction is available.",
+                    "proactive_candidate": "That bass line has a sly little strut.",
+                    "should_speak": True,
+                },
+                [
+                    {
+                        "source": "spotify_sense",
+                        "content": "cooldown-approved Spotify context",
+                        "metadata": {"provider": "spotify", "hidden_response_allowed": True},
+                    }
+                ],
+            )
+            with engine.sensory_pingpong_lock:
+                assert engine.sensory_hidden_action_state.get("pending_proactive") is not None
+        finally:
+            engine.tts_model = original_tts_model
+            if original_hidden_speech is None:
+                engine.RUNTIME_CONFIG.pop("sensory_allow_hidden_proactive_speech", None)
+            else:
+                engine.RUNTIME_CONFIG["sensory_allow_hidden_proactive_speech"] = original_hidden_speech
+            with engine.sensory_pingpong_lock:
+                engine.sensory_hidden_action_state.clear()
+                engine.sensory_hidden_action_state.update(original_action_state)
         assert any(record["id"] == "builtin.natural_companion" for record in controller._hidden_sensory_preset_records())
         assert controller.collect_chat_context({}) is None
         assert controller.capture_sensory_snapshot({}) is None
@@ -318,6 +409,35 @@ def main():
         assert sensory["metadata"]["metadata_only"] is True
         assert sensory["metadata"]["hidden_response_allowed"] is True
         assert controller.capture_sensory_snapshot({}) is None
+        original_feedback_source = engine.RUNTIME_CONFIG.get("sensory_feedback_source")
+        with engine._sensory_feedback_lock:
+            original_feedback_state = dict(engine._sensory_feedback_state)
+            engine._sensory_feedback_state.clear()
+        try:
+            track_engine_cache = {"id": "track-engine-cache", "name": "one shot signal", "artists": ["Example"], "is_playing": True}
+            controller._cache_music_context(track_engine_cache)
+            controller._last_hidden_response_snapshot_at = 0.0
+            controller._last_track_comment_at = 0.0
+            controller._pending_track_change_context = {
+                "changed_at": time.time(),
+                "response_allowed_at": time.time(),
+                "track": controller._music_context_payload_from_track(track_engine_cache),
+                "commentary": controller._commentary_for_track(track_engine_cache),
+            }
+            engine.RUNTIME_CONFIG["sensory_feedback_source"] = "spotify_sense"
+            first_hidden_snapshots = engine._maybe_refresh_sensory_feedback_snapshots(force=True)
+            assert len(first_hidden_snapshots) == 1
+            assert first_hidden_snapshots[0]["metadata"]["hidden_response_allowed"] is True
+            second_hidden_snapshots = engine._maybe_refresh_sensory_feedback_snapshots(force=True)
+            assert second_hidden_snapshots == []
+        finally:
+            if original_feedback_source is None:
+                engine.RUNTIME_CONFIG.pop("sensory_feedback_source", None)
+            else:
+                engine.RUNTIME_CONFIG["sensory_feedback_source"] = original_feedback_source
+            with engine._sensory_feedback_lock:
+                engine._sensory_feedback_state.clear()
+                engine._sensory_feedback_state.update(original_feedback_state)
         controller._last_hidden_response_snapshot_at = 0.0
         controller._pending_track_change_context = {
             "changed_at": time.time(),
@@ -687,6 +807,20 @@ def main():
         ui_controller = SpotifySenseController(_Context(settings.storage))
         ui_controller.client.get_devices = lambda: {"ok": True, "data": {"devices": []}}
         tab = ui_controller.build_tab()
+        main_tabs = tab.findChild(QtWidgets.QTabWidget, "spotify_sense_main_tabs")
+        assert main_tabs is not None
+        expected_tab_labels = (
+            "Overview",
+            "Connect",
+            "Playback",
+            "Awareness",
+            "Ducking",
+            "Story",
+            "Hidden Sense",
+            "Advanced",
+        )
+        assert tuple(main_tabs.tabText(index) for index in range(main_tabs.count())) == expected_tab_labels
+        assert all(not main_tabs.tabIcon(index).isNull() for index in range(main_tabs.count()))
         button_labels = {
             button.text()
             for button in tab.findChildren(QtWidgets.QPushButton)

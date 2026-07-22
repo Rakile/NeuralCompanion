@@ -34,6 +34,14 @@ Then call `register_provider(...)` with:
 - `stream_handler(params, additional_params)`: yields assistant text chunks.
 - `connection_check_handler()`: returns `{"ok": bool, "detail": str}`.
 - `api_key_getter` and `base_url_getter`: optional helpers used by shared UI/runtime checks.
+- `normal_chat_capable=True` and `frozen_execution_version=1`: declare the
+  request-scoped normal-chat contract.
+- `frozen_prepare_handler`, `frozen_completion_handler`, and
+  `frozen_stream_handler`: required frozen execution v1 hooks.
+- `frozen_private_config_getter`: optional request-acceptance hook for private
+  provider state that is not covered by the API-key or base-URL getters.
+- `frozen_public_config_fields`: explicit allowlist for the sanitized provider
+  configuration exposed outside the private execution binding.
 - `metadata["config_fields"]`: Host-card fields to render for this provider.
 - `metadata["generation_fields"]`: provider-specific generation controls rendered in the Chat Runtime card.
 
@@ -47,6 +55,43 @@ The provider registry currently accepts these handlers:
 - `connection_check_handler() -> dict[str, Any]`
 
 If a handler is omitted, NC may fall back to shared defaults where possible, but a real provider addon should implement the full set if it wants normal model refresh, completion, streaming, and connection reporting.
+
+### Frozen normal-chat execution v1
+
+Normal chat captures one provider registration, model, generation configuration,
+and private provider configuration when the user turn is accepted. A provider
+that claims normal-chat support is available only when it registers frozen
+execution version `1` and all three frozen handlers:
+
+```python
+chat_service.register_provider(
+    ...,
+    normal_chat_capable=True,
+    frozen_execution_version=1,
+    frozen_prepare_handler=self._prepare_frozen_chat,
+    frozen_completion_handler=self._complete_frozen_chat,
+    frozen_stream_handler=self._stream_frozen_chat,
+    frozen_private_config_getter=self._frozen_private_config,
+    frozen_public_config_fields=("base_url", "provider_is_remote"),
+)
+```
+
+The prepare handler receives the private frozen binding plus detached request
+mappings and must return exactly `(params, additional_params)`. It should bind
+the captured model and captured generation fields. Completion and stream
+handlers receive one immutable frozen request and must use the private config
+from that request's binding rather than reading current settings again.
+
+The legacy completion and stream handlers remain useful for non-normal-chat
+callers, but core does not use them as a fallback when frozen normal-chat hooks
+are missing. The provider is instead shown as unavailable with an update
+message.
+
+Identity Relay strict capacity negotiation is additive. Providers that can
+attest an exact context limit and token counter may also register
+`model_capabilities_handler` and `token_counter`. Providers without those hooks
+remain usable for ordinary frozen normal chat; Relay ON fails closed when strict
+capacity cannot be established.
 
 Recommended return conventions:
 
@@ -159,6 +204,11 @@ NC accepts either:
 If a model dict includes capability flags such as `supports_images`, the UI may use them for filtering and capability summaries.
 
 If a provider uses another API shape, translate inside the addon. The Claude addon is the reference example: it converts system messages into the Anthropic `system` field, converts chat turns to `messages`, maps `stop` to `stop_sequences`, and parses server-sent streaming text deltas.
+
+The shipped [`chat_provider_addon` template](templates/chat_provider_addon/)
+contains both legacy adapters and the frozen execution v1 wiring. Implement its
+`_complete_provider_request` and `_stream_provider_request` transport methods so
+both paths share one provider-specific request implementation.
 
 ### Contract stability
 

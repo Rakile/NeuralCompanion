@@ -267,6 +267,8 @@ def prepare_chat_model_lifecycle(
         return False, active_name
 
     should_unload = bool(force_unload) or (active_name and active_name != clean_model_name) or not active_name
+    if not should_unload:
+        return True, active_name
     if should_unload:
         try:
             unload_func(reason=reason)

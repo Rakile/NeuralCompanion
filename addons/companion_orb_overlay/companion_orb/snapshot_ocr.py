@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import inspect
 import json
 import re
 import shutil
@@ -177,6 +178,44 @@ def _extract_with_win32_window_text(screen_bounds, *, max_regions: int) -> list[
     return regions[:max_regions]
 
 
+def extract_window_text_regions(screen_bounds, *, max_regions: int = 80) -> list[dict[str, Any]]:
+    """Return text exposed by Windows controls in the selected screen bounds."""
+    try:
+        return _extract_with_win32_window_text(screen_bounds, max_regions=max(1, int(max_regions or 80)))
+    except Exception:
+        return []
+
+
+def readable_text_from_regions(regions) -> str:
+    """Convert OCR/window-text regions into stable readable text."""
+    lines: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    try:
+        region_items = list(regions or [])
+    except Exception:
+        return ""
+    for item in region_items:
+        if not isinstance(item, dict):
+            continue
+        text = re.sub(r"\s+", " ", str(item.get("text") or "")).strip()
+        if not text:
+            continue
+        key = re.sub(r"\s+", " ", text).strip().casefold() or _normalize_text(text)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        bounds = item.get("screen_bounds") or []
+        try:
+            x_value = int(bounds[0])
+            y_value = int(bounds[1])
+        except Exception:
+            x_value = 0
+            y_value = len(lines)
+        lines.append((y_value, x_value, text))
+    lines.sort(key=lambda row: (row[0], row[1]))
+    return "\n".join(text for _y, _x, text in lines).strip()
+
+
 def _merge_bounds(bounds_list) -> list[int]:
     values = []
     for bounds in bounds_list:
@@ -235,7 +274,14 @@ def _extract_with_pytesseract(image_path: Path, image_size, screen_bounds) -> li
         from PIL import Image
 
         image = Image.open(image_path)
-        data = pytesseract.image_to_data(image, output_type=Output.DICT)
+        parameters = inspect.signature(pytesseract.image_to_data).parameters
+        kwargs: dict[str, Any] = {"output_type": Output.DICT}
+        if "timeout" in parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        ):
+            kwargs["timeout"] = 4.0
+        data = pytesseract.image_to_data(image, **kwargs)
     except Exception:
         return []
     rows = []

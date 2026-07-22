@@ -18,6 +18,7 @@ type Props = {
   demoMode?: boolean;
   onBaseUrlChange: (value: string) => void;
   onPairingCodeChange: (value: string) => void;
+  onScanQrCode: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
   onRefresh: () => void;
@@ -92,7 +93,7 @@ export function ConnectionPanel(props: Props) {
         <WizardStep
           number="2"
           title="Start LAN backend"
-          detail="Use Start LAN Backend, then copy the LAN URL shown on desktop."
+          detail="Saved pairings are found automatically. The manual LAN URL remains available below."
         />
         <WizardStep
           number="3"
@@ -100,6 +101,9 @@ export function ConnectionPanel(props: Props) {
           detail="Use the numeric code from the desktop addon. Codes are 4-9 digits."
           active
         />
+        <Pressable style={styles.scanButton} onPress={props.onScanQrCode}>
+          <Text style={styles.scanButtonText}>Scan QR code</Text>
+        </Pressable>
         <View style={styles.formRow}>
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>LAN URL</Text>
@@ -290,6 +294,18 @@ const styles = StyleSheet.create({
   formRow: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  scanButton: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: 6,
+    height: 42,
+    justifyContent: 'center',
+  },
+  scanButtonText: {
+    color: '#061019',
+    fontSize: 14,
+    fontWeight: '800',
   },
   inputGroup: {
     flex: 1,

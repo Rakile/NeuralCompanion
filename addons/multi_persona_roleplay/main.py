@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import time
+
 from core.addons.base import BaseAddon
+from core.tts_latency_diagnostics import runtime_diagnostic_fields
 
 
 class Addon(BaseAddon):
@@ -9,23 +12,43 @@ class Addon(BaseAddon):
 
     def initialize(self, context):
         super().initialize(context)
-        from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+        recorder = context.get_service("diagnostics.tts_latency") if context is not None else None
+        started_at = time.perf_counter()
+        error_class = ""
+        if callable(recorder):
+            recorder("mprc_initialize_start", **runtime_diagnostic_fields())
+        try:
+            from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
 
-        self.controller = MultiPersonaRoleplayController(context)
-        context.services.register(
-            self.VOICE_SERVICE_NAME,
-            self.controller.voice_router,
-            metadata={
-                "kind": "tts_voice_router",
-                "addon_id": "nc.multi_persona_roleplay",
-                "label": "Multi Persona Roleplay Voice Router",
-            },
-        )
-        context.ui.register_manifest_designer_tab(
-            id=self.TAB_ID,
-            binder=self._bind_designer_tab,
-        )
-        context.logger.info("Multi Persona Roleplay addon initialized.")
+            self.controller = MultiPersonaRoleplayController(context)
+            context.services.register(
+                self.VOICE_SERVICE_NAME,
+                self.controller.voice_router,
+                metadata={
+                    "kind": "tts_voice_router",
+                    "addon_id": "nc.multi_persona_roleplay",
+                    "label": "Multi Persona Roleplay Voice Router",
+                },
+            )
+            context.ui.register_manifest_designer_tab(
+                id=self.TAB_ID,
+                binder=self._bind_designer_tab,
+            )
+            context.logger.info("Multi Persona Roleplay addon initialized.")
+        except Exception as exc:
+            error_class = type(exc).__name__
+            raise
+        finally:
+            if callable(recorder):
+                controller = getattr(self, "controller", None)
+                session = getattr(controller, "session", None)
+                recorder(
+                    "mprc_initialize_end",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000.0, 3),
+                    roleplay_enabled=bool(getattr(session, "enabled", False)),
+                    error_class=error_class,
+                    **runtime_diagnostic_fields(),
+                )
 
     def _bind_designer_tab(self, widget, context):
         controller = getattr(self, "controller", None)

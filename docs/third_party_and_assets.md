@@ -64,7 +64,8 @@ Demo avatar packs are distributed through:
 https://github.com/Rakile/NeuralCompanion-AvatarPacks
 ```
 
-Voice references are local user assets and belong under:
+The public repository ships the approved Echo and Eon default voice references.
+Additional voice references are local user assets and belong under:
 
 ```text
 voices/

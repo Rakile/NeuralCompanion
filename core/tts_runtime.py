@@ -569,6 +569,12 @@ class AddonTTSBackendAdapter:
             return warmer()
         return False
 
+    def prepare_voice(self, audio_prompt_path, **kwargs):
+        preparer = getattr(self.service, "prepare_voice", None)
+        if not callable(preparer):
+            return False
+        return bool(preparer(audio_prompt_path, **dict(kwargs or {})))
+
     def close(self):
         closer = getattr(self.service, "close", None)
         if callable(closer):

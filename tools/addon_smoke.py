@@ -38,12 +38,21 @@ HOST_BOUNDARY_ROOTS = ("core", "ui", "engine.py", "qt_app.py", "shared_state.py"
 ALLOWED_ADDON_MODULE_REFERENCES = {
     "core/musetalk_preview_runtime.py": {"addons.musetalk_avatar.preview_runtime"},
     "core/runtime_paths.py": {"addons.vam_avatar.path_helpers"},
-    "engine.py": {"addons.musetalk_avatar.state"},
+    "engine.py": {
+        "addons.companion_orb_overlay.companion_orb",
+        "addons.musetalk_avatar.state",
+        "addons.visual_reply",
+    },
     "shared_state.py": {
         "addons.musetalk_avatar.state",
         "addons.visual_reply.state",
     },
+    "ui/runtime/backend_visual_reply_runtime.py": {
+        "addons.visual_reply.providers",
+        "addons.visual_reply.runtime_config",
+    },
     "ui/runtime/main_window_session.py": {"addons.visual_reply.session_schema"},
+    "ui/runtime/real_ui_layout.py": {"addons.visual_reply.providers"},
     "ui/runtime/qt_app_shell_input_actions.py": {"addons.audio_story_mode.session_schema"},
     "ui/runtime/qt_app_shell_read_only.py": {"addons.visual_reply.session_schema"},
     "ui/runtime/qt_app_runtime_namespace.py": {
@@ -161,6 +170,12 @@ def _signal(*_args, **_kwargs):
     return _DummyQtObject()
 
 
+def _property(_type=None, fget=None, fset=None, _freset=None, **_kwargs):
+    if fget is not None:
+        return property(fget, fset)
+    return lambda function: property(function)
+
+
 def install_optional_dependency_stubs() -> None:
     """Install tiny stubs for heavy GUI/provider deps during non-GUI smoke runs."""
     pyside = types.ModuleType("PySide6")
@@ -172,10 +187,15 @@ def install_optional_dependency_stubs() -> None:
         module.__getattr__ = lambda _name, _module=module: _DummyQtObject
     qtcore.Signal = _signal
     qtcore.Slot = lambda *_args, **_kwargs: (lambda fn: fn)
-    qtcore.Property = lambda *_args, **_kwargs: property(lambda _self: None)
+    qtcore.Property = _property
     qtcore.Qt = _DummyQtNamespace()
     qtcore.QIODevice = _DummyQtNamespace()
+    qtcore.QTimer = _DummyQtObject
+    qtcore.QTimer.singleShot = staticmethod(
+        lambda _delay, callback: callback() if callable(callback) else None
+    )
     qtwidgets.QApplication = _DummyQtObject
+    qtwidgets.QApplication.instance = staticmethod(lambda: None)
     qtwidgets.QWidget = _DummyQtObject
     qtwidgets.QDialog = _DummyQtObject
     qtwidgets.QMainWindow = _DummyQtObject
@@ -309,7 +329,11 @@ def _host_boundary_files(app_root: Path) -> list[Path]:
         if root.is_file():
             files.append(root)
             continue
-        files.extend(path for path in sorted(root.rglob("*.py")) if "__pycache__" not in path.parts)
+        files.extend(
+            path
+            for path in sorted(root.rglob("*.py"))
+            if "__pycache__" not in path.parts and not path.name.startswith("smoke_")
+        )
     return files
 
 

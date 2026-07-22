@@ -71,18 +71,330 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
        <property name="bottomMargin">
         <number>14</number>
        </property>
-       <item>
-        <widget class="QLabel" name="audio_story_intro_label">
+        <item>
+         <widget class="QLabel" name="audio_story_intro_label">
          <property name="text">
-          <string>Import a story or audiobook, turn it into scenes, generate matching images, then play or cast the result.</string>
+          <string>Import a story or audiobook, turn it into scenes, generate matching images, then play or cast the result. &lt;span style=&quot;color:#ff4d5a; font-weight:700;&quot;&gt;🚧 Under Construction (but working)&lt;/span&gt;</string>
+         </property>
+         <property name="textFormat">
+          <enum>Qt::RichText</enum>
          </property>
          <property name="wordWrap">
           <bool>true</bool>
          </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QFrame" name="Panel">
+         </widget>
+        </item>
+        <item>
+         <widget class="QFrame" name="audio_story_project_header_frame">
+          <property name="styleSheet">
+           <string notr="true">QFrame#audio_story_project_header_frame { background: #132033; border: 1px solid #35506c; border-radius: 9px; }
+QLabel#audio_story_project_name_label { color: #f5b942; font-weight: 700; }
+QLabel#audio_story_project_autosave_label { color: #9fb4ca; }</string>
+          </property>
+          <layout class="QHBoxLayout" name="audio_story_project_header_layout">
+           <property name="spacing">
+            <number>10</number>
+           </property>
+           <property name="leftMargin">
+            <number>12</number>
+           </property>
+           <property name="topMargin">
+            <number>8</number>
+           </property>
+           <property name="rightMargin">
+            <number>12</number>
+           </property>
+           <property name="bottomMargin">
+            <number>8</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="audio_story_project_name_label">
+             <property name="text">
+              <string>No project open</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="audio_story_project_header_spacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QLabel" name="audio_story_project_autosave_label">
+             <property name="text">
+              <string>Select or create a project to begin.</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QFrame" name="audio_story_project_page_frame">
+          <property name="styleSheet">
+           <string notr="true">QFrame#audio_story_project_page_frame { background: transparent; border: none; }
+QLabel#audio_story_project_page_title { color: #f5b942; font-size: 14px; font-weight: 700; }
+QLabel#audio_story_project_recovery_label, QLabel#audio_story_project_chapter_status_label { color: #a9bed6; }</string>
+          </property>
+          <layout class="QVBoxLayout" name="audio_story_project_page_layout">
+           <property name="spacing">
+            <number>10</number>
+           </property>
+           <property name="leftMargin">
+            <number>4</number>
+           </property>
+           <property name="topMargin">
+            <number>4</number>
+           </property>
+           <property name="rightMargin">
+            <number>4</number>
+           </property>
+           <property name="bottomMargin">
+            <number>8</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="audio_story_project_page_title">
+             <property name="text">
+              <string>Continuing Audio Story Projects</string>
+             </property>
+             <property name="sectionTitle" stdset="0">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="audio_story_project_recovery_label">
+             <property name="text">
+              <string>Open a project to continue its chapters and recover unfinished work.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="audio_story_project_lifecycle_row">
+             <property name="spacing">
+              <number>8</number>
+             </property>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_new_button">
+               <property name="text">
+                <string>New Project</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_open_button">
+               <property name="text">
+                <string>Open</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_rename_button">
+               <property name="text">
+                <string>Rename</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+             <widget class="QPushButton" name="audio_story_project_close_button">
+               <property name="text">
+                <string>Close</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_delete_button">
+               <property name="text">
+                <string>Delete</string>
+               </property>
+               <property name="toolTip">
+                <string>Permanently delete the open project and its saved Story Mode data. Original audio files are kept.</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="audio_story_project_lifecycle_spacer">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QListWidget" name="audio_story_project_list">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>105</height>
+              </size>
+             </property>
+             <property name="alternatingRowColors">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="audio_story_project_chapters_title">
+             <property name="text">
+              <string>Chapters and recovery status</string>
+             </property>
+             <property name="sectionTitle" stdset="0">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QListWidget" name="audio_story_project_chapter_list">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>150</height>
+              </size>
+             </property>
+             <property name="alternatingRowColors">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="audio_story_project_chapter_status_label">
+             <property name="text">
+              <string>No chapter selected.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="audio_story_project_chapter_action_row">
+             <property name="spacing">
+              <number>8</number>
+             </property>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_add_audio_button">
+               <property name="text">
+                <string>Add Audio</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_chapter_rename_button">
+               <property name="text">
+                <string>Rename Chapter</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_chapter_move_up_button">
+               <property name="text">
+                <string>Move Up</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_chapter_move_down_button">
+               <property name="text">
+                <string>Move Down</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_relink_button">
+               <property name="text">
+                <string>Relink Audio</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_archive_button">
+               <property name="text">
+                <string>Archive</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_restore_button">
+               <property name="text">
+                <string>Restore</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="audio_story_project_chapter_action_spacer">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="audio_story_project_recovery_action_row">
+             <property name="spacing">
+              <number>8</number>
+             </property>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_resume_all_button">
+               <property name="text">
+                <string>Resume All</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="audio_story_project_retry_button">
+               <property name="text">
+                <string>Retry Selected</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="audio_story_project_recovery_action_spacer">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QFrame" name="audio_story_audio_page_source_frame">
          <layout class="QVBoxLayout" name="audio_story_source_layout">
           <property name="spacing">
            <number>12</number>
@@ -102,7 +414,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
           <item>
            <widget class="QLabel" name="audio_story_source_title">
             <property name="text">
-             <string>1. Import Audio</string>
+             <string>1. Import Audio Files</string>
             </property>
             <property name="sectionTitle" stdset="0">
              <bool>true</bool>
@@ -120,9 +432,73 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item>
              <widget class="QPushButton" name="audio_story_import_button">
               <property name="text">
-               <string>Import Audio</string>
+                <string>Import Audio Files</string>
               </property>
              </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QListWidget" name="audio_story_source_list">
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>92</height>
+             </size>
+            </property>
+            <property name="selectionMode">
+             <enum>QAbstractItemView::SelectionMode::ExtendedSelection</enum>
+            </property>
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="audio_story_source_queue_button_row">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <widget class="QPushButton" name="audio_story_source_move_up_button">
+              <property name="text">
+               <string>Move Up</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="audio_story_source_move_down_button">
+              <property name="text">
+               <string>Move Down</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="audio_story_source_remove_button">
+              <property name="text">
+               <string>Remove</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="audio_story_source_clear_button">
+              <property name="text">
+               <string>Clear</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="audio_story_source_queue_spacer">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
             </item>
            </layout>
           </item>
@@ -287,6 +663,13 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                  <number>0</number>
                 </property>
                 <item>
+                 <widget class="QCheckBox" name="audio_story_selected_range_checkbox">
+                  <property name="text">
+                   <string>Selected Range</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
                  <widget class="QLabel" name="audio_story_transcription_start_label">
                   <property name="text">
                    <string>Start</string>
@@ -295,6 +678,9 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                 </item>
                 <item>
                  <widget class="QSpinBox" name="audio_story_transcription_start_spin">
+                  <property name="enabled">
+                   <bool>false</bool>
+                  </property>
                   <property name="suffix">
                    <string> s</string>
                   </property>
@@ -309,6 +695,9 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                 </item>
                 <item>
                  <widget class="QSpinBox" name="audio_story_transcription_end_spin">
+                  <property name="enabled">
+                   <bool>false</bool>
+                  </property>
                   <property name="suffix">
                    <string> s</string>
                   </property>
@@ -672,13 +1061,44 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                 </widget>
                </item>
                <item row="4" column="0">
+                <widget class="QLabel" name="audio_story_instructor_label">
+                 <property name="text">
+                  <string>Structured visual beats</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="1">
+                <layout class="QVBoxLayout" name="audio_story_instructor_layout">
+                 <property name="spacing">
+                  <number>4</number>
+                 </property>
+                 <item>
+                  <widget class="QCheckBox" name="audio_story_instructor_beats_checkbox">
+                   <property name="text">
+                    <string>Use Instructor story-beat validation</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="audio_story_instructor_status_label">
+                   <property name="text">
+                    <string>Optional. Uses existing scene analysis when unavailable.</string>
+                   </property>
+                   <property name="wordWrap">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item row="5" column="0">
                 <widget class="QLabel" name="audio_story_xai_image_settings_label">
                  <property name="text">
                   <string>Image provider settings</string>
                  </property>
                 </widget>
                </item>
-               <item row="4" column="1">
+               <item row="5" column="1">
                 <widget class="QLabel" name="audio_story_xai_image_settings_hint">
                  <property name="text">
                   <string>Audio Story uses the active Visual Reply provider. These advanced xAI options apply only when Visual Reply is set to xAI / Grok.</string>
@@ -786,6 +1206,80 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
               </property>
              </widget>
             </item>
+            <item row="1" column="0" colspan="2">
+             <widget class="QGroupBox" name="audio_story_transcription_console_group">
+              <property name="title">
+               <string>Transcription Activity</string>
+              </property>
+              <layout class="QVBoxLayout" name="audio_story_transcription_console_layout">
+               <property name="spacing">
+                <number>6</number>
+               </property>
+               <property name="leftMargin">
+                <number>8</number>
+               </property>
+               <property name="topMargin">
+                <number>10</number>
+               </property>
+               <property name="rightMargin">
+                <number>8</number>
+               </property>
+               <property name="bottomMargin">
+                <number>8</number>
+               </property>
+               <item>
+                <widget class="QPlainTextEdit" name="audio_story_transcription_console">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>104</height>
+                  </size>
+                 </property>
+                 <property name="readOnly">
+                  <bool>true</bool>
+                 </property>
+                 <property name="maximumBlockCount">
+                  <number>250</number>
+                 </property>
+                 <property name="placeholderText">
+                  <string>Transcription progress and errors appear here.</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="audio_story_transcription_console_button_row">
+                 <item>
+                  <spacer name="audio_story_transcription_console_button_spacer">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="audio_story_transcription_console_copy_button">
+                   <property name="text">
+                    <string>Copy</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="audio_story_transcription_console_clear_button">
+                   <property name="text">
+                    <string>Clear</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </widget>
+            </item>
            </layout>
           </item>
           <item>
@@ -802,7 +1296,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
         </widget>
        </item>
        <item>
-        <widget class="QFrame" name="Panel">
+        <widget class="QFrame" name="audio_story_review_page_frame">
          <layout class="QVBoxLayout" name="audio_story_scene_layout">
           <property name="spacing">
            <number>10</number>
@@ -995,8 +1489,8 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
         </widget>
        </item>
        <item>
-        <widget class="QFrame" name="Panel">
-         <layout class="QVBoxLayout" name="audio_story_playback_layout">
+        <widget class="QFrame" name="audio_story_play_page_frame">
+         <layout class="QVBoxLayout" name="audio_story_play_page_layout">
           <property name="spacing">
            <number>10</number>
           </property>
@@ -1013,162 +1507,293 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
            <number>12</number>
           </property>
           <item>
-           <widget class="QLabel" name="audio_story_playback_title">
-            <property name="text">
-             <string>5. Play / Cast</string>
+           <widget class="QTabWidget" name="audio_story_play_cast_tabs">
+            <property name="currentIndex">
+             <number>0</number>
             </property>
-            <property name="sectionTitle" stdset="0">
-             <bool>true</bool>
-            </property>
+            <widget class="QWidget" name="audio_story_playback_subpage">
+             <attribute name="title">
+              <string>Playback</string>
+             </attribute>
+             <layout class="QVBoxLayout" name="audio_story_playback_layout">
+              <property name="spacing">
+               <number>10</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="audio_story_playback_title">
+                <property name="text">
+                 <string>5. Play / Cast</string>
+                </property>
+                <property name="sectionTitle" stdset="0">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QGridLayout" name="audio_story_controls_row">
+                <property name="horizontalSpacing">
+                 <number>10</number>
+                </property>
+                <item row="0" column="0">
+                 <widget class="QPushButton" name="audio_story_play_button">
+                  <property name="text">
+                   <string>Play</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="0" column="1">
+                 <widget class="QPushButton" name="audio_story_pause_button">
+                  <property name="text">
+                   <string>Pause</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="0" column="2">
+                 <widget class="QPushButton" name="audio_story_stop_button">
+                  <property name="text">
+                   <string>Stop</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="0" column="3">
+                 <widget class="QLabel" name="audio_story_time_label">
+                  <property name="text">
+                   <string>00:00 / 00:00</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <widget class="QSlider" name="audio_story_position_slider">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="audio_story_status_label">
+                <property name="text">
+                 <string>Import an audio file, then transcribe it.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QGridLayout" name="audio_story_stream_grid">
+                <property name="horizontalSpacing">
+                 <number>10</number>
+                </property>
+                <property name="verticalSpacing">
+                 <number>8</number>
+                </property>
+                <item row="0" column="0">
+                 <widget class="QCheckBox" name="audio_story_stream_enabled_checkbox">
+                  <property name="text">
+                   <string>Show visuals on network</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="0" column="1">
+                 <widget class="QSpinBox" name="audio_story_stream_port_spin">
+                  <property name="prefix">
+                   <string>Network port </string>
+                  </property>
+                  <property name="minimum">
+                   <number>1024</number>
+                  </property>
+                  <property name="maximum">
+                   <number>65535</number>
+                  </property>
+                  <property name="value">
+                   <number>8765</number>
+                  </property>
+                 </widget>
+                </item>
+                <item row="0" column="2" colspan="3">
+                 <widget class="QLabel" name="audio_story_stream_url_label">
+                  <property name="text">
+                   <string>Stream off</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                  <property name="textInteractionFlags">
+                   <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
+                  </property>
+                 </widget>
+                </item>
+                <item row="1" column="0" colspan="2">
+                 <widget class="QComboBox" name="audio_story_cast_device_combo"/>
+                </item>
+                <item row="1" column="2">
+                 <widget class="QPushButton" name="audio_story_cast_refresh_button">
+                  <property name="text">
+                   <string>Find Casts</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="1" column="3">
+                 <widget class="QPushButton" name="audio_story_cast_button">
+                  <property name="text">
+                   <string>Cast To</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="1" column="4">
+                 <widget class="QPushButton" name="audio_story_cast_stop_button">
+                  <property name="text">
+                   <string>Stop Cast</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="2" column="0" colspan="2">
+                 <widget class="QCheckBox" name="audio_story_cast_prompt_checkbox">
+                  <property name="text">
+                   <string>Show image prompt on cast</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="2" column="2" colspan="3">
+                 <widget class="QLabel" name="audio_story_cast_status_label">
+                  <property name="text">
+                   <string>Chromecast discovery not run.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+            <widget class="QWidget" name="audio_story_tts_buffer_subpage">
+             <attribute name="title">
+              <string>TTS Buffer</string>
+             </attribute>
+             <layout class="QFormLayout" name="audio_story_tts_buffer_layout">
+              <property name="horizontalSpacing">
+               <number>12</number>
+              </property>
+              <property name="verticalSpacing">
+               <number>8</number>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="audio_story_tts_startup_buffer_label">
+                <property name="text">
+                 <string>Startup buffer</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QSpinBox" name="audio_story_tts_startup_buffer_spin">
+                <property name="suffix">
+                 <string> s</string>
+                </property>
+                <property name="minimum">
+                 <number>5</number>
+                </property>
+                <property name="maximum">
+                 <number>120</number>
+                </property>
+                <property name="value">
+                 <number>30</number>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="audio_story_tts_render_ahead_label">
+                <property name="text">
+                 <string>Render ahead</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSpinBox" name="audio_story_tts_render_ahead_spin">
+                <property name="suffix">
+                 <string> s</string>
+                </property>
+                <property name="minimum">
+                 <number>30</number>
+                </property>
+                <property name="maximum">
+                 <number>600</number>
+                </property>
+                <property name="value">
+                 <number>120</number>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0" colspan="2">
+               <widget class="QLabel" name="audio_story_tts_buffered_label">
+                <property name="text">
+                 <string>Buffered: 0 s</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0" colspan="2">
+               <widget class="QLabel" name="audio_story_tts_segment_label">
+                <property name="text">
+                 <string>Segment: —</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0" colspan="2">
+               <widget class="QLabel" name="audio_story_tts_state_label">
+                <property name="text">
+                 <string>State: Idle</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="0" colspan="2">
+               <layout class="QHBoxLayout" name="audio_story_tts_buffer_actions_layout">
+                <item>
+                 <widget class="QPushButton" name="audio_story_tts_retry_button">
+                  <property name="text">
+                   <string>Retry</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="audio_story_tts_clear_cache_button">
+                  <property name="text">
+                   <string>Clear Cache</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="audio_story_tts_buffer_actions_spacer">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
            </widget>
-          </item>
-          <item>
-           <layout class="QGridLayout" name="audio_story_controls_row">
-            <property name="horizontalSpacing">
-             <number>10</number>
-            </property>
-            <item row="0" column="0">
-             <widget class="QPushButton" name="audio_story_play_button">
-              <property name="text">
-               <string>Play</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QPushButton" name="audio_story_pause_button">
-              <property name="text">
-               <string>Pause</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="2">
-             <widget class="QPushButton" name="audio_story_stop_button">
-              <property name="text">
-               <string>Stop</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="3">
-             <widget class="QLabel" name="audio_story_time_label">
-              <property name="text">
-               <string>00:00 / 00:00</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <widget class="QSlider" name="audio_story_position_slider">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="audio_story_status_label">
-            <property name="text">
-             <string>Import an audio file, then transcribe it.</string>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <layout class="QGridLayout" name="audio_story_stream_grid">
-            <property name="horizontalSpacing">
-             <number>10</number>
-            </property>
-            <property name="verticalSpacing">
-             <number>8</number>
-            </property>
-            <item row="0" column="0">
-             <widget class="QCheckBox" name="audio_story_stream_enabled_checkbox">
-              <property name="text">
-               <string>Show visuals on network</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QSpinBox" name="audio_story_stream_port_spin">
-              <property name="prefix">
-               <string>Network port </string>
-              </property>
-              <property name="minimum">
-               <number>1024</number>
-              </property>
-              <property name="maximum">
-               <number>65535</number>
-              </property>
-              <property name="value">
-               <number>8765</number>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="2" colspan="3">
-             <widget class="QLabel" name="audio_story_stream_url_label">
-              <property name="text">
-               <string>Stream off</string>
-              </property>
-              <property name="wordWrap">
-               <bool>true</bool>
-              </property>
-              <property name="textInteractionFlags">
-               <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="0" colspan="2">
-             <widget class="QComboBox" name="audio_story_cast_device_combo"/>
-            </item>
-            <item row="1" column="2">
-             <widget class="QPushButton" name="audio_story_cast_refresh_button">
-              <property name="text">
-               <string>Find Casts</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="3">
-             <widget class="QPushButton" name="audio_story_cast_button">
-              <property name="text">
-               <string>Cast To</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="4">
-             <widget class="QPushButton" name="audio_story_cast_stop_button">
-              <property name="text">
-               <string>Stop Cast</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="0" colspan="2">
-             <widget class="QCheckBox" name="audio_story_cast_prompt_checkbox">
-              <property name="text">
-               <string>Show image prompt on cast</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="2" colspan="3">
-             <widget class="QLabel" name="audio_story_cast_status_label">
-              <property name="text">
-               <string>Chromecast discovery not run.</string>
-              </property>
-              <property name="wordWrap">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-           </layout>
           </item>
          </layout>
         </widget>
        </item>
        <item>
-        <widget class="QFrame" name="Panel">
+        <widget class="QFrame" name="audio_story_story_scenes_frame">
          <layout class="QVBoxLayout" name="audio_story_transcript_layout">
           <property name="spacing">
            <number>10</number>

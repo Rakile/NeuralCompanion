@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures
 import hashlib
 import ipaddress
 import json
@@ -33,6 +34,10 @@ MAX_WS_PAYLOAD_BYTES = 1024 * 1024
 DEFAULT_BRIDGE_TIMEOUT_SECONDS = 10.0
 HEALTH_BRIDGE_TIMEOUT_SECONDS = 0.75
 WEBSOCKET_STATE_BRIDGE_TIMEOUT_SECONDS = 2.0
+BRIDGE_INFO_WATCH_INTERVAL_SECONDS = 1.0
+WEBSOCKET_AUDIO_INTERVAL_SECONDS = 0.25
+WEBSOCKET_AUDIO_BRIDGE_TIMEOUT_SECONDS = 1.0
+WEBSOCKET_BRIDGE_RESULT_POLL_SECONDS = 0.05
 WEBSOCKET_FRAME_TIMEOUT_SECONDS = 5.0
 AUTH_FAILURE_LIMIT = 8
 AUTH_FAILURE_WINDOW_SECONDS = 60.0
@@ -45,6 +50,22 @@ LAN_IPV4_NETWORKS = tuple(
     for item in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
 LAN_IPV6_NETWORKS = (ipaddress.ip_network("fc00::/7"),)
+LOW_PRIORITY_DISPLAY_IPV4_NETWORKS = tuple(
+    ipaddress.ip_network(item)
+    for item in (
+        "192.168.56.0/24",  # Common VirtualBox host-only adapter range.
+    )
+)
+
+
+class ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        exclusive_option = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive_option is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive_option, 1)
+        super().server_bind()
 
 
 def generate_pairing_code(digits: int = PAIRING_CODE_DIGITS) -> str:
@@ -81,6 +102,13 @@ def public_bridge_health_snapshot(payload: dict[str, Any] | None) -> dict[str, A
     return public
 
 
+def audio_snapshot_signature(payload: dict[str, Any]) -> tuple[int, int, str]:
+    audio = dict(payload or {})
+    items = list(audio.get("items") or [])
+    latest_id = str(dict(items[-1]).get("id") or "") if items else ""
+    return int(audio.get("generation") or 0), len(items), latest_id
+
+
 def lan_ip_address() -> str:
     candidates: list[str] = []
     try:
@@ -91,14 +119,35 @@ def lan_ip_address() -> str:
                 candidates.append(address)
     except Exception:
         pass
-    for address in candidates:
-        try:
-            ip = ipaddress.ip_address(address)
-        except Exception:
-            continue
-        if ip.version == 4 and local_network_client(address) and not ip.is_loopback:
-            return address
+    ranked = [
+        (lan_ip_display_sort_key(address), address)
+        for address in candidates
+        if lan_ip_display_sort_key(address)[0] < 99
+    ]
+    if ranked:
+        return sorted(ranked, key=lambda item: item[0])[0][1]
     return "127.0.0.1"
+
+
+def lan_ip_display_sort_key(address: str) -> tuple[int, int]:
+    try:
+        ip = ipaddress.ip_address(str(address or "").split("%", 1)[0])
+    except Exception:
+        return (99, 0)
+    if ip.version != 4 or ip.is_loopback or ip.is_link_local or not local_network_client(address):
+        return (99, int(ip) if ip.version == 4 else 0)
+    if any(ip in network for network in LOW_PRIORITY_DISPLAY_IPV4_NETWORKS):
+        return (2, int(ip))
+    octets = str(ip).split(".")
+    first = int(octets[0])
+    second = int(octets[1])
+    if first == 192 and second == 168:
+        return (0, int(ip))
+    if first == 172 and 16 <= second <= 31:
+        return (3, int(ip))
+    if first == 10:
+        return (4, int(ip))
+    return (5, int(ip))
 
 
 def local_network_client(address: str) -> bool:
@@ -201,6 +250,7 @@ class MainChatRemoteBackend:
         pairing_code: str = "",
         bridge_url: str = DEFAULT_BRIDGE_URL,
         bridge_token: str = "",
+        bridge_info_path: str | Path | None = None,
         hide_pairing_code_output: bool = False,
     ):
         self.host = str(host or DEFAULT_REMOTE_HOST).strip() or DEFAULT_REMOTE_HOST
@@ -208,6 +258,7 @@ class MainChatRemoteBackend:
         self.pairing_code = normalize_pairing_code(pairing_code) or generate_pairing_code()
         self.hide_pairing_code_output = bool(hide_pairing_code_output)
         self.bridge = BridgeClient(bridge_url, bridge_token)
+        self.bridge_info_path = Path(bridge_info_path) if bridge_info_path else None
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.RLock()
@@ -234,6 +285,32 @@ class MainChatRemoteBackend:
         if self.hide_pairing_code_output:
             return "configured by launcher"
         return self.pairing_code
+
+    def bridge_info_is_current(self) -> bool:
+        if self.bridge_info_path is None:
+            return True
+        try:
+            payload = json.loads(self.bridge_info_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+        if str(payload.get("service") or "").strip() != "nc_main_chat_bridge":
+            return False
+        if payload.get("enabled") is not True:
+            return False
+        token = str(payload.get("token") or "").strip()
+        if not token or not secrets.compare_digest(token, self.bridge.bridge_token):
+            return False
+        try:
+            updated_at = float(payload.get("updated_at"))
+        except (TypeError, ValueError):
+            return False
+        age_seconds = time.time() - updated_at
+        if age_seconds < -BRIDGE_INFO_MAX_FUTURE_SKEW_SECONDS or age_seconds > BRIDGE_INFO_MAX_AGE_SECONDS:
+            return False
+        bridge_url = normalize_bridge_url(str(payload.get("url") or DEFAULT_BRIDGE_URL))
+        return bridge_url == self.bridge.bridge_url
 
     def clients_snapshot(self) -> list[dict[str, Any]]:
         cutoff = time.time() - 180.0
@@ -275,7 +352,7 @@ class MainChatRemoteBackend:
             if self.running:
                 return
             handler_cls = self._handler_class()
-            server = ThreadingHTTPServer((self.host, self.port), handler_cls)
+            server = ExclusiveThreadingHTTPServer((self.host, self.port), handler_cls)
             server.daemon_threads = True
             server.backend = self  # type: ignore[attr-defined]
             thread = threading.Thread(target=server.serve_forever, name="nc-main-chat-remote-http", daemon=True)
@@ -303,7 +380,10 @@ class MainChatRemoteBackend:
         print(f"Bridge: {self.bridge.bridge_url}")
         try:
             while True:
-                time.sleep(3600)
+                time.sleep(BRIDGE_INFO_WATCH_INTERVAL_SECONDS)
+                if not self.bridge_info_is_current():
+                    print("Main Chat Remote bridge stopped or changed; stopping LAN backend.")
+                    break
         except KeyboardInterrupt:
             print("\nStopping Main Chat Remote LAN backend.")
         finally:
@@ -575,46 +655,88 @@ class MainChatRemoteBackend:
                 except OSError:
                     return
                 state_bridge = backend.bridge.with_timeout(WEBSOCKET_STATE_BRIDGE_TIMEOUT_SECONDS)
+                audio_bridge = backend.bridge.with_timeout(WEBSOCKET_AUDIO_BRIDGE_TIMEOUT_SECONDS)
                 next_state_at = 0.0
-                while True:
-                    now = time.time()
-                    if now >= next_state_at:
-                        state = state_bridge.json_request("GET", "/api/state")
+                next_audio_at = 0.0
+                last_audio_signature: tuple[int, int, str] | None = None
+                bridge_executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=2,
+                    thread_name_prefix="nc-main-chat-remote-ws-bridge",
+                )
+                state_future: concurrent.futures.Future[dict[str, Any]] | None = None
+                audio_future: concurrent.futures.Future[dict[str, Any]] | None = None
+                try:
+                    while True:
+                        now = time.time()
+                        if state_future is not None and state_future.done():
+                            state = state_future.result()
+                            state_future = None
+                            try:
+                                self._send_ws_json({"type": "state", "payload": state})
+                            except OSError:
+                                return
+                        if audio_future is not None and audio_future.done():
+                            audio_response = audio_future.result()
+                            audio_future = None
+                            audio_payload = audio_response.get("audio")
+                            if (
+                                audio_response.get("status") == 200
+                                and audio_response.get("ok") is True
+                                and isinstance(audio_payload, dict)
+                            ):
+                                signature = audio_snapshot_signature(audio_payload)
+                                if signature != last_audio_signature:
+                                    try:
+                                        self._send_ws_json({"type": "audio", "payload": audio_payload})
+                                    except OSError:
+                                        return
+                                    last_audio_signature = signature
+                        if state_future is None and now >= next_state_at:
+                            state_future = bridge_executor.submit(state_bridge.json_request, "GET", "/api/state")
+                            next_state_at = now + 1.0
+                        if audio_future is None and now >= next_audio_at:
+                            audio_future = bridge_executor.submit(audio_bridge.json_request, "GET", "/api/audio")
+                            next_audio_at = now + WEBSOCKET_AUDIO_INTERVAL_SECONDS
+                        if state_future is not None or audio_future is not None:
+                            self.connection.settimeout(WEBSOCKET_BRIDGE_RESULT_POLL_SECONDS)
+                        else:
+                            self.connection.settimeout(WEBSOCKET_AUDIO_INTERVAL_SECONDS)
                         try:
-                            self._send_ws_json({"type": "state", "payload": state})
-                        except OSError:
+                            frame = self._read_ws_frame()
+                        except TimeoutError:
+                            continue
+                        except ValueError as exc:
+                            try:
+                                self._send_ws_json({"type": "error", "error": str(exc) or "Invalid WebSocket frame"})
+                            except OSError:
+                                pass
+                            self._send_ws_close()
                             return
-                        next_state_at = now + 1.0
-                    try:
-                        frame = self._read_ws_frame()
-                    except TimeoutError:
-                        continue
-                    except ValueError as exc:
-                        try:
-                            self._send_ws_json({"type": "error", "error": str(exc) or "Invalid WebSocket frame"})
-                        except OSError:
-                            pass
-                        self._send_ws_close()
-                        return
-                    except (ConnectionError, OSError):
-                        return
-                    if frame is None:
-                        return
-                    opcode, payload = frame
-                    if opcode == 0x8:
-                        self._send_ws_close()
-                        return
-                    if opcode == 0x9:
-                        try:
-                            self._send_ws_frame(0xA, payload)
-                        except OSError:
+                        except (ConnectionError, OSError):
                             return
-                        continue
-                    if opcode == 0xA:
-                        continue
-                    if opcode != 0x1:
-                        continue
-                    self._handle_ws_text(payload.decode("utf-8", errors="replace"))
+                        if frame is None:
+                            return
+                        opcode, payload = frame
+                        if opcode == 0x8:
+                            self._send_ws_close()
+                            return
+                        if opcode == 0x9:
+                            try:
+                                self._send_ws_frame(0xA, payload)
+                            except OSError:
+                                return
+                            continue
+                        if opcode == 0xA:
+                            continue
+                        if opcode != 0x1:
+                            continue
+                        self._handle_ws_text(payload.decode("utf-8", errors="replace"))
+                finally:
+                    if state_future is not None:
+                        state_future.cancel()
+                    if audio_future is not None:
+                        audio_future.cancel()
+                    bridge_executor.shutdown(wait=False, cancel_futures=True)
 
             def _websocket_upgrade_requested(self) -> bool:
                 upgrade = str(self.headers.get("Upgrade") or "").strip().lower()
@@ -828,6 +950,7 @@ def main(argv: list[str] | None = None) -> int:
         pairing_code=args.pairing_code,
         bridge_url=bridge_url,
         bridge_token=bridge_token,
+        bridge_info_path=args.bridge_info or None,
         hide_pairing_code_output=bool(args.hide_pairing_code_output),
     )
     backend.serve_forever()

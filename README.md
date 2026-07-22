@@ -56,24 +56,37 @@ addons.
 - Drive avatars through MuseTalk, Scenic still-image packs, VSeeFace, VaM, or
   no-avatar mode.
 - Use screen, webcam, clipboard, heart-rate, and visual-reply workflows.
-- Save and reload chat contexts.
-- Use Continuity Memory summaries and Long-Term Memory archive retrieval.
-- Run Multi Persona Roleplay Companion, tutorials, presets, hotkeys, chat
-  replay, and addon tools.
+- Save, reload, export, and replay chat sessions while keeping very large chat
+  transcripts manageable through a windowed chat view.
+- Use Continuity Memory summaries and a versioned Long-Term Memory archive with
+  semantic retrieval, linked image recall, and optional manual image review.
+- Import external companion continuity through the experimental Identity Relay
+  workflow, with explicit connection and per-session enable controls.
+- Run Multi Persona Roleplay Companion, Discord Voice Bridge and TinyMVP room
+  conversations, tutorials, presets, hotkeys, and addon tools.
+- Build visual stories through Audio Story Mode, which is functional but still
+  under active construction.
 - Use spellchecking in typed chat and optional dependency repair for supported
   features.
 
 ## Current Highlights
 
-- **Multi Persona Roleplay Companion:** story setup, personas, narrator and
-  character routing, a dedicated Play view, voice routing, visual prompt
-  debugging, and story state tools.
-- **Scenic Avatar Engine:** portable still-image avatar packs that map tags to
-  images and can be previewed through the MuseTalk Preview window.
-- **Memory systems:** per-chat Continuity Memory summaries and Long-Term Memory
-  archive retrieval with optional embeddings.
-- **Local provider support:** LM Studio and Ollama support for local chat model
-  workflows.
+- **Identity Relay (experimental):** import a source-native identity artifact,
+  review and connect it explicitly, then decide from the Chat window when that
+  continuity is active. The addon now includes the complete export protocol.
+- **Long-session memory:** Continuity Memory summaries, versioned SQLite
+  archives, semantic retrieval, image-linked recall, legacy cleanup, readable
+  exports, and a windowed transcript for very large conversations.
+- **Shared conversations:** Multi Persona Roleplay Companion and Discord Voice
+  Bridge with TinyMVP local rooms, participant routing, moderator controls,
+  buffered speech, and shared room context.
+- **Visual and avatar workflows:** Visual Reply history, Scenic Avatar packs,
+  MuseTalk preprocessing and playback, VSeeFace, VaM, Neural Face Presence,
+  Companion Orb integration, and the in-progress Audio Story Mode.
+- **Provider flexibility:** local LM Studio and Ollama models or API providers,
+  with streaming speech, provider switching, and model-aware request handling.
+- **Optional companion applications:** an Android remote and a separate
+  Companion Orb build are available from the repository releases page.
 
 For release history, see [CHANGELOG.md](CHANGELOG.md).
 
@@ -494,6 +507,52 @@ Useful docs:
 - [docs/visual_reply_addons.md](docs/visual_reply_addons.md)
 - [docs/addon_state_and_presets.md](docs/addon_state_and_presets.md)
 
+## Discord Voice Bridge
+
+<a href="docs/readme_images/discord-voice-bridge-general.png"><img src="docs/readme_images/discord-voice-bridge-general.png" alt="Discord Voice Bridge general settings" width="360"></a>
+
+Discord Voice Bridge runs one or more isolated voice companions through the
+selected Neural Companion STT, chat, and TTS providers. Its room context and
+audio playback remain separate from the normal Chat tab.
+
+Two bridge modes are available:
+
+- **HTTP / Discord:** connect NC-controlled bots to a real Discord voice
+  channel through the bundled Node bridge.
+- **TinyMVP local room:** test multi-participant conversations, routing,
+  buffering, moderator behavior, and local microphone input without connecting
+  to Discord.
+
+If the addon is disabled in the Addons tab, enable it there and restart NC once
+so it can initialize. Then choose a bridge mode, configure the Discord channel
+or TinyMVP room, add any bot instances and personas, save the settings, and
+press `Start Bridge`. Enable `Start bridge when NC launches` only when you want
+the configured bridge to start automatically with NC. The Bots and Moderator
+tabs provide multi-bot voices, speaker routing, floor control, and dead-air
+recovery.
+
+Keep Discord bot tokens private and prefer environment variables for normal
+use. See the [complete Discord Voice Bridge guide](addons/discord_voice_bridge/README.md)
+for Discord permissions, Node dependency setup, TinyMVP instructions,
+multi-bot configuration, privacy guidance, and troubleshooting.
+
+## Identity Relay
+
+Identity Relay can import continuity exported from an external LLM conversation.
+
+1. Open the Identity Relay addon and use `View Export Protocol` or
+   `Copy Export Protocol`.
+2. Give the complete protocol to the external LLM session containing the
+   identity or continuity you want to preserve.
+3. Import the complete `NC_IDENTITY_EXPORT` JSON response without rewriting it,
+   either by pasting it or selecting the saved file.
+4. Connect the imported identity in the Persona tab, then enable Identity Relay
+   in the Chat window when you want that continuity active.
+
+The export reflects only what the source LLM can honestly derive from the
+conversation and memory available to it. A richer source history can therefore
+produce a richer artifact.
+
 ## More Documentation
 
 See the [Neural Companion Manual](docs/manual/index.md) for installation,
@@ -507,6 +566,12 @@ For development and repository details, see:
 - [docs/third_party_and_assets.md](docs/third_party_and_assets.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/known_limitations.md](docs/known_limitations.md)
+
+## Optional Companion Applications
+
+- [Companion Orb](../../releases/tag/companion-orb-v0.1)
+- [Android Remote](../../releases/tag/android-remote-v0.1.0-alpha)
+- [View all downloads](../../releases)
 
 ## Licensing
 

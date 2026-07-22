@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-def safe_print(*args: Any, sep: str = " ", end: str = "\n", file: Any = None, flush: bool = False) -> None:
+def safe_print(*args: Any, sep: str = " ", end: str = "\n", file: Any = None, flush: bool = True) -> None:
     stream = file if file is not None else sys.stdout
     text = sep.join(str(arg) for arg in args) + end
     try:
@@ -53,8 +53,8 @@ class TinyVoiceBridge:
         nc_turn_url: str,
         poll_seconds: float,
         capture_mic: bool = False,
-        mic_user_id: str = "rakila",
-        mic_user_name: str = "Rakila",
+        mic_user_id: str = "human",
+        mic_user_name: str = "Human",
         mic_seconds: float = 6.0,
         mic_sample_rate: int = 16000,
         mic_device: str = "",
@@ -90,6 +90,10 @@ class TinyVoiceBridge:
         self.microphone_thread_started = False
         self.turn_cancel_epoch = 0
         self.active_turn_id = ""
+        self._delivered_reply_lock = threading.Lock()
+        self._delivered_reply_parts: list[str] = []
+        self._delivered_reply_participants: list[dict[str, Any]] = []
+        self._delivered_reply_published = False
         self.moderator_state: dict[str, Any] = {
             "enabled": True,
             "pending_route": {},
@@ -347,6 +351,15 @@ class TinyVoiceBridge:
                 },
             )
             print(f"[TinyBridge:{self.bot_id}] microphone no-route: {reason}")
+        if input_text:
+            self.broadcast_room_turn_to_histories(
+                input_text,
+                speaker_name=self.mic_user_name,
+                source_id=self.mic_user_id,
+                participants=participants,
+                route_key=route_key,
+                selected_target_id=target_id if bool(decision.get("answer")) else "",
+            )
         self.write_status("mic_route", state)
 
     def process_commands(self) -> None:
@@ -634,21 +647,33 @@ class TinyVoiceBridge:
             return
         self.processed_routes.add(index)
         speech = self.latest_speech
-        if speech and speech.source_id == self.bot_id:
+        if speech and speech.source_id == self.bot_id and safe_id(source_id) == self.bot_id:
             print(f"[TinyBridge:{self.bot_id}] ignoring self-route from latest speech.")
             return
-        if speech and speech.text:
+        if speech and speech.text and (not source_id or safe_id(speech.source_id) == safe_id(source_id)):
             input_text = speech.text
             speaker_name = speech.speaker_name
             user_id = speech.source_id
             manual_call_on = False
         else:
-            input_text = f"The local fake room called on {self.bot_name}. Continue the conversation naturally."
-            speaker_name = "TinyMVP"
-            user_id = "tinymvp"
+            source = next(
+                (
+                    item
+                    for item in participants
+                    if isinstance(item, dict) and safe_id(item.get("id") or "") == safe_id(source_id)
+                ),
+                {},
+            )
+            input_text = (
+                "Continue the current room conversation from your perspective. Respond to the latest relevant thing "
+                "in the room context or your conversation history. Do not mention hidden routing, moderator controls, "
+                "or system mechanics."
+            )
+            speaker_name = str(source.get("name") or source_id or "Room")
+            user_id = source_id or "room"
             manual_call_on = True
         print(f"[TinyBridge:{self.bot_id}] routed event #{index} ({event_type}): {speaker_name} -> {self.bot_name}")
-        self.send_turn_to_nc(input_text, speaker_name, user_id, participants, manual_call_on=manual_call_on)
+        self.send_turn_to_nc(input_text, speaker_name, user_id, participants, manual_call_on=manual_call_on, route_index=index)
 
     def send_turn_to_nc(
         self,
@@ -658,6 +683,7 @@ class TinyVoiceBridge:
         participants: list[dict[str, Any]],
         *,
         manual_call_on: bool = False,
+        route_index: int = 0,
     ) -> None:
         turn_id = f"tinymvp_{self.bot_id}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         payload = {
@@ -674,19 +700,20 @@ class TinyVoiceBridge:
             "manual_call_on": manual_call_on,
         }
         reply_parts: list[str] = []
-        playback_queue: queue.Queue[str | None] = queue.Queue()
+        playback_queue: queue.Queue[tuple[str, str] | None] = queue.Queue()
         playback_failed = {"failed": False}
         cancel_epoch = self.turn_cancel_epoch
         room_playback_epoch = self.room_playback_epoch()
         expected_route_target = self.bot_id if not manual_call_on else ""
         self.active_turn_id = turn_id
+        self.reset_delivered_reply_state(participants)
         self.render_ready_chunks = 0
         self.render_total_chunks = 0
         self.playback_completed_chunks = 0
         self.playback_total_chunks = 0
         playback_thread = threading.Thread(
             target=self.playback_queue_worker,
-            args=(playback_queue, playback_failed, cancel_epoch, expected_route_target),
+            args=(playback_queue, playback_failed, cancel_epoch, expected_route_target, route_index),
             name=f"TinyMVP playback {self.bot_id}",
             daemon=True,
         )
@@ -701,7 +728,7 @@ class TinyVoiceBridge:
                 if (
                     self.is_turn_cancelled(cancel_epoch)
                     or self.is_room_playback_stale(room_playback_epoch)
-                    or self.is_route_target_replaced(expected_route_target)
+                    or self.is_route_target_replaced(expected_route_target, route_index=route_index)
                 ):
                     cancelled = True
                     self.cancel_active_turn("local stop, clear command, playback epoch change, or route replacement")
@@ -715,7 +742,7 @@ class TinyVoiceBridge:
                     if (
                         self.is_turn_cancelled(cancel_epoch)
                         or self.is_room_playback_stale(room_playback_epoch)
-                        or self.is_route_target_replaced(expected_route_target)
+                        or self.is_route_target_replaced(expected_route_target, route_index=route_index)
                     ):
                         cancelled = True
                         self.cancel_active_turn("local stop, clear command, playback epoch change, or route replacement")
@@ -729,20 +756,20 @@ class TinyVoiceBridge:
                         self.render_ready_chunks += 1
                         self.render_total_chunks = max(self.render_total_chunks, self.render_ready_chunks)
                         self.playback_total_chunks += 1
-                        playback_queue.put(wav_path)
+                        playback_queue.put((wav_path, text))
                         self.write_status("audio_chunk_queued")
                 elif event_type == "done":
                     if (
                         self.is_turn_cancelled(cancel_epoch)
                         or self.is_room_playback_stale(room_playback_epoch)
-                        or self.is_route_target_replaced(expected_route_target)
+                        or self.is_route_target_replaced(expected_route_target, route_index=route_index)
                     ):
                         cancelled = True
                         self.write_status("turn_cancelled")
                         break
                     completed_reply_text = str(event.get("reply_text") or " ".join(reply_parts)).strip()
                     if completed_reply_text and self.is_current_or_playback_speaker():
-                        self.publish_and_route_completed_reply(completed_reply_text, participants)
+                        self.route_completed_reply_text(completed_reply_text, participants, broadcast_history=False)
                         routed_completed_text = True
                     print(f"[TinyBridge:{self.bot_id}] NC reply complete.")
                 elif event_type in {"skipped", "cancelled", "error"}:
@@ -752,23 +779,72 @@ class TinyVoiceBridge:
             join_deadline = time.time() + 900.0
             while playback_thread.is_alive() and time.time() < join_deadline:
                 if completed_reply_text and not routed_completed_text and self.is_current_or_playback_speaker():
-                    self.publish_and_route_completed_reply(completed_reply_text, participants)
+                    self.route_completed_reply_text(
+                        completed_reply_text,
+                        participants,
+                        broadcast_history=False,
+                    )
                     routed_completed_text = True
                 playback_thread.join(timeout=0.1)
             if self.active_turn_id == turn_id:
                 self.active_turn_id = ""
         if cancelled or playback_failed.get("failed"):
+            self.publish_delivered_reply_once(route=False)
             return
-        if completed_reply_text and not routed_completed_text:
-            self.post_completed_reply_speech(completed_reply_text)
+        if completed_reply_text:
+            self.finish_nc_turn(turn_id)
+            self.publish_delivered_reply_once(route=not routed_completed_text)
         self.post_json(f"{self.tiny_url}/stop", {"reason": f"{self.bot_id} turn finished"})
-        if completed_reply_text and not routed_completed_text:
-            self.route_completed_reply_text(completed_reply_text, participants)
         self.write_status("turn_finished")
 
     def publish_and_route_completed_reply(self, reply_text: str, participants: list[dict[str, Any]]) -> None:
         self.post_completed_reply_speech(reply_text)
         self.route_completed_reply_text(reply_text, participants)
+
+    def reset_delivered_reply_state(self, participants: list[dict[str, Any]]) -> None:
+        with self._delivered_reply_lock:
+            self._delivered_reply_parts = []
+            self._delivered_reply_participants = [
+                dict(item)
+                for item in participants
+                if isinstance(item, dict)
+            ]
+            self._delivered_reply_published = False
+
+    def delivered_reply_text(self) -> str:
+        with self._delivered_reply_lock:
+            return " ".join(part for part in self._delivered_reply_parts if part).strip()
+
+    def mark_reply_chunk_delivered(self, chunk_text: str) -> None:
+        text = str(chunk_text or "").strip()
+        if not text:
+            return
+        with self._delivered_reply_lock:
+            self._delivered_reply_parts.append(text)
+
+    def publish_delivered_reply_once(self, *, route: bool) -> str:
+        with self._delivered_reply_lock:
+            if self._delivered_reply_published:
+                return ""
+            text = " ".join(part for part in self._delivered_reply_parts if part).strip()
+            participants = [dict(item) for item in self._delivered_reply_participants]
+            self._delivered_reply_published = bool(text)
+        if not text:
+            return ""
+        self.post_completed_reply_speech(text)
+        if route:
+            self.route_completed_reply_text(text, participants)
+        else:
+            route_key = f"tinymvp_cancelled_bot_text_{self.bot_id}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            self.broadcast_room_turn_to_histories(
+                text,
+                speaker_name=self.bot_name,
+                source_id=self.bot_id,
+                participants=participants,
+                route_key=route_key,
+                selected_target_id="",
+            )
+        return text
 
     def post_completed_reply_speech(self, reply_text: str) -> None:
         self.post_json(
@@ -776,7 +852,13 @@ class TinyVoiceBridge:
             {"speaker_id": self.bot_id, "text": reply_text, "reason": "nc_reply_complete"},
         )
 
-    def route_completed_reply_text(self, reply_text: str, participants: list[dict[str, Any]]) -> None:
+    def route_completed_reply_text(
+        self,
+        reply_text: str,
+        participants: list[dict[str, Any]],
+        *,
+        broadcast_history: bool = True,
+    ) -> None:
         text = str(reply_text or "").strip()
         if not text:
             return
@@ -817,6 +899,18 @@ class TinyVoiceBridge:
         self.last_route_decision = dict(decision)
         target_id = safe_id(decision.get("target_bot_id") or "")
         reason = str(decision.get("reason") or "bot text route").strip()
+        if bool(decision.get("answer")) and target_id == self.bot_id:
+            reason = f"self_route:{reason}"
+            target_id = ""
+        if broadcast_history:
+            self.broadcast_room_turn_to_histories(
+                text,
+                speaker_name=self.bot_name,
+                source_id=self.bot_id,
+                participants=participants,
+                route_key=route_key,
+                selected_target_id=target_id if bool(decision.get("answer")) else "",
+            )
         if bool(decision.get("answer")) and target_id:
             self.post_json(f"{self.tiny_url}/route", {"target_id": target_id, "reason": reason})
             print(f"[TinyBridge:{self.bot_id}] bot text routed {self.bot_name} -> {target_id}: {reason}")
@@ -834,19 +928,184 @@ class TinyVoiceBridge:
             print(f"[TinyBridge:{self.bot_id}] bot text no-route: {reason}")
         self.write_status("route_decision")
 
+    def broadcast_room_turn_to_histories(
+        self,
+        input_text: str,
+        *,
+        speaker_name: str,
+        source_id: str,
+        participants: list[dict[str, Any]],
+        route_key: str,
+        selected_target_id: str = "",
+    ) -> None:
+        text = str(input_text or "").strip()
+        if not text:
+            return
+        source = safe_id(source_id)
+        selected = safe_id(selected_target_id)
+        participant_ids = {
+            safe_id(item.get("id") or "")
+            for item in participants
+            if isinstance(item, dict)
+            and safe_id(item.get("id") or "")
+            and str(item.get("kind") or "").strip().lower() == "bot"
+            and bool(item.get("connected", True))
+        }
+        endpoint_by_id = self._runtime_history_endpoints()
+        recorded = 0
+        skipped = 0
+        for candidate_id in sorted(participant_ids):
+            if candidate_id == source:
+                skipped += 1
+                continue
+            endpoint = endpoint_by_id.get(candidate_id)
+            if not endpoint:
+                skipped += 1
+                continue
+            try:
+                result = self.post_json_to_nc(
+                    endpoint,
+                    {
+                        "route_key": f"{route_key}:history:{candidate_id}",
+                        "input_text": text,
+                        "speaker_name": str(speaker_name or source_id or "").strip(),
+                        "user_id": source_id,
+                        "captured_at": datetime.now().isoformat(timespec="seconds"),
+                        "source_bot_id": self.bot_id,
+                        "speaker_bot_id": source if source in participant_ids else "",
+                        "target_bot_id": selected,
+                        "record_only": True,
+                    },
+                )
+                if bool(result.get("recorded")):
+                    recorded += 1
+                else:
+                    skipped += 1
+            except Exception as exc:
+                skipped += 1
+                print(f"[TinyBridge:{self.bot_id}] room history broadcast failed for {candidate_id}: {exc}")
+        if recorded or skipped:
+            print(f"[TinyBridge:{self.bot_id}] broadcast room turn to bot histories: recorded={recorded}, skipped={skipped}")
+
+    def _runtime_history_endpoints(self) -> dict[str, str]:
+        endpoints: dict[str, str] = {}
+        settings = self.bridge_settings()
+        router = settings.get("room_router") if isinstance(settings.get("room_router"), dict) else {}
+        candidates = router.get("candidate_bots") if isinstance(router.get("candidate_bots"), list) else []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = safe_id(candidate.get("id") or candidate.get("name") or "")
+            if not candidate_id:
+                continue
+            endpoint = self._record_user_turn_endpoint(candidate)
+            if endpoint:
+                endpoints[candidate_id] = endpoint
+        endpoints.setdefault(self.bot_id, self.nc_record_user_turn_url())
+        return endpoints
+
+    def _record_user_turn_endpoint(self, candidate: dict[str, Any]) -> str:
+        runtime = candidate.get("nc_runtime") if isinstance(candidate.get("nc_runtime"), dict) else {}
+        explicit = str(candidate.get("http_endpoint") or runtime.get("http_endpoint") or "").strip()
+        if explicit.lower().startswith(("http://", "https://")):
+            return explicit.rstrip("/").removesuffix("/turn") + "/record_user_turn"
+        host = str(candidate.get("runtime_host") or runtime.get("host") or "127.0.0.1").strip() or "127.0.0.1"
+        try:
+            port = int(candidate.get("runtime_port") or runtime.get("port") or 0)
+        except (TypeError, ValueError):
+            port = 0
+        if port <= 0:
+            return ""
+        return f"http://{host}:{port}/record_user_turn"
+
     def maybe_recover_dead_air(self, reason: str) -> None:
         if not self.dead_air_recovery_for_bot_no_route_enabled():
             return
         silence_timeout = self.dead_air_silence_timeout_seconds()
+        payload = self.dead_air_recovery_payload(reason)
         if silence_timeout > 0:
             threading.Thread(
                 target=self._recover_dead_air_after_quiet_delay,
-                args=(reason, silence_timeout),
+                args=(payload, silence_timeout),
                 name=f"TinyMVP dead-air recovery {self.bot_id}",
                 daemon=True,
             ).start()
             return
-        self.post_json(f"{self.tiny_url}/dead-air", {"reason": f"dead_air_recovery:{reason}"})
+        self.post_json(f"{self.tiny_url}/dead-air", payload)
+
+    def dead_air_recovery_payload(self, reason: str) -> dict[str, Any]:
+        settings = self.bridge_settings()
+        router = settings.get("room_router") if isinstance(settings.get("room_router"), dict) else {}
+        recovery = router.get("dead_air_recovery") if isinstance(router.get("dead_air_recovery"), dict) else {}
+        strategy = str(recovery.get("next_speaker_strategy") or "llm_choose").strip()
+        preferred_target = ""
+        if strategy.lower() == "llm_choose":
+            preferred_target = self.choose_dead_air_recovery_target(reason)
+        return {
+            "reason": f"dead_air_recovery:{reason}",
+            "source_id": self.bot_id,
+            "source_name": self.bot_name,
+            "strategy": strategy,
+            "fallback_target": str(recovery.get("selected_fallback_target") or "").strip(),
+            "preferred_target": preferred_target,
+        }
+
+    def choose_dead_air_recovery_target(self, reason: str) -> str:
+        try:
+            state = self.get_json(f"{self.tiny_url}/state")
+        except Exception as exc:
+            print(f"[TinyBridge:{self.bot_id}] dead-air LLM choose skipped; room state unavailable: {exc}")
+            return ""
+        participants = [item for item in state.get("participants", []) if isinstance(item, dict)]
+        prompt = (
+            "The moderated room reached dead air because the latest completed turn did not select a next speaker. "
+            f"Previous speaker: {self.bot_name}. "
+            "Choose the single best next room participant, bot or human, to continue the conversation. "
+            "Do not choose the previous speaker unless no other eligible participant exists."
+        )
+        payload = {
+            "route_key": f"tinymvp_dead_air_choose_{self.bot_id}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}",
+            "user_id": "dead_air_recovery",
+            "speaker_name": "Moderator",
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "input_text": prompt,
+            "duration_seconds": 0.0,
+            "participants": participants,
+            "room_context": self.room_context(participants),
+            "dead_air_reason": str(reason or "").strip(),
+        }
+        try:
+            decision = self.post_json_to_nc(self.nc_route_url(), payload)
+        except Exception as exc:
+            print(f"[TinyBridge:{self.bot_id}] dead-air LLM choose failed: {exc}")
+            return ""
+        if not bool(decision.get("answer")):
+            return ""
+        target_id = self.resolve_participant_id(participants, decision.get("target_bot_id") or "")
+        if not target_id:
+            return ""
+        if target_id == self.bot_id and len([item for item in participants if item.get("connected")]) > 1:
+            return ""
+        return target_id
+
+    @staticmethod
+    def resolve_participant_id(participants: list[dict[str, Any]], value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        lowered = text.casefold()
+        safe_text = safe_id(text)
+        for participant in participants:
+            participant_id = str(participant.get("id") or "").strip()
+            name = str(participant.get("name") or "").strip()
+            if (
+                participant_id.casefold() == lowered
+                or name.casefold() == lowered
+                or safe_id(participant_id) == safe_text
+                or safe_id(name) == safe_text
+            ):
+                return participant_id
+        return safe_text
 
     def dead_air_recovery_for_bot_no_route_enabled(self) -> bool:
         settings = self.bridge_settings()
@@ -914,7 +1173,7 @@ class TinyVoiceBridge:
             self.route_completed_reply_text(reply_text, participants)
             self.write_status("manual_speak_done")
 
-    def _recover_dead_air_after_quiet_delay(self, reason: str, silence_timeout: float) -> None:
+    def _recover_dead_air_after_quiet_delay(self, payload: dict[str, Any], silence_timeout: float) -> None:
         timeout = max(0.0, float(silence_timeout))
         poll_interval = min(0.25, max(0.02, timeout / 2.0 if timeout else 0.02))
         deadline = time.time() + max(30.0, timeout + 5.0)
@@ -932,7 +1191,7 @@ class TinyVoiceBridge:
             if quiet_since is None:
                 quiet_since = now
             if now - quiet_since >= timeout:
-                self.post_json(f"{self.tiny_url}/dead-air", {"reason": f"dead_air_recovery:{reason}"})
+                self.post_json(f"{self.tiny_url}/dead-air", payload)
                 return
             time.sleep(poll_interval)
 
@@ -959,6 +1218,7 @@ class TinyVoiceBridge:
         expected_epoch: int | None = None,
         cancel_epoch: int | None = None,
         expected_route_target: str = "",
+        route_index: int = 0,
     ) -> dict[str, Any] | None:
         deadline = time.time() + max(1.0, float(timeout_seconds))
         self.write_status("waiting_playback_floor")
@@ -966,7 +1226,7 @@ class TinyVoiceBridge:
             if cancel_epoch is not None and self.is_turn_cancelled(cancel_epoch):
                 self.write_status("turn_cancelled")
                 return None
-            if self.is_route_target_replaced(expected_route_target):
+            if self.is_route_target_replaced(expected_route_target, route_index=route_index):
                 self.write_status("route_replaced")
                 return None
             state = self.get_json(f"{self.tiny_url}/state")
@@ -982,29 +1242,32 @@ class TinyVoiceBridge:
 
     def playback_queue_worker(
         self,
-        playback_queue: queue.Queue[str | None],
+        playback_queue: queue.Queue[tuple[str, str] | None],
         playback_failed: dict[str, bool],
         cancel_epoch: int,
         expected_route_target: str,
+        route_index: int = 0,
     ) -> None:
         playback_epoch: int | None = None
         expected_epoch = int_or_zero(self.get_json(f"{self.tiny_url}/state").get("playback_epoch"))
         while True:
-            if self.is_turn_cancelled(cancel_epoch) or self.is_route_target_replaced(expected_route_target):
+            if self.is_turn_cancelled(cancel_epoch) or self.is_route_target_replaced(expected_route_target, route_index=route_index):
                 playback_failed["failed"] = True
                 self.write_status("turn_cancelled")
                 return
             try:
-                wav_path = playback_queue.get(timeout=0.1)
+                item = playback_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            if wav_path is None:
+            if item is None:
                 return
+            wav_path, chunk_text = item
             if playback_epoch is None:
                 floor_state = self.wait_for_playback_floor(
                     expected_epoch=expected_epoch,
                     cancel_epoch=cancel_epoch,
                     expected_route_target=expected_route_target,
+                    route_index=route_index,
                 )
                 if floor_state is None:
                     if not self.last_error:
@@ -1013,13 +1276,13 @@ class TinyVoiceBridge:
                     playback_failed["failed"] = True
                     return
                 playback_epoch = int_or_zero(floor_state.get("playback_epoch"))
-            if not self.play_wav_chunk(wav_path, playback_epoch=playback_epoch, cancel_epoch=cancel_epoch):
+            if not self.play_wav_chunk(wav_path, playback_epoch=playback_epoch, cancel_epoch=cancel_epoch, chunk_text=chunk_text):
                 print(f"[TinyBridge:{self.bot_id}] stopping turn after room rejected playback.")
                 self.write_status("turn_stale")
                 playback_failed["failed"] = True
                 return
 
-    def play_wav_chunk(self, wav_path: str, *, playback_epoch: int, cancel_epoch: int) -> bool:
+    def play_wav_chunk(self, wav_path: str, *, playback_epoch: int, cancel_epoch: int, chunk_text: str = "") -> bool:
         if self.is_turn_cancelled(cancel_epoch) or self.is_room_playback_stale(playback_epoch):
             self.write_status("turn_cancelled")
             return False
@@ -1031,6 +1294,7 @@ class TinyVoiceBridge:
             self.last_error = str(result.get("reason") or result.get("error") or "playback rejected")
             self.write_status("playback_rejected")
             return False
+        self.mark_reply_chunk_delivered(chunk_text)
         display_chunk = self.playback_completed_chunks + 1
         if self.playback_total_chunks > 0:
             display_chunk = min(display_chunk, self.playback_total_chunks)
@@ -1078,7 +1342,7 @@ class TinyVoiceBridge:
             return False
         return True
 
-    def is_route_target_replaced(self, expected_target: str) -> bool:
+    def is_route_target_replaced(self, expected_target: str, *, route_index: int = 0) -> bool:
         expected = safe_id(expected_target)
         if not expected:
             return False
@@ -1093,8 +1357,38 @@ class TinyVoiceBridge:
         next_id = safe_id(state.get("next_id") or "")
         if next_id == expected:
             return False
+        latest_route_target = self.latest_route_target_from_state(state, min_index=route_index)
+        if latest_route_target == expected:
+            return False
+        if latest_route_target:
+            self.last_error = f"Prepared route to {expected} was replaced by {latest_route_target}"
+            return True
         self.last_error = f"Prepared route to {expected} was replaced by {next_id or 'none'}"
         return True
+
+    @classmethod
+    def latest_route_target_from_state(cls, state: dict[str, Any], *, min_index: int = 0) -> str:
+        flow = state.get("route_flow") if isinstance(state, dict) else []
+        if not isinstance(flow, list):
+            return ""
+        latest_index = 0
+        latest_target = ""
+        for item in flow:
+            if not isinstance(item, dict):
+                continue
+            index = int_or_zero(item.get("index"))
+            if min_index and index < int(min_index):
+                continue
+            event_type = str(item.get("type") or "")
+            message = str(item.get("message") or "")
+            if not cls.is_routing_event(event_type, message):
+                continue
+            target_id = safe_id(item.get("target_id") or "")
+            if not target_id or index < latest_index:
+                continue
+            latest_index = index
+            latest_target = target_id
+        return latest_target
 
     def is_current_or_playback_speaker(self) -> bool:
         try:
@@ -1143,46 +1437,101 @@ class TinyVoiceBridge:
 
     def cancel_active_turn(self, reason: str) -> None:
         self.turn_cancel_epoch += 1
+        delivered_text = self.publish_delivered_reply_once(route=False)
         self.render_ready_chunks = 0
         self.render_total_chunks = 0
         self.playback_completed_chunks = 0
         self.playback_total_chunks = 0
         turn_id = str(self.active_turn_id or "").strip()
         if turn_id:
-            self.cancel_nc_turn(turn_id, reason)
+            self.cancel_nc_turn(turn_id, reason, spoken_text=delivered_text)
         self.write_status("turn_cancelled")
 
-    def cancel_nc_turn(self, turn_id: str, reason: str) -> None:
+    def cancel_nc_turn(self, turn_id: str, reason: str, spoken_text: str = "") -> None:
         turn_id = str(turn_id or "").strip()
         if not turn_id:
             return
+        payload = {
+            "turn_id": turn_id,
+            "reason": reason,
+            "record_user_turn": False,
+        }
+        text = str(spoken_text or "").strip()
+        if text:
+            payload["spoken_text"] = text
         try:
             self.post_json_to_nc(
                 self.nc_cancel_url(),
-                {
-                    "turn_id": turn_id,
-                    "reason": reason,
-                    "record_user_turn": False,
-                },
+                payload,
             )
         except Exception as exc:
             print(f"[TinyBridge:{self.bot_id}] NC turn cancel failed: {exc}")
 
-    def room_context(self, participants: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
-            "source": "TinyMVP local fake voice channel",
-            "participants": [
-                {
-                    "id": str(item.get("id") or ""),
-                    "name": str(item.get("name") or ""),
-                    "is_bot": str(item.get("kind") or "") == "bot",
-                    "connected": bool(item.get("connected")),
-                    "current": bool(item.get("current")),
-                    "next": bool(item.get("next")),
-                }
-                for item in participants
-            ],
+    def finish_nc_turn(self, turn_id: str) -> None:
+        turn_id = str(turn_id or "").strip()
+        if not turn_id:
+            return
+        try:
+            self.post_json_to_nc(self.nc_finish_url(), {"turn_id": turn_id})
+        except Exception as exc:
+            print(f"[TinyBridge:{self.bot_id}] NC turn finish failed: {exc}")
+
+    def room_context(self, participants: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        names = {
+            safe_id(item.get("id") or ""): str(item.get("name") or item.get("id") or "").strip()
+            for item in participants
+            if isinstance(item, dict) and safe_id(item.get("id") or "")
         }
+        participant_parts = []
+        for item in participants:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("id") or "").strip()
+            if not name:
+                continue
+            state = []
+            if bool(item.get("current")):
+                state.append("current")
+            if bool(item.get("next")):
+                state.append("next")
+            if not bool(item.get("connected", True)):
+                state.append("disconnected")
+            kind = "bot" if str(item.get("kind") or "") == "bot" else "human"
+            suffix = f" ({kind}{'; ' + ', '.join(state) if state else ''})"
+            participant_parts.append(f"{name}{suffix}")
+        entries: list[dict[str, Any]] = []
+        if participant_parts:
+            entries.append({
+                "role": "system",
+                "content": "Current room participants: " + ", ".join(participant_parts),
+                "answer": False,
+                "reason": "participants",
+            })
+        try:
+            state = self.get_json(f"{self.tiny_url}/state")
+        except Exception:
+            state = {}
+        flow = state.get("route_flow") if isinstance(state, dict) else []
+        if isinstance(flow, list):
+            for item in flow[-self.context_entry_limit():]:
+                if not isinstance(item, dict):
+                    continue
+                message = " ".join(str(item.get("message") or "").split())
+                source_id = safe_id(item.get("source_id") or "")
+                target_id = safe_id(item.get("target_id") or "")
+                event_type = str(item.get("type") or "event").strip() or "event"
+                if not self.flow_entry_is_model_relevant(message, event_type):
+                    continue
+                source_name = names.get(source_id, source_id) or "Room"
+                target_name = names.get(target_id, target_id) if target_id else ""
+                route_text = f"{source_name} -> {target_name}: " if target_name else f"{source_name}: "
+                entries.append({
+                    "role": "user",
+                    "content": f"{route_text}{message}",
+                    "answer": bool(target_id),
+                    "reason": event_type,
+                })
+        return entries
 
     @staticmethod
     def extract_speech_text(message: str) -> str:
@@ -1191,9 +1540,61 @@ class TinyVoiceBridge:
         return message.strip()
 
     @staticmethod
+    def flow_entry_is_model_relevant(message: str, event_type: str = "") -> bool:
+        text = str(message or "").strip()
+        if not text:
+            return False
+        event_key = str(event_type or "").strip().lower()
+        if event_key in {
+            "playback",
+            "current",
+            "capture",
+            "queue",
+            "render",
+            "moderator_updated",
+            "participant",
+            "system",
+            "status",
+            "route",
+            "dead_air",
+            "dead_air_recovery",
+            "human_moderator",
+            "bot_text_router",
+            "room_router",
+        }:
+            return False
+        internal_patterns = (
+            "Playback started as ",
+            "Playback stopped",
+            "Current cleared",
+            "Current -> ",
+            "Capture owner",
+            "Dead-air recovery chose",
+            "Next ->",
+            " -> no route | answer=",
+            " -> no route | ",
+            "queue_cleared",
+            "runtime_replies",
+            ".wav",
+        )
+        if any(pattern in text for pattern in internal_patterns):
+            return False
+        lower_text = text.lower()
+        lifecycle_patterns = (
+            "room initialized",
+            "human connected",
+            "bot connected",
+            " removed.",
+            "participant updated",
+        )
+        return not any(pattern in lower_text for pattern in lifecycle_patterns)
+
+    @staticmethod
     def is_routing_event(event_type: str, message: str) -> bool:
-        if event_type in {"route", "dead_air"}:
+        if event_type == "route":
             return True
+        if event_type == "dead_air":
+            return False
         if event_type != "current":
             return False
         text = message.lower()
@@ -1245,15 +1646,36 @@ class TinyVoiceBridge:
             return self.nc_turn_url.rstrip("/")[:-5] + "/route"
         return self.nc_turn_url.rstrip("/") + "/route"
 
+    def nc_record_user_turn_url(self) -> str:
+        if self.nc_turn_url.rstrip("/").endswith("/turn"):
+            return self.nc_turn_url.rstrip("/")[:-5] + "/record_user_turn"
+        return self.nc_turn_url.rstrip("/") + "/record_user_turn"
+
     def nc_cancel_url(self) -> str:
         if self.nc_turn_url.rstrip("/").endswith("/turn"):
-            return self.nc_turn_url.rstrip("/")[:-5] + "/cancel_turn"
-        return self.nc_turn_url.rstrip("/") + "/cancel_turn"
+            return self.nc_turn_url.rstrip("/")[:-5] + "/cancel"
+        return self.nc_turn_url.rstrip("/") + "/cancel"
+
+    def nc_finish_url(self) -> str:
+        if self.nc_turn_url.rstrip("/").endswith("/turn"):
+            return self.nc_turn_url.rstrip("/")[:-5] + "/finish"
+        return self.nc_turn_url.rstrip("/") + "/finish"
 
     def nc_speak_url(self) -> str:
         if self.nc_turn_url.rstrip("/").endswith("/turn"):
             return self.nc_turn_url.rstrip("/")[:-5] + "/speak"
         return self.nc_turn_url.rstrip("/") + "/speak"
+
+    def context_entry_limit(self) -> int:
+        try:
+            if self.settings_path and self.settings_path.exists():
+                payload = json.loads(self.settings_path.read_text(encoding="utf-8"))
+                chat = payload.get("chat") if isinstance(payload, dict) else {}
+                value = chat.get("context_entries") if isinstance(chat, dict) else None
+                return min(1000, max(1, int(value or 20)))
+        except Exception:
+            pass
+        return 20
 
     def post_json_to_nc(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload).encode("utf-8")
@@ -1325,6 +1747,15 @@ def run_self_test() -> int:
     assert TinyVoiceBridge.is_routing_event("current", "Current -> Echo | audio playback") is False
     assert TinyVoiceBridge.is_routing_event("current", "Current cleared | stop_speech") is False
     assert TinyVoiceBridge.is_routing_event("route", "Next -> Echo | human moderator") is True
+    assert TinyVoiceBridge.is_routing_event("dead_air", "Dead-air recovery chose Echo.") is False
+    assert TinyVoiceBridge.latest_route_target_from_state(
+        {
+            "route_flow": [
+                {"index": 10, "type": "route", "target_id": "kalle", "message": "Next -> Kalle"},
+                {"index": 11, "type": "dead_air", "target_id": "moderator", "message": "Dead-air recovery chose Moderator."},
+            ]
+        }
+    ) == "kalle"
     assert TinyVoiceBridge.is_routing_event("speech", "Echo: finished reply") is False
     assert TinyVoiceBridge.is_state_playback_stale({"playback_epoch": 2, "last_playback_stop_reason": "echo turn finished"}, 1) is False
     assert TinyVoiceBridge.is_state_playback_stale({"playback_epoch": 2, "last_playback_stop_reason": "stop_speech"}, 1) is True
@@ -1337,7 +1768,7 @@ def run_self_test() -> int:
     )
     assert bridge.bot_id == "echo"
     assert bridge.nc_route_url() == "http://127.0.0.1:8768/route"
-    assert bridge.nc_cancel_url() == "http://127.0.0.1:8768/cancel_turn"
+    assert bridge.nc_cancel_url() == "http://127.0.0.1:8768/cancel"
     protected_bridge = TinyVoiceBridge(
         bot_id="Echo!",
         bot_name="Echo",
@@ -1351,6 +1782,22 @@ def run_self_test() -> int:
     assert bridge.is_route_target_replaced("echo") is False
     assert bridge.is_route_target_replaced("nova") is False
     assert bridge.is_route_target_replaced("mira") is True
+    bridge.get_json = lambda _url: {  # type: ignore[method-assign]
+        "current_id": "mira",
+        "playback_owner_id": "mira",
+        "next_id": "mira",
+        "route_flow": [
+            {
+                "index": 10,
+                "type": "route",
+                "source_id": "mira",
+                "target_id": "moderator",
+                "message": "Next -> Moderator | dead_air_recovery:Mira is speaking.",
+            }
+        ],
+    }
+    assert bridge.is_route_target_replaced("moderator", route_index=10) is False
+    bridge.get_json = lambda _url: {"current_id": "echo", "playback_owner_id": "", "next_id": "nova"}  # type: ignore[method-assign]
     assert bridge.is_current_or_playback_speaker() is True
     bridge.get_json = lambda _url: {"current_id": "nova", "playback_owner_id": "echo", "next_id": ""}  # type: ignore[method-assign]
     assert bridge.is_current_or_playback_speaker() is True
@@ -1391,8 +1838,10 @@ def run_self_test() -> int:
             "participants": [{"id": "echo", "name": "Echo", "kind": "bot", "connected": True}],
         }
         progress_bridge.post_json = lambda _url, _payload: {"ok": True, "state": progress_bridge.get_json("")}  # type: ignore[method-assign]
-        progress_bridge.play_wav_chunk = lambda _wav_path, playback_epoch, cancel_epoch: True  # type: ignore[method-assign]
+        progress_bridge.play_wav_chunk = lambda _wav_path, playback_epoch, cancel_epoch, chunk_text="": True  # type: ignore[method-assign]
         progress_bridge.publish_and_route_completed_reply = lambda _text, _participants: None  # type: ignore[method-assign]
+        progress_nc_posts: list[tuple[str, dict[str, Any]]] = []
+        progress_bridge.post_json_to_nc = lambda url, payload: progress_nc_posts.append((url, dict(payload))) or {"ok": True}  # type: ignore[method-assign]
         progress_bridge.post_ndjson = lambda _url, _payload: iter(  # type: ignore[method-assign]
             [
                 {"type": "transcript", "input_text": "test"},
@@ -1407,14 +1856,63 @@ def run_self_test() -> int:
         assert progress_bridge.render_ready_chunks == 5
         assert progress_bridge.render_total_chunks == 5
         assert progress_bridge.playback_total_chunks == 5
+        route_index = next(index for index, (url, _payload) in enumerate(progress_nc_posts) if url.endswith("/route"))
+        finish_index = next(index for index, (url, payload) in enumerate(progress_nc_posts) if url.endswith("/finish") and payload.get("turn_id"))
+        assert route_index < finish_index, progress_nc_posts
+        assert not any(url.endswith("/record_user_turn") for url, _payload in progress_nc_posts), progress_nc_posts
+
+        cancel_bridge = TinyVoiceBridge(
+            bot_id="Echo!",
+            bot_name="Echo",
+            tiny_url="http://127.0.0.1:8788",
+            nc_turn_url="http://127.0.0.1:8768/turn",
+            poll_seconds=0.25,
+        )
+        cancel_bridge.write_status = lambda _stage, _state=None: None  # type: ignore[method-assign]
+        cancel_bridge.active_turn_id = "turn_cancelled"
+        cancel_bridge.reset_delivered_reply_state([
+            {"id": "echo", "name": "Echo", "kind": "bot", "connected": True},
+            {"id": "nova", "name": "Nova", "kind": "bot", "connected": True},
+        ])
+        cancel_posts: list[tuple[str, dict[str, Any]]] = []
+        cancel_bridge.post_json = lambda url, payload: cancel_posts.append((url, dict(payload))) or {"ok": True}  # type: ignore[method-assign]
+        cancel_bridge.post_json_to_nc = lambda url, payload: cancel_posts.append((url, dict(payload))) or {"ok": True}  # type: ignore[method-assign]
+        cancel_bridge._runtime_history_endpoints = lambda: {"nova": "http://127.0.0.1:8770/record_user_turn"}  # type: ignore[method-assign]
+        assert cancel_bridge.play_wav_chunk("delivered.wav", playback_epoch=0, cancel_epoch=0, chunk_text="Delivered chunk.") is True
+        assert cancel_bridge.delivered_reply_text() == "Delivered chunk."
+        cancel_bridge.cancel_active_turn("self-test interruption")
+        assert any(url.endswith("/speech") and payload.get("text") == "Delivered chunk." for url, payload in cancel_posts), cancel_posts
+        assert any(url.endswith("/cancel") and payload.get("spoken_text") == "Delivered chunk." for url, payload in cancel_posts), cancel_posts
+        assert any(url.endswith("/record_user_turn") and payload.get("input_text") == "Delivered chunk." for url, payload in cancel_posts), cancel_posts
     finally:
         bridge.write_status = original_write_status  # type: ignore[method-assign]
+    bridge.get_json = lambda _url: {  # type: ignore[method-assign]
+        "route_flow": [
+            {
+                "index": 1,
+                "type": "speech",
+                "source_id": "rakila",
+                "target_id": "",
+                "message": "Rakila: Hello room.",
+            },
+            {
+                "index": 2,
+                "type": "room_router",
+                "source_id": "rakila",
+                "target_id": "echo",
+                "message": "Rakila -> Echo | answer=yes | addressed Echo.",
+            },
+        ],
+    }
     context = bridge.room_context([
         {"id": "echo", "name": "Echo", "kind": "bot", "connected": True, "current": False, "next": True},
         {"id": "rakila", "name": "Rakila", "kind": "human", "connected": True, "current": True, "next": False},
     ])
-    assert context["participants"][0]["is_bot"] is True
-    assert context["participants"][1]["is_bot"] is False
+    assert isinstance(context, list)
+    assert any("Rakila: Hello room." in str(item.get("content") or "") for item in context if isinstance(item, dict))
+    joined_context = "\n".join(str(item.get("content") or "") for item in context if isinstance(item, dict))
+    assert "Current room participants" in joined_context
+    assert "TinyMVP" not in joined_context
     sent_turns: list[dict[str, Any]] = []
     direct_speech: list[str] = []
     bridge.get_json = lambda _url: {  # type: ignore[method-assign]
@@ -1424,7 +1922,7 @@ def run_self_test() -> int:
         ],
     }
     bridge.send_turn_to_nc = (  # type: ignore[method-assign]
-        lambda input_text, speaker_name, user_id, participants, *, manual_call_on=False:
+        lambda input_text, speaker_name, user_id, participants, *, manual_call_on=False, route_index=0:
         sent_turns.append(
             {
                 "input_text": input_text,
@@ -1439,6 +1937,21 @@ def run_self_test() -> int:
     bridge.handle_command({"action": "send_message", "payload": {"text": "Please speak through Echo.", "moderator_announcement": True}})
     assert direct_speech == ["Please speak through Echo."]
     assert sent_turns == []
+    bridge.latest_speech = SpeechMemory(index=90, source_id="echo", speaker_name="Echo", text="stale echo turn")
+    bridge.handle_routed_event(
+        91,
+        "route",
+        "mira",
+        "Next -> Echo | dead_air_recovery:Mira is speaking.",
+        [
+            {"id": "echo", "name": "Echo", "kind": "bot", "connected": True},
+            {"id": "mira", "name": "Mira", "kind": "bot", "connected": True},
+        ],
+    )
+    assert sent_turns[-1]["speaker_name"] == "Mira"
+    assert sent_turns[-1]["user_id"] == "mira"
+    assert sent_turns[-1]["manual_call_on"] is True
+    sent_turns.clear()
     direct_events: list[tuple[Any, ...]] = []
     bridge.speak_text_direct = TinyVoiceBridge.speak_text_direct.__get__(bridge, TinyVoiceBridge)  # type: ignore[method-assign]
     bridge.post_json_to_nc = lambda _url, payload: {  # type: ignore[method-assign]
@@ -1446,7 +1959,7 @@ def run_self_test() -> int:
         "reply_wav_path": "direct.wav",
         "reply_text": payload["text"],
     }
-    bridge.play_wav_chunk = lambda wav_path, *, playback_epoch, cancel_epoch: direct_events.append(("play", wav_path)) or True  # type: ignore[method-assign]
+    bridge.play_wav_chunk = lambda wav_path, *, playback_epoch, cancel_epoch, chunk_text="": direct_events.append(("play", wav_path)) or True  # type: ignore[method-assign]
     bridge.post_completed_reply_speech = lambda text: direct_events.append(("speech", text))  # type: ignore[method-assign]
     bridge.route_completed_reply_text = lambda text, participants: direct_events.append(("route", text, len(participants)))  # type: ignore[method-assign]
     bridge.post_json = lambda url, payload: direct_events.append(("post", url, payload.get("reason"))) or {"ok": True}  # type: ignore[method-assign]
@@ -1606,6 +2119,74 @@ def run_self_test() -> int:
     assert not any(url.endswith("/dead-air") for url, _payload in posted)
     posted.clear()
 
+    bridge.get_json = lambda _url: {"current_id": "echo", "playback_owner_id": "echo", "next_id": ""}  # type: ignore[method-assign]
+    bridge.post_json_to_nc = lambda _url, _payload: {  # type: ignore[method-assign]
+        "answer": True,
+        "target_bot_id": "echo",
+        "reason": "open_invitation:Echo asked the room a question.",
+    }
+    recovered_reasons: list[str] = []
+    bridge.maybe_recover_dead_air = lambda reason: recovered_reasons.append(reason)  # type: ignore[method-assign]
+    bridge.route_completed_reply_text(
+        "How do we build the fence without turning humans into obstacles?",
+        [
+            {"id": "echo", "name": "Echo", "kind": "bot", "connected": True},
+            {"id": "moderator", "name": "Moderator", "kind": "bot", "connected": True},
+            {"id": "rakila", "name": "Rakila", "kind": "human", "connected": True},
+        ],
+    )
+    assert not any(url.endswith("/route") for url, _payload in posted), posted
+    assert any(url.endswith("/decision") and _payload.get("answer") is False for url, _payload in posted), posted
+    assert recovered_reasons, posted
+    assert "self_route" in recovered_reasons[-1], recovered_reasons
+    bridge.maybe_recover_dead_air = TinyVoiceBridge.maybe_recover_dead_air.__get__(bridge, TinyVoiceBridge)  # type: ignore[method-assign]
+    posted.clear()
+
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json") as settings_file:
+        json.dump(
+            {
+                "room_router": {
+                    "candidate_bots": [
+                        {"id": "echo", "name": "Echo", "nc_runtime": {"host": "127.0.0.1", "port": 8768}},
+                        {"id": "nova", "name": "Nova", "nc_runtime": {"host": "127.0.0.1", "port": 8770}},
+                        {"id": "moderator", "name": "Moderator", "nc_runtime": {"host": "127.0.0.1", "port": 8771}},
+                    ]
+                }
+            },
+            settings_file,
+        )
+        history_settings_path = Path(settings_file.name)
+    try:
+        bridge.settings_path = history_settings_path
+        history_posts: list[tuple[str, dict[str, Any]]] = []
+        bridge.post_json_to_nc = lambda url, payload: history_posts.append((url, dict(payload))) or {"ok": True, "recorded": True}  # type: ignore[method-assign]
+        bridge.broadcast_room_turn_to_histories(
+            "Moderator: Please share one topic each.",
+            speaker_name="Moderator",
+            source_id="moderator",
+            participants=[
+                {"id": "echo", "name": "Echo", "kind": "bot", "connected": True},
+                {"id": "nova", "name": "Nova", "kind": "bot", "connected": True},
+                {"id": "moderator", "name": "Moderator", "kind": "bot", "connected": True},
+                {"id": "kalle", "name": "Kalle", "kind": "human", "connected": True},
+            ],
+            route_key="room_turn_1",
+            selected_target_id="echo",
+        )
+        recorded_endpoints = [url for url, _payload in history_posts]
+        assert "http://127.0.0.1:8770/record_user_turn" in recorded_endpoints, history_posts
+        assert "http://127.0.0.1:8768/record_user_turn" in recorded_endpoints, history_posts
+        assert "http://127.0.0.1:8771/record_user_turn" not in recorded_endpoints, history_posts
+        assert all(payload.get("record_only") is True for _url, payload in history_posts)
+        assert history_posts[-1][1]["speaker_name"] == "Moderator", history_posts
+        assert history_posts[-1][1]["input_text"] == "Moderator: Please share one topic each.", history_posts
+    finally:
+        try:
+            history_settings_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        bridge.settings_path = None
+
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json") as settings_file:
         json.dump(
             {
@@ -1615,6 +2196,8 @@ def run_self_test() -> int:
                         "trigger_mode": "no_route_after_bot_speech",
                         "silence_timeout_seconds": 0.05,
                         "cooldown_seconds": 0.0,
+                        "next_speaker_strategy": "selected_fallback",
+                        "selected_fallback_target": "nova",
                     }
                 }
             },
@@ -1641,6 +2224,9 @@ def run_self_test() -> int:
         assert not any(url.endswith("/dead-air") for url, _payload in posted)
         time.sleep(0.16)
         assert any(url.endswith("/dead-air") for url, _payload in posted)
+        assert posted[-1][1]["strategy"] == "selected_fallback"
+        assert posted[-1][1]["fallback_target"] == "nova"
+        assert posted[-1][1]["source_id"] == "echo"
         posted.clear()
         bridge.get_json = lambda _url: {"current_id": "", "next_id": "", "playback_owner_id": ""}  # type: ignore[method-assign]
         bridge.maybe_recover_dead_air("delayed quiet room")
@@ -1650,6 +2236,54 @@ def run_self_test() -> int:
     finally:
         try:
             delayed_settings_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        bridge.settings_path = None
+    posted.clear()
+
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json") as settings_file:
+        json.dump(
+            {
+                "room_router": {
+                    "dead_air_recovery": {
+                        "enabled": True,
+                        "trigger_mode": "no_route_after_bot_speech",
+                        "silence_timeout_seconds": 0.0,
+                        "next_speaker_strategy": "llm_choose",
+                        "selected_fallback_target": "",
+                    }
+                }
+            },
+            settings_file,
+        )
+        llm_choose_settings_path = Path(settings_file.name)
+    try:
+        posted.clear()
+        bridge.settings_path = llm_choose_settings_path
+        bridge.post_json = fake_post_json  # type: ignore[method-assign]
+        bridge.get_json = lambda _url: {  # type: ignore[method-assign]
+            "current_id": "echo",
+            "next_id": "",
+            "playback_owner_id": "",
+            "participants": [
+                {"id": "echo", "name": "Echo", "kind": "bot", "connected": True},
+                {"id": "nova", "name": "Nova", "kind": "bot", "connected": True},
+                {"id": "kalle", "name": "Kalle", "kind": "human", "connected": True},
+            ],
+            "route_flow": [],
+        }
+        bridge.post_json_to_nc = lambda _url, _payload: {  # type: ignore[method-assign]
+            "answer": True,
+            "target_bot_id": "Nova",
+            "reason": "dead-air should continue with Nova",
+        }
+        bridge.maybe_recover_dead_air("Echo asked the room a question.")
+        assert any(url.endswith("/dead-air") for url, _payload in posted)
+        assert posted[-1][1]["strategy"] == "llm_choose"
+        assert posted[-1][1]["preferred_target"] == "nova"
+    finally:
+        try:
+            llm_choose_settings_path.unlink(missing_ok=True)
         except Exception:
             pass
         bridge.settings_path = None
@@ -1775,7 +2409,7 @@ def run_self_test() -> int:
         assert any(url.endswith("/speech") for url, _payload in posted)
         assert any(url.endswith("/route") for url, _payload in posted)
         assert nc_route_calls
-        assert nc_route_calls[-1].get("record_route_context") is True
+        assert any(call.get("record_route_context") is True for call in nc_route_calls), nc_route_calls
     finally:
         try:
             mic_wav_path.unlink()
@@ -1976,8 +2610,8 @@ def main() -> int:
     parser.add_argument("--nc-turn-url", default="http://127.0.0.1:8768/turn")
     parser.add_argument("--poll-seconds", type=float, default=0.25)
     parser.add_argument("--capture-mic", action="store_true", help="Enable console push-to-talk microphone capture for this bridge process.")
-    parser.add_argument("--mic-user-id", default="rakila")
-    parser.add_argument("--mic-user-name", default="Rakila")
+    parser.add_argument("--mic-user-id", default="human")
+    parser.add_argument("--mic-user-name", default="Human")
     parser.add_argument("--mic-seconds", type=float, default=6.0)
     parser.add_argument("--mic-sample-rate", type=int, default=16000)
     parser.add_argument("--mic-device", default="")

@@ -3,6 +3,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
 from core import long_term_memory
+from ui.runtime import chat_transcript_window
 from ui.runtime.shell_addon_services import addon_id_for_service, addon_id_for_ui_role
 from ui.runtime.addon_disabled_placeholders import (
     ensure_musetalk_legacy_placeholders,
@@ -55,6 +56,7 @@ CHAT_TAB_TOOLTIPS = {
     "proactive_delay_spin": "How long the assistant waits after idle detection before sending a proactive reply.",
     "chat_context_window_spin": "How many recent chat messages are sent to the model for normal reply context.",
     "stored_chat_history_limit_spin": "How many chat messages are kept when saving context. Use 0 to save the full conversation history.",
+    "chat_visual_batch_size_spin": "How many chat messages are rendered initially. Scroll upward to load older messages; use -1 to render all.",
     "chat_overflow_policy_combo": "What NC should do when the active chat context grows beyond the context window sent to the model.",
     "spellcheck_enabled_checkbox": "Enable red underline spellcheck in the normal typed chat input and Chat Edit Mode when PyEnchant dictionaries are available.",
     "spellcheck_language_combo": "Dictionary language used for chat spellcheck. The list contains dictionaries visible to PyEnchant in the active NC environment.",
@@ -75,6 +77,7 @@ CHAT_TAB_TOOLTIPS = {
     "long_term_memory_archive_hint": "Shows Long-Term Memory archive record counts and storage location.",
     "long_term_memory_retrieval_enabled_checkbox": "Allow NC to retrieve relevant Long-Term Memory archive items and inject a compact recall block into chat requests.",
     "long_term_memory_retrieval_max_items_spin": "Maximum number of Long-Term Memory archive matches injected into a chat request.",
+    "long_term_memory_recall_text_budget_spin": "Total character budget for recalled Long-Term Memory text. Use -1 for no cap and 0 to omit recalled text bodies.",
     "long_term_memory_recall_image_limit_spin": "Maximum number of recalled Long-Term Memory images attached to a chat request. Use -1 for no cap and 0 for text-only recall.",
     "long_term_memory_auto_archive_enabled_checkbox": "Allow Long-Term Memory archive writes. Off by default; manual Save Chat Context only writes Long-Term Memory when this is enabled.",
     "long_term_memory_archive_batch_turns_spin": "Number of new chat messages required before automatic Long-Term Memory archive storage runs when archiving is enabled.",
@@ -956,6 +959,7 @@ class BackendSystemShapingBuilderMixin:
         timing_form.addRow("Proactive delay (s)", self.proactive_delay_spin)
         timing_form.addRow("Context window (msgs)", self.chat_context_window_spin)
         timing_form.addRow("Stored history limit", self.stored_chat_history_limit_spin)
+        timing_form.addRow("Chat messages per visual batch", self.chat_visual_batch_size_spin)
         timing_form.addRow("Overflow policy", self.chat_overflow_policy_combo)
         timing_form.addRow("Dictionary language", self.spellcheck_language_combo)
         behavior_layout.addLayout(timing_form)
@@ -1001,6 +1005,7 @@ class BackendSystemShapingBuilderMixin:
         archive_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         archive_layout.addWidget(archive_hint)
         archive_layout.addWidget(self.long_term_memory_retrieval_enabled_checkbox)
+        archive_layout.addWidget(self.long_term_memory_image_review_enabled_checkbox)
         archive_layout.addWidget(self.long_term_memory_auto_archive_enabled_checkbox)
         retrieval_form = QtWidgets.QFormLayout()
         retrieval_form.setLabelAlignment(QtCore.Qt.AlignLeft)
@@ -1008,6 +1013,7 @@ class BackendSystemShapingBuilderMixin:
         retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
         retrieval_form.addRow("Archive interval (msgs)", self.long_term_memory_archive_batch_turns_spin)
         retrieval_form.addRow("Max recall items", self.long_term_memory_retrieval_max_items_spin)
+        retrieval_form.addRow("Recall text budget (chars, -1 = no cap)", self.long_term_memory_recall_text_budget_spin)
         retrieval_form.addRow("Long-Term Memory recalled images to attach", self.long_term_memory_recall_image_limit_spin)
         embedding_model_row = QtWidgets.QHBoxLayout()
         embedding_model_row.setSpacing(8)
@@ -1375,6 +1381,19 @@ class BackendSystemShapingBuilderMixin:
         self.stored_chat_history_limit_spin.setMinimumWidth(112)
         self.stored_chat_history_limit_spin.setMaximumWidth(132)
 
+        self.chat_visual_batch_size_spin = ContextTokenStepper()
+        self.chat_visual_batch_size_spin.setObjectName("chat_visual_batch_size_spin")
+        self.chat_visual_batch_size_spin.setRange(-1, 2147483647)
+        self.chat_visual_batch_size_spin.setSingleStep(1)
+        self.chat_visual_batch_size_spin.setValue(
+            chat_transcript_window.normalize_visual_batch_size(
+                runtime_config.get("chat_visual_batch_size", chat_transcript_window.DEFAULT_VISUAL_BATCH_SIZE)
+            )
+        )
+        self.chat_visual_batch_size_spin.valueChanged.connect(self.on_chat_visual_batch_size_changed)
+        self.chat_visual_batch_size_spin.setMinimumWidth(112)
+        self.chat_visual_batch_size_spin.setMaximumWidth(132)
+
         self.chat_overflow_policy_combo = NoWheelComboBox()
         self.chat_overflow_policy_combo.setObjectName("chat_overflow_policy_combo")
         self.chat_overflow_policy_combo.addItems(["Rolling Window", "Truncate Middle", "Stop At Limit"])
@@ -1488,6 +1507,11 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_retrieval_enabled_checkbox.setChecked(bool(runtime_config.get("long_term_memory_retrieval_enabled", False)))
         self.long_term_memory_retrieval_enabled_checkbox.toggled.connect(self.on_long_term_memory_retrieval_enabled_changed)
 
+        self.long_term_memory_image_review_enabled_checkbox = QtWidgets.QCheckBox("Review recalled images before sending")
+        self.long_term_memory_image_review_enabled_checkbox.setObjectName("long_term_memory_image_review_enabled_checkbox")
+        self.long_term_memory_image_review_enabled_checkbox.setChecked(bool(runtime_config.get("long_term_memory_image_review_enabled", False)))
+        self.long_term_memory_image_review_enabled_checkbox.toggled.connect(self.on_long_term_memory_image_review_enabled_changed)
+
         self.long_term_memory_retrieval_max_items_spin = ContextTokenStepper()
         self.long_term_memory_retrieval_max_items_spin.setObjectName("long_term_memory_retrieval_max_items_spin")
         self.long_term_memory_retrieval_max_items_spin.setRange(1, 12)
@@ -1496,6 +1520,15 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_retrieval_max_items_spin.valueChanged.connect(self.on_long_term_memory_retrieval_max_items_changed)
         self.long_term_memory_retrieval_max_items_spin.setMinimumWidth(112)
         self.long_term_memory_retrieval_max_items_spin.setMaximumWidth(132)
+
+        self.long_term_memory_recall_text_budget_spin = ContextTokenStepper()
+        self.long_term_memory_recall_text_budget_spin.setObjectName("long_term_memory_recall_text_budget_spin")
+        self.long_term_memory_recall_text_budget_spin.setRange(-1, 2147483647)
+        self.long_term_memory_recall_text_budget_spin.setSingleStep(500)
+        self.long_term_memory_recall_text_budget_spin.setValue(long_term_memory.normalize_recall_text_budget(runtime_config.get("long_term_memory_recall_text_budget", -1), default=-1))
+        self.long_term_memory_recall_text_budget_spin.valueChanged.connect(self.on_long_term_memory_recall_text_budget_changed)
+        self.long_term_memory_recall_text_budget_spin.setMinimumWidth(112)
+        self.long_term_memory_recall_text_budget_spin.setMaximumWidth(132)
 
         self.long_term_memory_recall_image_limit_spin = ContextTokenStepper()
         self.long_term_memory_recall_image_limit_spin.setObjectName("long_term_memory_recall_image_limit_spin")

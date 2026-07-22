@@ -72,9 +72,12 @@ FORBIDDEN_TRACKED_SUFFIXES = (
 ALLOWED_TRACKED_ASSET_PATHS = {
     "avatar_packs/.gitkeep",
     "avatar_packs/README.md",
+    "docs/readme_videos/neuralcompanion-overview.mp4",
     "Installer_Music/Circuit_Saffron.mp3",
     "MuseTalk/musetalk/whisper/whisper/assets/mel_filters.npz",
     "voices/.gitkeep",
+    "voices/Echo_default_voice.wav",
+    "voices/Eon_default_voice.wav",
     "voices/README.md",
 }
 
@@ -214,7 +217,9 @@ def check_local_release_debris(app_root: Path) -> list[str]:
         visible = [
             child
             for child in root.iterdir()
-            if child.name not in {".gitkeep", "README.md"} and not child.name.startswith(".")
+            if child.name not in {".gitkeep", "README.md"}
+            and not child.name.startswith(".")
+            and child.relative_to(app_root).as_posix() not in ALLOWED_TRACKED_ASSET_PATHS
         ]
         if visible:
             warnings.append(f"{relative}/ contains local release-excluded files ({len(visible)} item(s))")

@@ -189,10 +189,36 @@ class _UiShellChatProviderRegistry:
         api_key_getter=None,
         base_url_getter=None,
         metadata=None,
+        frozen_prepare_handler=None,
+        frozen_completion_handler=None,
+        frozen_stream_handler=None,
+        model_capabilities_handler=None,
+        token_counter=None,
+        frozen_private_config_getter=None,
+        frozen_public_config_fields=None,
+        normal_chat_capable=True,
+        frozen_execution_version=None,
     ):
         provider_id = str(provider_id or "").strip()
         if not provider_id:
             raise RuntimeError("Chat provider id is required.")
+        normal_chat_available = bool(
+            normal_chat_capable
+            and type(frozen_execution_version) is int
+            and frozen_execution_version == 1
+            and callable(frozen_prepare_handler)
+            and callable(frozen_completion_handler)
+            and callable(frozen_stream_handler)
+        )
+        if normal_chat_available:
+            normal_chat_message = "Frozen normal-chat execution is advertised."
+        elif not normal_chat_capable:
+            normal_chat_message = "Provider does not claim normal-chat capability."
+        else:
+            normal_chat_message = (
+                "Update the provider addon to register frozen_execution_version=1 "
+                "with frozen prepare, completion, and stream handlers."
+            )
         summary = {
             "id": provider_id,
             "label": str(label or provider_id).strip() or provider_id,
@@ -205,6 +231,13 @@ class _UiShellChatProviderRegistry:
             "has_connection_check_handler": callable(connection_check_handler),
             "has_api_key_getter": callable(api_key_getter),
             "has_base_url_getter": callable(base_url_getter),
+            "normal_chat": {
+                "available": normal_chat_available,
+                "claimed": bool(normal_chat_capable),
+                "frozen_execution_version": frozen_execution_version,
+                "required_frozen_execution_version": 1,
+                "message": normal_chat_message,
+            },
         }
         self._providers[provider_id] = summary
         self._registrations[provider_id] = {
@@ -215,6 +248,13 @@ class _UiShellChatProviderRegistry:
             "connection_check_handler": connection_check_handler,
             "api_key_getter": api_key_getter,
             "base_url_getter": base_url_getter,
+            "frozen_prepare_handler": frozen_prepare_handler,
+            "frozen_completion_handler": frozen_completion_handler,
+            "frozen_stream_handler": frozen_stream_handler,
+            "model_capabilities_handler": model_capabilities_handler,
+            "token_counter": token_counter,
+            "frozen_private_config_getter": frozen_private_config_getter,
+            "frozen_public_config_fields": frozen_public_config_fields,
         }
         return dict(summary)
 

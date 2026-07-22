@@ -6,6 +6,7 @@ without changing the existing provider registry or engine call surface.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Callable, Iterable
 
 from core import chat_providers
@@ -13,6 +14,20 @@ from core.runtime_contracts import ChatProviderAdapter, ProviderDescriptor, Runt
 
 
 ConfigGetter = Callable[[], dict[str, Any]]
+
+_FROZEN_GENERATION_CONFIG_KEYS = (
+    "temperature",
+    "top_p",
+    "top_k",
+    "min_p",
+    "repeat_penalty",
+    "max_tokens",
+    "max_completion_tokens",
+    "enable_thinking",
+    "reasoning",
+    "limit_response_length",
+    "max_response_tokens",
+)
 
 
 class ChatProviderRuntime(ChatProviderAdapter):
@@ -40,6 +55,19 @@ class ChatProviderRuntime(ChatProviderAdapter):
         except Exception:
             config = {}
         return config if isinstance(config, dict) else {}
+
+    def _capture_config(self) -> Mapping[str, Any]:
+        try:
+            config = self._config_getter()
+        except Exception:
+            raise chat_providers.FrozenChatProviderCaptureError(
+                "Frozen runtime config capture failed."
+            ) from None
+        if not isinstance(config, Mapping):
+            raise chat_providers.FrozenChatProviderCaptureError(
+                "Frozen runtime config capture failed."
+            )
+        return config
 
     def current_provider(self, provider: str | None = None) -> str:
         config = self._config()
@@ -210,6 +238,129 @@ class ChatProviderRuntime(ChatProviderAdapter):
                 params["max_tokens"] = max(1, int(config.get("max_response_tokens", 600) or 600))
             elif provider_key == "lmstudio":
                 params["max_tokens"] = -1
+
+    def _capture_generation_fields(
+        self,
+        config: Mapping[str, Any],
+        provider: chat_providers.ChatProvider,
+    ) -> dict[str, Any]:
+        provider_id = str(provider.id or "").strip().lower()
+        raw_map = config.get("chat_provider_generation_settings", {}) or {}
+        raw_settings = raw_map.get(provider_id, {}) if isinstance(raw_map, Mapping) else {}
+        captured = dict(raw_settings) if isinstance(raw_settings, Mapping) else {}
+        for key in _FROZEN_GENERATION_CONFIG_KEYS:
+            if key in config and key not in captured:
+                captured[key] = config[key]
+        for key, value in config.items():
+            if str(key).startswith("model_supports_") and key not in captured:
+                captured[str(key)] = value
+        metadata = dict(provider.metadata or {})
+        for field in metadata.get("generation_fields", []) or []:
+            if not isinstance(field, Mapping):
+                continue
+            field_id = str(field.get("id") or "").strip()
+            if not field_id or field_id in captured:
+                continue
+            if field_id in config:
+                captured[field_id] = config[field_id]
+            elif "default" in field:
+                captured[field_id] = field.get("default")
+        return captured
+
+    def capture_frozen_context(
+        self,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        provider_config: Mapping[str, Any] | None = None,
+        generation_fields: Mapping[str, Any] | None = None,
+    ) -> chat_providers.FrozenChatProviderContext:
+        config = self._capture_config()
+        provider_registration = chat_providers._resolve_provider(
+            provider or config.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
+            chat_providers.DEFAULT_PROVIDER_ID,
+        )
+        if provider_registration is None:
+            raise chat_providers.FrozenChatProviderUnsupportedError(
+                "No chat provider is registered for frozen capture."
+            )
+        if not provider_registration.normal_chat_available:
+            raise chat_providers.FrozenChatProviderUnsupportedError(
+                provider_registration.normal_chat_status_message
+            ) from None
+        model_name = str(model if model is not None else config.get("model_name", "") or "").strip()
+        captured_generation_fields = (
+            generation_fields
+            if generation_fields is not None
+            else self._capture_generation_fields(config, provider_registration)
+        )
+        return chat_providers.capture_frozen_provider_context(
+            provider_registration,
+            model_name=model_name,
+            provider_config=provider_config,
+            generation_fields=captured_generation_fields,
+        )
+
+    def prepare_frozen_request(
+        self,
+        context: chat_providers.FrozenChatProviderContext,
+        params: Mapping[str, Any],
+        additional_params: Mapping[str, Any] | None = None,
+    ) -> chat_providers.FrozenChatProviderRequest:
+        prepared_params = dict(params or {})
+        if context.model_name:
+            prepared_params["model"] = context.model_name
+        return chat_providers.prepare_frozen_chat_request(
+            context=context,
+            params=prepared_params,
+            additional_params=additional_params,
+        )
+
+    def frozen_execution_available(
+        self,
+        context: chat_providers.FrozenChatProviderContext,
+        *,
+        stream: bool = False,
+    ) -> bool:
+        return chat_providers.frozen_execution_available(context, stream=stream)
+
+    def strict_relay_capability_available(
+        self,
+        context: chat_providers.FrozenChatProviderContext,
+    ) -> bool:
+        return context.strict_relay_available
+
+    def upgrade_frozen_context_for_relay(
+        self,
+        context: chat_providers.FrozenChatProviderContext,
+    ) -> chat_providers.FrozenChatProviderContext:
+        return chat_providers.upgrade_frozen_context_for_relay(context)
+
+    def complete_frozen(
+        self,
+        request: chat_providers.FrozenChatProviderRequest,
+        *,
+        timeout: float | None = None,
+        cancel_token: Any = None,
+    ) -> Any:
+        return chat_providers.complete_frozen_chat(
+            request,
+            timeout=timeout,
+            cancel_token=cancel_token,
+        )
+
+    def stream_frozen(
+        self,
+        request: chat_providers.FrozenChatProviderRequest,
+        *,
+        timeout: float | None = None,
+        cancel_token: Any = None,
+    ) -> Iterable[str]:
+        return chat_providers.stream_frozen_chat(
+            request,
+            timeout=timeout,
+            cancel_token=cancel_token,
+        )
 
     def list_models(self, *, quiet: bool = False, provider: str | None = None) -> list[Any]:
         return chat_providers.list_models(self.current_provider(provider), quiet=quiet)

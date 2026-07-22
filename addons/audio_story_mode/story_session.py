@@ -1,6 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
+
+
+_LEGACY_DERIVED_STATE_KEYS = (
+    "audio_story_mode_story_bible",
+    "audio_story_mode_scene_plan",
+    "audio_story_mode_scene_overrides",
+    "audio_story_mode_continuity_memory",
+    "audio_story_mode_character_anchors",
+    "audio_story_mode_location_anchors",
+    "audio_story_mode_transcript_chunks",
+    "audio_story_mode_full_transcript_text",
+    "audio_story_mode_raw_transcript_segments",
+)
 
 
 def _copy_mapping(value) -> dict:
@@ -11,6 +25,21 @@ def _copy_list(value) -> list:
     if isinstance(value, (list, tuple)):
         return [deepcopy(item) for item in value]
     return []
+
+
+def legacy_story_state_available(flat_payload) -> bool:
+    """Return whether imported legacy state has derived work worth migrating."""
+
+    if not isinstance(flat_payload, Mapping):
+        return False
+    for key in _LEGACY_DERIVED_STATE_KEYS:
+        value = flat_payload.get(key)
+        if isinstance(value, str):
+            if value.strip():
+                return True
+        elif value:
+            return True
+    return False
 
 
 def build_story_state_flat_payload(
@@ -24,6 +53,7 @@ def build_story_state_flat_payload(
     transcript_chunks=None,
     full_transcript_text: str = "",
     raw_transcript_segments=None,
+    audio_sources=None,
     audio_duration_seconds: float = 0.0,
 ) -> dict:
     """Return session-schema legacy keys for restorable Audio Story state."""
@@ -42,6 +72,7 @@ def build_story_state_flat_payload(
         "audio_story_mode_transcript_chunks": _copy_list(transcript_chunks),
         "audio_story_mode_full_transcript_text": str(full_transcript_text or "").strip(),
         "audio_story_mode_raw_transcript_segments": _copy_list(raw_transcript_segments),
+        "audio_story_mode_audio_sources": _copy_list(audio_sources),
         "audio_story_mode_audio_duration_seconds": duration,
     }
 

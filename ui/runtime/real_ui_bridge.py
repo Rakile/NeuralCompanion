@@ -4,6 +4,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.designer_loader import ui_shell_find_object as _ui_shell_find_object
 from ui.dock_utils import install_floating_dock_resize_filter
+from ui.runtime.addon_tab_scroller import install_addon_tab_scroller
 from ui.runtime.real_ui_actions import MainUiRealActionsMixin, configure_real_ui_actions_dependencies
 from ui.runtime.real_ui_bindings import MainUiRealBindingMixin, configure_real_ui_binding_dependencies
 from ui.runtime.real_ui_input import MainUiRealInputMixin, configure_real_ui_input_dependencies
@@ -317,6 +318,16 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
                 pass
         if event is not None and event.type() == QtCore.QEvent.Wheel:
             try:
+                scroller = getattr(self, "_addon_tab_scroller", None)
+                if (
+                    scroller is not None
+                    and scroller.handles_widget(watched)
+                    and scroller.scroll_from_wheel(event)
+                ):
+                    return True
+            except Exception:
+                pass
+            try:
                 if isinstance(watched, QtWidgets.QTabBar):
                     self._forward_tabbar_wheel_to_parent_scroll_area(watched, event)
                     return True
@@ -393,6 +404,11 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
                 tab_bar.installEventFilter(self)
             except Exception:
                 pass
+            try:
+                if str(tab_widget.objectName() or "") == "left_tabs":
+                    self._addon_tab_scroller = install_addon_tab_scroller(tab_widget)
+            except Exception:
+                self._addon_tab_scroller = None
 
     def _bind_adopted_addon_tab_session_save(self, root_widget):
         if root_widget is None:

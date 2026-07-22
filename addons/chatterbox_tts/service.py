@@ -6,8 +6,13 @@ import inspect
 import importlib
 import logging
 import threading
+import time
 import warnings
+from collections import OrderedDict
+from contextlib import contextmanager
 from typing import Any
+
+from core.tts_latency_diagnostics import runtime_diagnostic_fields
 
 
 class _SilentTqdm:
@@ -130,7 +135,150 @@ class ChatterboxTTSService:
         self._lock = threading.RLock()
         self._abort_event = threading.Event()
         self._model = None
+        self._voice_conditionals_cache: OrderedDict[tuple[Any, ...], Any] = OrderedDict()
+        self._active_voice_conditionals_key: tuple[Any, ...] | None = None
+        self._voice_conditionals_cache_limit = 8
+        self._generation_owner_thread = ""
+        self._active_diagnostic_call_id = ""
+        self._active_diagnostic_chars = 0
+        self._active_diagnostic_operation = ""
         self.sr = 24000
+
+    def _record_latency_event(self, event: str, **fields: Any) -> None:
+        context = self._context
+        recorder = context.get_service("diagnostics.tts_latency") if context is not None else None
+        if not callable(recorder):
+            return
+        try:
+            recorder(str(event or ""), **dict(fields or {}))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _model_device_label(model: Any) -> str:
+        for candidate in (
+            getattr(model, "device", None),
+            getattr(getattr(model, "t3", None), "device", None),
+            getattr(getattr(model, "s3gen", None), "device", None),
+        ):
+            value = str(candidate or "").strip()
+            if value:
+                return value[:80]
+        return "unknown"
+
+    @staticmethod
+    def _voice_file_label(path: Any) -> str:
+        value = str(path or "").strip()
+        if not value:
+            return ""
+        return os.path.basename(os.path.normpath(value))[:160]
+
+    @staticmethod
+    def _token_count(value: Any) -> int:
+        counter = getattr(value, "numel", None)
+        if callable(counter):
+            try:
+                return max(0, int(counter()))
+            except Exception:
+                pass
+        shape = getattr(value, "shape", None)
+        if shape:
+            try:
+                count = 1
+                for dimension in tuple(shape):
+                    count *= int(dimension)
+                return max(0, count)
+            except Exception:
+                pass
+        try:
+            return max(0, len(value))
+        except Exception:
+            return 0
+
+    def _install_latency_phase_hooks(self, model: Any) -> None:
+        def install(target: Any, method_name: str, event_name: str) -> None:
+            if target is None:
+                return
+            marker = f"_nc_{event_name}_hook_installed"
+            if bool(getattr(target, marker, False)):
+                return
+            original = getattr(target, method_name, None)
+            if not callable(original):
+                return
+
+            def timed(*args, **kwargs):
+                started_at = time.perf_counter()
+                error_class = ""
+                result = None
+                try:
+                    result = original(*args, **kwargs)
+                    return result
+                except Exception as exc:
+                    error_class = type(exc).__name__
+                    raise
+                finally:
+                    result_fields = {}
+                    if event_name == "chatterbox_t3_inference" and not error_class:
+                        result_fields["token_count"] = self._token_count(result)
+                    self._record_latency_event(
+                        event_name,
+                        call_id=str(getattr(self, "_active_diagnostic_call_id", "") or ""),
+                        chars=int(getattr(self, "_active_diagnostic_chars", 0) or 0),
+                        operation=str(getattr(self, "_active_diagnostic_operation", "") or ""),
+                        duration_ms=round((time.perf_counter() - started_at) * 1000.0, 3),
+                        outcome="error" if error_class else "ok",
+                        error_class=error_class,
+                        **result_fields,
+                    )
+
+            try:
+                setattr(target, method_name, timed)
+                setattr(target, marker, True)
+            except Exception:
+                return
+
+        install(model, "prepare_conditionals", "chatterbox_voice_conditioning")
+        install(getattr(model, "t3", None), "inference_turbo", "chatterbox_t3_inference")
+        install(getattr(model, "s3gen", None), "inference", "chatterbox_s3_inference")
+
+    @contextmanager
+    def _tracked_lock(self, operation: str):
+        operation_name = str(operation or "operation").strip()[:80]
+        call_id = f"{os.getpid()}-{threading.get_ident()}-{time.perf_counter_ns()}"
+        observed_owner_thread = str(getattr(self, "_generation_owner_thread", "") or "")
+        lock_started_at = time.perf_counter()
+        with self._lock:
+            lock_wait_ms = (time.perf_counter() - lock_started_at) * 1000.0
+            previous_owner_thread = str(getattr(self, "_generation_owner_thread", "") or "")
+            previous_call_id = str(getattr(self, "_active_diagnostic_call_id", "") or "")
+            previous_chars = int(getattr(self, "_active_diagnostic_chars", 0) or 0)
+            previous_operation = str(getattr(self, "_active_diagnostic_operation", "") or "")
+            owner_thread = f"{threading.current_thread().name}:{operation_name}"
+            self._generation_owner_thread = owner_thread
+            self._active_diagnostic_call_id = call_id
+            self._active_diagnostic_chars = 0
+            self._active_diagnostic_operation = operation_name
+            operation_started_at = time.perf_counter()
+            self._record_latency_event(
+                "chatterbox_lock_operation_start",
+                call_id=call_id,
+                operation=operation_name,
+                lock_wait_ms=round(lock_wait_ms, 3),
+                observed_owner_thread=observed_owner_thread,
+            )
+            try:
+                yield
+            finally:
+                self._record_latency_event(
+                    "chatterbox_lock_operation_end",
+                    call_id=call_id,
+                    operation=operation_name,
+                    duration_ms=round((time.perf_counter() - operation_started_at) * 1000.0, 3),
+                )
+                self._generation_owner_thread = previous_owner_thread
+                self._active_diagnostic_call_id = previous_call_id
+                self._active_diagnostic_chars = previous_chars
+                self._active_diagnostic_operation = previous_operation
 
     def _runtime_config_service(self):
         return self._context.get_service("qt.runtime_config") if self._context is not None else None
@@ -240,6 +388,61 @@ class ChatterboxTTSService:
             model.conds = copy.deepcopy(builtin)
         except Exception:
             model.conds = builtin
+        self._active_voice_conditionals_key = None
+
+    @staticmethod
+    def _voice_conditionals_key(path: str, request: dict[str, Any]) -> tuple[Any, ...] | None:
+        raw_path = str(path or "").strip()
+        if not raw_path:
+            return None
+        try:
+            resolved = os.path.normcase(os.path.realpath(raw_path))
+            stat = os.stat(resolved)
+        except OSError:
+            return None
+        return (
+            resolved,
+            int(stat.st_mtime_ns),
+            int(stat.st_size),
+            float(request.get("exaggeration", 0.0) or 0.0),
+            bool(request.get("norm_loudness", True)),
+        )
+
+    def _cache_current_voice_conditionals(self, model, key: tuple[Any, ...]) -> None:
+        self._active_voice_conditionals_key = key
+        conditionals = getattr(model, "conds", None)
+        if conditionals is None:
+            return
+        try:
+            snapshot = copy.deepcopy(conditionals)
+            mover = getattr(snapshot, "to", None)
+            if callable(mover):
+                snapshot = mover("cpu")
+        except Exception:
+            return
+        self._voice_conditionals_cache[key] = snapshot
+        self._voice_conditionals_cache.move_to_end(key)
+        while len(self._voice_conditionals_cache) > self._voice_conditionals_cache_limit:
+            self._voice_conditionals_cache.popitem(last=False)
+
+    def _restore_cached_voice_conditionals(self, model, key: tuple[Any, ...]) -> bool:
+        if self._active_voice_conditionals_key == key and getattr(model, "conds", None) is not None:
+            return True
+        cached = self._voice_conditionals_cache.get(key)
+        if cached is None:
+            return False
+        try:
+            conditionals = copy.deepcopy(cached)
+            mover = getattr(conditionals, "to", None)
+            if callable(mover):
+                conditionals = mover(getattr(model, "device", "cpu"))
+            model.conds = conditionals
+        except Exception:
+            self._voice_conditionals_cache.pop(key, None)
+            return False
+        self._voice_conditionals_cache.move_to_end(key)
+        self._active_voice_conditionals_key = key
+        return True
 
     def _voice_prompt_path(self):
         if not self._use_cloned_voice():
@@ -258,6 +461,7 @@ class ChatterboxTTSService:
             request.pop(key, None)
         apply_watermark = self._runtime_bool("tts_apply_watermark", True)
         model = self._ensure_model()
+        self._install_latency_phase_hooks(model)
         self._set_watermark_enabled(model, apply_watermark)
         if self._generate_accepts(model, "apply_watermark"):
             request["apply_watermark"] = apply_watermark
@@ -266,12 +470,13 @@ class ChatterboxTTSService:
     def warm_up(self):
         if not self._runtime_bool("tts_prewarm_on_start", True):
             return False
-        with self._lock:
+        with self._tracked_lock("warm_up"):
             try:
                 self._abort_event.clear()
+                voice_path = self._voice_prompt_path()
                 model, request = self._generation_request(
                     {
-                        "audio_prompt_path": self._voice_prompt_path(),
+                        "audio_prompt_path": voice_path,
                         "temperature": 0.6,
                         "top_p": 0.9,
                         "top_k": 40,
@@ -285,6 +490,9 @@ class ChatterboxTTSService:
                 if not request.get("audio_prompt_path"):
                     request.pop("audio_prompt_path", None)
                 model.generate("Ready.", **request)
+                key = self._voice_conditionals_key(voice_path, request)
+                if key is not None:
+                    self._cache_current_voice_conditionals(model, key)
                 print("✓ Chatterbox warmup complete")
                 return True
             except Exception as exc:
@@ -292,26 +500,155 @@ class ChatterboxTTSService:
                 return False
 
     def generate(self, text, audio_prompt_path=None, **kwargs):
-        self._abort_event.clear()
-        model, request = self._generation_request(kwargs)
-        for key in ("min_p",):
-            request.pop(key, None)
-        if not self._use_cloned_voice():
-            request.pop("audio_prompt_path", None)
-            self._restore_builtin_conditionals(model)
-        elif audio_prompt_path is not None:
-            request.setdefault("audio_prompt_path", audio_prompt_path)
-        elif "audio_prompt_path" not in request:
-            voice_path = self._voice_prompt_path()
-            if voice_path:
-                request["audio_prompt_path"] = voice_path
-        return model.generate(str(text or ""), **request)
+        requested_at = time.perf_counter()
+        call_id = f"{os.getpid()}-{threading.get_ident()}-{time.perf_counter_ns()}"
+        chars = len(str(text or "").strip())
+        observed_owner_thread = str(getattr(self, "_generation_owner_thread", "") or "")
+        self._record_latency_event(
+            "chatterbox_generate_requested",
+            call_id=call_id,
+            chars=chars,
+            voice_override=bool(audio_prompt_path),
+            voice_file=self._voice_file_label(audio_prompt_path),
+            observed_owner_thread=observed_owner_thread,
+        )
+        lock_started_at = time.perf_counter()
+        with self._lock:
+            lock_wait_ms = (time.perf_counter() - lock_started_at) * 1000.0
+            owner_thread = threading.current_thread().name
+            self._record_latency_event(
+                "chatterbox_lock_acquired",
+                call_id=call_id,
+                chars=chars,
+                lock_wait_ms=round(lock_wait_ms, 3),
+                observed_owner_thread=observed_owner_thread,
+            )
+            previous_owner_thread = str(getattr(self, "_generation_owner_thread", "") or "")
+            previous_call_id = str(getattr(self, "_active_diagnostic_call_id", "") or "")
+            previous_chars = int(getattr(self, "_active_diagnostic_chars", 0) or 0)
+            previous_operation = str(getattr(self, "_active_diagnostic_operation", "") or "")
+            self._generation_owner_thread = owner_thread
+            self._active_diagnostic_call_id = call_id
+            self._active_diagnostic_chars = chars
+            self._active_diagnostic_operation = "generate"
+            generation_started_at = time.perf_counter()
+            try:
+                self._abort_event.clear()
+                model, request = self._generation_request(kwargs)
+                self._install_latency_phase_hooks(model)
+                for key in ("min_p",):
+                    request.pop(key, None)
+                cloned_voice = bool(self._use_cloned_voice())
+                if not cloned_voice:
+                    request.pop("audio_prompt_path", None)
+                    self._restore_builtin_conditionals(model)
+                elif audio_prompt_path is not None:
+                    request.setdefault("audio_prompt_path", audio_prompt_path)
+                elif "audio_prompt_path" not in request:
+                    voice_path = self._voice_prompt_path()
+                    if voice_path:
+                        request["audio_prompt_path"] = voice_path
+
+                voice_path = str(request.get("audio_prompt_path") or "").strip()
+                conditionals_key = self._voice_conditionals_key(voice_path, request)
+                restore_started_at = time.perf_counter()
+                cache_hit = bool(
+                    conditionals_key is not None
+                    and self._restore_cached_voice_conditionals(model, conditionals_key)
+                )
+                restore_seconds = time.perf_counter() - restore_started_at
+                if cache_hit:
+                    request.pop("audio_prompt_path", None)
+
+                model_started_at = time.perf_counter()
+                setup_ms = (model_started_at - generation_started_at) * 1000.0
+                model_device = self._model_device_label(model)
+                self._record_latency_event(
+                    "chatterbox_model_start",
+                    call_id=call_id,
+                    chars=chars,
+                    setup_ms=round(setup_ms, 3),
+                    restore_ms=round(restore_seconds * 1000.0, 3),
+                    voice_cache_hit=cache_hit,
+                    cloned_voice=cloned_voice,
+                    voice_override=bool(voice_path),
+                    voice_file=self._voice_file_label(voice_path),
+                    model_device=model_device,
+                    **runtime_diagnostic_fields(),
+                )
+                model_error_class = ""
+                try:
+                    result = model.generate(str(text or ""), **request)
+                except Exception as exc:
+                    model_error_class = type(exc).__name__
+                    raise
+                finally:
+                    model_seconds = time.perf_counter() - model_started_at
+                    self._record_latency_event(
+                        "chatterbox_model_end",
+                        call_id=call_id,
+                        chars=chars,
+                        model_ms=round(model_seconds * 1000.0, 3),
+                        model_device=model_device,
+                        outcome="error" if model_error_class else "ok",
+                        error_class=model_error_class,
+                        **runtime_diagnostic_fields(),
+                    )
+                if conditionals_key is not None and request.get("audio_prompt_path"):
+                    self._cache_current_voice_conditionals(model, conditionals_key)
+                total_seconds = time.perf_counter() - generation_started_at
+                if str(os.environ.get("NC_TTS_TIMING", "") or "").strip().lower() in {"1", "true", "yes", "on"}:
+                    print(
+                        f"[TTS Timing] Chatterbox chars={chars} "
+                        f"cache={'hit' if cache_hit else 'miss'} restore={restore_seconds:.3f}s "
+                        f"model={model_seconds:.3f}s total={total_seconds:.3f}s"
+                    )
+                self._record_latency_event(
+                    "chatterbox_generate_end",
+                    call_id=call_id,
+                    chars=chars,
+                    lock_wait_ms=round(lock_wait_ms, 3),
+                    model_ms=round(model_seconds * 1000.0, 3),
+                    total_ms=round((time.perf_counter() - requested_at) * 1000.0, 3),
+                    outcome="ok",
+                )
+                return result
+            finally:
+                self._generation_owner_thread = previous_owner_thread
+                self._active_diagnostic_call_id = previous_call_id
+                self._active_diagnostic_chars = previous_chars
+                self._active_diagnostic_operation = previous_operation
+
+    def prepare_voice(self, audio_prompt_path, **kwargs):
+        path = str(audio_prompt_path or "").strip()
+        if not self._use_cloned_voice() or not path or not os.path.isfile(path):
+            return False
+        with self._tracked_lock("prepare_voice"):
+            self._abort_event.clear()
+            model, request = self._generation_request(kwargs)
+            key = self._voice_conditionals_key(path, request)
+            if key is None:
+                return False
+            if self._restore_cached_voice_conditionals(model, key):
+                return True
+            preparer = getattr(model, "prepare_conditionals", None)
+            if not callable(preparer):
+                return False
+            preparer(
+                path,
+                exaggeration=float(request.get("exaggeration", 0.0) or 0.0),
+                norm_loudness=bool(request.get("norm_loudness", True)),
+            )
+            self._cache_current_voice_conditionals(model, key)
+            return True
 
     def close(self):
         self._abort_event.set()
-        with self._lock:
+        with self._tracked_lock("close"):
             model = self._model
             self._model = None
+            self._voice_conditionals_cache.clear()
+            self._active_voice_conditionals_key = None
         if model is not None:
             closer = getattr(model, "close", None)
             if callable(closer):

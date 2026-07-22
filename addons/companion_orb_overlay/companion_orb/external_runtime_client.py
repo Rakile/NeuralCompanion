@@ -37,6 +37,7 @@ class ExternalOrbRuntimeClient:
         self._logger = logger or (lambda _message: None)
         self._event_handler = event_handler
         self._lock = threading.RLock()
+        self._stop_requested = threading.Event()
         self._process: subprocess.Popen | None = None
         self._log_handle = None
         self._event_thread: threading.Thread | None = None
@@ -47,9 +48,11 @@ class ExternalOrbRuntimeClient:
 
     def start(self) -> bool:
         with self._lock:
+            if self._stop_requested.is_set():
+                return False
             if self.is_running():
                 return True
-            self.stop()
+            self._stop_process()
             script = Path(__file__).with_name("external_orb_runtime.py")
             if not script.exists():
                 self._logger(f"Companion Orb external runtime script missing: {script}")
@@ -74,6 +77,13 @@ class ExternalOrbRuntimeClient:
                     env=env,
                     creationflags=self._creation_flags(),
                 )
+                if self._stop_requested.is_set():
+                    try:
+                        self._process.terminate()
+                    except Exception:
+                        pass
+                    self._stop_process()
+                    return False
                 self._start_event_reader(self._process)
                 return self.is_running()
             except Exception as exc:
@@ -85,10 +95,14 @@ class ExternalOrbRuntimeClient:
     def send(self, message: dict[str, Any]) -> bool:
         payload = dict(message or {})
         with self._lock:
+            if self._stop_requested.is_set():
+                return False
             if not self.start():
                 return False
             if not self._write(payload):
-                self.stop()
+                self._stop_process()
+                if self._stop_requested.is_set():
+                    return False
                 if not self.start():
                     return False
                 return self._write(payload)
@@ -124,7 +138,26 @@ class ExternalOrbRuntimeClient:
             except Exception as exc:
                 self._logger(f"Companion Orb external event handler failed: {exc}")
 
+    def request_stop(self) -> None:
+        """Interrupt blocked pipe writes without waiting on the sender lock."""
+
+        self._stop_requested.set()
+        process = self._process
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+            except Exception:
+                pass
+
     def stop(self) -> None:
+        self._stop_requested.set()
+        try:
+            with self._lock:
+                self._stop_process()
+        finally:
+            self._stop_requested.clear()
+
+    def _stop_process(self) -> None:
         process = self._process
         self._process = None
         if process is not None:

@@ -32,7 +32,7 @@ assert.equal(normalizeLanUrl("http://:8777"), "");
 
 $clientSmoke = @'
 const assert = require("assert");
-const { RemoteClient, RemoteRequestError, isRemoteAuthError } = require("./client.js");
+const { RemoteClient, RemoteRequestError, isRemoteAuthError } = require("./api/client.js");
 
 const calls = [];
 global.fetch = async (url, init) => {
@@ -118,7 +118,7 @@ assert.equal(replied.chat.messages[replied.chat.messages.length - 1].role, "assi
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 try {
   New-Item -ItemType Directory -Path $target | Out-Null
-  foreach ($item in @("app.json", "App.tsx", "index.ts", "package.json", "README.md", "tsconfig.json", "scripts", "src")) {
+  foreach ($item in @("app.json", "App.tsx", "index.ts", "package.json", "README.md", "tsconfig.json", "plugins", "scripts", "src")) {
     $source = Join-Path $appRoot $item
     if (Test-Path -LiteralPath $source) {
       Copy-Item -LiteralPath $source -Destination $target -Recurse
@@ -128,6 +128,11 @@ try {
   try {
     Invoke-Native -Command npm -Arguments @("install")
     Invoke-Native -Command node -Arguments @("scripts/smoke-ui-copy.js")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-lan-discovery.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-pairing-qr.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-swipe-controls.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-interface-mode.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-audio-fast-start.mjs")
     Invoke-Native -Command npm -Arguments @("run", "typecheck")
     Invoke-Native -Command npx -Arguments @("tsc", "src/utils/url.ts", "--target", "ES2020", "--module", "commonjs", "--outDir", "out", "--skipLibCheck")
     Invoke-Native -Command npx -Arguments @("tsc", "src/api/client.ts", "--target", "ES2020", "--module", "commonjs", "--outDir", "out", "--skipLibCheck")

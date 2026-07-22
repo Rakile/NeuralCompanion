@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.addons import BaseAddon
+from addons.companion_orb_overlay.companion_orb import eye_tracking
 
 
 class Addon(BaseAddon):
@@ -13,6 +14,7 @@ class Addon(BaseAddon):
 
         self.controller = CompanionOrbOverlaySettingsController(context)
         self.orb_controller = CompanionOrbController(context)
+        self.controller.set_companion_orb_service(self.orb_controller)
         context.ui.register_tab(
             id=self.TAB_ID,
             title="Companion Orb",
@@ -69,6 +71,8 @@ class Addon(BaseAddon):
         capability_name = str(capability or "").strip().lower()
         request = dict(payload or {})
         orb = getattr(self, "orb_controller", None)
+        if capability_name == "chat.user_text_command" and orb is not None:
+            return self._handle_eye_tracking_user_text_command(request)
         if capability_name.startswith("companion_orb.") and orb is not None:
             if capability_name == "companion_orb.target_info":
                 return {"ok": True, "target": orb.target_info()}
@@ -93,7 +97,38 @@ class Addon(BaseAddon):
             if capability_name == "companion_orb.focus_comment":
                 orb.focus_comment_text(request)
                 return {"ok": True, "focused": True}
+            if capability_name == "companion_orb.eye_tracking_status":
+                return {"ok": True, **orb.eye_tracking_status()}
+            if capability_name == "companion_orb.reconnect_eye_tracking":
+                return orb.reconnect_eye_tracking()
+            if capability_name == "companion_orb.react_at_gaze":
+                return orb.react_at_gaze(force=bool(request.get("force", True)))
         return None
+
+    def _handle_eye_tracking_user_text_command(self, request):
+        role = str(request.get("role") or "user").strip().lower()
+        if role and role != "user":
+            return None
+        text = str(request.get("text") or request.get("utterance") or "").strip()
+        if not eye_tracking.is_explicit_orb_gaze_command(text):
+            return None
+        orb = getattr(self, "orb_controller", None)
+        if orb is None:
+            return None
+        result = orb.react_at_gaze(force=True)
+        ok = bool(isinstance(result, dict) and result.get("ok"))
+        response_text = (
+            "I am checking where you are looking."
+            if ok
+            else str((result or {}).get("error") or "No recent eye-tracker focus is available.")
+        )
+        return {
+            "ok": ok,
+            "handled": True,
+            "response_text": response_text,
+            "use_llm_response": False,
+            "result": result,
+        }
 
     def _on_hidden_pong_parsed(self, payload):
         orb = getattr(self, "orb_controller", None)

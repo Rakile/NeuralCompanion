@@ -17,6 +17,12 @@ SESSION_MODE_DESCRIPTIONS = {
 }
 AR_PACING_MODES = ("Slow / Audiobook", "Balanced", "Fast / Game-like")
 AR_INTERACTION_FREQUENCIES = ("Ask often", "Ask sometimes", "Continue until important choice")
+AR_DIALOGUE_DENSITY_MODES = (
+    "Cinematic narrator-led",
+    "Balanced narrator + character dialogue",
+    "Ensemble scene",
+    "High-dialogue character drama",
+)
 VOICE_BACKENDS = ("inherit", "chatterbox", "chatterbox_multilingual", "pockettts", "pockettts_multilingual", "gemini_tts_preview")
 VISUAL_MODES = (
     "off",
@@ -355,6 +361,7 @@ class RoleplaySessionState:
     ar_state: AlternativeRealityState = field(default_factory=AlternativeRealityState)
     ar_pacing: str = "Balanced"
     ar_interaction_frequency: str = "Ask sometimes"
+    ar_dialogue_density: str = "Balanced narrator + character dialogue"
     ar_use_persona_profiles: bool = True
 
     @classmethod
@@ -388,6 +395,7 @@ class RoleplaySessionState:
             ar_state=AlternativeRealityState.from_dict(data.get("ar_state") if isinstance(data.get("ar_state"), dict) else {}),
             ar_pacing=_choice(data.get("ar_pacing"), AR_PACING_MODES, "Balanced"),
             ar_interaction_frequency=_choice(data.get("ar_interaction_frequency"), AR_INTERACTION_FREQUENCIES, "Ask sometimes"),
+            ar_dialogue_density=_choice(data.get("ar_dialogue_density"), AR_DIALOGUE_DENSITY_MODES, "Balanced narrator + character dialogue"),
             ar_use_persona_profiles=_bool(data.get("ar_use_persona_profiles"), True),
         )
 
@@ -402,6 +410,7 @@ class RoleplaySessionState:
             payload["ar_state"] = AlternativeRealityState.from_dict(payload.get("ar_state")).to_dict()
         payload["ar_pacing"] = _choice(payload.get("ar_pacing"), AR_PACING_MODES, "Balanced")
         payload["ar_interaction_frequency"] = _choice(payload.get("ar_interaction_frequency"), AR_INTERACTION_FREQUENCIES, "Ask sometimes")
+        payload["ar_dialogue_density"] = _choice(payload.get("ar_dialogue_density"), AR_DIALOGUE_DENSITY_MODES, "Balanced narrator + character dialogue")
         return payload
 
 

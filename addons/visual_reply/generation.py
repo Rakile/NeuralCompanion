@@ -89,10 +89,12 @@ def _sanitize_story_visual_text(text: str) -> str:
 
 
 class VisualReplyGenerationService:
-    def __init__(self, runtime, *, output_dir: Path):
+    def __init__(self, runtime, *, output_dir: Path, before_publish=None):
         self.runtime = runtime
         self.output_dir = Path(output_dir)
+        self.before_publish = before_publish
         self._request_lock = threading.Lock()
+        self._generation_lock = threading.Lock()
         self._request_counter = 0
         self._story_queue = queue.Queue()
         self._story_queue_lock = threading.Lock()
@@ -232,24 +234,39 @@ class VisualReplyGenerationService:
         print(f"🖼️ [VisualReply] Requested: {prompt_text}")
 
         try:
-            client = self.runtime_client()
-            request_kwargs = {
-                "model": self.runtime.model_name(),
-                "prompt": self.runtime.apply_style_anchor(prompt_text),
-            }
-            if self.runtime.provider() == "comfyui":
-                request_kwargs["size"] = self.runtime.image_size()
-                request_kwargs["negative_prompt"] = self.runtime.comfyui_negative_prompt()
-            elif self.runtime.provider() == "xai":
-                request_kwargs["response_format"] = "b64_json"
-                request_kwargs["extra_body"] = self.runtime.xai_extra_body()
-            elif self.runtime.provider() == "runware":
-                request_kwargs["size"] = self.runtime.image_size()
-                request_kwargs["response_format"] = "base64Data"
-            else:
-                request_kwargs["size"] = self.runtime.image_size()
-            response = client.images.generate(**request_kwargs)
-            output_path = self.write_image_from_response(response, self.output_dir / request_id)
+            with self._generation_lock:
+                client = self.runtime_client()
+                request_kwargs = {
+                    "model": self.runtime.model_name(),
+                    "prompt": self.runtime.apply_style_anchor(prompt_text),
+                }
+                if self.runtime.provider() == "comfyui":
+                    request_kwargs["size"] = self.runtime.image_size()
+                    request_kwargs["negative_prompt"] = self.runtime.comfyui_negative_prompt()
+                elif self.runtime.provider() == "xai":
+                    request_kwargs["response_format"] = "b64_json"
+                    request_kwargs["extra_body"] = self.runtime.xai_extra_body()
+                elif self.runtime.provider() == "runware":
+                    request_kwargs["size"] = self.runtime.image_size()
+                    request_kwargs["response_format"] = "base64Data"
+                else:
+                    request_kwargs["size"] = self.runtime.image_size()
+                response = client.images.generate(**request_kwargs)
+                output_path = self.write_image_from_response(response, self.output_dir / request_id)
+            if callable(self.before_publish):
+                allowed = self.before_publish(
+                    {
+                        "request_id": request_id,
+                        "prompt": prompt_text,
+                        "source_text": source_text,
+                        "keep_current_image": bool(keep_current_image),
+                        "provider": self.runtime.provider(),
+                        "status": "ready",
+                        "image_path": str(output_path),
+                    }
+                )
+                if allowed is False:
+                    return False
             current_request_id = str(getattr(state, "current_visual_reply_data", {}).get("request_id", "") or "")
             if published_loading_state and current_request_id and current_request_id != request_id:
                 return True
@@ -271,6 +288,20 @@ class VisualReplyGenerationService:
             if published_loading_state and current_request_id and current_request_id != request_id:
                 return False
             detail = str(exc) or repr(exc)
+            if callable(self.before_publish):
+                allowed = self.before_publish(
+                    {
+                        "request_id": request_id,
+                        "prompt": prompt_text,
+                        "source_text": source_text,
+                        "keep_current_image": bool(keep_current_image),
+                        "provider": self.runtime.provider(),
+                        "status": "error",
+                        "detail_text": detail,
+                    }
+                )
+                if allowed is False:
+                    return False
             state.set_current_visual_reply_data(
                 {
                     "status": "error",

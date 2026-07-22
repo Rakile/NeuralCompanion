@@ -29,6 +29,9 @@ if /I "%NC_BRANCH%"=="HEAD" goto :eof
 for /f "delims=" %%i in ('git rev-parse "origin/%NC_BRANCH%" 2^>nul') do set "NC_REMOTE=%%i"
 if not defined NC_REMOTE goto :eof
 if /I "%NC_HEAD%"=="%NC_REMOTE%" goto :eof
+git merge-base --is-ancestor "%NC_REMOTE%" "%NC_HEAD%" >nul 2>&1
+if errorlevel 2 goto :eof
+if not errorlevel 1 goto :eof
 
 echo.
 echo A newer version of Neural Companion is available.

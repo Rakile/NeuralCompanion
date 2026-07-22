@@ -297,10 +297,27 @@ class _AddonCapabilities:
 class _Shell:
     def __init__(self):
         self.sent = []
+        self.sent_metadata = []
 
-    def send_typed_chat_message(self, text=None):
+    def send_typed_chat_message(self, text=None, metadata=None):
         self.sent.append(str(text or ""))
+        self.sent_metadata.append(dict(metadata or {}))
         return True
+
+
+class _UserImageTurns:
+    def __init__(self):
+        self.image_turns = []
+
+    def queue_image_turn(self, image_path, *, content=None, source="clipboard", remote_capture_id=""):
+        self.image_turns.append(
+            {
+                "image_path": str(image_path or ""),
+                "content": str(content or ""),
+                "source": str(source or ""),
+                "remote_capture_id": str(remote_capture_id or ""),
+            }
+        )
 
 
 class _Context:
@@ -312,6 +329,7 @@ class _Context:
         self.avatar = _Snapshot({"avatar_engine": "none"})
         self._services = {
             "qt.shell": _Shell(),
+            "qt.user_image_turns": _UserImageTurns(),
             "qt.runtime_status": _RuntimeStatus(),
             "qt.runtime_controls": _RuntimeControls(),
             "qt.engine_lifecycle": _EngineLifecycle(),
@@ -508,6 +526,17 @@ def _backend_process_smoke(root: Path) -> None:
     assert "654321" not in " ".join(supervisor.start_command())
     assert status["pairing_code"] == ""
     assert status["health"]["status"] == "not_started"
+    occupied_port = free_local_port()
+    occupied_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    occupied_socket.bind(("127.0.0.1", occupied_port))
+    occupied_socket.listen(1)
+    try:
+        conflict_message = supervisor.port_conflict_message(host="0.0.0.0", port=occupied_port)
+    finally:
+        occupied_socket.close()
+    assert "already using" in conflict_message
+    assert str(occupied_port) in conflict_message
     supervisor._process = _ExitedProcess()
     supervisor._pairing_code = "654321"
     supervisor._health = {"ok": True, "status": "ready"}
@@ -560,6 +589,32 @@ def _backend_process_smoke(root: Path) -> None:
     assert stale_bridge_info["accepted"] is False
     assert "Bridge info is not usable" in stale_bridge_info["message"]
     assert "not enabled" in stale_bridge_info["message"]
+    supervisor.bridge_info_path.write_text(
+        json.dumps(
+            {
+                "service": "nc_main_chat_bridge",
+                "enabled": True,
+                "url": "http://127.0.0.1:8776",
+                "token": "smoke-token",
+                "updated_at": time.time(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    supervisor.backend_script.parent.mkdir(parents=True, exist_ok=True)
+    supervisor.backend_script.write_text("", encoding="utf-8")
+    occupied_port = free_local_port()
+    occupied_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    occupied_socket.bind(("127.0.0.1", occupied_port))
+    occupied_socket.listen(1)
+    try:
+        occupied_start = supervisor.start(host="0.0.0.0", port=occupied_port)
+    finally:
+        occupied_socket.close()
+    assert occupied_start["accepted"] is False
+    assert occupied_start["running"] is False
+    assert "already using" in occupied_start["message"]
 
     stop_failure_supervisor = BackendProcessSupervisor(
         app_root=app_root,
@@ -807,6 +862,200 @@ def _media_bridge_auto_capture_smoke(root: Path) -> None:
     assert snapshot["items"][0]["speaker"] == "Assistant"
     assert Path(bridge.audio_file_path(snapshot["items"][0]["id"])).exists()
     bridge.cleanup()
+
+
+def _media_bridge_phone_only_capture_smoke(root: Path) -> None:
+    cache_dir = root / "media_bridge_phone_only"
+    source = root / "media_bridge_phone_only_source.wav"
+    _write_wav(source)
+    bridge = MainChatMediaBridge(cache_dir, allow_auto_capture=False)
+    ignored = bridge.handle_tts_audio_chunk_ready(
+        {
+            "audio_path": str(source),
+            "text": "hidden proactive desktop reply",
+            "duration_seconds": 0.25,
+        }
+    )
+    assert ignored == {"captured": False, "skip_local_playback": False}
+    assert bridge.snapshot()["items"] == []
+    bridge.begin_tts_capture("phone text", capture_id="phone-turn-1")
+    unrelated = bridge.handle_tts_audio_chunk_ready(
+        {
+            "audio_path": str(source),
+            "text": "unrelated desktop proactive",
+            "duration_seconds": 0.25,
+            "source_meta": {"remote_capture_id": "different-turn"},
+        }
+    )
+    assert unrelated == {"captured": False, "skip_local_playback": False}
+    captured = bridge.handle_tts_audio_chunk_ready(
+        {
+            "audio_path": str(source),
+            "text": "reply to phone text",
+            "duration_seconds": 0.25,
+            "source_meta": {"remote_capture_id": "phone-turn-1"},
+        }
+    )
+    assert captured["captured"] is True
+    assert bridge.snapshot()["items"][0]["text"] == "reply to phone text"
+    bridge.cleanup()
+
+
+def _phone_image_upload_smoke(root: Path) -> None:
+    context = _Context(root / "phone_image_app")
+    controller = MainChatRemoteController(context)
+    try:
+        image_base64 = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/"
+            "x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        )
+        result = controller.remote_image_upload(
+            {
+                "image_base64": image_base64,
+                "format": "png",
+                "prompt": "What is in this phone photo?",
+                "play_on_backend": False,
+                "capture_phone_audio": True,
+            }
+        )
+        assert result["accepted"] is True
+        assert result["image_url_path"].startswith("/api/image/file/")
+        image_turns = context._services["qt.user_image_turns"]
+        assert image_turns.image_turns[-1]["content"] == "What is in this phone photo?"
+        assert image_turns.image_turns[-1]["source"] == "phone_camera"
+        assert image_turns.image_turns[-1]["remote_capture_id"]
+        uploaded_path = Path(image_turns.image_turns[-1]["image_path"])
+        assert uploaded_path.is_file()
+        feed = controller._chat_feed(
+            {
+                "conversation_history": [
+                    {"role": "user", "content": "You continue speaking.", "origin": "input", "hidden_proactive": True},
+                    {"role": "assistant", "content": "hidden", "origin": "assistant_reply", "hidden_proactive": True},
+                    {
+                        "role": "user",
+                        "content": "What is in this phone photo?",
+                        "origin": "input",
+                        "attachment_image_path": str(uploaded_path),
+                        "attachment_source": "phone_camera",
+                    },
+                    {"role": "assistant", "content": "A visible phone reply.", "origin": "assistant_reply"},
+                ]
+            }
+        )
+        assert [item["content"] for item in feed["messages"]] == [
+            "What is in this phone photo?",
+            "A visible phone reply.",
+        ]
+        assert feed["messages"][0]["image_url_path"] == result["image_url_path"]
+
+        def fail_image_turn(*_args, **_kwargs):
+            raise RuntimeError("image queue failed")
+
+        image_turns.queue_image_turn = fail_image_turn
+        failed = controller.remote_image_upload(
+            {
+                "image_base64": image_base64,
+                "format": "png",
+                "prompt": "This should fail cleanly",
+            }
+        )
+        assert failed["accepted"] is False
+        assert "image queue failed" in failed["error"]
+        assert controller.media_bridge.snapshot()["capture_active"] is False
+        assert len(list(controller.image_upload_dir.glob("*"))) == 1
+    finally:
+        controller.shutdown()
+
+
+def _visual_reply_chat_image_smoke(root: Path) -> None:
+    context = _Context(root / "visual_reply_chat_image_app")
+    controller = MainChatRemoteController(context)
+    bridge = None
+    try:
+        image_path = root / "visual_reply_history.png"
+        image_path.write_bytes(
+            base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/"
+                "x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+            )
+        )
+        feed = controller._chat_feed(
+            {
+                "conversation_history": [
+                    {
+                        "role": "assistant",
+                        "content": "A generated visual reply.",
+                        "origin": "assistant_reply",
+                        "visual_reply_image_path": str(image_path),
+                        "visual_reply_image_path_source": "generated_image",
+                    }
+                ]
+            }
+        )
+        message = feed["messages"][0]
+        assert message["image_url_path"].startswith("/api/chat/image/")
+        assert message["image_content_type"] == "image/png"
+        image_id = message["image_url_path"].rsplit("/", 1)[-1]
+        assert controller.chat_image_path(image_id) == image_path.resolve()
+        bridge = MainChatBridgeServer(
+            controller,
+            BridgeSettings(enabled=True, host="127.0.0.1", port=free_local_port(), token="visual-smoke-token"),
+        )
+        bridge.start()
+        request = urllib.request.Request(
+            f"{bridge.url}{message['image_url_path']}",
+            headers={"X-NC-Bridge-Token": "visual-smoke-token"},
+        )
+        with urllib.request.urlopen(request, timeout=5.0) as response:
+            assert response.headers.get_content_type() == "image/png"
+            assert response.read() == image_path.read_bytes()
+        try:
+            controller.chat_image_path("not-registered")
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("unregistered chat image id must not expose a local file")
+    finally:
+        if bridge is not None:
+            bridge.stop()
+        controller.shutdown()
+
+
+def _phone_debug_upload_smoke(root: Path) -> None:
+    context = _Context(root / "phone_debug_app")
+    controller = MainChatRemoteController(context)
+    try:
+        result = controller.remote_debug_upload(
+            {
+                "reason": "manual",
+                "app": {"version": "1.2.3", "platform": "android"},
+                "events": [
+                    {
+                        "timestamp": "2026-07-12T12:00:00.000Z",
+                        "level": "error",
+                        "event": "request_failed",
+                        "details": {"path": "/api/image", "pairing_code": "533020", "error": "failed"},
+                    }
+                ],
+            }
+        )
+        assert result["accepted"] is True
+        assert result["events_written"] == 1
+        debug_path = context.app_root / "runtime" / "main_chat_remote" / "phone_debug" / "phone_remote.log"
+        line = json.loads(debug_path.read_text(encoding="utf-8").splitlines()[-1])
+        assert line["event"] == "request_failed"
+        assert line["details"]["pairing_code"] == "[redacted]"
+        assert "debug_path" not in result
+    finally:
+        controller.shutdown()
+
+
+def _engine_hidden_proactive_marker_smoke() -> None:
+    engine_source = (ROOT / "engine.py").read_text(encoding="utf-8")
+    assert 'hidden_proactive=is_proactive' in engine_source
+    assert 'turn["hidden_proactive"] = True' in engine_source
+    assert 'input_turn["hidden_proactive"] = True' in engine_source
+    assert '"remote_capture_id": response_capture_id' in engine_source
 
 
 def _media_bridge_audio_format_smoke(root: Path) -> None:
@@ -1227,6 +1476,15 @@ def _backend_venv_helper_smoke(root: Path) -> None:
 
 
 def _backend_pairing_output_smoke() -> None:
+    assert MainChatRemoteController._pairing_setup_uri(
+        "http://192.168.1.20:8777",
+        "123456",
+    ) == "ncchatremote://pair?url=http%3A%2F%2F192.168.1.20%3A8777&code=123456"
+    assert MainChatRemoteController._pairing_setup_uri("", "123456") == ""
+    assert MainChatRemoteController._pairing_setup_uri("http://192.168.1.20:8777", "") == ""
+    qr_png = MainChatRemoteController._pairing_qr_png("ncchatremote://pair?url=test&code=123456")
+    assert isinstance(qr_png, bytes)
+    assert not qr_png or qr_png.startswith(b"\x89PNG\r\n\x1a\n")
     assert normalize_remote_pairing_code("65-43 21") == "654321"
     assert normalize_remote_pairing_code("abc") == ""
     assert remote_backend_module.local_network_client("127.0.0.1") is True
@@ -1243,6 +1501,8 @@ def _backend_pairing_output_smoke() -> None:
     assert remote_backend_module.local_network_client("203.0.113.10") is False
     assert remote_backend_module.local_network_client("172.32.0.1") is False
     assert remote_backend_module.local_network_client("::ffff:8.8.8.8") is False
+    display_candidates = ["10.5.0.2", "192.168.56.1", "192.168.2.43", "172.23.208.1"]
+    assert sorted(display_candidates, key=remote_backend_module.lan_ip_display_sort_key)[0] == "192.168.2.43"
     assert remote_backend_module.normalize_bridge_url("127.0.0.1:9000/health?x=1") == "http://127.0.0.1:9000"
     assert remote_backend_module.normalize_bridge_url("http://localhost:9000/base") == "http://localhost:9000"
     assert remote_backend_module.normalize_bridge_url("http://[::1]:9000/base") == "http://[::1]:9000"
@@ -1412,6 +1672,34 @@ def _bridge_info_load_smoke(root: Path) -> None:
     else:
         raise AssertionError("future-dated bridge info should be rejected")
 
+    watched = root / "watched_bridge_info.json"
+    watched_payload = {
+        "service": "nc_main_chat_bridge",
+        "enabled": True,
+        "url": "http://localhost:8776",
+        "token": "watch-token",
+        "updated_at": time.time(),
+    }
+    watched.write_text(json.dumps(watched_payload), encoding="utf-8")
+    watched_backend = MainChatRemoteBackend(
+        host="127.0.0.1",
+        port=free_local_port(),
+        pairing_code="123456",
+        bridge_url="http://localhost:8776",
+        bridge_token="watch-token",
+        bridge_info_path=watched,
+    )
+    assert watched_backend.bridge_info_is_current() is True
+    watched_payload["updated_at"] = time.time() - remote_backend_module.BRIDGE_INFO_MAX_AGE_SECONDS - 1.0
+    watched.write_text(json.dumps(watched_payload), encoding="utf-8")
+    assert watched_backend.bridge_info_is_current() is False
+    watched_payload["updated_at"] = time.time()
+    watched_payload["token"] = "replacement-token"
+    watched.write_text(json.dumps(watched_payload), encoding="utf-8")
+    assert watched_backend.bridge_info_is_current() is False
+    watched.unlink()
+    assert watched_backend.bridge_info_is_current() is False
+
 
 def _remote_backend_main_bridge_info_smoke(root: Path) -> None:
     stale = root / "stale_main_bridge_info.json"
@@ -1530,6 +1818,23 @@ def _backend_auth_throttle_smoke() -> None:
         bridge_server.shutdown()
         bridge_server.server_close()
         bridge_thread.join(timeout=2)
+
+
+def _exclusive_backend_bind_smoke() -> None:
+    port = free_local_port()
+    first = MainChatRemoteBackend(host="127.0.0.1", port=port, pairing_code="123456")
+    second = MainChatRemoteBackend(host="127.0.0.1", port=port, pairing_code="654321")
+    first.start()
+    try:
+        try:
+            second.start()
+        except OSError:
+            pass
+        else:
+            raise AssertionError("A second LAN backend bound the same host and port.")
+    finally:
+        second.stop()
+        first.stop()
 
 
 def _websocket_handshake_validation_smoke() -> None:
@@ -1675,6 +1980,13 @@ def _websocket_state_bridge_timeout_smoke() -> None:
         except OSError:
             pass
         bridge_thread.join(timeout=2)
+
+
+def _audio_snapshot_signature_smoke() -> None:
+    signature = remote_backend_module.audio_snapshot_signature
+    assert signature({"generation": 2, "items": [{"id": "a"}]}) == (2, 1, "a")
+    assert signature({"generation": 2, "status": "ready", "items": [{"id": "a"}]}) == (2, 1, "a")
+    assert signature({"generation": 2, "items": [{"id": "a"}, {"id": "b"}]}) == (2, 2, "b")
 
 
 def _write_wav(path: Path) -> None:
@@ -2052,6 +2364,7 @@ def main() -> int:
             result = controller.remote_send_text("from phone")
             assert result["accepted"] is True
             assert context.get_service("qt.shell").sent == ["from phone"]
+            assert context.get_service("qt.shell").sent_metadata[-1]["remote_capture_id"]
 
             source = root / "source.wav"
             _write_wav(source)
@@ -2061,9 +2374,15 @@ def main() -> int:
                 {"capture_phone_audio": False, "play_on_backend": False},
             )
             assert text_only_send["accepted"] is True
+            text_only_capture_id = context.get_service("qt.shell").sent_metadata[-1]["remote_capture_id"]
             text_only_capture = controller.invoke_capability(
                 "tts.audio_chunk_ready",
-                {"audio_path": str(source), "text": "text only reply", "sample_rate": 16000},
+                {
+                    "audio_path": str(source),
+                    "text": "text only reply",
+                    "sample_rate": 16000,
+                    "source_meta": {"remote_capture_id": text_only_capture_id},
+                },
             )
             assert text_only_capture["captured"] is False
             assert text_only_capture["skip_local_playback"] is True
@@ -2076,9 +2395,15 @@ def main() -> int:
                 {"capture_phone_audio": True, "play_on_backend": True},
             )
             assert backend_audio_send["accepted"] is True
+            backend_audio_capture_id = context.get_service("qt.shell").sent_metadata[-1]["remote_capture_id"]
             backend_audio_capture = controller.invoke_capability(
                 "tts.audio_chunk_ready",
-                {"audio_path": str(source), "text": "phone and computer reply", "sample_rate": 16000},
+                {
+                    "audio_path": str(source),
+                    "text": "phone and computer reply",
+                    "sample_rate": 16000,
+                    "source_meta": {"remote_capture_id": backend_audio_capture_id},
+                },
             )
             assert backend_audio_capture["captured"] is True
             assert backend_audio_capture["skip_local_playback"] is False
@@ -2211,6 +2536,33 @@ def main() -> int:
             assert "audio_path" not in phone_stt["result"]
             assert phone_stt["result"]["audio_cached"] is True
 
+            phone_image = _post_phone_json(
+                f"http://127.0.0.1:{backend_port}/api/image",
+                pairing_code,
+                {
+                    "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+                    "format": "png",
+                    "prompt": "Describe this phone photo",
+                },
+            )
+            assert phone_image["ok"] is True
+            assert phone_image["result"]["accepted"] is True
+            image_url_path = phone_image["result"]["image_url_path"]
+            assert image_url_path.startswith("/api/image/file/")
+            assert _read_phone_bytes(
+                f"http://127.0.0.1:{backend_port}{image_url_path}",
+                pairing_code,
+            ).startswith(b"\x89PNG\r\n\x1a\n")
+            assert context.get_service("qt.user_image_turns").image_turns[-1]["content"] == "Describe this phone photo"
+
+            phone_debug = _post_phone_json(
+                f"http://127.0.0.1:{backend_port}/api/debug",
+                pairing_code,
+                {"reason": "smoke", "events": [{"level": "error", "event": "smoke_event", "details": {"code": pairing_code}}]},
+            )
+            assert phone_debug["ok"] is True
+            assert phone_debug["result"] == {"accepted": True, "events_written": 1}
+
             frame_path = root / "musetalk_frame.png"
             _write_png(frame_path)
             restore_musetalk = _install_musetalk_frame(frame_path)
@@ -2291,7 +2643,12 @@ def main() -> int:
         _stt_upload_unavailable_no_cache_smoke(root)
         _media_bridge_retention_smoke(root)
         _media_bridge_auto_capture_smoke(root)
+        _media_bridge_phone_only_capture_smoke(root)
         _media_bridge_audio_format_smoke(root)
+        _phone_image_upload_smoke(root)
+        _visual_reply_chat_image_smoke(root)
+        _phone_debug_upload_smoke(root)
+        _engine_hidden_proactive_marker_smoke()
         _stt_result_normalization_smoke()
         _stt_upload_serialization_smoke(root)
         _phone_status_redaction_smoke(root)
@@ -2306,7 +2663,9 @@ def main() -> int:
         _remote_backend_main_bridge_info_smoke(root)
         _backend_bridge_unavailable_smoke()
         _backend_auth_throttle_smoke()
+        _exclusive_backend_bind_smoke()
         _websocket_handshake_validation_smoke()
+        _audio_snapshot_signature_smoke()
         _websocket_state_bridge_timeout_smoke()
     print("main_chat_remote smoke passed")
     return 0

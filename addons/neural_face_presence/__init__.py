@@ -1,1 +1,0 @@
-"""Neural Face Presence addon."""

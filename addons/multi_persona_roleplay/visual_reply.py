@@ -54,13 +54,16 @@ class PersonaVisualReply:
     def build_prompt(
         self,
         persona: PersonaConfig | None = None,
+        policy_persona: PersonaConfig | None = None,
         reason: str = "manual",
         source_text: str = "",
         use_action_prompt: bool = True,
+        scene_focused: bool = False,
     ) -> dict[str, Any]:
         persona = persona or self.controller.current_speaker_persona() or self.controller.active_persona()
         if persona is None:
             return prompting.build_visual_json_contract("", "", reason)
+        policy_persona = policy_persona or persona
         session: RoleplaySessionState = self.controller.session
         provider_info = self.effective_provider_info(persona)
         provider = str(provider_info.get("effective_provider") or "inherit")
@@ -71,6 +74,7 @@ class PersonaVisualReply:
             reason=reason,
             provider=provider,
             source_text=source_text,
+            scene_focused=scene_focused,
         )
         debugger = getattr(self.controller, "set_chat_visual_prompt_debug_from_parts", None)
         if callable(debugger):
@@ -93,6 +97,7 @@ class PersonaVisualReply:
                     base_prompt=prompt,
                     reason=reason,
                     provider=provider,
+                    scene_focused=scene_focused,
                 )
                 if str(refined or "").strip():
                     prompt = str(refined or "").strip()
@@ -101,6 +106,8 @@ class PersonaVisualReply:
         payload["prompt_style"] = str(provider_info.get("prompt_style") or prompting.visual_prompt_style(provider))
         payload["persona_provider_override"] = str(provider_info.get("persona_provider_override") or "inherit")
         payload["active_visual_provider"] = str(provider_info.get("active_provider_snapshot") or "")
+        payload["visual_policy_persona_id"] = str(getattr(policy_persona, "id", "") or "")
+        payload["scene_focused"] = bool(scene_focused)
         return payload
 
     def _record_debug(
@@ -170,15 +177,25 @@ class PersonaVisualReply:
     def request_generation(
         self,
         persona: PersonaConfig | None = None,
+        policy_persona: PersonaConfig | None = None,
         reason: str = "manual",
         source_text: str = "",
+        scene_focused: bool = False,
     ) -> dict[str, Any]:
         persona = persona or self.controller.current_speaker_persona() or self.controller.active_persona()
-        payload = self.build_prompt(persona, reason=reason, source_text=source_text, use_action_prompt=False)
+        policy_persona = policy_persona or persona
+        payload = self.build_prompt(
+            persona,
+            policy_persona=policy_persona,
+            reason=reason,
+            source_text=source_text,
+            use_action_prompt=False,
+            scene_focused=scene_focused,
+        )
         if not payload.get("should_generate"):
             self._record_debug("persona_visual_reply", reason, persona, False, "No visual prompt was generated.", payload)
             return {"accepted": False, "message": "No visual prompt was generated.", "payload": payload}
-        allowed, message = self.can_auto_generate(persona, reason=reason)
+        allowed, message = self.can_auto_generate(policy_persona, reason=reason)
         if not allowed:
             self._record_debug("persona_visual_reply", reason, persona, False, message, payload)
             return {"accepted": False, "message": message, "payload": payload}
@@ -198,7 +215,14 @@ class PersonaVisualReply:
                 "payload": payload,
             }
         if str(source_text or "").strip():
-            payload = self.build_prompt(persona, reason=reason, source_text=source_text, use_action_prompt=True)
+            payload = self.build_prompt(
+                persona,
+                policy_persona=policy_persona,
+                reason=reason,
+                source_text=source_text,
+                use_action_prompt=True,
+                scene_focused=scene_focused,
+            )
             if not payload.get("should_generate"):
                 self._record_debug("persona_visual_reply", reason, persona, False, "No visual prompt was generated.", payload)
                 return {"accepted": False, "message": "No visual prompt was generated.", "payload": payload}
@@ -218,6 +242,8 @@ class PersonaVisualReply:
                     source="nc.multi_persona_roleplay",
                     metadata={
                         "persona_id": str(payload.get("active_persona_id") or ""),
+                        "visual_policy_persona_id": str(payload.get("visual_policy_persona_id") or ""),
+                        "scene_focused": bool(payload.get("scene_focused")),
                         "scene_title": str(self.controller.session.scene_title or ""),
                         "reason": str(reason or "manual"),
                     },

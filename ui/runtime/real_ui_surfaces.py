@@ -220,6 +220,11 @@ class MainUiRealSurfacesMixin:
                 retrieval_enabled.setChecked(_backend_archive_checked("long_term_memory_retrieval_enabled_checkbox", False))
                 archive_layout.addWidget(retrieval_enabled)
 
+                image_review_enabled = QtWidgets.QCheckBox("Review recalled images before sending", archive_box)
+                image_review_enabled.setObjectName("long_term_memory_image_review_enabled_checkbox")
+                image_review_enabled.setChecked(_backend_archive_checked("long_term_memory_image_review_enabled_checkbox", False))
+                archive_layout.addWidget(image_review_enabled)
+
                 auto_archive_enabled = QtWidgets.QCheckBox("Enable long-term memory archiving", archive_box)
                 auto_archive_enabled.setObjectName("long_term_memory_auto_archive_enabled_checkbox")
                 auto_archive_enabled.setChecked(_backend_archive_checked("long_term_memory_auto_archive_enabled_checkbox", False))
@@ -232,6 +237,13 @@ class MainUiRealSurfacesMixin:
                 retrieval_max_items.setValue(max(1, min(12, _backend_archive_value("long_term_memory_retrieval_max_items_spin", 6))))
                 retrieval_max_items.setMinimumWidth(112)
                 retrieval_max_items.setMaximumWidth(132)
+                recall_text_budget = QtWidgets.QSpinBox(archive_box)
+                recall_text_budget.setObjectName("long_term_memory_recall_text_budget_spin")
+                recall_text_budget.setRange(-1, 2147483647)
+                recall_text_budget.setSingleStep(500)
+                recall_text_budget.setValue(long_term_memory.normalize_recall_text_budget(_backend_archive_value("long_term_memory_recall_text_budget_spin", -1), default=-1))
+                recall_text_budget.setMinimumWidth(112)
+                recall_text_budget.setMaximumWidth(132)
                 recall_image_limit = QtWidgets.QSpinBox(archive_box)
                 recall_image_limit.setObjectName("long_term_memory_recall_image_limit_spin")
                 recall_image_limit.setRange(-1, 2147483647)
@@ -252,6 +264,7 @@ class MainUiRealSurfacesMixin:
                 retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
                 retrieval_form.addRow("Archive every (messages)", archive_batch_turns)
                 retrieval_form.addRow("Archive notes to use", retrieval_max_items)
+                retrieval_form.addRow("Recall text budget (chars, -1 = no cap)", recall_text_budget)
                 retrieval_form.addRow("Long-Term Memory recalled images to attach", recall_image_limit)
                 embedding_model = QtWidgets.QComboBox(archive_box)
                 embedding_model.setObjectName("long_term_memory_embedding_model_edit")
@@ -541,6 +554,7 @@ class MainUiRealSurfacesMixin:
                 "proactive_delay_spin": self._ui_object("proactive_delay_spin"),
                 "chat_context_window_spin": self._ui_object("chat_context_window_spin"),
                 "stored_chat_history_limit_spin": self._ui_object("stored_chat_history_limit_spin"),
+                "chat_visual_batch_size_spin": self._ui_object("chat_visual_batch_size_spin"),
                 "chat_overflow_policy_combo": self._ui_object("chat_overflow_policy_combo"),
                 "spellcheck_enabled_checkbox": self._ui_object("spellcheck_enabled_checkbox"),
                 "spellcheck_language_combo": self._ui_object("spellcheck_language_combo"),
@@ -560,8 +574,10 @@ class MainUiRealSurfacesMixin:
                 "btn_export_session_memory": self._ui_object("btn_export_session_memory"),
                 "btn_rebuild_long_term_memory_embeddings": self._ui_object("btn_rebuild_long_term_memory_embeddings"),
                 "long_term_memory_retrieval_enabled_checkbox": self._ui_object("long_term_memory_retrieval_enabled_checkbox"),
+                "long_term_memory_image_review_enabled_checkbox": self._ui_object("long_term_memory_image_review_enabled_checkbox"),
                 "long_term_memory_auto_archive_enabled_checkbox": self._ui_object("long_term_memory_auto_archive_enabled_checkbox"),
                 "long_term_memory_retrieval_max_items_spin": self._ui_object("long_term_memory_retrieval_max_items_spin"),
+                "long_term_memory_recall_text_budget_spin": self._ui_object("long_term_memory_recall_text_budget_spin"),
                 "long_term_memory_recall_image_limit_spin": self._ui_object("long_term_memory_recall_image_limit_spin"),
                 "long_term_memory_archive_batch_turns_spin": self._ui_object("long_term_memory_archive_batch_turns_spin"),
                 "long_term_memory_embedding_enabled_checkbox": self._ui_object("long_term_memory_embedding_enabled_checkbox"),
@@ -653,6 +669,7 @@ class MainUiRealSurfacesMixin:
             _copy_value(backend_widgets.get("proactive_delay_spin"), frontend_widgets.get("proactive_delay_spin"))
             _copy_value(backend_widgets.get("chat_context_window_spin"), frontend_widgets.get("chat_context_window_spin"))
             _copy_value(backend_widgets.get("stored_chat_history_limit_spin"), frontend_widgets.get("stored_chat_history_limit_spin"))
+            _copy_value(backend_widgets.get("chat_visual_batch_size_spin"), frontend_widgets.get("chat_visual_batch_size_spin"))
             _copy_combo(backend_widgets.get("chat_overflow_policy_combo"), frontend_widgets.get("chat_overflow_policy_combo"))
             _copy_checked(backend_widgets.get("spellcheck_enabled_checkbox"), frontend_widgets.get("spellcheck_enabled_checkbox"))
             _copy_combo(backend_widgets.get("spellcheck_language_combo"), frontend_widgets.get("spellcheck_language_combo"))
@@ -662,8 +679,10 @@ class MainUiRealSurfacesMixin:
             _copy_value(backend_widgets.get("continuity_memory_auto_turns_spin"), frontend_widgets.get("continuity_memory_auto_turns_spin"))
             _copy_value(backend_widgets.get("long_term_memory_max_chars_spin"), frontend_widgets.get("long_term_memory_max_chars_spin"))
             _copy_checked(backend_widgets.get("long_term_memory_retrieval_enabled_checkbox"), frontend_widgets.get("long_term_memory_retrieval_enabled_checkbox"))
+            _copy_checked(backend_widgets.get("long_term_memory_image_review_enabled_checkbox"), frontend_widgets.get("long_term_memory_image_review_enabled_checkbox"))
             _copy_checked(backend_widgets.get("long_term_memory_auto_archive_enabled_checkbox"), frontend_widgets.get("long_term_memory_auto_archive_enabled_checkbox"))
             _copy_value(backend_widgets.get("long_term_memory_retrieval_max_items_spin"), frontend_widgets.get("long_term_memory_retrieval_max_items_spin"))
+            _copy_value(backend_widgets.get("long_term_memory_recall_text_budget_spin"), frontend_widgets.get("long_term_memory_recall_text_budget_spin"))
             _copy_value(backend_widgets.get("long_term_memory_recall_image_limit_spin"), frontend_widgets.get("long_term_memory_recall_image_limit_spin"))
             _copy_value(backend_widgets.get("long_term_memory_archive_batch_turns_spin"), frontend_widgets.get("long_term_memory_archive_batch_turns_spin"))
             _copy_checked(backend_widgets.get("long_term_memory_embedding_enabled_checkbox"), frontend_widgets.get("long_term_memory_embedding_enabled_checkbox"))

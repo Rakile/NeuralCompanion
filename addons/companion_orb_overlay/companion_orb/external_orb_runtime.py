@@ -41,6 +41,22 @@ def _normalize_bounds(bounds) -> list[int]:
     return values
 
 
+def _interaction_settings():
+    try:
+        from addons.companion_orb_overlay.companion_orb import interaction_settings as module
+    except Exception:
+        import interaction_settings as module
+    return module
+
+
+def _pointer_clearance_module():
+    try:
+        from addons.companion_orb_overlay.companion_orb import pointer_clearance
+    except Exception:
+        import pointer_clearance
+    return pointer_clearance
+
+
 def _log(message: str) -> None:
     print(str(message or ""), file=sys.stderr, flush=True)
 
@@ -76,6 +92,8 @@ class ExternalCompanionOrb(QtCore.QObject):
         self.focus_until = 0.0
         self.drop_anchor_point: QtCore.QPoint | None = None
         self.drop_anchor_until = 0.0
+        self.interaction_target_point: QtCore.QPointF | None = None
+        self.interaction_target_until = 0.0
         self.last_tick_at = 0.0
         self.idle_pause_until = 0.0
         self.idle_next_pause_at = time.monotonic() + 3.0
@@ -101,6 +119,13 @@ class ExternalCompanionOrb(QtCore.QObject):
         self.playful_nudge_active = False
         self.cloaked = False
         self.visible_before_cloak = False
+        pointer_clearance = _pointer_clearance_module()
+        self.pointer_clearance_policy = (
+            pointer_clearance.PointerClearancePolicy()
+        )
+        self.pointer_clearance_state = "clear"
+        self.pointer_clearance_opacity = 1.0
+        self.pointer_clearance_suspended = False
 
         self.drift_timer = QtCore.QTimer(self)
         self.drift_timer.setInterval(16)
@@ -135,13 +160,25 @@ class ExternalCompanionOrb(QtCore.QObject):
         if msg_type == "mood":
             self.bridge.setPresenceMood(message.get("mood", "neutral"))
             return
-        if msg_type == "modes":
-            self.bridge.set_modes(
-                edit_mode=message.get("edit_mode") if "edit_mode" in message else None,
-                placement_mode=message.get("placement_mode") if "placement_mode" in message else None,
-                click_through=message.get("click_through") if "click_through" in message else None,
+        if msg_type == "gaze_timer":
+            self.bridge.setGazeTimerState(
+                bool(message.get("active")),
+                float(message.get("progress", 0.0) or 0.0),
+                str(message.get("color") or ""),
             )
-            self._apply_click_through(bool(self.bridge.clickThrough))
+            return
+        if msg_type == "modes":
+            edit_mode = message.get("edit_mode") if "edit_mode" in message else None
+            placement_mode = message.get("placement_mode") if "placement_mode" in message else None
+            self.bridge.set_modes(
+                edit_mode=edit_mode,
+                placement_mode=placement_mode,
+            )
+            click_through = self._effective_click_through(
+                message.get("click_through") if "click_through" in message else self.bridge.clickThrough
+            )
+            self.bridge.set_modes(click_through=click_through)
+            self._apply_click_through(click_through)
             self._refresh_visibility()
             return
         if msg_type == "target_info":
@@ -154,6 +191,25 @@ class ExternalCompanionOrb(QtCore.QObject):
             return
         if msg_type == "drop_anchor":
             self._set_drop_anchor(message.get("point"), duration_seconds=message.get("duration_seconds", DROP_ANCHOR_HOVER_SECONDS))
+            return
+        if msg_type == "interaction_target":
+            self.pointer_clearance_suspended = bool(
+                message.get("pointer_clearance_suspended", False)
+            )
+            self._set_interaction_target(
+                message.get("point"),
+                duration_seconds=message.get("duration_seconds", 0.35),
+            )
+            return
+        if msg_type == "interaction_target_clear":
+            self._clear_interaction_target()
+            return
+        if msg_type == "pointer_clearance_guard":
+            self.pointer_clearance_suspended = bool(
+                message.get("suspended", False)
+            )
+            if self.pointer_clearance_suspended:
+                self._reset_pointer_clearance()
             return
         if msg_type == "cloak":
             self._set_cloak(bool(message.get("enabled")))
@@ -172,7 +228,9 @@ class ExternalCompanionOrb(QtCore.QObject):
             return
 
     def apply_settings(self, settings: dict[str, Any]) -> None:
-        self.settings = dict(settings or {})
+        self.settings, _migrated = _interaction_settings().normalize_interaction_settings(dict(settings or {}))
+        if not self._pointer_clearance_enabled():
+            self._reset_pointer_clearance()
         self.bridge.apply_settings(self.settings)
         self._apply_timer_interval()
         self._apply_window_settings()
@@ -242,7 +300,7 @@ class ExternalCompanionOrb(QtCore.QObject):
             return False
         if event.type() == QtCore.QEvent.MouseButtonPress:
             event_pos = self._event_global_pos(event)
-            right_drag_focus = bool(self.settings.get("companion_orb_right_drag_focus_enabled", False))
+            right_drag_focus = _interaction_settings().right_drag_focus_enabled(self.settings)
             if event.button() == QtCore.Qt.LeftButton and (self.bridge.editMode or not self.bridge.clickThrough):
                 self._start_direct_drag(event_pos, button="left")
                 return True
@@ -275,6 +333,7 @@ class ExternalCompanionOrb(QtCore.QObject):
         self.drag_start_global_pos = QtCore.QPoint(global_pos)
         self.drag_moved = False
         self.poll_drag_button = str(button or "left").strip().lower()
+        self._apply_orb_cursor(click_through=False, dragging=True)
         self._grab_drag_mouse()
 
     def _grab_drag_mouse(self) -> None:
@@ -304,6 +363,7 @@ class ExternalCompanionOrb(QtCore.QObject):
         self.drag_start_global_pos = None
         self.drag_moved = False
         self.poll_drag_button = ""
+        self._apply_orb_cursor(click_through=bool(self.bridge.clickThrough), dragging=False)
 
     def _move_direct_drag(self, global_pos: QtCore.QPoint) -> None:
         window = self.window
@@ -348,10 +408,11 @@ class ExternalCompanionOrb(QtCore.QObject):
             window.setWindowFlags(self._window_flags())
         except Exception:
             pass
-        click_through = bool(self.settings.get("companion_orb_click_through_default", True))
-        right_drag_focus = bool(self.settings.get("companion_orb_right_drag_focus_enabled", False))
-        if self.bridge.editMode or self.bridge.placementMode or right_drag_focus:
-            click_through = False
+        click_through = _interaction_settings().effective_click_through(
+            self.settings,
+            edit_mode=bool(self.bridge.editMode),
+            placement_mode=bool(self.bridge.placementMode),
+        )
         self.bridge.set_modes(click_through=click_through)
         self._apply_click_through(click_through)
         self._sync_drag_poll_timer()
@@ -461,6 +522,7 @@ class ExternalCompanionOrb(QtCore.QObject):
             and (
                 bool(self.settings.get("companion_orb_movement_enabled", True))
                 or self._focus_ready()
+                or self._interaction_target_ready()
                 or bool(self.settings.get("companion_orb_mouse_near_fade", False))
                 or bool(self.settings.get("companion_orb_avoid_mouse", False))
                 or bool(self.settings.get("companion_orb_harassment_enabled", False))
@@ -537,6 +599,158 @@ class ExternalCompanionOrb(QtCore.QObject):
     def _clear_drop_anchor(self) -> None:
         self.drop_anchor_point = None
         self.drop_anchor_until = 0.0
+
+    def _set_interaction_target(self, point, *, duration_seconds: float) -> None:
+        try:
+            values = [float(value) for value in list(point or [])[:2]]
+        except (TypeError, ValueError):
+            return
+        if len(values) != 2 or not all(math.isfinite(value) for value in values):
+            return
+        target = self._clamp_top_left_to_screen(QtCore.QPointF(values[0], values[1]))
+        self.interaction_target_point = QtCore.QPointF(target)
+        self.interaction_target_until = time.monotonic() + max(0.2, min(12.0, float(duration_seconds)))
+        self.return_timer.stop()
+        if self.motion_timer.isActive():
+            self.motion_timer.stop()
+            self.move_start = None
+            self.move_target = None
+        self._sync_drift_timer()
+
+    def _interaction_target_ready(self) -> bool:
+        if self.interaction_target_point is None:
+            return False
+        if time.monotonic() <= float(self.interaction_target_until or 0.0):
+            return True
+        self.interaction_target_point = None
+        self.interaction_target_until = 0.0
+        return False
+
+    def _clear_interaction_target(self) -> None:
+        self.interaction_target_point = None
+        self.interaction_target_until = 0.0
+        self._reset_pointer_clearance()
+        self._sync_drift_timer()
+
+    def _pointer_clearance_enabled(self) -> bool:
+        return _interaction_settings().boolish(
+            self.settings.get(
+                "companion_orb_eye_tracking_pointer_clearance_enabled",
+                False,
+            ),
+            default=False,
+        )
+
+    def _pointer_clearance_distance(self) -> float:
+        try:
+            value = float(
+                self.settings.get(
+                    "companion_orb_eye_tracking_pointer_clearance_distance_px",
+                    160,
+                )
+                or 160
+            )
+        except (TypeError, ValueError):
+            value = 160.0
+        return max(40.0, min(400.0, value))
+
+    def _pointer_clearance_timeout(self) -> float:
+        try:
+            value = float(
+                self.settings.get(
+                    "companion_orb_eye_tracking_pointer_clearance_timeout_seconds",
+                    8,
+                )
+                or 8
+            )
+        except (TypeError, ValueError):
+            value = 8.0
+        return max(1.0, min(30.0, value))
+
+    def _pointer_clearance_suspended(self) -> bool:
+        return bool(
+            self.pointer_clearance_suspended
+            or self.bridge.editMode
+            or self.bridge.placementMode
+            or self.drag_offset is not None
+            or self.poll_drag_active
+            or self.cloaked
+            or self.window is None
+            or not self.window.isVisible()
+        )
+
+    def _pointer_clearance_screen_bounds(
+        self,
+        normal_target: QtCore.QPointF,
+    ) -> tuple[float, float, float, float]:
+        size = float(self.window.width()) if self.window is not None else 92.0
+        center = QtCore.QPoint(
+            int(round(normal_target.x() + size * 0.5)),
+            int(round(normal_target.y() + size * 0.5)),
+        )
+        screen = (
+            QtWidgets.QApplication.screenAt(center)
+            or (self.window.screen() if self.window is not None else None)
+            or QtWidgets.QApplication.primaryScreen()
+        )
+        geometry = (
+            screen.availableGeometry()
+            if screen is not None
+            else QtCore.QRect(0, 0, 1280, 720)
+        )
+        return (
+            float(geometry.x()),
+            float(geometry.y()),
+            float(geometry.width()),
+            float(geometry.height()),
+        )
+
+    def _set_pointer_clearance_state(self, state: str) -> None:
+        normalized = str(state or "clear").strip().lower()
+        if normalized not in {"clear", "avoiding", "timeout"}:
+            normalized = "clear"
+        if normalized == self.pointer_clearance_state:
+            return
+        self.pointer_clearance_state = normalized
+        _emit_event(
+            {
+                "type": "orb.pointer_clearance_state",
+                "state": normalized,
+            }
+        )
+
+    def _reset_pointer_clearance(self) -> None:
+        self.pointer_clearance_policy.reset()
+        self.pointer_clearance_opacity = 1.0
+        self._set_pointer_clearance_state("clear")
+
+    def _apply_pointer_clearance(
+        self,
+        normal_target: QtCore.QPointF,
+        *,
+        current_top_left: QtCore.QPointF,
+        now: float,
+    ) -> QtCore.QPointF:
+        cursor = QtGui.QCursor.pos()
+        size = float(self.window.width()) if self.window is not None else 92.0
+        decision = self.pointer_clearance_policy.update(
+            normal_target=(float(normal_target.x()), float(normal_target.y())),
+            current_top_left=(
+                float(current_top_left.x()),
+                float(current_top_left.y()),
+            ),
+            pointer=(float(cursor.x()), float(cursor.y())),
+            screen_bounds=self._pointer_clearance_screen_bounds(normal_target),
+            orb_size=size,
+            move_distance_px=self._pointer_clearance_distance(),
+            timeout_seconds=self._pointer_clearance_timeout(),
+            now=float(now),
+            enabled=self._pointer_clearance_enabled(),
+            suspended=self._pointer_clearance_suspended(),
+        )
+        self.pointer_clearance_opacity = float(decision.opacity)
+        self._set_pointer_clearance_state(decision.state)
+        return QtCore.QPointF(float(decision.target[0]), float(decision.target[1]))
 
     def _bounds_overlap_area(self, left_bounds, right_bounds) -> float:
         left = _normalize_bounds(left_bounds)
@@ -619,8 +833,19 @@ class ExternalCompanionOrb(QtCore.QObject):
         window = self.window
         if window is None:
             return
-        opacity = 1.0
-        if not reset and bool(self.settings.get("companion_orb_mouse_near_fade", False)):
+        opacity = (
+            1.0
+            if reset
+            else max(
+                0.0,
+                min(1.0, float(self.pointer_clearance_opacity)),
+            )
+        )
+        if (
+            opacity > 0.0
+            and not reset
+            and bool(self.settings.get("companion_orb_mouse_near_fade", False))
+        ):
             cursor = QtGui.QCursor.pos()
             center = window.frameGeometry().center()
             distance = math.hypot(float(center.x() - cursor.x()), float(center.y() - cursor.y()))
@@ -631,7 +856,10 @@ class ExternalCompanionOrb(QtCore.QObject):
                 near_opacity = 0.28
             if distance < fade_distance:
                 mix = max(0.0, min(1.0, distance / fade_distance))
-                opacity = near_opacity + (1.0 - near_opacity) * mix
+                opacity = min(
+                    opacity,
+                    near_opacity + (1.0 - near_opacity) * mix,
+                )
         try:
             window.setWindowOpacity(opacity)
         except Exception:
@@ -730,8 +958,26 @@ class ExternalCompanionOrb(QtCore.QObject):
         base = self.base_position or self._home_position()
         self.base_position = QtCore.QPoint(base)
         speed = self._movement_speed()
-        harassment_ready = self._harassment_ready()
-        if self._focus_ready():
+        interaction_target_ready = self._interaction_target_ready()
+        if not interaction_target_ready:
+            self._reset_pointer_clearance()
+        harassment_ready = False if interaction_target_ready else self._harassment_ready()
+        if interaction_target_ready:
+            target = self.interaction_target_point or QtCore.QPointF(base)
+            current_top_left = QtCore.QPointF(
+                float(window.x()),
+                float(window.y()),
+            )
+            cleared_target = self._apply_pointer_clearance(
+                QtCore.QPointF(target),
+                current_top_left=current_top_left,
+                now=now,
+            )
+            target_x = cleared_target.x()
+            target_y = cleared_target.y()
+            smoothing = self._time_scaled_blend(0.16, frame_scale)
+            self.playful_nudge_active = False
+        elif self._focus_ready():
             if self._focus_matches_drop_region():
                 target = self._drop_anchor_target()
                 target_x = target.x()
@@ -775,7 +1021,12 @@ class ExternalCompanionOrb(QtCore.QObject):
                 speed=speed,
             )
             smoothing = self._time_scaled_blend(smoothing, frame_scale)
-        if bool(self.settings.get("companion_orb_avoid_mouse", False)) and not harassment_ready and not self._focus_ready():
+        if (
+            bool(self.settings.get("companion_orb_avoid_mouse", False))
+            and not harassment_ready
+            and not self._focus_ready()
+            and not interaction_target_ready
+        ):
             cursor = QtGui.QCursor.pos()
             center_x = target_x + window.width() * 0.5
             center_y = target_y + window.height() * 0.5
@@ -1110,7 +1361,18 @@ class ExternalCompanionOrb(QtCore.QObject):
         except Exception:
             return False
 
+    def _effective_click_through(self, requested: Any = None) -> bool:
+        click_through = _interaction_settings().effective_click_through(
+            self.settings,
+            edit_mode=bool(self.bridge.editMode),
+            placement_mode=bool(self.bridge.placementMode),
+        )
+        if requested is not None and not bool(requested):
+            return False
+        return click_through
+
     def _apply_click_through(self, enabled: bool) -> None:
+        enabled = self._effective_click_through(enabled)
         for widget in (self.window, self.quick):
             if widget is None:
                 continue
@@ -1119,6 +1381,7 @@ class ExternalCompanionOrb(QtCore.QObject):
             except Exception:
                 pass
         if sys.platform != "win32" or self.window is None:
+            self._apply_orb_cursor(click_through=bool(enabled))
             self._sync_drag_poll_timer()
             return
         try:
@@ -1137,7 +1400,21 @@ class ExternalCompanionOrb(QtCore.QObject):
             ctypes.windll.user32.SetWindowLongW(hwnd, gwl_exstyle, next_style)
         except Exception:
             pass
+        self._apply_orb_cursor(click_through=bool(enabled))
         self._sync_drag_poll_timer()
+
+    def _apply_orb_cursor(self, *, click_through: bool, dragging: bool = False) -> None:
+        for widget in (self.window, self.quick):
+            if widget is None:
+                continue
+            try:
+                if bool(click_through):
+                    widget.unsetCursor()
+                else:
+                    cursor_shape = QtCore.Qt.ClosedHandCursor if bool(dragging) else QtCore.Qt.OpenHandCursor
+                    widget.setCursor(QtGui.QCursor(cursor_shape))
+            except Exception:
+                pass
 
 
 def _read_stdin(relay: _MessageRelay) -> None:
@@ -1173,6 +1450,17 @@ def main() -> int:
         bridge.apply_settings({"companion_orb_enabled": True, "companion_orb_display_mode": "docked"})
         print("Companion Orb external runtime check passed.", flush=True)
         return 0
+    lock = None
+    try:
+        lock_path = app_root / "runtime" / "companion_orb" / "external_runtime.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock = QtCore.QLockFile(str(lock_path))
+        lock.setStaleLockTime(30000)
+        if not lock.tryLock(100):
+            _log("Companion Orb external runtime is already running for this app root.")
+            return 0
+    except Exception as exc:
+        _log(f"Companion Orb external runtime lock unavailable: {exc}")
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
     runtime = ExternalCompanionOrb(app_root)
     relay = _MessageRelay()

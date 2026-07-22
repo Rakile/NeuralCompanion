@@ -139,6 +139,7 @@ def build_alternative_reality_prompt(
     available_audio: list[dict[str, Any]] | None = None,
     narrator_persona_id: str = "",
     cast_mode: str = story_director.CAST_MODE_FOCUSED_SPEAKER,
+    dialogue_density: str = "",
 ) -> str:
     """Build the AR prompt layer from compact state and enabled personas."""
     return story_director.build_story_director_prompt(
@@ -148,6 +149,7 @@ def build_alternative_reality_prompt(
         available_audio=available_audio,
         narrator_persona_id=narrator_persona_id,
         cast_mode=cast_mode,
+        dialogue_density=dialogue_density,
     )
 
 
@@ -277,6 +279,7 @@ def build_visual_reply_prompt(
     reason: str = "manual",
     provider: str = "",
     source_text: str = "",
+    scene_focused: bool = False,
 ) -> str:
     visual = persona.visual
     provider_id = normalize_visual_provider_id(provider or getattr(visual, "provider", "") or "")
@@ -311,19 +314,21 @@ def build_visual_reply_prompt(
             scene_bits.extend(_compact(item, 160) for item in recent[-2:] if item)
         if scene_bits:
             pieces.append(", ".join(scene_bits))
-        if visual.character_description:
+        if scene_focused:
+            pieces.append("scene-wide composition with no narrator portrait or invented foreground character")
+        elif visual.character_description:
             pieces.append("show this character in the current scene: " + visual.character_description)
         else:
             subject = ", ".join(item for item in (persona.display_name, persona.description or persona.role) if item)
             if subject:
                 pieces.append("show this character in the current scene: " + subject)
-        if visual.clothing_props:
+        if visual.clothing_props and not scene_focused:
             pieces.append(visual.clothing_props)
         if visual.environment_style:
             pieces.append("environment/style reference only, do not override latest location: " + visual.environment_style)
         if not visual.include_scene_summary and (location or mood):
             pieces.append(", ".join(item for item in (location, mood) if item))
-        if visual.include_active_speaker:
+        if visual.include_active_speaker and not scene_focused:
             pieces.append(persona.display_name)
         if style_prompt:
             pieces.append(style_prompt)
@@ -352,7 +357,7 @@ def build_visual_reply_prompt(
 
     if prompt_style == "runware":
         visual_parts = []
-        subject = visual.character_description or ", ".join(
+        subject = "" if scene_focused else visual.character_description or ", ".join(
             item for item in (persona.display_name, persona.description or persona.role) if item
         )
         action = latest_action or current_scene or (recent[-1] if recent else "")
@@ -366,7 +371,7 @@ def build_visual_reply_prompt(
             visual_parts.append(_compact(", ".join(item for item in (time_of_day, mood) if item), 120))
         if subject:
             visual_parts.append(_compact("show the character in this scene: " + subject, 180))
-        if visual.clothing_props:
+        if visual.clothing_props and not scene_focused:
             visual_parts.append(_compact("visible clothing and props: " + visual.clothing_props, 130))
         if visual.environment_style:
             visual_parts.append("style reference only, not current location: " + _compact(visual.environment_style, 110))
@@ -394,16 +399,16 @@ def build_visual_reply_prompt(
                 scene_bits.append("Recent visible action: " + "; ".join(recent[-2:]))
         if scene_bits:
             pieces.append(f"Current story moment: {'; '.join(scene_bits)}")
-        identity = visual.character_description or f"{persona.display_name}, {persona.description or persona.role}".strip()
+        identity = "" if scene_focused else visual.character_description or f"{persona.display_name}, {persona.description or persona.role}".strip()
         if identity:
             pieces.append(f"Character appearance to place inside that moment: {identity}")
-        if visual.clothing_props:
+        if visual.clothing_props and not scene_focused:
             pieces.append(f"Clothing and props: {visual.clothing_props}")
         if visual.environment_style:
             pieces.append(f"Scene and environment style reference only, unless the latest story moved elsewhere: {visual.environment_style}")
         if not visual.include_scene_summary and (location or mood):
             pieces.append(f"Scene/location: {'; '.join(item for item in (location, time_of_day, mood) if item)}")
-        if visual.include_active_speaker:
+        if visual.include_active_speaker and not scene_focused:
             pieces.append(f"Active speaker focus: {persona.display_name}")
         if style_prompt:
             pieces.append(f"Visual style: {style_prompt}")
@@ -424,17 +429,19 @@ def build_visual_reply_prompt(
             scene_bits.append("Recent action: " + "; ".join(recent[-2:]))
     if scene_bits:
         pieces.append(f"Current story moment: {'; '.join(scene_bits)}")
-    if visual.character_description:
+    if scene_focused:
+        pieces.append("Scene-wide composition; do not depict the narrator or invent a foreground character")
+    elif visual.character_description:
         pieces.append(f"Character appearance to place inside that moment: {visual.character_description}")
     else:
         pieces.append(f"Character to place inside that moment: {persona.display_name}, {persona.description or persona.role}".strip())
-    if visual.clothing_props:
+    if visual.clothing_props and not scene_focused:
         pieces.append(f"Clothing and props: {visual.clothing_props}")
     if visual.environment_style:
         pieces.append(f"Environment/style reference only, unless the latest story moved elsewhere: {visual.environment_style}")
     if not visual.include_scene_summary and (location or mood):
         pieces.append(f"Scene: {'; '.join(item for item in (location, time_of_day, mood) if item)}")
-    if visual.include_active_speaker:
+    if visual.include_active_speaker and not scene_focused:
         pieces.append(f"Active speaker: {persona.display_name}")
     if style_prompt:
         pieces.append(f"Style: {style_prompt}")

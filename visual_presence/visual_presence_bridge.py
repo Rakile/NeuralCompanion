@@ -106,26 +106,26 @@ class VisualPresenceBridge(QtCore.QObject):
         self._blur_softness = 0.35
         self._line_brightness = 1.0
         self._live_controls_visible = False
-        self._neural_face_enabled = True
+        self._neural_face_enabled = False
         self._neural_face_variant = "auto"
         self._neural_face_size = 1.0
-        self._neural_face_opacity = 0.92
-        self._neural_face_animation_intensity = 0.78
-        self._neural_face_lipsync_strength = 1.0
-        self._neural_face_eye_movement_enabled = True
-        self._neural_face_blink_enabled = True
-        self._neural_face_glow_enabled = True
-        self._neural_face_emotion_enabled = True
-        self._neural_face_use_tts_emotion = True
-        self._neural_face_audio_lipsync_enabled = True
+        self._neural_face_opacity = 0.0
+        self._neural_face_animation_intensity = 0.0
+        self._neural_face_lipsync_strength = 0.0
+        self._neural_face_eye_movement_enabled = False
+        self._neural_face_blink_enabled = False
+        self._neural_face_glow_enabled = False
+        self._neural_face_emotion_enabled = False
+        self._neural_face_use_tts_emotion = False
+        self._neural_face_audio_lipsync_enabled = False
         self._neural_face_reduced_animation = False
-        self._female_neural_face_enabled = True
-        self._female_reference_nodes = True
-        self._female_show_wire_nodes = True
-        self._female_show_wire_lines = True
-        self._female_node_glow_enabled = True
-        self._female_wire_pulse_enabled = True
-        self._female_depth_enabled = True
+        self._female_neural_face_enabled = False
+        self._female_reference_nodes = False
+        self._female_show_wire_nodes = False
+        self._female_show_wire_lines = False
+        self._female_node_glow_enabled = False
+        self._female_wire_pulse_enabled = False
+        self._female_depth_enabled = False
 
     @QtCore.Property(str, notify=ai_state_changed)
     def aiState(self):
@@ -514,9 +514,6 @@ class VisualPresenceBridge(QtCore.QObject):
             "breathing_orb",
             "neural_network_pulse",
             "blue_flame_smoke",
-            "neural_face_male",
-            "neural_face_female",
-            "neural_face_auto",
             "vector_voice_orb",
             "circular_audio_waveform",
             "halo_rings",
@@ -526,7 +523,7 @@ class VisualPresenceBridge(QtCore.QObject):
             "crystal_prism",
         }
         if visual_style not in valid_styles:
-            visual_style = "breathing_orb"
+            visual_style = "neural_network_pulse"
         if visual_style != self._visual_style:
             self._visual_style = visual_style
             self.visual_style_changed.emit(self._visual_style)
@@ -569,28 +566,26 @@ class VisualPresenceBridge(QtCore.QObject):
         blur_softness = _float_setting(settings, "ai_presence_blur_softness", 0.35, 0.0, 1.0)
         line_brightness = _float_setting(settings, "ai_presence_line_brightness", 1.0, 0.2, 2.0)
         live_controls_visible = bool(settings.get("ai_presence_live_controls_visible", False))
-        neural_face_enabled = bool(settings.get("ai_presence_neural_face_enabled", True))
-        neural_face_variant = str(settings.get("ai_presence_neural_face_variant", "auto") or "auto").strip().lower()
-        if neural_face_variant not in {"auto", "male", "female"}:
-            neural_face_variant = "auto"
-        neural_face_size = _float_setting(settings, "ai_presence_neural_face_size", 1.0, 0.55, 1.35)
-        neural_face_opacity = _float_setting(settings, "ai_presence_neural_face_opacity", 0.92, 0.15, 1.0)
-        neural_face_animation_intensity = _float_setting(settings, "ai_presence_neural_face_animation_intensity", 0.78, 0.0, 1.5)
-        neural_face_lipsync_strength = _float_setting(settings, "ai_presence_neural_face_lipsync_strength", 1.0, 0.0, 1.75)
-        neural_face_eye_movement_enabled = bool(settings.get("ai_presence_neural_face_eye_movement_enabled", True))
-        neural_face_blink_enabled = bool(settings.get("ai_presence_neural_face_blink_enabled", True))
-        neural_face_glow_enabled = bool(settings.get("ai_presence_neural_face_glow_enabled", True))
-        neural_face_emotion_enabled = bool(settings.get("ai_presence_neural_face_emotion_enabled", True))
-        neural_face_use_tts_emotion = bool(settings.get("ai_presence_neural_face_use_tts_emotion", True))
-        neural_face_audio_lipsync_enabled = bool(settings.get("ai_presence_neural_face_audio_lipsync_enabled", True))
-        neural_face_reduced_animation = bool(settings.get("ai_presence_neural_face_reduced_animation", False))
-        female_neural_face_enabled = bool(settings.get("ai_presence_female_neural_face_enabled", True))
-        female_reference_nodes = bool(settings.get("ai_presence_female_reference_nodes", True))
-        female_show_wire_nodes = bool(settings.get("ai_presence_female_show_wire_nodes", True))
-        female_show_wire_lines = bool(settings.get("ai_presence_female_show_wire_lines", True))
-        female_node_glow_enabled = bool(settings.get("ai_presence_female_node_glow_enabled", True))
-        female_wire_pulse_enabled = bool(settings.get("ai_presence_female_wire_pulse_enabled", True))
-        female_depth_enabled = bool(settings.get("ai_presence_female_depth_enabled", True))
+        neural_face_enabled = False
+        neural_face_variant = "auto"
+        neural_face_size = 1.0
+        neural_face_opacity = 0.0
+        neural_face_animation_intensity = 0.0
+        neural_face_lipsync_strength = 0.0
+        neural_face_eye_movement_enabled = False
+        neural_face_blink_enabled = False
+        neural_face_glow_enabled = False
+        neural_face_emotion_enabled = False
+        neural_face_use_tts_emotion = False
+        neural_face_audio_lipsync_enabled = False
+        neural_face_reduced_animation = False
+        female_neural_face_enabled = False
+        female_reference_nodes = False
+        female_show_wire_nodes = False
+        female_show_wire_lines = False
+        female_node_glow_enabled = False
+        female_wire_pulse_enabled = False
+        female_depth_enabled = False
 
         mood_source = manual_mood if mood_color_mode == "manual" else self._presence_mood
         colors = resolve_mood_colors(mood_source)

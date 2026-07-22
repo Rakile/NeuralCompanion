@@ -11,11 +11,12 @@ class VisualReplyEngineBridge:
     VISUAL_REPLY_XAI_BASE_URL = runtime_config.VISUAL_REPLY_XAI_BASE_URL
     VISUAL_REPLY_STORY_THEME_PRESETS = runtime_config.VISUAL_REPLY_STORY_THEME_PRESETS
 
-    def __init__(self, config_getter, *, environ=None, output_dir=None):
+    def __init__(self, config_getter, *, environ=None, output_dir=None, before_publish=None):
         self.runtime = runtime_config.VisualReplyRuntime(config_getter, environ=environ)
         self.generation_service = generation.VisualReplyGenerationService(
             self.runtime,
             output_dir=Path(output_dir) if output_dir is not None else generation.output_dir(),
+            before_publish=before_publish,
         )
 
     def default_story_theme_prompts(self):
@@ -117,5 +118,10 @@ class VisualReplyEngineBridge:
         return runtime_config.extract_visual_reply_prompt(text)
 
 
-def create_engine_bridge(config_getter, *, environ=None, output_dir=None):
-    return VisualReplyEngineBridge(config_getter, environ=environ, output_dir=output_dir)
+def create_engine_bridge(config_getter, *, environ=None, output_dir=None, before_publish=None):
+    return VisualReplyEngineBridge(
+        config_getter,
+        environ=environ,
+        output_dir=output_dir,
+        before_publish=before_publish,
+    )

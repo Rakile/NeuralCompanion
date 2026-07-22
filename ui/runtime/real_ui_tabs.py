@@ -384,6 +384,20 @@ class MainUiRealTabAdoptionMixin:
             frontend_host_tabs = self._ui_object("host_settings_tabs")
             if frontend_host_tabs is not None and hasattr(frontend_host_tabs, "currentChanged"):
                 frontend_host_tabs.currentChanged.connect(lambda _index, tabs=frontend_host_tabs: self.backend._sync_tab_widget_height(tabs))
+            tab_order_installer = getattr(self.backend, "_install_persisted_tab_order", None)
+            tab_order_applier = getattr(self.backend, "_apply_persisted_tab_order", None)
+            hidden_tab_applier = getattr(self.backend, "_apply_persisted_hidden_tabs_for", None)
+            if callable(tab_order_installer) and callable(tab_order_applier):
+                for object_name, tabs in (
+                    ("left_tabs", frontend_left_tabs),
+                    ("host_settings_tabs", frontend_host_tabs),
+                ):
+                    if tabs is None:
+                        continue
+                    tab_order_installer(object_name, tabs)
+                    tab_order_applier(object_name)
+                    if callable(hidden_tab_applier):
+                        hidden_tab_applier(object_name)
             frontend_sensory_tabs = self._ui_object("sensory_feedback_tabs")
             if frontend_sensory_tabs is not None and hasattr(frontend_sensory_tabs, "currentChanged"):
                 frontend_sensory_tabs.currentChanged.connect(lambda _index, tabs=frontend_sensory_tabs: self.backend._sync_tab_widget_height(tabs))

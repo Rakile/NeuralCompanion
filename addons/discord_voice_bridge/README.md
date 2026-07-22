@@ -102,7 +102,8 @@ settings.example.json -> settings.local.json
 Then fill in non-secret values such as server ID, voice channel ID, allowed user
 ID, silence cutoff, and minimum turn length.
 
-To start the Node bridge automatically when NC loads the addon, set:
+To start the bridge automatically when NC loads the addon, enable
+`Start bridge when NC launches` or set:
 
 ```json
 "start_on_nc_launch": true
@@ -193,8 +194,8 @@ Example:
   "start_on_nc_launch": true,
   "bridge_mode": "http",
   "discord": {
-    "guild_id": "1513929540597055588",
-    "voice_channel_id": "1513929541150834942",
+    "guild_id": "121212121212121212",
+    "voice_channel_id": "343434343434343434",
     "answer_mode": "anyone"
   },
   "bots": [

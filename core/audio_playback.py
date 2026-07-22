@@ -11,6 +11,15 @@ except Exception:  # pragma: no cover - visual presence is optional.
     build_audio_level_sequence = None
 
 
+_sounddevice_playback_lock = threading.Lock()
+
+
+def stop_audio_playback(sounddevice_module) -> None:
+    """Stop the shared convenience stream without racing another playback owner."""
+    with _sounddevice_playback_lock:
+        sounddevice_module.stop()
+
+
 def _normalized_volume(value) -> float:
     try:
         volume = float(value)
@@ -34,10 +43,11 @@ def play_audio_file(
     level_fps=30,
     logger=print,
 ):
-    audio_playing_event.set()
     level_stop = threading.Event()
     level_thread = None
+    _sounddevice_playback_lock.acquire()
     try:
+        audio_playing_event.set()
         data, sample_rate = soundfile_module.read(path)
         volume_factor = _normalized_volume(volume)
         if abs(volume_factor - 1.0) > 0.001:
@@ -108,3 +118,4 @@ def play_audio_file(
             except Exception:
                 pass
         audio_playing_event.clear()
+        _sounddevice_playback_lock.release()

@@ -5,6 +5,7 @@ import { RemoteClient } from '../api/client';
 import type { MuseTalkState } from '../api/types';
 import type { MuseTalkQuality } from '../hooks/usePhoneSettings';
 import { colors, spacing } from '../styles/theme';
+import { useInterfaceMode } from '../context/InterfaceModeContext';
 
 const STREAM_LOAD_TIMEOUT_MS = 4500;
 const STREAM_STALL_TIMEOUT_MS = 8000;
@@ -86,6 +87,8 @@ function DemoMuseTalkAvatar({ speakingText }: { speakingText: string }) {
 }
 
 export function MuseTalkPanel({ client, musetalk, disabled, available, quality = 'balanced', demoMode = false }: Props) {
+  const { mode: interfaceMode, policy } = useInterfaceMode();
+  const previewPrimary = policy.primaryFirst;
   const [streamFailed, setStreamFailed] = useState(false);
   const [streamLoaded, setStreamLoaded] = useState(false);
   const [lastStreamAdvanceAt, setLastStreamAdvanceAt] = useState(() => Date.now());
@@ -117,7 +120,7 @@ export function MuseTalkPanel({ client, musetalk, disabled, available, quality =
     }
     return client.authorizedUrl(activePath, params);
   }, [activePath, client, framePath, frameVersion, streamFps, usingStream]);
-  const mode = disabled ? 'offline' : !available ? 'unavailable' : usingStream ? 'stream' : framePath ? 'frame' : 'idle';
+  const streamMode = disabled ? 'offline' : !available ? 'unavailable' : usingStream ? 'stream' : framePath ? 'frame' : 'idle';
   const statusText = disabled ? 'offline' : available ? musetalk?.state?.status || 'idle' : 'unavailable';
   const caption = mediaDisabled ? 'No frame' : musetalk?.state?.text || musetalk?.state?.chunk_id || 'No frame';
 
@@ -161,36 +164,42 @@ export function MuseTalkPanel({ client, musetalk, disabled, available, quality =
     return () => clearTimeout(timer);
   }, [lastStreamAdvanceAt, pipelineActive, streamLoaded, usingStream]);
 
+  const header = (
+    <View style={styles.header}>
+      <Text style={styles.title}>MuseTalk</Text>
+      <Text style={styles.meta}>{statusText} - {streamFps} fps - {streamMode} - {quality.replace('_', ' ')}</Text>
+    </View>
+  );
+  const preview = frameUrl ? (
+    <Image
+      source={{ uri: frameUrl }}
+      resizeMode="contain"
+      style={[styles.frame, previewPrimary && styles.primaryFrame, interfaceMode === 'immersive' && styles.immersiveFrame]}
+      onLoad={() => {
+        if (usingStream) {
+          setStreamLoaded(true);
+        }
+      }}
+      onError={() => {
+        if (usingStream) {
+          setStreamFailed(true);
+        }
+      }}
+    />
+  ) : demoMode ? (
+    <DemoMuseTalkAvatar speakingText={caption} />
+  ) : (
+    <View style={[styles.emptyFrame, !policy.cards && styles.cleanEmptyFrame]}>
+      <Text style={styles.emptyTitle}>No avatar stream</Text>
+      <Text style={styles.emptyText}>Connect to desktop or tap Demo. MuseTalk frames appear here when the desktop runtime exposes a phone-safe frame stream.</Text>
+    </View>
+  );
+
   return (
-    <View style={styles.panel}>
-      <View style={styles.header}>
-        <Text style={styles.title}>MuseTalk</Text>
-        <Text style={styles.meta}>{statusText} - {streamFps} fps - {mode} - {quality.replace('_', ' ')}</Text>
-      </View>
-      {frameUrl ? (
-        <Image
-          source={{ uri: frameUrl }}
-          resizeMode="contain"
-          style={styles.frame}
-          onLoad={() => {
-            if (usingStream) {
-              setStreamLoaded(true);
-            }
-          }}
-          onError={() => {
-            if (usingStream) {
-              setStreamFailed(true);
-            }
-          }}
-        />
-      ) : demoMode ? (
-        <DemoMuseTalkAvatar speakingText={caption} />
-      ) : (
-        <View style={styles.emptyFrame}>
-          <Text style={styles.emptyTitle}>No avatar stream</Text>
-          <Text style={styles.emptyText}>Connect to desktop or tap Demo. MuseTalk frames appear here when the desktop runtime exposes a phone-safe frame stream.</Text>
-        </View>
-      )}
+    <View style={[styles.panel, !policy.cards && styles.cleanPanel, interfaceMode === 'immersive' && styles.immersivePanel]}>
+      {!previewPrimary ? header : null}
+      {preview}
+      {previewPrimary ? header : null}
       <Text style={styles.caption} numberOfLines={1}>{caption}</Text>
     </View>
   );
@@ -205,6 +214,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  cleanPanel: { backgroundColor: 'transparent', borderTopWidth: 0, paddingHorizontal: 0 },
+  immersivePanel: { backgroundColor: '#000000' },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -229,6 +240,8 @@ const styles = StyleSheet.create({
     maxHeight: 160,
     width: '100%',
   },
+  primaryFrame: { borderRadius: 0, borderWidth: 0, maxHeight: 320 },
+  immersiveFrame: { backgroundColor: '#000000', maxHeight: 460 },
   demoAvatarStage: {
     alignItems: 'center',
     alignSelf: 'center',
@@ -261,6 +274,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginBottom: spacing.xs,
   },
+  cleanEmptyFrame: { backgroundColor: 'transparent', borderRadius: 0, borderWidth: 0 },
   emptyText: {
     color: colors.muted,
     fontSize: 12,

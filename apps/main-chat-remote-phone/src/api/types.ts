@@ -8,6 +8,8 @@ export type ChatMessage = {
   origin?: string;
   content: string;
   created_at?: number | string | null;
+  image_url_path?: string;
+  image_content_type?: string;
 };
 
 export type RuntimeStatus = {
@@ -223,6 +225,8 @@ export type BuddyChatState = {
   };
   personas?: BuddyChatPersonaState[];
   message?: string;
+  last_provider_error?: string;
+  last_provider_error_at?: number;
 };
 
 export type RemoteState = {

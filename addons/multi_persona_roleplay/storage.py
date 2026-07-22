@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import PersonaConfig, RoleplaySessionState, personas_from_payload
+from .structured_models import INSTRUCTOR_SETTING_DEFAULTS
 
 
 class RoleplayStorage:
@@ -63,6 +64,10 @@ class RoleplayStorage:
         if "story_sounds_enabled" not in settings:
             settings["story_sounds_enabled"] = True
             settings_changed = True
+        for key, default_value in INSTRUCTOR_SETTING_DEFAULTS.items():
+            if key not in settings:
+                settings[key] = default_value
+                settings_changed = True
         session_path = self.context.storage.resolve("sessions/current_session.json")
         if not session_path.exists():
             self.save_session(self.load_default_session())
@@ -313,7 +318,7 @@ class RoleplayStorage:
             self._write_json("settings.json", settings)
             return payload
         merged = dict(payload)
-        for key in ("ar_use_persona_profiles", "ar_pacing", "ar_interaction_frequency", "ar_state"):
+        for key in ("ar_use_persona_profiles", "ar_pacing", "ar_interaction_frequency", "ar_dialogue_density", "ar_state"):
             if key in default_payload:
                 merged[key] = default_payload[key]
         settings["ar_scene_defaults_seeded"] = True

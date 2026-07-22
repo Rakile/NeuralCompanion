@@ -12,6 +12,7 @@ import hashlib
 import mimetypes
 import re
 import sqlite3
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -21,6 +22,8 @@ from core import runtime_paths
 
 
 SCHEMA_VERSION = 3
+CONTENT_FORMAT_VERSION = 1
+CONTENT_MIGRATION_REPORT_META_KEY = "content_format_migration_report"
 MEMORY_DIR = runtime_paths.RUNTIME_DIR / "long_term_memory"
 DEFAULT_DB_PATH = MEMORY_DIR / "memory.sqlite3"
 _ACTIVE_DB_PATH = DEFAULT_DB_PATH
@@ -41,6 +44,12 @@ VALID_MEMORY_TYPES = {
     "correction",
     "note",
 }
+
+_STORE_MIGRATION_LOCK = threading.RLock()
+_ARCHIVED_ASSISTANT_TIMESTAMP_PREFIX_RE = re.compile(
+    r"(?m)^(?P<label>\s*\d+\.\s+Assistant:\s+)"
+    r"(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s*)+"
+)
 
 
 def _now_iso() -> str:
@@ -148,10 +157,99 @@ def _connect(path: Any = None) -> sqlite3.Connection:
     return connection
 
 
+def _meta_int(connection: sqlite3.Connection, key: str, default: int = 0) -> int:
+    row = connection.execute(
+        "SELECT value FROM memory_meta WHERE key = ?",
+        (str(key),),
+    ).fetchone()
+    if row is None:
+        return int(default)
+    try:
+        return max(0, int(row["value"] or 0))
+    except Exception:
+        return int(default)
+
+
+def _set_meta(connection: sqlite3.Connection, key: str, value: Any) -> None:
+    connection.execute(
+        "INSERT OR REPLACE INTO memory_meta(key, value) VALUES (?, ?)",
+        (str(key), str(value)),
+    )
+
+
+def _normalize_content_migration_report(value: Any) -> dict[str, int] | None:
+    try:
+        payload = json.loads(str(value or "")) if not isinstance(value, dict) else dict(value)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return {
+        "source_version": max(0, int(payload.get("source_version", 0) or 0)),
+        "target_version": max(0, int(payload.get("target_version", 0) or 0)),
+        "cleaned_chunks": max(0, int(payload.get("cleaned_chunks", 0) or 0)),
+        "invalidated_embeddings": max(0, int(payload.get("invalidated_embeddings", 0) or 0)),
+    }
+
+
+def _clean_archived_assistant_timestamp_prefixes(text: Any) -> str:
+    return _ARCHIVED_ASSISTANT_TIMESTAMP_PREFIX_RE.sub(
+        lambda match: str(match.group("label") or ""),
+        str(text or ""),
+    )
+
+
+def _migrate_archive_content_to_v1(connection: sqlite3.Connection) -> dict[str, int]:
+    changed_chunk_ids: set[str] = set()
+    now = _now_iso()
+    for row in connection.execute("SELECT id, text FROM long_term_memory_chunks").fetchall():
+        chunk_id = str(row["id"] or "")
+        original_text = str(row["text"] or "")
+        cleaned_text = _clean_archived_assistant_timestamp_prefixes(original_text)
+        if cleaned_text == original_text:
+            continue
+        connection.execute(
+            "UPDATE long_term_memory_chunks SET text = ?, updated_at = ? WHERE id = ?",
+            (cleaned_text, now, chunk_id),
+        )
+        changed_chunk_ids.add(chunk_id)
+
+    invalidated_embedding_ids: list[str] = []
+    if changed_chunk_ids:
+        rows = connection.execute(
+            "SELECT id, target_kind, target_id FROM long_term_memory_embeddings "
+            "WHERE target_kind IN ('chunk', 'chunk_slice')"
+        ).fetchall()
+        for row in rows:
+            target_kind = normalize_memory_id(row["target_kind"])
+            target_id = normalize_memory_id(row["target_id"])
+            parent_id = chunk_parent_id_from_embedding_target(target_kind, target_id)
+            belongs_to_changed_chunk = parent_id in changed_chunk_ids
+            if not belongs_to_changed_chunk and not parent_id and target_kind == "chunk_slice":
+                belongs_to_changed_chunk = any(
+                    target_id.startswith(normalize_memory_id(f"{chunk_id}_s"))
+                    for chunk_id in changed_chunk_ids
+                )
+            if belongs_to_changed_chunk:
+                invalidated_embedding_ids.append(str(row["id"] or ""))
+        if invalidated_embedding_ids:
+            connection.executemany(
+                "DELETE FROM long_term_memory_embeddings WHERE id = ?",
+                [(embedding_id,) for embedding_id in invalidated_embedding_ids],
+            )
+
+    return {
+        "cleaned_chunks": len(changed_chunk_ids),
+        "invalidated_embeddings": len(invalidated_embedding_ids),
+    }
+
+
 def init_store(path: Any = None) -> Path:
     """Create or upgrade the local Long-Term Memory store."""
     target = _db_path(path)
-    with _connect(target) as connection:
+    target_existed = target.is_file()
+    migration_report = None
+    with _STORE_MIGRATION_LOCK, _connect(target) as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS memory_meta (
@@ -261,12 +359,76 @@ def init_store(path: Any = None) -> Path:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_ltm_asset_links_unique "
             "ON long_term_memory_asset_links(asset_id, target_kind, target_id, source_message_index, relation)"
         )
-        connection.execute(
-            "INSERT OR REPLACE INTO memory_meta(key, value) VALUES (?, ?)",
-            ("schema_version", str(SCHEMA_VERSION)),
-        )
         connection.commit()
+        connection.execute("BEGIN IMMEDIATE")
+        content_version_row = connection.execute(
+            "SELECT value FROM memory_meta WHERE key = 'content_format_version'"
+        ).fetchone()
+        source_content_version = _meta_int(connection, "content_format_version", 0)
+        if content_version_row is None and not target_existed:
+            _set_meta(connection, "content_format_version", CONTENT_FORMAT_VERSION)
+        elif source_content_version < CONTENT_FORMAT_VERSION:
+            migration_report = _migrate_archive_content_to_v1(connection)
+            migration_report.update(
+                {
+                    "source_version": source_content_version,
+                    "target_version": CONTENT_FORMAT_VERSION,
+                }
+            )
+            _set_meta(connection, "content_format_version", CONTENT_FORMAT_VERSION)
+            _set_meta(
+                connection,
+                CONTENT_MIGRATION_REPORT_META_KEY,
+                json.dumps(migration_report, ensure_ascii=True, sort_keys=True),
+            )
+        _set_meta(connection, "schema_version", SCHEMA_VERSION)
+        connection.commit()
+    if migration_report is not None:
+        print(
+            "🧠 [Memory] Upgraded archive content format "
+            f"{migration_report['source_version']} -> {migration_report['target_version']}: "
+            f"cleaned {migration_report['cleaned_chunks']} chunk(s), "
+            f"invalidated {migration_report['invalidated_embeddings']} embedding(s)."
+        )
     return target
+
+
+def pending_content_migration_report(path: Any = None) -> dict[str, int] | None:
+    target = _db_path(path)
+    if not target.is_file():
+        return None
+    with _STORE_MIGRATION_LOCK:
+        try:
+            with sqlite3.connect(str(target)) as connection:
+                row = connection.execute(
+                    "SELECT value FROM memory_meta WHERE key = ?",
+                    (CONTENT_MIGRATION_REPORT_META_KEY,),
+                ).fetchone()
+        except sqlite3.Error:
+            return None
+    return _normalize_content_migration_report(row[0]) if row else None
+
+
+def acknowledge_content_migration_report(path: Any = None) -> None:
+    target = _db_path(path)
+    if not target.is_file():
+        return
+    with _STORE_MIGRATION_LOCK:
+        try:
+            with sqlite3.connect(str(target)) as connection:
+                connection.execute(
+                    "DELETE FROM memory_meta WHERE key = ?",
+                    (CONTENT_MIGRATION_REPORT_META_KEY,),
+                )
+                connection.commit()
+        except sqlite3.Error:
+            return
+
+
+def store_content_format_version(path: Any = None) -> int:
+    init_store(path)
+    with _connect(path) as connection:
+        return _meta_int(connection, "content_format_version", 0)
 
 
 def _row_to_record(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -504,7 +666,33 @@ def _normalize_vector(vector: Any) -> list[float]:
     return normalized
 
 
-def embedding_text_for_record(record: dict[str, Any]) -> str:
+def _linked_visualization_prompts(target_kind: Any, target_id: Any, *, path: Any = None) -> list[str]:
+    prompts: list[str] = []
+    for asset in list_assets_for_target(target_kind, target_id, path=path, include_blob=False):
+        metadata = dict(asset.get("metadata") or {})
+        link_metadata = dict(asset.get("link_metadata") or {})
+        prompt = str(
+            link_metadata.get("visual_reply_prompt")
+            or metadata.get("visual_reply_prompt")
+            or ""
+        ).strip()
+        if not prompt:
+            prompt = _visualization_prompt_from_asset_original_path(asset)
+        if prompt and prompt not in prompts:
+            prompts.append(prompt)
+    return prompts
+
+
+def _append_linked_visualization_prompts(text: Any, target_kind: Any, target_id: Any, *, path: Any = None) -> str:
+    base_text = str(text or "").strip()
+    prompts = _linked_visualization_prompts(target_kind, target_id, path=path)
+    if not prompts:
+        return base_text
+    prompt_text = "\n".join(f"- {prompt}" for prompt in prompts)
+    return f"{base_text}\n\nLinked image descriptions:\n{prompt_text}".strip()
+
+
+def embedding_text_for_record(record: dict[str, Any], *, path: Any = None) -> str:
     tags = ", ".join(normalize_tags((record or {}).get("tags")))
     parts = [
         str((record or {}).get("title", "") or "").strip(),
@@ -513,22 +701,25 @@ def embedding_text_for_record(record: dict[str, Any]) -> str:
     ]
     if tags:
         parts.append(f"Tags: {tags}")
-    return "\n".join(part for part in parts if part).strip()
+    text = "\n".join(part for part in parts if part).strip()
+    return _append_linked_visualization_prompts(text, "record", (record or {}).get("id"), path=path)
 
 
-def embedding_text_for_chunk(chunk: dict[str, Any]) -> str:
-    return str((chunk or {}).get("text", "") or "").strip()
+def embedding_text_for_chunk(chunk: dict[str, Any], *, path: Any = None) -> str:
+    text = str((chunk or {}).get("text", "") or "").strip()
+    return _append_linked_visualization_prompts(text, "chunk", (chunk or {}).get("id"), path=path)
 
 
 def embedding_targets_for_chunk(
     chunk: dict[str, Any],
     *,
     context_length: Any = DEFAULT_EMBEDDING_CONTEXT_TOKENS,
+    path: Any = None,
 ) -> list[dict[str, Any]]:
     chunk_id = str((chunk or {}).get("id", "") or "").strip()
     if not chunk_id:
         return []
-    slices = split_embedding_text(embedding_text_for_chunk(chunk), context_length=context_length)
+    slices = split_embedding_text(embedding_text_for_chunk(chunk, path=path), context_length=context_length)
     if not slices:
         return []
     if len(slices) == 1:
@@ -632,13 +823,13 @@ def list_embedding_targets(
     targets: list[dict[str, Any]] = []
     if include_records:
         for record in list_memories(limit=DEFAULT_LIMIT * 100, path=path):
-            text = embedding_text_for_record(record)
+            text = embedding_text_for_record(record, path=path)
             if not text:
                 continue
             targets.append({"kind": "record", "id": record.get("id", ""), "text": text, "text_hash": text_hash(text)})
     if include_chunks:
         for chunk in list_archived_chunks(limit=DEFAULT_LIMIT * 100, path=path):
-            targets.extend(embedding_targets_for_chunk(chunk, context_length=resolved_context))
+            targets.extend(embedding_targets_for_chunk(chunk, context_length=resolved_context, path=path))
     if only_missing and targets:
         with _connect(path) as connection:
             rows = connection.execute(
@@ -756,6 +947,14 @@ def compact_text(value: Any, limit: int = 900) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def normalize_recall_text_budget(value: Any, *, default: int = -1) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = int(default)
+    return max(-1, parsed)
 
 
 def query_requests_image_recall(query: Any) -> bool:
@@ -962,6 +1161,7 @@ def _turn_asset_entry(
 
 def _image_assets_from_turn(turn: dict[str, Any], role: str) -> list[dict[str, Any]]:
     assets: list[dict[str, Any]] = []
+    visual_reply_prompt = str(turn.get("visual_reply_prompt", "") or "").strip()
     attachment = _turn_asset_entry(
         image_path=turn.get("attachment_image_path"),
         source=turn.get("attachment_source", "image"),
@@ -975,13 +1175,16 @@ def _image_assets_from_turn(turn: dict[str, Any], role: str) -> list[dict[str, A
         ("assistant_visual_reply_image_path", "generated_image"),
     ]
     for field_name, source in generated_candidates:
+        metadata = {"field": field_name}
+        if visual_reply_prompt:
+            metadata["visual_reply_prompt"] = visual_reply_prompt
         entry = _turn_asset_entry(
             image_path=turn.get(field_name),
             source=turn.get(f"{field_name}_source", source),
             role=role,
             origin="assistant_visual_reply",
             relation="generated_by_reply",
-            metadata={"field": field_name},
+            metadata=metadata,
         )
         if entry and all(entry["path"] != existing["path"] for existing in assets):
             assets.append(entry)
@@ -995,13 +1198,16 @@ def _image_assets_from_turn(turn: dict[str, Any], role: str) -> list[dict[str, A
         if not isinstance(raw_paths, (list, tuple)):
             continue
         for raw_path in raw_paths:
+            metadata = {"field": field_name}
+            if visual_reply_prompt:
+                metadata["visual_reply_prompt"] = visual_reply_prompt
             entry = _turn_asset_entry(
                 image_path=raw_path,
                 source=source,
                 role=role,
                 origin="assistant_visual_reply",
                 relation="generated_by_reply",
-                metadata={"field": field_name},
+                metadata=metadata,
             )
             if entry and all(entry["path"] != existing["path"] for existing in assets):
                 assets.append(entry)
@@ -1247,6 +1453,108 @@ def list_assets_for_target(target_kind: Any, target_id: Any, *, path: Any = None
             payload["blob"] = bytes(row["blob"] or b"")
         results.append(payload)
     return results
+
+
+def visualization_prompt_from_image_comment(image_path: Any) -> str:
+    file_path = Path(str(image_path or "").strip())
+    if not file_path.is_file():
+        return ""
+    try:
+        from PIL import Image
+
+        with Image.open(file_path) as image:
+            for key in ("Comment", "comment"):
+                raw_value = image.info.get(key)
+                if isinstance(raw_value, bytes):
+                    value = raw_value.decode("utf-8", errors="replace").strip()
+                else:
+                    value = str(raw_value or "").strip()
+                if value:
+                    return value
+    except Exception:
+        return ""
+    return ""
+
+
+def _visualization_prompt_from_asset_original_path(asset: dict[str, Any]) -> str:
+    origin = str((asset or {}).get("origin", "") or "").strip().lower()
+    source = str((asset or {}).get("source", "") or "").strip().lower()
+    relation = str((asset or {}).get("relation", "") or "").strip().lower()
+    if origin != "assistant_visual_reply" and source != "generated_image" and relation != "generated_by_reply":
+        return ""
+    metadata = dict((asset or {}).get("metadata") or {})
+    link_metadata = dict((asset or {}).get("link_metadata") or {})
+    original_path = str(
+        link_metadata.get("original_path")
+        or metadata.get("original_path")
+        or ""
+    ).strip()
+    file_path = Path(original_path)
+    if not file_path.is_file():
+        return ""
+    expected_sha256 = str((asset or {}).get("sha256", "") or "").strip().lower()
+    if not expected_sha256:
+        return ""
+    try:
+        actual_sha256 = hashlib.sha256(file_path.read_bytes()).hexdigest().lower()
+    except Exception:
+        return ""
+    if actual_sha256 != expected_sha256:
+        return ""
+    return visualization_prompt_from_image_comment(file_path)
+
+
+def backfill_target_visualization_prompts_from_original_paths(
+    target_kind: Any,
+    target_id: Any,
+    *,
+    path: Any = None,
+) -> int:
+    recovered = 0
+    for asset in list_assets_for_target(target_kind, target_id, path=path, include_blob=False):
+        metadata = dict(asset.get("metadata") or {})
+        link_metadata = dict(asset.get("link_metadata") or {})
+        existing_prompt = str(
+            link_metadata.get("visual_reply_prompt")
+            or metadata.get("visual_reply_prompt")
+            or ""
+        ).strip()
+        if existing_prompt:
+            continue
+        prompt = _visualization_prompt_from_asset_original_path(asset)
+        if not prompt:
+            continue
+        metadata["visual_reply_prompt"] = prompt
+        link_metadata["visual_reply_prompt"] = prompt
+        now = _now_iso()
+        with _connect(path) as connection:
+            connection.execute(
+                "UPDATE long_term_memory_assets SET metadata_json = ?, updated_at = ? WHERE id = ?",
+                (_metadata_json(metadata), now, str(asset.get("asset_id") or asset.get("id") or "")),
+            )
+            connection.execute(
+                "UPDATE long_term_memory_asset_links SET metadata_json = ? WHERE id = ?",
+                (_metadata_json(link_metadata), str(asset.get("link_id") or "")),
+            )
+            connection.commit()
+        recovered += 1
+    return recovered
+
+
+def backfill_all_visualization_prompts_from_original_paths(*, path: Any = None) -> int:
+    init_store(path)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            "SELECT DISTINCT target_kind, target_id FROM long_term_memory_asset_links"
+        ).fetchall()
+    recovered = 0
+    for row in rows:
+        recovered += backfill_target_visualization_prompts_from_original_paths(
+            row["target_kind"],
+            row["target_id"],
+            path=path,
+        )
+    return recovered
 
 
 def ensure_history_chunk_assets(
@@ -2004,6 +2312,8 @@ def _offset(value: Any) -> int:
 
 
 __all__ = [
+    "CONTENT_MIGRATION_REPORT_META_KEY",
+    "CONTENT_FORMAT_VERSION",
     "DEFAULT_EMBEDDING_CONTEXT_TOKENS",
     "DEFAULT_EXTRACTION_MAX_RECORDS",
     "DEFAULT_EXTRACTION_TURNS",
@@ -2011,6 +2321,7 @@ __all__ = [
     "MEMORY_DIR",
     "SCHEMA_VERSION",
     "archive_history_chunk",
+    "acknowledge_content_migration_report",
     "build_extraction_messages",
     "chunk_id_for_segment",
     "chunk_parent_id_from_embedding_target",
@@ -2047,6 +2358,7 @@ __all__ = [
     "normalize_extracted_memories",
     "normalize_status",
     "normalize_tags",
+    "pending_content_migration_report",
     "retrieve_memories",
     "sanitize_history_turns",
     "search_archived_chunks",
@@ -2055,6 +2367,7 @@ __all__ = [
     "set_default_db_path",
     "set_memory_status",
     "split_embedding_text",
+    "store_content_format_version",
     "update_memory",
     "upsert_image_asset",
     "upsert_embedding",

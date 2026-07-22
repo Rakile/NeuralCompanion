@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -125,6 +126,19 @@ class BackendProcessSupervisor:
                 host_value = "127.0.0.1"
         return f"http://{host_value}:{int(port if port is not None else self._port or DEFAULT_BACKEND_PORT)}"
 
+    def port_conflict_message(self, *, host: str, port: int) -> str:
+        host_value = str(host or DEFAULT_BACKEND_HOST).strip()
+        probe_host = "127.0.0.1" if host_value in {"", "0.0.0.0", "::"} else host_value
+        port_value = int(port or DEFAULT_BACKEND_PORT)
+        try:
+            with socket.create_connection((probe_host, port_value), timeout=0.25):
+                return (
+                    f"Another process is already using LAN backend port {port_value}. "
+                    "Stop the older Main Chat Remote backend or choose another port, then try again."
+                )
+        except OSError:
+            return ""
+
     def status_snapshot(self) -> dict[str, Any]:
         with self._lock:
             process, running, returncode = self._process_state_locked()
@@ -227,6 +241,16 @@ class BackendProcessSupervisor:
             code = normalize_pairing_code(pairing_code) or generate_pairing_code()
             port_value = int(port or DEFAULT_BACKEND_PORT)
             host_value = str(host or DEFAULT_BACKEND_HOST)
+            conflict_message = self.port_conflict_message(host=host_value, port=port_value)
+            if conflict_message:
+                result = {
+                    "accepted": False,
+                    "running": False,
+                    "message": conflict_message,
+                    "port": port_value,
+                }
+                self._remember(result)
+                return result
             command = self.start_command(host=host_value, port=port_value)
             self.runtime_dir.mkdir(parents=True, exist_ok=True)
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)

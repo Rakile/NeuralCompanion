@@ -111,6 +111,12 @@ class RealUiActionsChatSensoryMixin:
             finally:
                 self._refresh_chat_session_runtime_frontend()
 
+    def _on_frontend_chat_visual_batch_size_changed(self, value):
+            try:
+                self.backend.on_chat_visual_batch_size_changed(int(value))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
     def _on_frontend_chat_overflow_policy_changed(self, choice):
             try:
                 self.backend.on_chat_overflow_policy_changed(str(choice or ""))
@@ -153,6 +159,12 @@ class RealUiActionsChatSensoryMixin:
             finally:
                 self._refresh_chat_session_runtime_frontend()
 
+    def _on_frontend_long_term_memory_image_review_enabled_changed(self, checked):
+            try:
+                self.backend.on_long_term_memory_image_review_enabled_changed(bool(checked))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
     def _on_frontend_long_term_memory_auto_archive_enabled_changed(self, checked):
             try:
                 self.backend.on_long_term_memory_auto_archive_enabled_changed(bool(checked))
@@ -162,6 +174,12 @@ class RealUiActionsChatSensoryMixin:
     def _on_frontend_long_term_memory_retrieval_max_items_changed(self, value):
             try:
                 self.backend.on_long_term_memory_retrieval_max_items_changed(int(value))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_long_term_memory_recall_text_budget_changed(self, value):
+            try:
+                self.backend.on_long_term_memory_recall_text_budget_changed(int(value))
             finally:
                 self._refresh_chat_session_runtime_frontend()
 

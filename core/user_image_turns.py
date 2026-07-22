@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 _pending_next_user_attachment: dict[str, str] | None = None
 _sanitize_chat_turn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
-_append_chat_turn: Callable[[dict[str, Any]], None] | None = None
+_append_chat_turn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
 _apply_stored_chat_history_limit: Callable[[], None] | None = None
 _set_pending_loaded_input_turn: Callable[[dict[str, Any]], None] | None = None
 _request_chat_view_rebuild: Callable[[], None] | None = None
@@ -51,7 +51,7 @@ def clear_pending_attachment() -> None:
 def configure_queue_runtime(
     *,
     sanitize_chat_turn: Callable[[dict[str, Any]], dict[str, Any] | None],
-    append_chat_turn: Callable[[dict[str, Any]], None],
+    append_chat_turn: Callable[[dict[str, Any]], dict[str, Any] | None],
     apply_stored_chat_history_limit: Callable[[], None],
     set_pending_loaded_input_turn: Callable[[dict[str, Any]], None],
     request_chat_view_rebuild: Callable[[], None],
@@ -73,8 +73,9 @@ def queue_image_turn(
     *,
     content: str | None = None,
     source: str = "clipboard",
+    remote_capture_id: str = "",
     sanitize_chat_turn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
-    append_chat_turn: Callable[[dict[str, Any]], None] | None = None,
+    append_chat_turn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
     apply_stored_chat_history_limit: Callable[[], None] | None = None,
     set_pending_loaded_input_turn: Callable[[dict[str, Any]], None] | None = None,
     request_chat_view_rebuild: Callable[[], None] | None = None,
@@ -87,21 +88,27 @@ def queue_image_turn(
     if not all(callable(item) for item in (sanitize, append_turn, apply_limit, set_pending, rebuild)):
         raise RuntimeError("User image turn runtime is not configured.")
     path = _resolve_existing_image_path(image_path)
-    turn = sanitize(
-        {
+    raw_turn = {
             "role": "user",
             "content": str(content or "").strip() or "Please respond to the image I just sent you.",
             "origin": "input",
             "attachment_image_path": path,
             "attachment_source": str(source or "image").strip().lower() or "image",
         }
-    )
+    capture_id = str(remote_capture_id or "").strip()
+    if capture_id:
+        raw_turn["remote_capture_id"] = capture_id
+    turn = sanitize(raw_turn)
     if not turn:
         raise ValueError("Could not prepare image input turn.")
     clear_pending_attachment()
-    append_turn(dict(turn))
-    apply_limit()
-    set_pending(dict(turn))
+    accepted_turn = append_turn(dict(turn))
+    if isinstance(accepted_turn, dict):
+        pending_turn = dict(accepted_turn)
+    else:
+        pending_turn = dict(turn)
+        apply_limit()
+    set_pending(pending_turn)
     print(f"📋 [Clipboard] Queued image input for next model request: {path}")
     rebuild()
     return dict(turn)

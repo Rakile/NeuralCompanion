@@ -275,6 +275,9 @@ def _write_recent_runtime_files(app_root: Path, bundle_dir: Path, manifest: dict
     companion_debug = runtime_dir / "companion_orb" / "debug" / "companion_orb_debug.log"
     if _copy_tail_file(companion_debug, files_root / "companion_orb_debug_tail.log"):
         manifest.setdefault("included_files", []).append("files/companion_orb_debug_tail.log")
+    latency_trace = runtime_dir / "logs" / "tts_addon_latency.jsonl"
+    if _copy_tail_file(latency_trace, files_root / "tts_addon_latency_tail.jsonl"):
+        manifest.setdefault("included_files", []).append("files/tts_addon_latency_tail.jsonl")
 
 
 def _zip_directory(source_dir: Path, zip_path: Path) -> None:

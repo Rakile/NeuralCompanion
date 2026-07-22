@@ -33,6 +33,7 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("continuity_memory_max_chars", ("memory", "max_chars")),
         ("long_term_memory_retrieval_enabled", ("archive", "retrieval_enabled")),
         ("long_term_memory_retrieval_max_items", ("archive", "retrieval_max_items")),
+        ("long_term_memory_recall_text_budget", ("archive", "recall_text_budget")),
         ("long_term_memory_recall_image_limit", ("archive", "recall_image_limit")),
         ("long_term_memory_auto_archive_enabled", ("archive", "auto_archive_enabled")),
         ("long_term_memory_archive_batch_turns", ("archive", "batch_turns")),

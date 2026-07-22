@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -25,7 +26,10 @@ from addons.discord_voice_bridge.main import (
     _effective_bridge_settings,
     _node_bridge_environment_issues,
     _redact_runtime_log_text,
+    _should_start_bridge,
     _tiny_mvp_monitor_command,
+    _tiny_mvp_mic_identity,
+    _tiny_mvp_room_context,
     _tiny_mvp_bridge_script,
     _tiny_mvp_room_command,
     _tiny_mvp_room_script,
@@ -46,6 +50,11 @@ def main() -> int:
     _test_tiny_mvp_uses_bundled_defaults()
     _test_tiny_mvp_start_ensures_room_before_bot_bridges()
     _test_tiny_mvp_room_gui_default_contract()
+    _test_tiny_mvp_default_mic_identity_is_generic_human()
+    _test_tiny_mvp_local_user_label_explains_room_registration()
+    _test_tiny_mvp_mic_identity_syncs_configured_human()
+    _test_tiny_mvp_room_context_contract()
+    _test_tiny_mvp_room_context_omits_internal_telemetry()
     _test_settings_secret_preservation()
     _test_instance_settings_strip_direct_tokens()
     _test_room_router_candidates_are_sanitized()
@@ -57,12 +66,18 @@ def main() -> int:
     _test_settings_tabs_are_visually_joined_and_iconized()
     _test_command_buttons_match_tab_button_style()
     _test_settings_schema_ui_exposure()
+    _test_general_startup_controls_are_unambiguous()
     _test_protected_mic_speech_control_lives_with_moderator_controls()
     _test_discord_protected_mic_speech_routes_context()
     _test_runtime_safety_filters_and_context()
+    _test_runtime_prompt_contract_is_visible_and_room_neutral()
+    _test_runtime_room_context_omits_internal_telemetry()
+    _test_runtime_room_router_context_omits_internal_telemetry()
+    _test_runtime_history_dedupes_context_only_turns()
     _test_runtime_interruption_contract()
     _test_runtime_route_context_recording()
     _test_runtime_manual_speak_chunks()
+    _test_tiny_mvp_routes_completed_prebuffer_during_playback()
     _test_bot_history_persists_between_runtime_instances()
     _test_room_router_decisions()
     _test_session_mode_stays_isolated()
@@ -109,6 +124,73 @@ def _base_settings() -> dict:
         "capture": {"wav_sample_rate": 16000, "wav_channels": 1},
         "bots": [],
     }
+
+
+def _test_tiny_mvp_routes_completed_prebuffer_during_playback() -> None:
+    from addons.discord_voice_bridge.tiny_mvp.tiny_voice_bridge import TinyVoiceBridge
+
+    bridge = TinyVoiceBridge(
+        bot_id="echo",
+        bot_name="Echo",
+        tiny_url="http://127.0.0.1:8788",
+        nc_turn_url="http://127.0.0.1:8768/turn",
+        poll_seconds=0.01,
+    )
+    room_state = {
+        "current_id": "moderator",
+        "playback_owner_id": "moderator",
+        "next_id": "echo",
+        "playback_epoch": 0,
+        "participants": [
+            {"id": "echo", "name": "Echo", "kind": "bot", "connected": True},
+            {"id": "nova", "name": "Nova", "kind": "bot", "connected": True},
+        ],
+    }
+    events: list[str] = []
+
+    bridge.write_status = lambda _stage, _state=None: None  # type: ignore[method-assign]
+    bridge.get_json = lambda _url: dict(room_state)  # type: ignore[method-assign]
+    bridge.post_json = lambda _url, _payload: {"ok": True, "state": dict(room_state)}  # type: ignore[method-assign]
+    bridge.post_json_to_nc = lambda _url, _payload: {"ok": True}  # type: ignore[method-assign]
+    bridge.post_ndjson = lambda _url, _payload: iter(  # type: ignore[method-assign]
+        [
+            {"type": "transcript", "input_text": "Moderator called on Echo."},
+            {"type": "audio_chunk", "reply_wav_path": "echo_0.wav", "reply_text": "Echo reply."},
+            {"type": "done", "reply_text": "Echo reply.", "reply_chunks": 1},
+        ]
+    )
+
+    def play_chunk(_wav_path: str, *, playback_epoch: int, cancel_epoch: int, chunk_text: str = "") -> bool:
+        events.append("play_start")
+        bridge.mark_reply_chunk_delivered(chunk_text)
+        time.sleep(0.15)
+        events.append("play_end")
+        return True
+
+    def route_reply(_text: str, _participants: list[dict], *, broadcast_history: bool = True) -> None:
+        events.append("route_late" if broadcast_history else "route_early")
+
+    bridge.play_wav_chunk = play_chunk  # type: ignore[method-assign]
+    bridge.route_completed_reply_text = route_reply  # type: ignore[method-assign]
+    timer = threading.Timer(
+        0.03,
+        lambda: room_state.update(current_id="echo", playback_owner_id="echo", next_id=""),
+    )
+    timer.start()
+    try:
+        bridge.send_turn_to_nc(
+            "Continue the room conversation.",
+            "Moderator",
+            "moderator",
+            list(room_state["participants"]),
+            route_index=1,
+        )
+    finally:
+        timer.cancel()
+
+    assert "route_early" in events, events
+    assert events.index("route_early") < events.index("play_end"), events
+    assert "route_late" not in events, events
 
 
 def _test_validation_errors_and_success() -> None:
@@ -211,6 +293,165 @@ def _test_tiny_mvp_room_gui_default_contract() -> None:
     monitor_command = _tiny_mvp_monitor_command({}, "http://127.0.0.1:8788/state")
     assert "--gui" in monitor_command
     assert "--monitor-url" in monitor_command
+
+
+def _test_tiny_mvp_default_mic_identity_is_generic_human() -> None:
+    addon_dir = Path(__file__).resolve().parent
+    defaults = json.loads((addon_dir / "settings.example.json").read_text(encoding="utf-8"))
+    schema = json.loads((addon_dir / "settings_schema.json").read_text(encoding="utf-8"))
+    controller = (addon_dir / "controller.py").read_text(encoding="utf-8")
+    tiny_bridge = (addon_dir / "tiny_mvp" / "tiny_voice_bridge.py").read_text(encoding="utf-8")
+
+    assert _tiny_mvp_mic_identity({}) == ("human", "Human")
+    assert _tiny_mvp_mic_identity(
+        {"tiny_mvp": {"mic_user_id": "kalle", "mic_user_name": "Kalle"}}
+    ) == ("kalle", "Kalle")
+    assert defaults["tiny_mvp"]["mic_user_id"] == "human"
+    assert defaults["tiny_mvp"]["mic_user_name"] == "Human"
+
+    fields = [field for group in schema["groups"] for field in group.get("fields", [])]
+    assert next(item for item in fields if item.get("key") == "tiny_mvp.mic_user_id")["default"] == "human"
+    assert next(item for item in fields if item.get("key") == "tiny_mvp.mic_user_name")["default"] == "Human"
+    assert 'tiny_mvp.mic_user_id", "human"' in controller
+    assert 'tiny_mvp.mic_user_name", "Human"' in controller
+    assert 'setPlaceholderText("human")' in controller
+    assert 'setPlaceholderText("Human")' in controller
+    assert 'default="human"' in tiny_bridge
+    assert 'default="Human"' in tiny_bridge
+
+
+def _test_tiny_mvp_local_user_label_explains_room_registration() -> None:
+    addon_dir = Path(__file__).resolve().parent
+    schema = json.loads((addon_dir / "settings_schema.json").read_text(encoding="utf-8"))
+    controller = (addon_dir / "controller.py").read_text(encoding="utf-8")
+
+    fields = [field for group in schema["groups"] for field in group.get("fields", [])]
+    field = next(item for item in fields if item.get("key") == "tiny_mvp.capture_mic")
+    assert field["label"] == "TinyMVP local user"
+    assert "adds the configured local user" in field["help"]
+    assert 'QCheckBox("Add local user and use NC microphone", group)' in controller
+    assert 'form.addRow("Local user", capture)' in controller
+
+
+def _test_tiny_mvp_mic_identity_syncs_configured_human() -> None:
+    from addons.discord_voice_bridge import main as bridge_main
+
+    calls: list[tuple[str, str, dict]] = []
+
+    def fake_http_json(method: str, url: str, payload: dict | None = None, *, timeout: float = 5.0) -> dict:
+        calls.append((method, url, dict(payload or {})))
+        if method == "GET":
+            return {
+                "participants": [
+                    {
+                        "id": "rakila",
+                        "name": "Rakila",
+                        "kind": "human",
+                        "connected": True,
+                    }
+                ]
+            }
+        return {"ok": True}
+
+    original = bridge_main._http_json
+    bridge_main._http_json = fake_http_json
+    try:
+        Addon._sync_tiny_mvp_mic_participant(
+            {
+                "bridge_mode": "tiny_mvp",
+                "tiny_mvp": {
+                    "capture_mic": True,
+                    "mic_user_id": "kalle",
+                    "mic_user_name": "Kalle",
+                },
+            },
+            "http://127.0.0.1:8788",
+        )
+    finally:
+        bridge_main._http_json = original
+
+    assert (
+        "POST",
+        "http://127.0.0.1:8788/participants/upsert",
+        {"id": "kalle", "name": "Kalle", "type": "human", "connected": True},
+    ) in calls
+    assert (
+        "POST",
+        "http://127.0.0.1:8788/participants/remove",
+        {"id": "rakila"},
+    ) in calls
+
+
+def _test_tiny_mvp_room_context_contract() -> None:
+    participants = [
+        {"id": "echo", "name": "Echo", "kind": "bot", "connected": True, "current": False, "next": True},
+        {"id": "rakila", "name": "Rakila", "kind": "human", "connected": True, "current": True, "next": False},
+    ]
+    state = {
+        "route_flow": [
+            {
+                "type": "speech",
+                "source_id": "rakila",
+                "target_id": "",
+                "message": "Rakila: Please continue.",
+            },
+            {
+                "type": "room_router",
+                "source_id": "rakila",
+                "target_id": "echo",
+                "message": "Rakila -> Echo | answer=yes | addressed Echo.",
+            },
+        ],
+    }
+    context = _tiny_mvp_room_context(participants, state=state, limit=20)
+    assert isinstance(context, list)
+    assert any("Current room participants" in item.get("content", "") for item in context)
+    assert any("Rakila: Please continue." in item.get("content", "") for item in context)
+    joined = "\n".join(str(item.get("content") or "") for item in context)
+    assert "TinyMVP" not in joined, joined
+    assert "Rakila: Rakila:" not in joined, joined
+    assert "addressed Echo" not in joined, joined
+    assert not any(item.get("reason") == "room_router" for item in context), context
+
+
+def _test_tiny_mvp_room_context_omits_internal_telemetry() -> None:
+    participants = [
+        {"id": "echo", "name": "Echo", "kind": "bot", "connected": True},
+        {"id": "kalle", "name": "Kalle", "kind": "human", "connected": True},
+        {"id": "moderator", "name": "Moderator", "kind": "bot", "connected": True},
+    ]
+    state = {
+        "route_flow": [
+            {"type": "system", "source_id": "room", "target_id": "room", "message": "TinyMVP room initialized."},
+            {"type": "participant", "source_id": "kalle", "target_id": "", "message": "Kalle human connected."},
+            {"type": "participant", "source_id": "rakila", "target_id": "", "message": "Rakila removed."},
+            {"type": "participant", "source_id": "echo", "target_id": "", "message": "Echo bot connected."},
+            {"type": "current", "source_id": "echo", "target_id": "", "message": "Current cleared | echo turn finished"},
+            {"type": "playback", "source_id": "room", "target_id": "", "message": r"Playback started as Echo: D:\tools\reply.wav"},
+            {"type": "capture", "source_id": "echo", "target_id": "", "message": "Capture owner -> Echo | participant updated"},
+            {"type": "speech", "source_id": "moderator", "target_id": "", "message": "Moderator: Okay team, let's set our focus."},
+            {"type": "speech", "source_id": "echo", "target_id": "", "message": "Echo: I propose starting with feature scope."},
+            {"type": "speech", "source_id": "kalle", "target_id": "", "message": "Kalle: What is the setup first?"},
+            {"type": "dead_air", "source_id": "echo", "target_id": "moderator", "message": "Dead-air recovery chose Moderator."},
+            {"type": "route", "source_id": "moderator", "target_id": "echo", "message": "Next -> Echo | dead_air_recovery:Moderator prompted the room."},
+        ],
+    }
+    context = _tiny_mvp_room_context(participants, state=state, limit=20)
+    joined = "\n".join(str(item.get("content") or "") for item in context)
+    assert "What is the setup first?" in joined, joined
+    assert "Moderator: Okay team, let's set our focus." in joined, joined
+    assert "Echo: I propose starting with feature scope." in joined, joined
+    assert "TinyMVP" not in joined, joined
+    assert "room initialized" not in joined, joined
+    assert "human connected" not in joined, joined
+    assert "bot connected" not in joined, joined
+    assert "removed" not in joined, joined
+    assert "Playback started" not in joined, joined
+    assert ".wav" not in joined, joined
+    assert "Current cleared" not in joined, joined
+    assert "Capture owner" not in joined, joined
+    assert "Dead-air recovery chose" not in joined, joined
+    assert "Next ->" not in joined, joined
 
 
 def _test_settings_secret_preservation() -> None:
@@ -401,6 +642,8 @@ def _test_designer_ui_contract() -> None:
         "discord_reply_immunity_seconds_spin",
         "discord_initial_buffer_chunks_spin",
         "discord_persona_prompt_edit",
+        "discord_room_speech_prompt_edit",
+        "discord_transcript_safety_prompt_edit",
         "discord_voice_clone_wav_edit",
         "discord_persist_room_context_checkbox",
         "discord_bots_json_edit",
@@ -573,8 +816,6 @@ def _test_settings_schema_ui_exposure() -> None:
     controller_text = (Path(__file__).resolve().parent / "controller.py").read_text(encoding="utf-8")
     ui_text = (Path(__file__).resolve().parent / "ui" / "discord_voice_bridge.ui").read_text(encoding="utf-8")
     key_to_controls = {
-        "enabled": ["discord_enabled_checkbox"],
-        "auto_start_bridge": ["discord_auto_start_checkbox"],
         "start_on_nc_launch": ["discord_start_on_launch_checkbox"],
         "bridge_mode": ["discord_bridge_mode_combo"],
         "tiny_mvp.url": ["discord_tiny_mvp_url_edit"],
@@ -646,6 +887,8 @@ def _test_settings_schema_ui_exposure() -> None:
         "room_router.routed_text_max_age_seconds": ["discord_room_router_text_age_spin"],
         "room_router.router_rules_prompt": ["discord_room_router_rules_prompt_edit"],
         "persona.system_prompt": ["discord_persona_prompt_edit"],
+        "persona.room_speech_prompt": ["discord_room_speech_prompt_edit"],
+        "persona.transcript_safety_prompt": ["discord_transcript_safety_prompt_edit"],
         "persona.replace_nc_system_prompt": ["discord_replace_nc_prompt_checkbox"],
         "persona.voice_clone_wav": ["discord_voice_clone_wav_edit"],
         "chat.context_entries": ["discord_context_entries_spin"],
@@ -678,6 +921,24 @@ def _test_settings_schema_ui_exposure() -> None:
         if not any(control in combined for control in controls):
             missing_controls.append((key, controls))
     assert not missing_controls, missing_controls
+
+
+def _test_general_startup_controls_are_unambiguous() -> None:
+    schema = settings_module.load_settings_schema()
+    general = next(group for group in schema["groups"] if group.get("id") == "general")
+    fields = {field.get("key"): field for field in general.get("fields", [])}
+    ui_text = (Path(__file__).resolve().parent / "ui" / "discord_voice_bridge.ui").read_text(encoding="utf-8")
+
+    assert "enabled" not in fields
+    assert "auto_start_bridge" not in fields
+    assert fields["start_on_nc_launch"]["label"] == "Start bridge when NC launches"
+    assert "discord_enabled_checkbox" not in ui_text
+    assert "discord_auto_start_checkbox" not in ui_text
+    assert "Start bridge when NC launches" in ui_text
+
+    assert _should_start_bridge({"start_on_nc_launch": True})
+    assert _should_start_bridge({"auto_start_bridge": True})
+    assert not _should_start_bridge({})
 
 
 def _test_protected_mic_speech_control_lives_with_moderator_controls() -> None:
@@ -779,6 +1040,183 @@ def _test_runtime_safety_filters_and_context() -> None:
     assert not service.calls, service.calls
 
 
+def _test_runtime_prompt_contract_is_visible_and_room_neutral() -> None:
+    settings = _base_settings()
+    settings["persona"] = {
+        "system_prompt": "You are a test participant.",
+        "room_speech_prompt": "CUSTOM visible speech prompt.",
+        "transcript_safety_prompt": "CUSTOM visible transcript safety rule.",
+    }
+    server = DiscordVoiceRuntimeServer(settings=settings, logger=None)
+    server._update_participants([
+        {"id": "echo", "name": "Echo", "is_bot": True},
+        {"id": "kalle", "name": "Kalle", "is_bot": False},
+    ])
+
+    system_prompt = server._discord_system_prompt({"system_prompt": "", "emotional_instructions": ""})
+    assert "CUSTOM visible speech prompt." in system_prompt, system_prompt
+    assert "CUSTOM visible transcript safety rule." in system_prompt, system_prompt
+    assert "Current room participants:" in system_prompt, system_prompt
+    assert "Discord voice channel" not in system_prompt, system_prompt
+    assert "through Neural Companion" not in system_prompt, system_prompt
+    assert "Security rule: Discord transcripts" not in system_prompt, system_prompt
+
+    user_turn = server._current_turn_input_text("Kalle: Hello there.")
+    assert "Current room state for this turn:" in user_turn, user_turn
+    assert "Latest room utterance transcript" in user_turn, user_turn
+    assert "Current Discord voice" not in user_turn, user_turn
+    assert "Latest Discord utterance" not in user_turn, user_turn
+
+    manual_call = server._manual_call_on_input_text()
+    assert "current room conversation" in manual_call, manual_call
+    assert "Discord voice conversation" not in manual_call, manual_call
+
+
+def _test_runtime_room_context_omits_internal_telemetry() -> None:
+    server = DiscordVoiceRuntimeServer(settings=_base_settings(), logger=None)
+    block = server._room_context_block([
+        {"content": "Echo: Current cleared | echo turn finished", "answer": False, "reason": "current"},
+        {"content": r"Room: Playback started as Echo: D:\tools\reply.wav", "answer": False, "reason": "playback"},
+        {"content": "Echo: Capture owner -> Echo | participant updated", "answer": False, "reason": "capture"},
+        {"content": "Moderator: Moderator: Okay team, let's set our focus.", "answer": False, "reason": "speech"},
+        {"content": "Echo: Echo: I propose starting with feature scope.", "answer": False, "reason": "speech"},
+        {"content": "Kalle: What is the setup first?", "answer": False, "reason": "speech"},
+        {"content": "Echo -> Moderator: Dead-air recovery chose Moderator.", "answer": True, "reason": "dead_air"},
+        {"content": "Moderator -> Echo: Next -> Echo | dead_air_recovery:Moderator prompted the room.", "answer": True, "reason": "route"},
+        {"content": "Moderator: Moderator -> no route | answer=no | Moderator is prompting the whole team.", "answer": False, "reason": "route"},
+    ])
+    assert "What is the setup first?" in block, block
+    assert "Moderator: Okay team, let's set our focus." in block, block
+    assert "Echo: I propose starting with feature scope." in block, block
+    assert "Playback started" not in block, block
+    assert ".wav" not in block, block
+    assert "Current cleared" not in block, block
+    assert "Capture owner" not in block, block
+    assert "Dead-air recovery chose" not in block, block
+    assert "Next ->" not in block, block
+    assert "-> no route" not in block, block
+    assert "Moderator: Moderator:" not in block, block
+    assert "Echo: Echo:" not in block, block
+    assert "answered" not in block, block
+    assert "no bot answer" not in block, block
+
+
+def _test_runtime_room_router_context_omits_internal_telemetry() -> None:
+    from core import chat_providers
+
+    settings = _base_settings()
+    settings["room_router"] = {
+        "enabled": True,
+        "mode": "llm_router",
+        "candidate_bots": [
+            {"id": "echo", "name": "Echo", "call_names": "Echo"},
+            {"id": "nova", "name": "Nova", "call_names": "Nova"},
+        ],
+    }
+    server = DiscordVoiceRuntimeServer(settings=settings, logger=None)
+    server._runtime_config = lambda: {"chat_provider": "smoke", "model_name": "smoke-router"}  # type: ignore[method-assign]
+    captured: dict[str, str] = {}
+    original_complete_chat = chat_providers.complete_chat
+
+    def _fake_complete_chat(_provider: object, params: dict[str, object], _additional_params: dict[str, object]) -> str:
+        messages = params.get("messages")
+        assert isinstance(messages, list) and len(messages) >= 2, messages
+        prompt = messages[1].get("content") if isinstance(messages[1], dict) else ""
+        captured["prompt"] = str(prompt or "")
+        return '{"answer":true,"target_bot_id":"nova","reason":"addressed Nova"}'
+
+    chat_providers.complete_chat = _fake_complete_chat  # type: ignore[assignment]
+    try:
+        decision = server._room_router_decision(
+            "Moderator: Nova, what is your take?",
+            {
+                "speaker_name": "Moderator",
+                "room_context": [
+                    {"content": r"Echo: Playback started as Echo: D:\tools\scrap_test\NeuralCompanion-dev\addons\discord_voice_bridge\runtime_replies\reply.wav", "reason": "playback"},
+                    {"content": "Echo: Current cleared | echo turn finished", "reason": "current"},
+                    {"content": "Room: Playback stopped | echo turn finished", "reason": "playback"},
+                    {"content": "Echo: Echo made an actual argument.", "reason": "speech"},
+                    {"content": "Nova: Nova: Scope should come before architecture.", "reason": "speech"},
+                    {"content": "Moderator -> Nova: Next -> Nova | moderator asked Nova.", "reason": "route"},
+                    {"content": "Room -> Nova: Dead-air recovery chose Nova.", "reason": "dead_air"},
+                ],
+            },
+        )
+    finally:
+        chat_providers.complete_chat = original_complete_chat  # type: ignore[assignment]
+
+    prompt = captured.get("prompt", "")
+    assert decision["answer"] is True and decision["target_bot_id"] == "nova", decision
+    assert "Echo made an actual argument" in prompt, prompt
+    assert "Nova: Scope should come before architecture." in prompt, prompt
+    assert "Playback started" not in prompt, prompt
+    assert "Playback stopped" not in prompt, prompt
+    assert "Current cleared" not in prompt, prompt
+    assert "moderator asked Nova" not in prompt, prompt
+    assert "Dead-air recovery chose" not in prompt, prompt
+    assert "Next ->" not in prompt, prompt
+    assert "Nova: Nova:" not in prompt, prompt
+    assert "runtime_replies" not in prompt, prompt
+    assert ".wav" not in prompt, prompt
+
+
+def _test_runtime_history_dedupes_context_only_turns() -> None:
+    runtime = DiscordVoiceRuntimeServer(
+        settings={"id": f"smoke_history_dedupe_{time.time_ns()}", "display_name": "Nova"},
+        logger=None,
+    )
+    runtime.reset_history()
+    context_text = "[2026-07-10 06:37:54 W. Europe Daylight Time] Echo: test room turn"
+    finalized_text = "[2026-07-10 06:37:58 W. Europe Daylight Time] Echo: test room turn"
+    try:
+        result = runtime.record_user_turn(
+            {
+                "route_key": "room_turn:history:nova",
+                "context_input_text": context_text,
+            }
+        )
+        assert result["recorded"] is True
+        with runtime._lock:
+            runtime._active_turns["turn1"] = {
+                "input_text": finalized_text,
+                "record_input_history": True,
+                "history_finalized": False,
+                "cancelled": False,
+                "reply_text": "Nova reply",
+            }
+        runtime.finish_turn({"turn_id": "turn1"})
+        users = [item["content"] for item in runtime._history if item.get("role") == "user"]
+        assistants = [item["content"] for item in runtime._history if item.get("role") == "assistant"]
+        assert users.count(context_text) == 1, runtime._history
+        assert not any(item == finalized_text for item in users), runtime._history
+        assert any("Nova reply" in item for item in assistants), runtime._history
+
+        result = runtime.record_user_turn(
+            {
+                "route_key": "room_turn:history:nova:retry",
+                "context_input_text": "[2026-07-10 06:38:01 W. Europe Daylight Time] Echo: test room turn",
+            }
+        )
+        assert result["recorded"] is False, result
+
+        with runtime._lock:
+            runtime._active_turns["turn2"] = {
+                "input_text": "Continue the current room conversation from your perspective.",
+                "record_input_history": False,
+                "history_finalized": False,
+                "cancelled": False,
+                "reply_text": "Manual call reply",
+            }
+        runtime.finish_turn({"turn_id": "turn2"})
+        assert not any(
+            item.get("role") == "user"
+            and "Continue the current room conversation" in str(item.get("content") or "")
+            for item in runtime._history
+        ), runtime._history
+    finally:
+        runtime.reset_history()
+
+
 def _test_runtime_interruption_contract() -> None:
     settings = _base_settings()
     settings["name"] = "Echo"
@@ -874,41 +1312,45 @@ def _test_runtime_interruption_contract() -> None:
 def _test_runtime_route_context_recording() -> None:
     settings = _base_settings()
     server = DiscordVoiceRuntimeServer(settings=settings, logger=None)
+    server.reset_history()
 
     def _fail_if_protected_speech_routes(_text, _payload):
         raise AssertionError("protected mic speech should be recorded without running the room router")
 
-    server._room_router_decision = _fail_if_protected_speech_routes  # type: ignore[method-assign]
-    decision = server.route_turn(
-        {
-            "route_key": "protected_mic_1",
-            "speaker_name": "Rakila",
-            "user_id": "rakila",
-            "input_text": "I should be heard without stealing the floor.",
-            "duration_seconds": 3.0,
-            "record_route_context": True,
-        }
-    )
-    assert decision["answer"] is False, decision
-    assert decision["target_bot_id"] == "", decision
-    assert decision["reason"] == "current_speaker_protected", decision
-    assert decision["protected_mic_context_only"] is True, decision
-    assert decision["context_recorded"] is True, decision
-    assert server._history[-1]["role"] == "user", server._history
-    assert "Rakila: I should be heard without stealing the floor." in server._history[-1]["content"], server._history
+    try:
+        server._room_router_decision = _fail_if_protected_speech_routes  # type: ignore[method-assign]
+        decision = server.route_turn(
+            {
+                "route_key": "protected_mic_1",
+                "speaker_name": "Rakila",
+                "user_id": "rakila",
+                "input_text": "I should be heard without stealing the floor.",
+                "duration_seconds": 3.0,
+                "record_route_context": True,
+            }
+        )
+        assert decision["answer"] is False, decision
+        assert decision["target_bot_id"] == "", decision
+        assert decision["reason"] == "current_speaker_protected", decision
+        assert decision["protected_mic_context_only"] is True, decision
+        assert decision["context_recorded"] is True, decision
+        assert server._history[-1]["role"] == "user", server._history
+        assert "Rakila: I should be heard without stealing the floor." in server._history[-1]["content"], server._history
 
-    duplicate = server.route_turn(
-        {
-            "route_key": "protected_mic_1",
-            "speaker_name": "Rakila",
-            "user_id": "rakila",
-            "input_text": "I should be heard without stealing the floor.",
-            "duration_seconds": 3.0,
-            "record_route_context": True,
-        }
-    )
-    assert duplicate["context_recorded"] is False, duplicate
-    assert duplicate["context_record_reason"] == "duplicate_user_turn", duplicate
+        duplicate = server.route_turn(
+            {
+                "route_key": "protected_mic_1",
+                "speaker_name": "Rakila",
+                "user_id": "rakila",
+                "input_text": "I should be heard without stealing the floor.",
+                "duration_seconds": 3.0,
+                "record_route_context": True,
+            }
+        )
+        assert duplicate["context_recorded"] is False, duplicate
+        assert duplicate["context_record_reason"] == "duplicate_user_turn", duplicate
+    finally:
+        server.reset_history()
 
 
 def _test_runtime_manual_speak_chunks() -> None:
@@ -1053,6 +1495,19 @@ def _test_room_router_decisions() -> None:
     decision = server._room_router_false_negative_response_target(false_reply, candidates, {"speaker_name": "Mira"}, policy)
     assert decision and decision["answer"] is True and decision["target_bot_id"] == "echo", decision
 
+    false_human_handoff = {
+        "answer": False,
+        "target_bot_id": "",
+        "reason": "The moderator is waiting for a human response from Rakila.",
+    }
+    decision = server._room_router_false_negative_response_target(
+        false_human_handoff,
+        participant_candidates,
+        {"speaker_name": "Moderator"},
+        policy,
+    )
+    assert decision and decision["answer"] is True and decision["target_bot_id"] == "rakila", decision
+
     false_continuation = {
         "answer": False,
         "target_bot_id": "",
@@ -1089,6 +1544,8 @@ def _test_room_router_decisions() -> None:
 
     default_rules = DiscordVoiceRuntimeServer.DEFAULT_ROUTER_RULES_PROMPT
     assert "Candidate target tokens may refer to bots or humans" in default_rules, default_rules
+    assert "A named human participant is a valid next-speaker target" in default_rules, default_rules
+    assert "waiting for a response from" in default_rules, default_rules
     assert "continues a debate with another candidate bot" in default_rules, default_rules
     assert "Do not classify candidate-bot dialogue as human-to-human room talk" in default_rules, default_rules
 
@@ -1723,10 +2180,14 @@ def _test_dead_air_recovery_contract() -> None:
         "maybeQueueSilenceTimeoutRecovery",
         "silenceTimeoutRecovery",
         "isRoomQuietForRecovery",
+        "clearStaleSelfPendingRouteForRecovery",
+        "Cleared stale self-pending route",
         'noteRoomActivity("speech_end")',
         'noteRoomActivity("playback_idle")',
     ):
         assert needle in node, needle
+    dead_air_block = node[node.index("async function maybeQueueDeadAirRecovery"):node.index("function queueRecoveryNextTarget")]
+    assert "state = clearStaleSelfPendingRouteForRecovery(state, turn, options);" in dead_air_block, dead_air_block
 
 
 def _test_tiny_mvp_local_mic_dead_air_waits_for_quiet_timeout() -> None:
@@ -2134,7 +2595,7 @@ def _test_live_control_contract() -> None:
         "_manual_call_on_input_text",
         "record_input_history",
         'rstrip("/") == "/record_user_turn"',
-        "Continue the current Discord voice conversation from your perspective.",
+        "Continue the current room conversation from your perspective.",
     ):
         assert needle in runtime_source, needle
 

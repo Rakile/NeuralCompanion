@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import mimetypes
 import re
@@ -15,16 +16,22 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from addons.main_chat_remote.backend_process import BackendProcessSupervisor
 from addons.main_chat_remote.media_bridge import MainChatMediaBridge
 
 try:  # PySide6 is present in the full app, but smoke tests can run without it.
-    from PySide6 import QtCore, QtWidgets
+    from PySide6 import QtCore, QtGui, QtWidgets
 except Exception:  # pragma: no cover - exercised in non-Qt smoke contexts.
     QtCore = None
+    QtGui = None
     QtWidgets = None
+
+try:
+    import qrcode
+except Exception:  # Optional so an older runtime can still open the addon.
+    qrcode = None
 
 
 DEFAULT_BRIDGE_HOST = "127.0.0.1"
@@ -33,7 +40,19 @@ BRIDGE_INFO_FILE = "bridge_info.json"
 MAX_JSON_PAYLOAD_BYTES = 25 * 1024 * 1024
 STT_UPLOAD_RETENTION_SECONDS = 24 * 60 * 60
 STT_UPLOAD_MAX_FILES = 128
+IMAGE_UPLOAD_RETENTION_SECONDS = 7 * 24 * 60 * 60
+IMAGE_UPLOAD_MAX_FILES = 128
 VISUAL_REQUEST_MAX_ITEMS = 20
+CHAT_IMAGE_REGISTRY_MAX_ITEMS = 512
+CHAT_IMAGE_FIELDS = (
+    "attachment_image_path",
+    "visual_reply_image_path",
+    "assistant_visual_reply_image_path",
+    "generated_image_path",
+    "visual_reply_image_paths",
+    "assistant_visual_reply_image_paths",
+    "generated_image_paths",
+)
 BRIDGE_INFO_REFRESH_SECONDS = 30.0
 MPRC_REMOTE_CAPABILITIES = {
     "send": "mprc.remote_send",
@@ -341,6 +360,16 @@ class MainChatBridgeServer:
                 if path == "/api/visual/image":
                     self._send_file(controller.visual_image_path(), content_type=controller.visual_image_content_type())
                     return
+                if path.startswith("/api/image/file/"):
+                    image_id = path.rsplit("/", 1)[-1]
+                    image_path = controller.image_upload_path(image_id)
+                    self._send_file(image_path, content_type=controller.file_content_type(image_path))
+                    return
+                if path.startswith("/api/chat/image/"):
+                    image_id = path.rsplit("/", 1)[-1]
+                    image_path = controller.chat_image_path(image_id)
+                    self._send_file(image_path, content_type=controller.file_content_type(image_path))
+                    return
                 if path == "/api/musetalk":
                     params = parse_qs(query)
                     after_seq = int(str(params.get("after_seq", ["0"])[0] or "0"))
@@ -382,6 +411,12 @@ class MainChatBridgeServer:
                     return
                 if path == "/api/stt":
                     self._send_json({"ok": True, "result": controller.remote_stt_upload(payload)})
+                    return
+                if path == "/api/image":
+                    self._send_json({"ok": True, "result": controller.remote_image_upload(payload)})
+                    return
+                if path == "/api/debug":
+                    self._send_json({"ok": True, "result": controller.remote_debug_upload(payload)})
                     return
                 if path == "/api/audio/clear":
                     self._send_json({"ok": True, "result": controller.remote_audio_clear()})
@@ -530,6 +565,7 @@ class MainChatRemoteController:
     def __init__(self, context=None):
         self.context = context
         self.shell = context.get_service("qt.shell") if context is not None else None
+        self.user_image_turns = context.get_service("qt.user_image_turns") if context is not None else None
         self.runtime_status = context.get_service("qt.runtime_status") if context is not None else None
         self.runtime_controls = context.get_service("qt.runtime_controls") if context is not None else None
         self.engine_lifecycle = context.get_service("qt.engine_lifecycle") if context is not None else None
@@ -541,8 +577,14 @@ class MainChatRemoteController:
         self.runtime_dir = app_root / "runtime" / "main_chat_remote"
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.stt_upload_dir = self.runtime_dir / "stt_uploads"
+        self.image_upload_dir = self.runtime_dir / "image_uploads"
+        self.phone_debug_dir = self.runtime_dir / "phone_debug"
         self.bridge_info_path = self.runtime_dir / BRIDGE_INFO_FILE
-        self.media_bridge = MainChatMediaBridge(self.runtime_dir / "audio", logger=getattr(context, "logger", None))
+        self.media_bridge = MainChatMediaBridge(
+            self.runtime_dir / "audio",
+            logger=getattr(context, "logger", None),
+            allow_auto_capture=False,
+        )
         self.backend_process = BackendProcessSupervisor(
             app_root=app_root,
             runtime_dir=self.runtime_dir,
@@ -559,7 +601,10 @@ class MainChatRemoteController:
         self._stt_lock = threading.Lock()
         self._visual_request_lock = threading.RLock()
         self._visual_requests: list[dict[str, Any]] = []
+        self._chat_image_lock = threading.RLock()
+        self._chat_image_paths: dict[str, Path] = {}
         self._last_bridge_info_write = 0.0
+        self._current_pairing_setup_uri = ""
 
     def build_tab(self):
         if QtWidgets is None:
@@ -653,9 +698,24 @@ class MainChatRemoteController:
 
         pair_group, pair_layout = step_group(
             "3. Pair phone",
-            "Use the LAN URL and pairing code shown above in the phone app. Keep both devices on the same network.",
+            "Scan the QR code, copy the setup link, or enter the LAN URL and code manually. Keep both devices on the same network.",
         )
-        pair_layout.addWidget(QtWidgets.QLabel("Pairing details update automatically while the phone backend is running."))
+        self._pairing_setup_label = QtWidgets.QLabel("Start the phone backend to create a setup link.")
+        self._pairing_setup_label.setObjectName("main_chat_remote_pairing_setup_label")
+        self._pairing_setup_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        self._pairing_setup_label.setWordWrap(True)
+        pair_layout.addWidget(self._pairing_setup_label)
+        self._pairing_qr_label = QtWidgets.QLabel("QR code will appear after the phone backend starts.")
+        self._pairing_qr_label.setObjectName("main_chat_remote_pairing_qr_label")
+        self._pairing_qr_label.setAlignment(QtCore.Qt.AlignCenter)
+        self._pairing_qr_label.setFixedSize(220, 220)
+        self._pairing_qr_label.setStyleSheet("background: #ffffff; color: #1b2633; border: 1px solid #536579;")
+        pair_layout.addWidget(self._pairing_qr_label, 0, QtCore.Qt.AlignLeft)
+        self._copy_pairing_setup_button = QtWidgets.QPushButton("Copy setup link")
+        self._copy_pairing_setup_button.setObjectName("main_chat_remote_copy_pairing_setup_button")
+        self._copy_pairing_setup_button.setEnabled(False)
+        self._copy_pairing_setup_button.clicked.connect(self._copy_pairing_setup_link)
+        pair_layout.addWidget(self._copy_pairing_setup_button, 0, QtCore.Qt.AlignLeft)
         layout.addWidget(pair_group)
 
         test_group, test_layout = step_group(
@@ -816,6 +876,8 @@ class MainChatRemoteController:
                     "runtime_status": True,
                     "tts_audio_chunks": True,
                     "phone_stt": self._stt_transcriber_available(),
+                    "phone_image_upload": True,
+                    "phone_debug_upload": True,
                     "visual_reply_controls": self.visual_reply is not None,
                     "visual_reply_display": True,
                     "musetalk_frame_feed": True,
@@ -913,6 +975,8 @@ class MainChatRemoteController:
             "llm_mode": str(source.get("llm_mode") or ""),
             "persona_count": int(source.get("persona_count", len(safe_personas)) or 0),
             "active_persona_count": int(source.get("active_persona_count", 0) or 0),
+            "last_provider_error": str(source.get("last_provider_error") or "")[:1200],
+            "last_provider_error_at": float(source.get("last_provider_error_at", 0.0) or 0.0),
             "max_speakers": int(source.get("max_speakers", 1) or 1),
             "per_persona_provider_count": int(source.get("per_persona_provider_count", 0) or 0),
             "shared_provider": {
@@ -1008,19 +1072,29 @@ class MainChatRemoteController:
         data = dict(options or {})
         play_on_backend = bool(data.get("play_on_backend", False))
         capture_phone_audio = bool(data.get("capture_phone_audio", True))
+        capture_id = secrets.token_urlsafe(18)
         self.media_bridge.begin_tts_capture(
             message,
             suppress_backend_playback=not play_on_backend,
             capture_phone_audio=capture_phone_audio,
+            capture_id=capture_id,
         )
 
         def send() -> bool:
             sender = getattr(self.shell, "send_typed_chat_message", None)
             if not callable(sender):
                 return False
-            return bool(sender(message))
+            return bool(sender(message, metadata={"remote_capture_id": capture_id}))
 
-        accepted = bool(self._invoke_main(send))
+        try:
+            accepted = bool(self._invoke_main(send))
+        except Exception as exc:
+            self.media_bridge.stop_capture()
+            return {
+                "accepted": False,
+                "error": str(exc) or "Main chat runtime did not accept the message.",
+                "state": self.remote_state_snapshot(),
+            }
         if not accepted:
             self.media_bridge.stop_capture()
         elif bool(data.get("visual_after_send", False)):
@@ -1181,6 +1255,125 @@ class MainChatRemoteController:
             )
         self._cleanup_stt_uploads()
         return result
+
+    def remote_image_upload(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = dict(payload or {})
+        encoded = str(data.get("image_base64") or data.get("image") or "").strip()
+        if not encoded:
+            return {"accepted": False, "error": "image_base64 is required"}
+        try:
+            image_bytes, extension = self._decode_phone_image(encoded)
+        except ValueError as exc:
+            return {"accepted": False, "error": str(exc)}
+        prompt = str(data.get("prompt") or data.get("text") or "").strip()
+        if not prompt:
+            prompt = "Please respond to the photo I just sent you."
+        self.image_upload_dir.mkdir(parents=True, exist_ok=True)
+        self._cleanup_image_uploads()
+        image_id = f"phone_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
+        image_path = self.image_upload_dir / f"{image_id}{extension}"
+        image_path.write_bytes(image_bytes)
+        self._cleanup_image_uploads()
+        capture_id = secrets.token_urlsafe(18)
+        self.media_bridge.begin_tts_capture(
+            prompt,
+            suppress_backend_playback=not bool(data.get("play_on_backend", False)),
+            capture_phone_audio=bool(data.get("capture_phone_audio", True)),
+            capture_id=capture_id,
+        )
+
+        def send() -> bool:
+            sender = getattr(self.user_image_turns, "queue_image_turn", None)
+            if not callable(sender):
+                return False
+            sender(
+                str(image_path),
+                content=prompt,
+                source="phone_camera",
+                remote_capture_id=capture_id,
+            )
+            return True
+
+        try:
+            accepted = bool(self._invoke_main(send))
+        except Exception as exc:
+            self.media_bridge.stop_capture()
+            self._unlink_quietly(image_path)
+            return {
+                "accepted": False,
+                "error": str(exc) or "Main chat runtime did not accept the phone photo.",
+                "image_url_path": "",
+                "state": self.remote_state_snapshot(),
+            }
+        if not accepted:
+            self.media_bridge.stop_capture()
+            self._unlink_quietly(image_path)
+        return {
+            "accepted": accepted,
+            "message": "Queued phone photo for main chat." if accepted else "Main chat runtime did not accept the phone photo.",
+            "image_url_path": f"/api/image/file/{image_id}" if accepted else "",
+            "state": self.remote_state_snapshot(),
+        }
+
+    def remote_debug_upload(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = dict(payload or {})
+        events = list(data.get("events") or [])[:200]
+        if not events:
+            return {"accepted": False, "events_written": 0, "error": "events are required"}
+        self.phone_debug_dir.mkdir(parents=True, exist_ok=True)
+        log_path = self.phone_debug_dir / "phone_remote.log"
+        self._rotate_phone_debug_log(log_path)
+        app_data = self._sanitize_phone_debug_value(data.get("app") or {})
+        reason = str(data.get("reason") or "automatic")[:80]
+        written = 0
+        with log_path.open("a", encoding="utf-8", newline="\n") as stream:
+            for item in events:
+                if not isinstance(item, dict):
+                    continue
+                record = {
+                    "received_at": time.time(),
+                    "reason": reason,
+                    "app": app_data,
+                    "timestamp": str(item.get("timestamp") or "")[:80],
+                    "level": str(item.get("level") or "info")[:20],
+                    "event": str(item.get("event") or "phone_event")[:100],
+                    "details": self._sanitize_phone_debug_value(item.get("details") or {}),
+                }
+                stream.write(json.dumps(record, ensure_ascii=True, separators=(",", ":")) + "\n")
+                written += 1
+        return {"accepted": bool(written), "events_written": written}
+
+    @staticmethod
+    def _sanitize_phone_debug_value(value: Any, *, depth: int = 0) -> Any:
+        if depth >= 5:
+            return "[truncated]"
+        if isinstance(value, dict):
+            result: dict[str, Any] = {}
+            for raw_key, child in list(value.items())[:50]:
+                key = str(raw_key)[:80]
+                lowered = key.lower()
+                if any(marker in lowered for marker in ("code", "token", "secret", "password", "api_key", "authorization")):
+                    result[key] = "[redacted]"
+                else:
+                    result[key] = MainChatRemoteController._sanitize_phone_debug_value(child, depth=depth + 1)
+            return result
+        if isinstance(value, (list, tuple)):
+            return [MainChatRemoteController._sanitize_phone_debug_value(item, depth=depth + 1) for item in list(value)[:50]]
+        if isinstance(value, bool) or value is None or isinstance(value, (int, float)):
+            return value
+        return str(value)[:2000]
+
+    @staticmethod
+    def _rotate_phone_debug_log(log_path: Path, *, max_bytes: int = 2 * 1024 * 1024) -> None:
+        try:
+            if not log_path.exists() or log_path.stat().st_size < max_bytes:
+                return
+            rotated = log_path.with_suffix(log_path.suffix + ".1")
+            if rotated.exists():
+                rotated.unlink()
+            log_path.replace(rotated)
+        except OSError:
+            return
 
     def remote_visual_request(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         data = dict(payload or {})
@@ -1402,6 +1595,32 @@ class MainChatRemoteController:
                 f"Connection health: {health_status}"
                 f"{chr(10) + 'Last: ' + message if message else ''}"
             )
+            setup_uri = self._pairing_setup_uri(str(backend.get("display_url") or ""), pairing_code)
+            self._current_pairing_setup_uri = setup_uri
+            if hasattr(self, "_pairing_setup_label"):
+                self._pairing_setup_label.setText(
+                    f"Phone setup link: {setup_uri}"
+                    if setup_uri
+                    else "Start the phone backend to create a setup link."
+                )
+            if hasattr(self, "_copy_pairing_setup_button"):
+                self._copy_pairing_setup_button.setEnabled(bool(setup_uri))
+            if hasattr(self, "_pairing_qr_label"):
+                qr_png = self._pairing_qr_png(setup_uri)
+                if qr_png and QtGui is not None:
+                    pixmap = QtGui.QPixmap()
+                    if pixmap.loadFromData(qr_png, "PNG"):
+                        self._pairing_qr_label.setPixmap(
+                            pixmap.scaled(212, 212, QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation)
+                        )
+                    else:
+                        self._pairing_qr_label.setText("QR code could not be rendered.")
+                elif setup_uri:
+                    self._pairing_qr_label.setPixmap(QtGui.QPixmap() if QtGui is not None else None)
+                    self._pairing_qr_label.setText("QR support unavailable. Use Copy setup link or manual pairing.")
+                else:
+                    self._pairing_qr_label.setPixmap(QtGui.QPixmap() if QtGui is not None else None)
+                    self._pairing_qr_label.setText("QR code will appear after the phone backend starts.")
         if hasattr(self, "_remote_command"):
             self._remote_command.setPlainText(
                 f"Bridge info: {self.bridge_info_path}\n"
@@ -1458,6 +1677,42 @@ class MainChatRemoteController:
     @staticmethod
     def _format_command(command: list[str]) -> str:
         return subprocess.list2cmdline([str(part) for part in list(command or [])])
+
+    @staticmethod
+    def _pairing_setup_uri(base_url: str, pairing_code: str) -> str:
+        normalized_url = str(base_url or "").strip().rstrip("/")
+        normalized_code = "".join(ch for ch in str(pairing_code or "") if ch.isdigit())
+        if not normalized_url or not normalized_code:
+            return ""
+        return f"ncchatremote://pair?{urlencode({'url': normalized_url, 'code': normalized_code})}"
+
+    @staticmethod
+    def _pairing_qr_png(setup_uri: str) -> bytes:
+        value = str(setup_uri or "").strip()
+        if not value or qrcode is None:
+            return b""
+        try:
+            qr = qrcode.QRCode(
+                version=None,
+                error_correction=qrcode.constants.ERROR_CORRECT_M,
+                box_size=8,
+                border=4,
+            )
+            qr.add_data(value)
+            qr.make(fit=True)
+            image = qr.make_image(fill_color="black", back_color="white")
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            return output.getvalue()
+        except Exception:
+            return b""
+
+    def _copy_pairing_setup_link(self) -> None:
+        if QtWidgets is None or not self._current_pairing_setup_uri:
+            return
+        clipboard = QtWidgets.QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(self._current_pairing_setup_uri)
 
     def _invoke_main(self, func: Callable[[], Any]) -> Any:
         return self._invoker.invoke(func)
@@ -1756,6 +2011,102 @@ class MainChatRemoteController:
         for _modified_at, path in entries[max_count:]:
             self._unlink_quietly(path)
 
+    def _cleanup_image_uploads(
+        self,
+        *,
+        now: float | None = None,
+        max_age_seconds: float = IMAGE_UPLOAD_RETENTION_SECONDS,
+        max_files: int = IMAGE_UPLOAD_MAX_FILES,
+    ) -> None:
+        upload_dir = self.image_upload_dir
+        if not upload_dir.exists():
+            return
+        current_time = time.time() if now is None else float(now)
+        max_age = max(0.0, float(max_age_seconds))
+        max_count = max(1, int(max_files))
+        entries: list[tuple[float, Path]] = []
+        for path in upload_dir.glob("phone_*"):
+            try:
+                if not path.is_file():
+                    continue
+                modified_at = float(path.stat().st_mtime)
+            except Exception:
+                continue
+            if max_age and current_time - modified_at > max_age:
+                self._unlink_quietly(path)
+                continue
+            entries.append((modified_at, path))
+        entries.sort(key=lambda item: item[0], reverse=True)
+        for _modified_at, path in entries[max_count:]:
+            self._unlink_quietly(path)
+
+    @staticmethod
+    def _decode_phone_image(encoded: str) -> tuple[bytes, str]:
+        value = str(encoded or "").strip()
+        if "," in value and value.lower().startswith("data:"):
+            value = value.split(",", 1)[1]
+        try:
+            image_bytes = base64.b64decode(value, validate=True)
+        except Exception as exc:
+            raise ValueError("image_base64 is not valid base64") from exc
+        if not image_bytes:
+            raise ValueError("image payload is empty")
+        if len(image_bytes) > MAX_JSON_PAYLOAD_BYTES:
+            raise ValueError("image payload is too large")
+        if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            return image_bytes, ".png"
+        if image_bytes.startswith(b"\xff\xd8\xff"):
+            return image_bytes, ".jpg"
+        if len(image_bytes) >= 12 and image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+            return image_bytes, ".webp"
+        raise ValueError("image payload must be PNG, JPEG, or WebP")
+
+    def image_upload_path(self, image_id: str) -> Path:
+        wanted = re.sub(r"[^A-Za-z0-9_.-]+", "", str(image_id or ""))
+        if not wanted:
+            raise FileNotFoundError("image id is required")
+        for path in self.image_upload_dir.glob(f"{wanted}.*"):
+            if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+                return path
+        raise FileNotFoundError("phone image not found")
+
+    def chat_image_path(self, image_id: str) -> Path:
+        wanted = re.sub(r"[^A-Za-z0-9_.-]+", "", str(image_id or ""))
+        if not wanted:
+            raise FileNotFoundError("chat image id is required")
+        with self._chat_image_lock:
+            path = self._chat_image_paths.get(wanted)
+        if path is None or not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+            raise FileNotFoundError("chat image not found")
+        return path
+
+    def _register_chat_image(self, path_value: object) -> tuple[str, Path] | None:
+        path_text = str(path_value or "").strip()
+        if not path_text:
+            return None
+        try:
+            path = Path(path_text).expanduser().resolve()
+        except Exception:
+            return None
+        if not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+            return None
+        image_id = hashlib.sha1(str(path).encode("utf-8", errors="ignore")).hexdigest()[:20]
+        with self._chat_image_lock:
+            self._chat_image_paths[image_id] = path
+            while len(self._chat_image_paths) > CHAT_IMAGE_REGISTRY_MAX_ITEMS:
+                self._chat_image_paths.pop(next(iter(self._chat_image_paths)))
+        return image_id, path
+
+    def _chat_turn_image(self, turn: dict[str, Any]) -> tuple[str, Path] | None:
+        for field_name in CHAT_IMAGE_FIELDS:
+            value = turn.get(field_name)
+            candidates = value if isinstance(value, (list, tuple)) else (value,)
+            for candidate in candidates:
+                registered = self._register_chat_image(candidate)
+                if registered is not None:
+                    return registered
+        return None
+
     @staticmethod
     def _unlink_quietly(path: Path) -> None:
         try:
@@ -1776,17 +2127,17 @@ class MainChatRemoteController:
         guessed, _encoding = mimetypes.guess_type(str(path))
         return str(guessed or "application/octet-stream")
 
-    @staticmethod
-    def _chat_feed(chat_session: dict[str, Any]) -> dict[str, Any]:
+    def _chat_feed(self, chat_session: dict[str, Any]) -> dict[str, Any]:
         history = list(dict(chat_session or {}).get("conversation_history") or [])
         messages = []
         for index, item in enumerate(history[-200:]):
             turn = dict(item or {})
+            if bool(turn.get("hidden_proactive", False)):
+                continue
             content = str(turn.get("content") or "").strip()
             if not content:
                 continue
-            messages.append(
-                {
+            message = {
                     "id": str(turn.get("id") or turn.get("turn_id") or index),
                     "index": index,
                     "role": str(turn.get("role") or "").strip(),
@@ -1794,7 +2145,26 @@ class MainChatRemoteController:
                     "content": content,
                     "created_at": turn.get("created_at") or turn.get("timestamp"),
                 }
-            )
+            attachment_path = Path(str(turn.get("attachment_image_path") or ""))
+            try:
+                image_root = self.image_upload_dir.resolve()
+                resolved_attachment = attachment_path.resolve()
+                if (
+                    attachment_path.is_file()
+                    and resolved_attachment.parent == image_root
+                    and resolved_attachment.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+                ):
+                    message["image_url_path"] = f"/api/image/file/{resolved_attachment.stem}"
+                    message["image_content_type"] = self.file_content_type(resolved_attachment)
+            except Exception:
+                pass
+            if "image_url_path" not in message:
+                chat_image = self._chat_turn_image(turn)
+                if chat_image is not None:
+                    image_id, image_path = chat_image
+                    message["image_url_path"] = f"/api/chat/image/{image_id}"
+                    message["image_content_type"] = self.file_content_type(image_path)
+            messages.append(message)
         return {
             "version": dict(chat_session or {}).get("version", 1),
             "saved_at": dict(chat_session or {}).get("saved_at", 0.0),

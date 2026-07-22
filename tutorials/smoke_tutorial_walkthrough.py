@@ -13,7 +13,6 @@ DEFAULT_TUTORIAL_IDS = {
     "multi_persona_roleplay",
     "spotify_sense",
     "ai_presence_and_overlays",
-    "neural_face_presence",
     "companion_orb_overlay",
     "vision_supervisors_overview",
     "screen_and_clipboard",

@@ -54,10 +54,15 @@ module reference is undocumented here.
 | --- | --- |
 | `core/musetalk_preview_runtime.py` | `addons.musetalk_avatar.preview_runtime` |
 | `core/runtime_paths.py` | `addons.vam_avatar.path_helpers` |
+| `engine.py` | `addons.companion_orb_overlay.companion_orb` |
 | `engine.py` | `addons.musetalk_avatar.state` |
+| `engine.py` | `addons.visual_reply` |
 | `shared_state.py` | `addons.musetalk_avatar.state` |
 | `shared_state.py` | `addons.visual_reply.state` |
+| `ui/runtime/backend_visual_reply_runtime.py` | `addons.visual_reply.providers` |
+| `ui/runtime/backend_visual_reply_runtime.py` | `addons.visual_reply.runtime_config` |
 | `ui/runtime/main_window_session.py` | `addons.visual_reply.session_schema` |
+| `ui/runtime/real_ui_layout.py` | `addons.visual_reply.providers` |
 | `ui/runtime/qt_app_shell_input_actions.py` | `addons.audio_story_mode.session_schema` |
 | `ui/runtime/qt_app_shell_read_only.py` | `addons.visual_reply.session_schema` |
 | `ui/runtime/qt_app_runtime_namespace.py` | `addons.musetalk_avatar.state` |

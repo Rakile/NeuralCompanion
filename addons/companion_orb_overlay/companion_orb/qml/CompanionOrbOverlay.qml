@@ -39,11 +39,22 @@ Item {
     property color idleColor: orbBridge ? orbBridge.idleColor : "#38bdf8"
     property color thinkingColor: orbBridge ? orbBridge.thinkingColor : "#a78bfa"
     property color speakingColor: orbBridge ? orbBridge.speakingColor : "#f472b6"
+    property bool gazeTimerActive: orbBridge ? orbBridge.gazeTimerActive : false
+    property real gazeTimerProgress: orbBridge ? orbBridge.gazeTimerProgress : 0.0
+    property color gazeTimerColor: orbBridge ? orbBridge.gazeTimerColor : "#facc15"
+    property real renderedGazeTimerProgress: gazeTimerActive ? gazeTimerProgress : 0.0
     property string idleAnimation: orbBridge ? orbBridge.idleAnimation : "calm_breathe"
     property string thinkingAnimation: orbBridge ? orbBridge.thinkingAnimation : "thinking_swirl"
     property string speakingAnimation: orbBridge ? orbBridge.speakingAnimation : "voice_ripple"
     property real tick: 0.0
     property real lastTickMs: 0.0
+
+    Behavior on renderedGazeTimerProgress {
+        NumberAnimation {
+            duration: root.gazeTimerActive ? 75 : 220
+            easing.type: Easing.OutCubic
+        }
+    }
 
     function hexByte(value) {
         var number = Math.max(0, Math.min(255, Math.round(value)))
@@ -83,6 +94,12 @@ Item {
         if (visualStyle === "prismatic_pulse") return root.hexColor("#38bdf8")
         if (visualStyle === "aether_wisp") return root.hexColor("#60a5fa")
         if (visualStyle === "celestial_firetrail") return root.hexColor("#fde68a")
+        if (visualStyle === "quantum_halo") return root.hexColor("#22d3ee")
+        if (visualStyle === "event_horizon") return root.hexColor("#818cf8")
+        if (visualStyle === "holographic_iris") return root.hexColor("#2dd4bf")
+        if (visualStyle === "synaptic_bloom") return root.hexColor("#34d399")
+        if (visualStyle === "liquid_core") return root.hexColor("#38bdf8")
+        if (visualStyle === "void_prism") return root.hexColor("#c084fc")
         return root.hexColor("#38bdf8")
     }
 
@@ -91,6 +108,12 @@ Item {
         if (visualStyle === "prismatic_pulse") return root.hexColor("#e879f9")
         if (visualStyle === "aether_wisp") return root.hexColor("#67e8f9")
         if (visualStyle === "celestial_firetrail") return root.hexColor("#60a5fa")
+        if (visualStyle === "quantum_halo") return root.hexColor("#6366f1")
+        if (visualStyle === "event_horizon") return root.hexColor("#0f172a")
+        if (visualStyle === "holographic_iris") return root.hexColor("#a78bfa")
+        if (visualStyle === "synaptic_bloom") return root.hexColor("#06b6d4")
+        if (visualStyle === "liquid_core") return root.hexColor("#67e8f9")
+        if (visualStyle === "void_prism") return root.hexColor("#22d3ee")
         return root.hexColor("#22d3ee")
     }
 
@@ -99,7 +122,21 @@ Item {
         if (visualStyle === "prismatic_pulse") return root.hexColor("#fb7185")
         if (visualStyle === "aether_wisp") return root.hexColor("#dbeafe")
         if (visualStyle === "celestial_firetrail") return root.hexColor("#fbbf24")
+        if (visualStyle === "quantum_halo") return root.hexColor("#f0abfc")
+        if (visualStyle === "event_horizon") return root.hexColor("#f472b6")
+        if (visualStyle === "holographic_iris") return root.hexColor("#fbbf24")
+        if (visualStyle === "synaptic_bloom") return root.hexColor("#f472b6")
+        if (visualStyle === "liquid_core") return root.hexColor("#a78bfa")
+        if (visualStyle === "void_prism") return root.hexColor("#f8fafc")
         return root.hexColor("#f59e0b")
+    }
+
+    function paletteHighlightColor() {
+        return root.blendColor(root.accentColor, root.primaryColor, 0.22)
+    }
+
+    function paletteCoolColor() {
+        return root.blendColor(root.secondaryColor, root.primaryColor, 0.44)
     }
 
     function observingActive() {
@@ -212,10 +249,12 @@ Item {
             var radius = size * (0.38 + level * 0.08 + statePulse * 0.026)
             var outer = radius * (1.55 + root.glowStrength * 0.45 + level * 0.35 + statePulse * 0.26)
             var stateColor = root.stateTintColor()
-            var primary = root.stateColorsEnabled ? stateColor : (root.customColorsEnabled ? root.primaryColor : root.blendColor(root.stylePrimary(), root.primaryColor, root.moodColorIntensity))
-            var secondary = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#ffffff"), 0.30) : (root.customColorsEnabled ? root.secondaryColor : root.blendColor(root.styleSecondary(), root.secondaryColor, root.moodColorIntensity))
-            var accent = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#020617"), 0.26) : (root.customColorsEnabled ? root.accentColor : root.blendColor(root.styleAccent(), root.accentColor, root.moodColorIntensity))
-            var glow = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#ffffff"), 0.42) : (root.customColorsEnabled ? root.glowColor : root.blendColor(primary, root.glowColor, Math.max(0.25, root.moodColorIntensity)))
+            var moodMix = Math.max(0.0, Math.min(1.0, root.moodColorIntensity))
+            var glowMoodMix = moodMix <= 0.0 ? 0.0 : Math.max(0.25, moodMix)
+            var primary = root.stateColorsEnabled ? stateColor : (root.customColorsEnabled ? root.primaryColor : root.blendColor(root.stylePrimary(), root.primaryColor, moodMix))
+            var secondary = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#ffffff"), 0.30) : (root.customColorsEnabled ? root.secondaryColor : root.blendColor(root.styleSecondary(), root.secondaryColor, moodMix))
+            var accent = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#020617"), 0.26) : (root.customColorsEnabled ? root.accentColor : root.blendColor(root.styleAccent(), root.accentColor, moodMix))
+            var glow = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#ffffff"), 0.42) : (root.customColorsEnabled ? root.glowColor : root.blendColor(primary, root.glowColor, glowMoodMix))
             if (!root.stateColorsEnabled && !root.customColorsEnabled) {
                 var expressionColor = root.stateExpressionColor()
                 var expressionMix = root.stateExpressionMix(level)
@@ -223,6 +262,13 @@ Item {
                 secondary = root.blendColor(secondary, expressionColor, expressionMix * 0.65)
                 accent = root.blendColor(accent, expressionColor, expressionMix * 0.45)
                 glow = root.blendColor(glow, expressionColor, Math.min(0.65, expressionMix + 0.12))
+            }
+            var gazeMix = Math.max(0.0, Math.min(1.0, root.renderedGazeTimerProgress)) * 0.90
+            if (gazeMix > 0.0) {
+                primary = root.blendColor(primary, root.gazeTimerColor, gazeMix)
+                secondary = root.blendColor(secondary, root.gazeTimerColor, gazeMix * 0.88)
+                accent = root.blendColor(accent, root.gazeTimerColor, gazeMix * 0.76)
+                glow = root.blendColor(glow, root.gazeTimerColor, Math.min(1.0, gazeMix + 0.10))
             }
 
             ctx.globalAlpha = root.orbOpacity
@@ -274,6 +320,30 @@ Item {
             }
             if (visualStyle === "celestial_firetrail") {
                 drawCelestialFiretrail(ctx, cx, cy, radius, primary, secondary, accent, level)
+                return
+            }
+            if (visualStyle === "quantum_halo") {
+                drawQuantumHalo(ctx, cx, cy, radius, primary, secondary, accent, level)
+                return
+            }
+            if (visualStyle === "event_horizon") {
+                drawEventHorizon(ctx, cx, cy, radius, primary, secondary, accent, level)
+                return
+            }
+            if (visualStyle === "holographic_iris") {
+                drawHolographicIris(ctx, cx, cy, radius, primary, secondary, accent, level)
+                return
+            }
+            if (visualStyle === "synaptic_bloom") {
+                drawSynapticBloom(ctx, cx, cy, radius, primary, secondary, accent, level)
+                return
+            }
+            if (visualStyle === "liquid_core") {
+                drawLiquidCore(ctx, cx, cy, radius, primary, secondary, accent, level)
+                return
+            }
+            if (visualStyle === "void_prism") {
+                drawVoidPrism(ctx, cx, cy, radius, primary, secondary, accent, level)
                 return
             }
             drawNeuralSpark(ctx, cx, cy, radius, primary, secondary, accent, level)
@@ -337,7 +407,7 @@ Item {
         }
 
         function drawPrismaticPulse(ctx, cx, cy, radius, primary, secondary, accent, level) {
-            var colors = [primary, secondary, accent, root.hexColor("#f97316"), root.hexColor("#22d3ee")]
+            var colors = [primary, secondary, accent, root.paletteHighlightColor(), root.paletteCoolColor()]
             var ringPulse = aiState === "speaking" ? level : (0.14 + Math.abs(Math.sin(root.tick * 1.15)) * 0.10)
             ctx.lineCap = "round"
 
@@ -483,6 +553,309 @@ Item {
             ctx.beginPath()
             ctx.arc(cx, cy, radius * (0.76 + Math.sin(root.tick * 0.7) * 0.03), 0, Math.PI * 2)
             ctx.stroke()
+        }
+
+        function drawQuantumHalo(ctx, cx, cy, radius, primary, secondary, accent, level) {
+            var speaking = aiState === "speaking" ? level : 0.0
+            var thinking = aiState === "thinking" ? 1.0 : 0.0
+            var observing = root.observingActive() ? 1.0 : 0.0
+            var spin = root.tick * (0.40 + speaking * 0.56 + thinking * 0.18)
+            ctx.lineCap = "round"
+
+            var core = ctx.createRadialGradient(cx - radius * 0.18, cy - radius * 0.22, radius * 0.06, cx, cy, radius * 0.90)
+            core.addColorStop(0.0, "rgba(255,255,255," + (0.28 + speaking * 0.22) + ")")
+            core.addColorStop(0.25, root.rgba(primary, 0.48 + speaking * 0.16))
+            core.addColorStop(0.67, root.rgba(secondary, 0.18 + observing * 0.12))
+            core.addColorStop(1.0, root.rgba(accent, 0.04))
+            ctx.fillStyle = core
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * (0.66 + speaking * 0.06), 0, Math.PI * 2)
+            ctx.fill()
+
+            for (var i = 0; i < 6; i++) {
+                var phase = spin + i * Math.PI / 3
+                var ringRadius = radius * (0.80 + i * 0.055)
+                ctx.strokeStyle = root.rgba(i % 2 ? secondary : accent, 0.18 + speaking * 0.26 + observing * 0.08)
+                ctx.lineWidth = 1.0 + (i % 3) * 0.55 + speaking * 2.4
+                ctx.save()
+                ctx.translate(cx, cy)
+                ctx.rotate(phase)
+                ctx.scale(1.18 + Math.sin(phase) * 0.025, 0.66 + Math.cos(phase * 0.8) * 0.035)
+                ctx.beginPath()
+                ctx.arc(0, 0, ringRadius, Math.PI * 0.08, Math.PI * (1.26 + speaking * 0.18))
+                ctx.stroke()
+                ctx.restore()
+            }
+
+            var pointCount = root.reducedEffects ? 8 : 14
+            for (var p = 0; p < pointCount; p++) {
+                var angle = spin * 0.72 + (p / pointCount) * Math.PI * 2
+                var pulse = 0.5 + Math.sin(root.tick * 2.4 + p * 1.7) * 0.5
+                var dist = radius * (1.02 + pulse * 0.12 + observing * 0.08)
+                ctx.fillStyle = root.rgba(p % 3 === 0 ? accent : primary, 0.22 + pulse * 0.32 + speaking * 0.18)
+                ctx.beginPath()
+                ctx.arc(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist * 0.76, 1.2 + pulse * 1.8 + speaking * 1.2, 0, Math.PI * 2)
+                ctx.fill()
+            }
+        }
+
+        function drawEventHorizon(ctx, cx, cy, radius, primary, secondary, accent, level) {
+            var speaking = aiState === "speaking" ? level : 0.0
+            var thinking = aiState === "thinking" ? 1.0 : 0.0
+            var observing = root.observingActive() ? 1.0 : 0.0
+            var spin = root.tick * (0.28 + speaking * 0.52 + thinking * 0.16)
+            ctx.lineCap = "round"
+
+            for (var i = 0; i < 5; i++) {
+                var phase = spin + i * 0.62
+                ctx.save()
+                ctx.translate(cx, cy)
+                ctx.rotate(phase)
+                ctx.scale(1.42, 0.42 + i * 0.018)
+                ctx.strokeStyle = root.rgba(i % 2 ? primary : accent, 0.16 + speaking * 0.30 + observing * 0.08)
+                ctx.lineWidth = 1.2 + i * 0.45 + speaking * 2.0
+                ctx.beginPath()
+                ctx.arc(0, 0, radius * (0.70 + i * 0.08), Math.PI * 0.08, Math.PI * (0.95 + speaking * 0.22))
+                ctx.stroke()
+                ctx.restore()
+            }
+
+            var lens = ctx.createRadialGradient(cx, cy, radius * 0.22, cx, cy, radius * 1.04)
+            lens.addColorStop(0.0, root.rgba(root.hexColor("#020617"), 0.94))
+            lens.addColorStop(0.46, root.rgba(root.hexColor("#020617"), 0.84))
+            lens.addColorStop(0.64, root.rgba(secondary, 0.30 + speaking * 0.16))
+            lens.addColorStop(1.0, root.rgba(primary, 0.04))
+            ctx.fillStyle = lens
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * (0.72 + speaking * 0.035), 0, Math.PI * 2)
+            ctx.fill()
+
+            ctx.strokeStyle = root.rgba(accent, 0.56 + speaking * 0.30)
+            ctx.lineWidth = 1.6 + speaking * 2.2
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * (0.78 + Math.sin(root.tick * 0.9) * 0.018), spin, spin + Math.PI * 1.36)
+            ctx.stroke()
+
+            ctx.strokeStyle = root.rgba(primary, 0.22 + observing * 0.18)
+            ctx.lineWidth = 1.0
+            ctx.beginPath()
+            ctx.moveTo(cx - radius * 1.16, cy + Math.sin(spin) * radius * 0.08)
+            ctx.bezierCurveTo(cx - radius * 0.35, cy - radius * 0.18, cx + radius * 0.36, cy + radius * 0.18, cx + radius * 1.16, cy - Math.sin(spin) * radius * 0.08)
+            ctx.stroke()
+        }
+
+        function drawHolographicIris(ctx, cx, cy, radius, primary, secondary, accent, level) {
+            var speaking = aiState === "speaking" ? level : 0.0
+            var thinking = aiState === "thinking" ? 1.0 : 0.0
+            var observing = root.observingActive() ? 1.0 : 0.0
+            var scan = root.tick * (0.68 + speaking * 0.44 + thinking * 0.20)
+            var blades = root.reducedEffects ? 10 : 16
+            ctx.lineCap = "round"
+
+            var shell = ctx.createRadialGradient(cx, cy, radius * 0.12, cx, cy, radius * 0.95)
+            shell.addColorStop(0.0, "rgba(255,255,255," + (0.18 + speaking * 0.16) + ")")
+            shell.addColorStop(0.34, root.rgba(primary, 0.25 + observing * 0.10))
+            shell.addColorStop(0.68, root.rgba(secondary, 0.16 + speaking * 0.10))
+            shell.addColorStop(1.0, root.rgba(root.hexColor("#020617"), 0.08))
+            ctx.fillStyle = shell
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * 0.82, 0, Math.PI * 2)
+            ctx.fill()
+
+            for (var i = 0; i < blades; i++) {
+                var a0 = scan * 0.22 + (i / blades) * Math.PI * 2
+                var a1 = a0 + Math.PI * 2 / blades * 0.62
+                var pulse = 0.5 + Math.sin(root.tick * 1.7 + i * 0.9) * 0.5
+                var inner = radius * (0.30 + pulse * 0.025)
+                var outer = radius * (0.82 + pulse * 0.035 + speaking * 0.04)
+                ctx.fillStyle = root.rgba(i % 3 === 0 ? accent : (i % 2 ? secondary : primary), 0.10 + pulse * 0.16 + speaking * 0.12)
+                ctx.beginPath()
+                ctx.moveTo(cx + Math.cos(a0) * inner, cy + Math.sin(a0) * inner)
+                ctx.lineTo(cx + Math.cos(a0) * outer, cy + Math.sin(a0) * outer)
+                ctx.lineTo(cx + Math.cos(a1) * outer, cy + Math.sin(a1) * outer)
+                ctx.lineTo(cx + Math.cos(a1) * inner, cy + Math.sin(a1) * inner)
+                ctx.closePath()
+                ctx.fill()
+            }
+
+            ctx.strokeStyle = root.rgba(accent, 0.52 + speaking * 0.24)
+            ctx.lineWidth = 1.5 + speaking * 1.8
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * 0.94, scan, scan + Math.PI * (0.62 + observing * 0.24))
+            ctx.stroke()
+
+            ctx.fillStyle = root.rgba(root.hexColor("#020617"), 0.58)
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * (0.24 + speaking * 0.025), 0, Math.PI * 2)
+            ctx.fill()
+            ctx.strokeStyle = root.rgba(primary, 0.44 + observing * 0.20)
+            ctx.lineWidth = 1.0
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * 0.34, 0, Math.PI * 2)
+            ctx.stroke()
+        }
+
+        function drawSynapticBloom(ctx, cx, cy, radius, primary, secondary, accent, level) {
+            var speaking = aiState === "speaking" ? level : 0.0
+            var thinking = aiState === "thinking" ? 1.0 : 0.0
+            var observing = root.observingActive() ? 1.0 : 0.0
+            var nodes = root.reducedEffects ? 7 : 11
+            var spin = root.tick * (0.22 + thinking * 0.24 + speaking * 0.34)
+            ctx.lineCap = "round"
+
+            var bloom = ctx.createRadialGradient(cx - radius * 0.16, cy - radius * 0.22, radius * 0.06, cx, cy, radius * 0.84)
+            bloom.addColorStop(0.0, "rgba(255,255,255," + (0.30 + speaking * 0.18) + ")")
+            bloom.addColorStop(0.30, root.rgba(primary, 0.44 + speaking * 0.14))
+            bloom.addColorStop(0.72, root.rgba(secondary, 0.18 + thinking * 0.10))
+            bloom.addColorStop(1.0, root.rgba(accent, 0.06 + observing * 0.08))
+            ctx.fillStyle = bloom
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * (0.58 + speaking * 0.07), 0, Math.PI * 2)
+            ctx.fill()
+
+            for (var i = 0; i < nodes; i++) {
+                var angle = spin + (i / nodes) * Math.PI * 2
+                var pulse = 0.5 + Math.sin(root.tick * 1.8 + i * 1.33) * 0.5
+                var dist = radius * (0.82 + (i % 3) * 0.10 + pulse * 0.06)
+                var x = cx + Math.cos(angle) * dist
+                var y = cy + Math.sin(angle) * dist * 0.88
+                ctx.strokeStyle = root.rgba(i % 2 ? secondary : primary, 0.12 + pulse * 0.20 + speaking * 0.18)
+                ctx.lineWidth = 0.9 + pulse * 1.1 + speaking * 1.2
+                ctx.beginPath()
+                ctx.moveTo(cx + Math.cos(angle + 0.9) * radius * 0.28, cy + Math.sin(angle + 0.9) * radius * 0.20)
+                ctx.bezierCurveTo(
+                    cx + Math.cos(angle) * radius * 0.52,
+                    cy + Math.sin(angle) * radius * 0.34,
+                    cx + Math.cos(angle - 0.55) * radius * 0.72,
+                    cy + Math.sin(angle - 0.55) * radius * 0.62,
+                    x,
+                    y
+                )
+                ctx.stroke()
+
+                ctx.fillStyle = root.rgba(i % 3 === 0 ? accent : primary, 0.26 + pulse * 0.38 + speaking * 0.16)
+                ctx.beginPath()
+                ctx.arc(x, y, 1.7 + pulse * 2.1 + speaking * 1.4, 0, Math.PI * 2)
+                ctx.fill()
+            }
+
+            ctx.strokeStyle = root.rgba(accent, 0.28 + observing * 0.18)
+            ctx.lineWidth = 1.1 + speaking
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * 0.72, spin * -0.8, spin * -0.8 + Math.PI * 1.48)
+            ctx.stroke()
+        }
+
+        function drawLiquidCore(ctx, cx, cy, radius, primary, secondary, accent, level) {
+            var speaking = aiState === "speaking" ? level : 0.0
+            var thinking = aiState === "thinking" ? 1.0 : 0.0
+            var observing = root.observingActive() ? 1.0 : 0.0
+            var wobble = 0.5 + Math.sin(root.tick * (0.74 + thinking * 0.20)) * 0.5
+            ctx.lineCap = "round"
+
+            var fill = ctx.createRadialGradient(cx - radius * 0.28, cy - radius * 0.34, radius * 0.04, cx, cy, radius * 0.92)
+            fill.addColorStop(0.0, "rgba(255,255,255," + (0.38 + speaking * 0.20) + ")")
+            fill.addColorStop(0.26, root.rgba(primary, 0.54 + speaking * 0.14))
+            fill.addColorStop(0.62, root.rgba(secondary, 0.32 + observing * 0.12))
+            fill.addColorStop(1.0, root.rgba(accent, 0.10 + thinking * 0.08))
+            ctx.fillStyle = fill
+
+            var r0 = radius * (0.72 + speaking * 0.06)
+            var k = r0 * 0.62
+            ctx.beginPath()
+            ctx.moveTo(cx, cy - r0 * (0.96 + wobble * 0.06))
+            ctx.bezierCurveTo(cx + k * (0.96 + wobble * 0.10), cy - k * 0.90, cx + r0 * (1.04 + speaking * 0.05), cy - k * 0.12, cx + r0 * (0.88 + wobble * 0.08), cy)
+            ctx.bezierCurveTo(cx + k * 0.82, cy + k * (0.92 + wobble * 0.10), cx + k * 0.12, cy + r0 * (1.02 + speaking * 0.06), cx, cy + r0 * 0.88)
+            ctx.bezierCurveTo(cx - k * (0.96 + wobble * 0.08), cy + k * 0.92, cx - r0 * (0.98 + speaking * 0.04), cy + k * 0.10, cx - r0 * 0.86, cy)
+            ctx.bezierCurveTo(cx - k * 0.86, cy - k * 0.88, cx - k * 0.12, cy - r0 * (1.04 + wobble * 0.06), cx, cy - r0 * (0.96 + wobble * 0.06))
+            ctx.fill()
+
+            for (var i = 0; i < 5; i++) {
+                var phase = root.tick * (0.45 + i * 0.06) + i * 1.18
+                ctx.strokeStyle = root.rgba(i % 2 ? accent : secondary, 0.16 + root.smokeIntensity * 0.18 + speaking * 0.18)
+                ctx.lineWidth = 1.0 + i * 0.35 + speaking * 1.3
+                ctx.beginPath()
+                ctx.moveTo(cx - radius * 0.48, cy + Math.sin(phase) * radius * 0.32)
+                ctx.bezierCurveTo(
+                    cx - radius * 0.18,
+                    cy - radius * (0.30 + Math.cos(phase) * 0.12),
+                    cx + radius * 0.20,
+                    cy + radius * (0.26 + Math.sin(phase * 0.8) * 0.12),
+                    cx + radius * 0.50,
+                    cy + Math.cos(phase) * radius * 0.30
+                )
+                ctx.stroke()
+            }
+
+            ctx.strokeStyle = root.rgba(root.hexColor("#ffffff"), 0.12 + speaking * 0.10)
+            ctx.lineWidth = 1.0
+            ctx.beginPath()
+            ctx.arc(cx - radius * 0.10, cy - radius * 0.12, radius * 0.58, Math.PI * 0.82, Math.PI * 1.46)
+            ctx.stroke()
+        }
+
+        function drawVoidPrism(ctx, cx, cy, radius, primary, secondary, accent, level) {
+            var speaking = aiState === "speaking" ? level : 0.0
+            var thinking = aiState === "thinking" ? 1.0 : 0.0
+            var observing = root.observingActive() ? 1.0 : 0.0
+            var spin = root.tick * (0.18 + thinking * 0.16 + speaking * 0.24)
+            var points = []
+            var facets = 7
+            for (var i = 0; i < facets; i++) {
+                var angle = spin + (i / facets) * Math.PI * 2
+                var stretch = 0.88 + ((i * 37) % 11) / 80.0 + speaking * 0.04
+                points.push({
+                    "x": cx + Math.cos(angle) * radius * stretch,
+                    "y": cy + Math.sin(angle) * radius * stretch * 0.92
+                })
+            }
+
+            var prism = ctx.createRadialGradient(cx - radius * 0.18, cy - radius * 0.24, radius * 0.08, cx, cy, radius * 0.98)
+            prism.addColorStop(0.0, "rgba(255,255,255," + (0.26 + speaking * 0.20) + ")")
+            prism.addColorStop(0.32, root.rgba(primary, 0.36 + speaking * 0.12))
+            prism.addColorStop(0.70, root.rgba(secondary, 0.20 + observing * 0.10))
+            prism.addColorStop(1.0, root.rgba(root.hexColor("#020617"), 0.20))
+            ctx.fillStyle = prism
+            ctx.beginPath()
+            ctx.moveTo(points[0].x, points[0].y)
+            for (var p = 1; p < points.length; p++) {
+                ctx.lineTo(points[p].x, points[p].y)
+            }
+            ctx.closePath()
+            ctx.fill()
+
+            for (var f = 0; f < points.length; f++) {
+                var next = points[(f + 1) % points.length]
+                ctx.fillStyle = root.rgba(f % 3 === 0 ? accent : (f % 2 ? secondary : primary), 0.06 + ((f % 4) * 0.025) + speaking * 0.05)
+                ctx.beginPath()
+                ctx.moveTo(cx, cy)
+                ctx.lineTo(points[f].x, points[f].y)
+                ctx.lineTo(next.x, next.y)
+                ctx.closePath()
+                ctx.fill()
+
+                ctx.strokeStyle = root.rgba(f % 2 ? accent : primary, 0.22 + speaking * 0.22 + observing * 0.08)
+                ctx.lineWidth = 0.9 + speaking * 1.4
+                ctx.beginPath()
+                ctx.moveTo(cx, cy)
+                ctx.lineTo(points[f].x, points[f].y)
+                ctx.stroke()
+            }
+
+            ctx.strokeStyle = root.rgba(accent, 0.42 + speaking * 0.26)
+            ctx.lineWidth = 1.4 + speaking * 1.8
+            ctx.beginPath()
+            ctx.moveTo(points[0].x, points[0].y)
+            for (var q = 1; q < points.length; q++) {
+                ctx.lineTo(points[q].x, points[q].y)
+            }
+            ctx.closePath()
+            ctx.stroke()
+
+            ctx.fillStyle = root.rgba(root.hexColor("#020617"), 0.34)
+            ctx.beginPath()
+            ctx.arc(cx, cy, radius * (0.22 + speaking * 0.025), 0, Math.PI * 2)
+            ctx.fill()
         }
 
         function drawParticles(ctx, cx, cy, radius, primary, secondary, accent, level) {

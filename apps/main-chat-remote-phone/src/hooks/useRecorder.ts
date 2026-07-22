@@ -11,6 +11,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { RemoteClient } from '../api/client';
 import type { SendTextOptions } from '../api/client';
 import { remoteActionError } from '../api/envelope';
+import { recordPhoneDebug } from '../utils/phoneDebugBridge';
 import { fileExtensionFromUri } from '../utils/url';
 
 const MAX_RECORDING_MS = 60_000;
@@ -73,6 +74,9 @@ export function useRecorder(client: RemoteClient, connected: boolean, voiceAvail
     setBusy(true);
     setError('');
     let recordedUri = '';
+    let recordingBytes = 0;
+    let sttUploadStartedAtMs = 0;
+    let sttUploadCompleted = false;
     try {
       await recorder.stop();
       const uri = recorder.uri;
@@ -85,6 +89,7 @@ export function useRecorder(client: RemoteClient, connected: boolean, voiceAvail
         return;
       }
       const info = await FileSystem.getInfoAsync(uri);
+      recordingBytes = info.exists && typeof info.size === 'number' ? info.size : 0;
       if (info.exists && typeof info.size === 'number' && info.size > MAX_STT_UPLOAD_BYTES) {
         throw new Error(`Recording is too large for phone voice reply. Keep clips under ${MAX_STT_UPLOAD_MB} MB.`);
       }
@@ -92,21 +97,49 @@ export function useRecorder(client: RemoteClient, connected: boolean, voiceAvail
         encoding: FileSystem.EncodingType.Base64,
       });
       const sendToChat = optionsRef.current.sendToChat !== false;
+      sttUploadStartedAtMs = Date.now();
+      void recordPhoneDebug('info', 'stt_upload_started', {
+        started_at_ms: sttUploadStartedAtMs,
+        recording_bytes: recordingBytes,
+        send_to_chat: sendToChat,
+      });
       const result = await client.stt(audioBase64, fileExtensionFromUri(uri), {
         ...optionsRef.current.sendOptions,
         sendToChat,
       });
       const errorMessage = remoteActionError(result, 'Voice reply was not accepted.');
+      const completedAtMs = Date.now();
+      const transcriptText = resultText(result);
+      sttUploadCompleted = true;
+      void recordPhoneDebug(errorMessage ? 'error' : 'info', 'stt_upload_completed', {
+        completed_at_ms: completedAtMs,
+        upload_and_stt_ms: Math.max(0, completedAtMs - sttUploadStartedAtMs),
+        recording_bytes: recordingBytes,
+        send_to_chat: sendToChat,
+        accepted: !errorMessage,
+        transcript_chars: transcriptText.length,
+        error: errorMessage,
+      });
       if (errorMessage) {
         throw new Error(errorMessage);
       }
       if (!sendToChat) {
-        const text = resultText(result);
-        if (text) {
-          setTranscript(text);
+        if (transcriptText) {
+          setTranscript(transcriptText);
         }
       }
     } catch (exc) {
+      if (sttUploadStartedAtMs && !sttUploadCompleted) {
+        void recordPhoneDebug('error', 'stt_upload_completed', {
+          completed_at_ms: Date.now(),
+          upload_and_stt_ms: Math.max(0, Date.now() - sttUploadStartedAtMs),
+          recording_bytes: recordingBytes,
+          send_to_chat: optionsRef.current.sendToChat !== false,
+          accepted: false,
+          transcript_chars: 0,
+          error: exc instanceof Error ? exc.message : 'Recording upload failed.',
+        });
+      }
       setError(exc instanceof Error ? exc.message : 'Recording upload failed.');
     } finally {
       if (recordedUri) {

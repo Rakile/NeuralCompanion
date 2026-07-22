@@ -81,6 +81,7 @@ class Addon(BaseAddon):
                 payload.get("config_getter") or (lambda: payload.get("runtime_config") or {}),
                 environ=payload.get("environ"),
                 output_dir=payload.get("output_dir"),
+                before_publish=payload.get("before_publish"),
             )
         if capability == "ui.panel_class":
             from addons.visual_reply.controller import AddonVisualReplyPanel

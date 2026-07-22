@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as Network from 'expo-network';
 import * as SecureStore from 'expo-secure-store';
 
 import { RemoteClient, isRemoteAuthError } from '../api/client';
@@ -7,6 +8,9 @@ import type { MprcAction, MprcCastAction, MprcSendOptions } from '../api/client'
 import type { VisualAction } from '../api/client';
 import { isRecord, remoteActionError } from '../api/envelope';
 import type { RemoteConnectionStatus, RemoteEnvelope, RemoteHealth, RemoteState, RemoteTransport } from '../api/types';
+import { mergeAudioSnapshot } from '../utils/audioFastStart';
+import { discoverRemoteBaseUrl } from '../utils/lanDiscovery';
+import { recordPhoneDebug } from '../utils/phoneDebugBridge';
 import { normalizeLanUrl } from '../utils/url';
 
 const CONNECTION_SETTINGS_KEY = 'nc-main-chat-remote.connection';
@@ -62,6 +66,9 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
   const [error, setError] = useState('');
   const [health, setHealth] = useState<RemoteEnvelope<RemoteHealth> | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [startupAutoConnectRequested, setStartupAutoConnectRequested] = useState(false);
+  const [startupDiscoveryComplete, setStartupDiscoveryComplete] = useState(false);
+  const [pendingPairingConnectionKey, setPendingPairingConnectionKey] = useState('');
   const [state, setState] = useState<RemoteState | null>(null);
   const [pollToken, setPollToken] = useState(0);
   const socketRef = useRef<WebSocket | null>(null);
@@ -76,6 +83,8 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
   const activeConnectionKeyRef = useRef('');
   const socketCommandSequenceRef = useRef(0);
   const pendingSocketCommandsRef = useRef<Map<string, PendingSocketCommand>>(new Map());
+  const startupAutoConnectStartedRef = useRef(false);
+  const startupAutoConnectCompletedRef = useRef(false);
 
   const client = useMemo(() => new RemoteClient(normalizeLanUrl(baseUrl), pairingCode.trim()), [baseUrl, pairingCode]);
   const autoReconnect = options.autoReconnect !== false;
@@ -93,11 +102,20 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
           return;
         }
         const payload = JSON.parse(raw) as { baseUrl?: string; pairingCode?: string };
+        const savedBaseUrl = typeof payload.baseUrl === 'string' ? normalizeLanUrl(payload.baseUrl) : '';
+        const savedPairingCode = typeof payload.pairingCode === 'string' ? normalizePairingCode(payload.pairingCode) : '';
         if (typeof payload.baseUrl === 'string' && payload.baseUrl.trim()) {
           setBaseUrlValue(payload.baseUrl);
         }
         if (typeof payload.pairingCode === 'string') {
-          setPairingCode(normalizePairingCode(payload.pairingCode));
+          setPairingCode(savedPairingCode);
+        }
+        if (
+          savedBaseUrl
+          && savedPairingCode.length >= MIN_PAIRING_CODE_DIGITS
+          && savedPairingCode.length <= MAX_PAIRING_CODE_DIGITS
+        ) {
+          setStartupAutoConnectRequested(true);
         }
       })
       .catch(() => undefined)
@@ -392,6 +410,24 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
           }
           return;
         }
+        if (message.type === 'audio') {
+          const payload = message.payload;
+          setState((current) => mergeAudioSnapshot(current, payload));
+          if (isRecord(payload)) {
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            const latest = items.length && isRecord(items[items.length - 1])
+              ? items[items.length - 1]
+              : null;
+            void recordPhoneDebug('info', 'audio_ws_received', {
+              generation: Number(payload.generation || 0),
+              item_count: items.length,
+              latest_id: latest ? String(latest.id || '') : '',
+              backend_created_at: latest ? Number(latest.created_at || 0) : 0,
+              received_at_ms: Date.now(),
+            });
+          }
+          return;
+        }
         if (message.type === 'error') {
           const requestId = String(message.request_id || '');
           const pending = requestId ? pendingSocketCommandsRef.current.get(requestId) : undefined;
@@ -515,26 +551,122 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     }
   }, [autoReconnect, connectionKey, disconnect, hasConnectionConfig, openSocket, refreshActiveConnection, scheduleReconnect, startPolling, stopActiveConnectionAfterAuthFailure]);
 
+  useEffect(() => {
+    if (
+      !settingsLoaded
+      || !startupAutoConnectRequested
+      || !hasConnectionConfig
+      || startupAutoConnectStartedRef.current
+    ) {
+      return;
+    }
+    startupAutoConnectStartedRef.current = true;
+    let alive = true;
+    setStatus('connecting');
+    setTransport('none');
+    setError('');
+
+    const discover = async () => {
+      let discoveredBaseUrl = '';
+      try {
+        const phoneIp = await Network.getIpAddressAsync();
+        discoveredBaseUrl = await discoverRemoteBaseUrl({
+          phoneIp,
+          pairingCode: client.pairingCode,
+          preferredBaseUrl: client.baseUrl,
+        });
+      } catch {
+        discoveredBaseUrl = '';
+      }
+      if (!alive) {
+        return;
+      }
+      if (discoveredBaseUrl && discoveredBaseUrl !== client.baseUrl) {
+        setBaseUrlValue(discoveredBaseUrl);
+      }
+      setStartupDiscoveryComplete(true);
+    };
+
+    void discover();
+    return () => {
+      alive = false;
+    };
+  }, [client.baseUrl, client.pairingCode, hasConnectionConfig, settingsLoaded, startupAutoConnectRequested]);
+
+  useEffect(() => {
+    if (
+      !startupDiscoveryComplete
+      || !hasConnectionConfig
+      || startupAutoConnectCompletedRef.current
+    ) {
+      return;
+    }
+    startupAutoConnectCompletedRef.current = true;
+    void connect();
+  }, [connect, hasConnectionConfig, startupDiscoveryComplete]);
+
+  useEffect(() => {
+    if (!pendingPairingConnectionKey || connectionKey !== pendingPairingConnectionKey) {
+      return;
+    }
+    setPendingPairingConnectionKey('');
+    void connect();
+  }, [connect, connectionKey, pendingPairingConnectionKey]);
+
   const sendText = useCallback(
     async (text: string, sendOptions: SendTextOptions = {}) => {
       const message = text.trim();
       if (!message) {
         return;
       }
+      const submitStartedAtMs = Date.now();
+      void recordPhoneDebug('info', 'text_turn_submit_started', {
+        started_at_ms: submitStartedAtMs,
+        capture_phone_audio: sendOptions.capturePhoneAudio !== false,
+        play_on_backend: Boolean(sendOptions.playOnBackend),
+      });
       const payload = {
         play_on_backend: Boolean(sendOptions.playOnBackend),
         capture_phone_audio: sendOptions.capturePhoneAudio !== false,
         visual_after_send: Boolean(sendOptions.visualAfterSend),
       };
-      const result = await sendSocketCommand('send_text', 'send_result', { text: message, payload }) ?? await client.sendText(message, sendOptions);
-      const errorMessage = remoteActionError(result, 'Main chat message was not accepted.');
-      if (errorMessage) {
-        throw new Error(errorMessage);
+      try {
+        const result = await sendSocketCommand('send_text', 'send_result', { text: message, payload }) ?? await client.sendText(message, sendOptions);
+        const errorMessage = remoteActionError(result, 'Main chat message was not accepted.');
+        if (errorMessage) {
+          throw new Error(errorMessage);
+        }
+        const acceptedAtMs = Date.now();
+        void recordPhoneDebug('info', 'text_turn_accepted', {
+          accepted_at_ms: acceptedAtMs,
+          submit_to_accept_ms: Math.max(0, acceptedAtMs - submitStartedAtMs),
+          transport: socketRef.current?.readyState === WebSocket.OPEN ? 'websocket' : 'http',
+        });
+      } catch (exc) {
+        void recordPhoneDebug('error', 'text_turn_rejected', {
+          elapsed_ms: Math.max(0, Date.now() - submitStartedAtMs),
+          error: exc instanceof Error ? exc.message : 'Main chat message was not accepted.',
+        });
+        throw exc;
       }
       await refresh();
     },
     [client, refresh, sendSocketCommand],
   );
+
+  const sendImage = useCallback(async (
+    imageBase64: string,
+    format: string,
+    prompt: string,
+    sendOptions: SendTextOptions = {},
+  ) => {
+    const result = await client.sendImage(imageBase64, format, prompt, sendOptions);
+    const errorMessage = remoteActionError(result, 'Phone photo was not accepted.');
+    if (errorMessage) {
+      throw new Error(errorMessage);
+    }
+    await refresh();
+  }, [client, refresh]);
 
   const clearAudio = useCallback(async () => {
     const result = await client.clearAudio();
@@ -646,6 +778,24 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     setPairingCode(normalizePairingCode(value));
   }, []);
 
+  const pairAndConnect = useCallback((nextBaseUrl: string, nextPairingCode: string) => {
+    const normalizedBaseUrl = normalizeLanUrl(nextBaseUrl);
+    const normalizedPairingCode = normalizePairingCode(nextPairingCode);
+    if (
+      !normalizedBaseUrl
+      || normalizedPairingCode.length < MIN_PAIRING_CODE_DIGITS
+      || normalizedPairingCode.length > MAX_PAIRING_CODE_DIGITS
+    ) {
+      setError('The scanned pairing QR code is invalid.');
+      setStatus('error');
+      return false;
+    }
+    setBaseUrlValue(normalizedBaseUrl);
+    setPairingCode(normalizedPairingCode);
+    setPendingPairingConnectionKey(`${normalizedBaseUrl}|${normalizedPairingCode}`);
+    return true;
+  }, []);
+
   return {
     baseUrl,
     pairingCode,
@@ -660,10 +810,12 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     pollToken,
     setBaseUrl,
     setPairingCode: setPairingCodeValue,
+    pairAndConnect,
     connect,
     disconnect,
     refresh,
     sendText,
+    sendImage,
     clearAudio,
     sendControl,
     visualGenerate,

@@ -15,26 +15,40 @@ FRAME_VERSION = 1
 FRAME_HEADER_FORMAT = "<IHHIIIQdII"
 FRAME_HEADER_SIZE = struct.calcsize(FRAME_HEADER_FORMAT)
 MAX_FRAME_DIMENSION = 2048
+PIXEL_FORMAT_GRAY8 = 0
+PIXEL_FORMAT_BGRA8 = 1
+
+
+def _bytes_per_pixel(pixel_format: int) -> int:
+    return 4 if int(pixel_format) == PIXEL_FORMAT_BGRA8 else 1
 
 
 def pack_frame_message(
-    gray8_pixels: bytes | bytearray | memoryview,
+    pixels: bytes | bytearray | memoryview,
     *,
     width: int,
     height: int,
     frame_index: int = 0,
     timestamp_seconds: Optional[float] = None,
-    flags: int = 0,
+    pixel_format: int = PIXEL_FORMAT_GRAY8,
+    stride: Optional[int] = None,
+    flags: Optional[int] = None,
 ) -> bytes:
     width = int(width)
     height = int(height)
     if width <= 0 or height <= 0 or width > MAX_FRAME_DIMENSION or height > MAX_FRAME_DIMENSION:
-        raise ValueError(f"Invalid Ua Companion Orb mask dimensions: {width}x{height}")
-    payload = bytes(gray8_pixels)
-    expected = width * height
+        raise ValueError(f"Invalid Ua Companion Orb frame dimensions: {width}x{height}")
+    pixel_format = int(pixel_format)
+    bytes_per_pixel = _bytes_per_pixel(pixel_format)
+    stride = int(stride or (width * bytes_per_pixel))
+    if stride < width * bytes_per_pixel:
+        raise ValueError(f"Invalid Ua Companion Orb frame stride: {stride}")
+    payload = bytes(pixels)
+    expected = stride * height
     if len(payload) != expected:
-        raise ValueError(f"Invalid Ua Companion Orb mask payload size: {len(payload)} != {expected}")
+        raise ValueError(f"Invalid Ua Companion Orb frame payload size: {len(payload)} != {expected}")
     timestamp = time.time() if timestamp_seconds is None else float(timestamp_seconds)
+    frame_flags = pixel_format if flags is None else int(flags)
     header = struct.pack(
         FRAME_HEADER_FORMAT,
         FRAME_MAGIC,
@@ -42,11 +56,11 @@ def pack_frame_message(
         FRAME_HEADER_SIZE,
         width,
         height,
-        width,
+        stride,
         int(frame_index) & 0xFFFFFFFFFFFFFFFF,
         timestamp,
         len(payload),
-        int(flags) & 0xFFFFFFFF,
+        frame_flags & 0xFFFFFFFF,
     )
     return header + payload
 
@@ -139,7 +153,30 @@ class NamedPipeFrameWriter:
             height=height,
             frame_index=frame_index,
             timestamp_seconds=timestamp_seconds,
+            pixel_format=PIXEL_FORMAT_GRAY8,
         )
+        return self._send_message(message)
+
+    def send_bgra_frame(
+        self,
+        bgra8_pixels: bytes | bytearray | memoryview,
+        *,
+        width: int,
+        height: int,
+        frame_index: int = 0,
+        timestamp_seconds: Optional[float] = None,
+    ) -> bool:
+        message = pack_frame_message(
+            bgra8_pixels,
+            width=width,
+            height=height,
+            frame_index=frame_index,
+            timestamp_seconds=timestamp_seconds,
+            pixel_format=PIXEL_FORMAT_BGRA8,
+        )
+        return self._send_message(message)
+
+    def _send_message(self, message: bytes) -> bool:
         with self._lock:
             if not self._connect_locked():
                 return False

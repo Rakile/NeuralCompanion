@@ -91,6 +91,49 @@ def _stream_text(stream: Iterable[Any]):
             yield str(content)
 
 
+def _coerce_frozen_float(value: Any, default: float, minimum: float, maximum: float) -> float:
+    try:
+        return min(maximum, max(minimum, float(value)))
+    except Exception:
+        return default
+
+
+def _coerce_frozen_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        return min(maximum, max(minimum, int(float(value))))
+    except Exception:
+        return default
+
+
+def _frozen_request_params(binding, params: dict[str, Any]) -> dict[str, Any]:
+    request = dict(params or {})
+    generation = binding._generation_fields_copy()
+    request["model"] = binding.model_name
+    if "temperature" in generation:
+        request["temperature"] = _coerce_frozen_float(
+            generation["temperature"], 1.0, 0.0, 2.0
+        )
+    if "top_p" in generation:
+        request["top_p"] = _coerce_frozen_float(generation["top_p"], 0.9, 0.0, 1.0)
+    if "max_tokens" in generation:
+        request.pop("max_tokens", None)
+        max_tokens = _coerce_frozen_int(generation["max_tokens"], -1, -1, 131072)
+        if max_tokens != -1:
+            request["max_tokens"] = max_tokens
+    return request
+
+
+def _frozen_client(request):
+    binding = getattr(request.context, "_binding", None)
+    if binding is None or binding.provider_name != PROVIDER_ID:
+        raise RuntimeError("xAI frozen request binding is unavailable.")
+    config = binding._provider_config_copy()
+    return OpenAI(
+        api_key=str(config.get("api_key") or "").strip(),
+        base_url=str(config.get("base_url") or DEFAULT_BASE_URL).strip(),
+    )
+
+
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
@@ -111,6 +154,12 @@ class Addon(BaseAddon):
             connection_check_handler=self._check_connection,
             api_key_getter=self._api_key,
             base_url_getter=self._base_url,
+            frozen_execution_version=1,
+            frozen_prepare_handler=self._prepare_frozen_chat,
+            frozen_completion_handler=self._complete_frozen_chat,
+            frozen_stream_handler=self._stream_frozen_chat,
+            frozen_private_config_getter=self._frozen_private_config,
+            frozen_public_config_fields=("base_url", "provider_is_remote"),
             metadata={
                 "config_fields": [
                     {"id": "api_key", "label": "API Key", "env": ["NC_CHAT_XAI_API_KEY", "XAI_API_KEY"]},
@@ -163,6 +212,9 @@ class Addon(BaseAddon):
 
     def _base_url(self) -> str:
         return self._setting("base_url") or str(os.environ.get("NC_CHAT_XAI_BASE_URL", "") or DEFAULT_BASE_URL).strip()
+
+    def _frozen_private_config(self) -> dict[str, bool]:
+        return {"provider_is_remote": True}
 
     def _client(self) -> OpenAI:
         return OpenAI(api_key=self._api_key(), base_url=self._base_url())
@@ -246,6 +298,34 @@ class Addon(BaseAddon):
         return _extract_text(response)
 
     def _stream_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
-        client = self._client()
-        stream = client.chat.completions.create(**{**dict(params or {}), "stream": True})
-        return _stream_text(stream)
+        def _iter_stream():
+            client = self._client()
+            stream = client.chat.completions.create(**{**dict(params or {}), "stream": True})
+            yield from _stream_text(stream)
+
+        return _iter_stream()
+
+    def _prepare_frozen_chat(self, binding, params, additional_params):
+        return _frozen_request_params(binding, params), dict(additional_params or {})
+
+    def _complete_frozen_chat(self, request, *, timeout=None, cancel_token=None) -> str:
+        del cancel_token
+        client = _frozen_client(request)
+        request_params = request.params_copy()
+        if timeout is not None:
+            request_params["timeout"] = timeout
+        response = client.chat.completions.create(**request_params)
+        return _extract_text(response)
+
+    def _stream_frozen_chat(self, request, *, timeout=None, cancel_token=None):
+        del cancel_token
+
+        def _iter_stream():
+            client = _frozen_client(request)
+            request_params = {**request.params_copy(), "stream": True}
+            if timeout is not None:
+                request_params["timeout"] = timeout
+            stream = client.chat.completions.create(**request_params)
+            yield from _stream_text(stream)
+
+        return _iter_stream()

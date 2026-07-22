@@ -282,6 +282,16 @@ class RealUiSyncCopyMixin:
                 except Exception:
                     pass
 
+    @staticmethod
+    def _spin_text_editor_has_focus(target):
+            if target is None or not hasattr(target, "lineEdit"):
+                return False
+            try:
+                editor = target.lineEdit()
+                return bool(editor is not None and editor.hasFocus())
+            except Exception:
+                return False
+
     def _set_readonly_text_if_changed(self, target, text):
             if target is None:
                 return False
@@ -361,6 +371,11 @@ class RealUiSyncCopyMixin:
                 front = self._ui_object(object_name)
                 back = self._backend_widget(object_name)
                 if front is None or back is None:
+                    continue
+                if (
+                    object_name == "chat_visual_batch_size_spin"
+                    and self._spin_text_editor_has_focus(front)
+                ):
                     continue
                 self._copy_spin_state(back, front)
             for object_name in self._line_edit_sync_names():

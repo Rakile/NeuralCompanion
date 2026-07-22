@@ -3,7 +3,93 @@
 from __future__ import annotations
 
 import re
-from typing import Callable
+from typing import Any, Callable
+
+from core import text_chunking
+
+
+def resolve_addon_voice_stream_policy(results) -> dict[str, bool]:
+    requires_full_text = False
+    preserve_voice_labels = False
+    for result in list(results or []):
+        if not isinstance(result, dict):
+            continue
+        item_requires_full_text = bool(result.get("requires_full_text", False))
+        requires_full_text = requires_full_text or item_requires_full_text
+        preserve_voice_labels = (
+            preserve_voice_labels
+            or item_requires_full_text
+            or bool(result.get("preserve_voice_labels", False))
+        )
+    return {
+        "requires_full_text": requires_full_text,
+        "preserve_voice_labels": preserve_voice_labels,
+    }
+
+
+def prepare_stream_tts_chunk(
+    text: str,
+    *,
+    preserve_voice_labels: bool,
+    sanitizer: Callable[[str], str],
+) -> str:
+    value = str(text or "")
+    if preserve_voice_labels:
+        return value.strip()
+    return str(sanitizer(value) or "").strip()
+
+
+def join_stream_tts_chunks(chunks) -> str:
+    return "\n".join(str(chunk or "").strip() for chunk in chunks if str(chunk or "").strip()).strip()
+
+
+def chunk_voice_segments_for_fast_start(
+    segments,
+    *,
+    first_target_chars: int,
+    first_max_chars: int,
+    target_chars: int,
+    max_chars: int,
+    min_chunk_size: int = 10,
+) -> list[dict[str, Any]]:
+    min_size = max(1, int(min_chunk_size or 1))
+    steady_target = max(min_size, int(target_chars or min_size))
+    steady_max = max(steady_target + 1, int(max_chars or steady_target + 1))
+    first_target = max(min_size, min(int(first_target_chars or min_size), steady_target))
+    first_max = max(first_target + 1, min(int(first_max_chars or first_target + 1), steady_max))
+
+    def _limits(chunk_index: int) -> tuple[int, int]:
+        if chunk_index == 0:
+            return first_target, first_max
+        return steady_target, steady_max
+
+    prepared: list[dict[str, Any]] = []
+    for raw_segment in list(segments or []):
+        if isinstance(raw_segment, dict):
+            template = dict(raw_segment)
+            value = str(raw_segment.get("text", "") or "")
+        else:
+            template = {}
+            value = str(raw_segment or "")
+        value = re.sub(r"\s+", " ", value).strip()
+        if not value:
+            continue
+
+        chunks = text_chunking.progressive_chunk_text(
+            value,
+            start_chunk_index=0,
+            limit_getter=_limits,
+            min_chunk_size=min_size,
+            logger=lambda _message: None,
+        )
+        if not chunks:
+            chunks = [value]
+        for chunk in chunks:
+            item = dict(template)
+            item["text"] = str(chunk or "").strip()
+            if item["text"]:
+                prepared.append(item)
+    return prepared
 
 
 def sanitize_assistant_text_for_speech(

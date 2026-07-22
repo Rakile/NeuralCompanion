@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import prompting
+from . import prompting, story_director
 from .models import PersonaConfig, RoleplaySessionState
 
 
@@ -80,13 +80,26 @@ class RoleplayEngine:
         self.controller.set_debug_prompt(context_text)
         return {"context": context_text, "debug": debug}
 
-    def record_assistant_text(self, text: str) -> None:
+    def record_assistant_text(
+        self,
+        text: str,
+        *,
+        source: str = "main_chat",
+        user_text: str | None = None,
+    ) -> bool:
         value = str(text or "").strip()
         if not value:
-            return
+            return False
+        session = self.controller.session
+        if not session.enabled:
+            return False
+        source_name = str(source or "main_chat").strip().lower()
+        if source_name != "mprc_play" and getattr(self.controller, "mprc_play_isolated_active", lambda: False)():
+            return False
+        if user_text is not None:
+            self._latest_user_input_text = str(user_text or "").strip()
         self._recent_assistant_texts.append(value)
         self._recent_assistant_texts = self._recent_assistant_texts[-8:]
-        session = self.controller.session
         try:
             self.controller.ensure_personas_from_assistant_text(value)
         except Exception as exc:
@@ -105,17 +118,18 @@ class RoleplayEngine:
         self.controller.save_active_story_memory_snapshot()
         self.controller.save_state()
         self._maybe_auto_visual_reply(value)
+        return True
 
     def _maybe_auto_visual_reply(self, assistant_text: str = "") -> None:
         session = self.controller.session
-        persona = self._visual_persona_for_reply(assistant_text)
+        policy_persona = self._visual_policy_persona(assistant_text)
         if bool(getattr(self.controller, "_suppress_next_auto_visual_reply", False)):
             self._remember_visual_baseline(session)
             return
-        if persona is None or not session.enabled or not persona.visual.enabled:
+        if policy_persona is None or not session.enabled or not policy_persona.visual.enabled:
             self._remember_visual_baseline(session)
             return
-        mode = str(persona.visual.mode or "off")
+        mode = str(policy_persona.visual.mode or "off")
         scene_key = self._visual_scene_key(session)
         location_key = self._visual_location_key(session)
         speaker_key = str(session.current_speaker_id or "")
@@ -132,10 +146,10 @@ class RoleplayEngine:
             reason = "choices_present"
         elif mode == "auto_important_moment" and self._looks_like_visual_moment(assistant_text):
             reason = "important_moment"
-        elif mode == "auto_story_beat" and self._is_ar_story_beat(assistant_text, session):
+        elif mode == "auto_story_beat" and self._is_ar_story_beat(assistant_text, session, policy_persona):
             reason = "ar_story_beat"
         elif mode == "auto_every_n_replies":
-            interval = max(1, int(getattr(persona.visual, "auto_reply_interval", 1) or 1))
+            interval = max(1, int(getattr(policy_persona.visual, "auto_reply_interval", 1) or 1))
             if session.turn_index > 0 and session.turn_index % interval == 0:
                 reason = "reply_interval"
         elif mode == "auto_user_asks" and self._latest_user_requested_image:
@@ -150,18 +164,65 @@ class RoleplayEngine:
                 recorder(
                     source="auto_visual_decision",
                     reason=reason,
-                    persona=persona,
+                    persona=policy_persona,
                     accepted=None,
                     message=f"Auto trigger matched Visual Reply mode '{mode}'.",
                 )
             except Exception:
                 pass
 
+        subject_persona, scene_focused = self._visual_subject_for_reply(
+            assistant_text,
+            policy_persona=policy_persona,
+        )
+        request_persona = subject_persona or policy_persona
         requester = getattr(self.controller, "request_auto_visual_reply", None)
         if callable(requester):
-            requester(persona.id, reason, assistant_text)
+            requester(
+                request_persona.id,
+                reason,
+                assistant_text,
+                policy_persona_id=policy_persona.id,
+                scene_focused=scene_focused,
+            )
             return
-        self.controller.visual_reply.request_generation(persona=persona, reason=reason, source_text=assistant_text)
+        self.controller.visual_reply.request_generation(
+            persona=request_persona,
+            policy_persona=policy_persona,
+            reason=reason,
+            source_text=assistant_text,
+            scene_focused=scene_focused,
+        )
+
+    def _visual_policy_persona(self, assistant_text: str) -> PersonaConfig | None:
+        if prompting.is_alternative_reality_mode(self.controller.session):
+            selector = getattr(self.controller, "selected_narrator_persona", None)
+            narrator = selector() if callable(selector) else None
+            if narrator is not None:
+                return narrator
+        return self._visual_persona_for_reply(assistant_text)
+
+    def _visual_subject_for_reply(
+        self,
+        assistant_text: str,
+        *,
+        policy_persona: PersonaConfig,
+    ) -> tuple[PersonaConfig | None, bool]:
+        personas = (
+            self.controller.story_prompt_personas()
+            if hasattr(self.controller, "story_prompt_personas")
+            else list(self.controller.personas or [])
+        )
+        beat = story_director.build_visual_beat_context(
+            persona=policy_persona,
+            personas=personas,
+            session=self.controller.session,
+            reason="assistant_reply",
+            source_text=assistant_text,
+        )
+        subject_id = str(beat.get("visual_subject_id") or "").strip()
+        subject = self.controller.persona_by_id(subject_id) if subject_id else None
+        return subject, subject is None
 
     def _visual_persona_for_reply(self, assistant_text: str) -> PersonaConfig | None:
         labeled = self._persona_from_visual_text(assistant_text)
@@ -257,12 +318,17 @@ class RoleplayEngine:
         except Exception:
             return False
 
-    def _is_ar_story_beat(self, assistant_text: str, session: RoleplaySessionState) -> bool:
+    def _is_ar_story_beat(
+        self,
+        assistant_text: str,
+        session: RoleplaySessionState,
+        visual_persona: PersonaConfig | None = None,
+    ) -> bool:
         if not prompting.is_alternative_reality_mode(session):
             return False
         if session.turn_index <= 1 or self._has_choices(assistant_text) or self._looks_like_visual_moment(assistant_text):
             return True
-        persona = self._visual_persona_for_reply(assistant_text)
+        persona = visual_persona or self._visual_policy_persona(assistant_text)
         interval = max(1, int(getattr(getattr(persona, "visual", None), "auto_reply_interval", 2) or 2))
         return session.turn_index > 0 and session.turn_index % interval == 0
 

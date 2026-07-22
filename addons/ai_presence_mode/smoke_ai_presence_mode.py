@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import json
 import os
 from pathlib import Path
 
@@ -17,13 +16,11 @@ from addons.ai_presence_mode.controller import (
     AI_PRESENCE_CORE_SESSION_KEYS,
     COMPANION_ORB_SESSION_KEYS,
     DEFAULT_SETTINGS,
-    NEURAL_FACE_SESSION_KEYS,
     ORB_POSITIONS,
     ORB_VISUAL_STYLES,
     ORB_RESPONSE_STYLES,
     VISUAL_STYLES,
     AIPresenceModeController,
-    NeuralFacePresenceController,
 )
 from addons.companion_orb_overlay.controller import CompanionOrbOverlaySettingsController
 from addons.companion_orb_overlay.companion_orb.companion_orb_bridge import CompanionOrbBridge
@@ -53,17 +50,14 @@ from visual_presence.visual_presence_bridge import VisualPresenceBridge
 
 def main():
     core_keys = set(AI_PRESENCE_CORE_SESSION_KEYS)
-    face_keys = set(NEURAL_FACE_SESSION_KEYS)
     orb_keys = set(COMPANION_ORB_SESSION_KEYS)
     assert core_keys
-    assert face_keys
     assert orb_keys
-    assert not core_keys.intersection(face_keys)
     assert not core_keys.intersection(orb_keys)
-    assert not face_keys.intersection(orb_keys)
     assert AIPresenceModeController.SESSION_KEYS == AI_PRESENCE_CORE_SESSION_KEYS
-    assert NeuralFacePresenceController.SESSION_KEYS == NEURAL_FACE_SESSION_KEYS
     assert set(COMPANION_ORB_SESSION_KEYS).issubset(set(CompanionOrbOverlaySettingsController.SESSION_KEYS))
+    assert not (ROOT / "addons" / "neural_face_presence" / "addon.json").exists()
+    assert not (ROOT / "tutorials" / "neural_face_presence.json").exists()
     assert "companion_orb_harassment_enabled" in orb_keys
     assert "companion_orb_harassment_timer_seconds" in orb_keys
     assert "companion_orb_snapshot_on_pointer_reached" in orb_keys
@@ -234,51 +228,19 @@ def main():
             "ai_presence_enabled": True,
             "ai_presence_display_mode": "floating",
             "ai_presence_visual_style": "neural_face_female",
-            "ai_presence_neural_face_enabled": True,
-            "ai_presence_neural_face_variant": "female",
             "ai_presence_click_through_default": True,
             "ai_presence_right_drag_move_enabled": True,
-            "ai_presence_neural_face_size": 1.12,
-            "ai_presence_neural_face_opacity": 0.86,
-            "ai_presence_neural_face_lipsync_strength": 1.25,
-            "ai_presence_neural_face_blink_enabled": True,
-            "ai_presence_neural_face_eye_movement_enabled": True,
             "ai_presence_idle_motion_strength": 0.42,
-            "ai_presence_female_neural_face_enabled": True,
-            "ai_presence_female_reference_nodes": True,
-            "ai_presence_female_show_wire_nodes": True,
-            "ai_presence_female_show_wire_lines": True,
-            "ai_presence_female_node_glow_enabled": True,
-            "ai_presence_female_wire_pulse_enabled": True,
-            "ai_presence_female_depth_enabled": True,
         }
     )
     assert presence_bridge.enabled is True
     assert presence_bridge.displayMode == "floating"
-    assert presence_bridge.visualStyle == "neural_face_female"
+    assert presence_bridge.visualStyle == "neural_network_pulse"
     assert presence_bridge.clickThroughDefault is True
     assert presence_bridge.rightDragMoveEnabled is True
-    assert presence_bridge.neuralFaceEnabled is True
-    assert presence_bridge.neuralFaceVariant == "female"
-    assert presence_bridge.neuralFaceSize > 1.0
-    assert presence_bridge.neuralFaceOpacity < 0.9
-    assert presence_bridge.neuralFaceLipSyncStrength > 1.0
     assert presence_bridge.idleMotionStrength == 0.42
     presence_bridge.apply_settings({"ai_presence_idle_motion_strength": 2.0})
     assert presence_bridge.idleMotionStrength == 1.0
-    assert presence_bridge.femaleNeuralFaceEnabled is True
-    assert presence_bridge.femaleReferenceNodes is True
-    assert presence_bridge.femaleShowWireNodes is True
-    assert presence_bridge.femaleShowWireLines is True
-    assert presence_bridge.femaleNodeGlowEnabled is True
-    assert presence_bridge.femaleWirePulseEnabled is True
-    assert presence_bridge.femaleDepthEnabled is True
-    topology_path = ROOT / "addons" / "ai_presence_mode" / "assets" / "neural_face" / "female" / "reference_female_topology.json"
-    cutout_path = ROOT / "addons" / "ai_presence_mode" / "assets" / "neural_face" / "female" / "reference_female_avatar_cutout.png"
-    topology = json.loads(topology_path.read_text(encoding="utf-8"))
-    assert len(topology.get("nodes", [])) >= 180
-    assert len(topology.get("edges", [])) >= 500
-    assert cutout_path.exists()
     overlay_qml = (ROOT / "visual_presence" / "visual_overlay.qml").read_text(encoding="utf-8")
     assert "renderTarget: Canvas.Image" in overlay_qml
     assert 'globalCompositeOperation = "copy"' in overlay_qml
@@ -337,7 +299,8 @@ def main():
     assert "Advanced motion and audio" in ai_presence_controller_source
     assert "ai_presence_idle_motion_slider" in ai_presence_controller_source
     assert "Idle motion" in ai_presence_controller_source
-    assert "Face Preset" in ai_presence_controller_source
+    assert "class NeuralFacePresenceController" not in ai_presence_controller_source
+    assert "Face Preset" not in ai_presence_controller_source
     assert "ai_presence_external_runtime_enabled_checkbox" in ai_presence_controller_source
     companion_overlay_controller_source = (ROOT / "addons" / "companion_orb_overlay" / "controller.py").read_text(encoding="utf-8")
     companion_overlay_main_source = (ROOT / "addons" / "companion_orb_overlay" / "main.py").read_text(encoding="utf-8")

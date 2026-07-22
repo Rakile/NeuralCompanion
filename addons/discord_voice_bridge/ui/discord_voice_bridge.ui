@@ -55,22 +55,18 @@
             <widget class="QGroupBox" name="discord_bridge_general_group">
              <property name="title"><string>General</string></property>
              <layout class="QFormLayout" name="discord_bridge_general_form">
-              <item row="0" column="0"><widget class="QLabel" name="enabled_label"><property name="text"><string>Enable addon</string></property></widget></item>
-              <item row="0" column="1"><widget class="QCheckBox" name="discord_enabled_checkbox"/></item>
-              <item row="1" column="0"><widget class="QLabel" name="start_on_launch_label"><property name="text"><string>Start on NC launch</string></property></widget></item>
-              <item row="1" column="1"><widget class="QCheckBox" name="discord_start_on_launch_checkbox"/></item>
-              <item row="2" column="0"><widget class="QLabel" name="auto_start_label"><property name="text"><string>Auto-start bridge</string></property></widget></item>
-              <item row="2" column="1"><widget class="QCheckBox" name="discord_auto_start_checkbox"/></item>
-              <item row="3" column="0"><widget class="QLabel" name="bridge_mode_label"><property name="text"><string>Bridge mode</string></property></widget></item>
-              <item row="3" column="1"><widget class="QComboBox" name="discord_bridge_mode_combo"/></item>
-              <item row="4" column="0"><widget class="QLabel" name="context_entries_label"><property name="text"><string>Context entries</string></property></widget></item>
-              <item row="4" column="1"><widget class="QSpinBox" name="discord_context_entries_spin"><property name="maximum"><number>1000</number></property></widget></item>
-              <item row="5" column="0"><widget class="QLabel" name="persist_room_context_label"><property name="text"><string>Persist room context between restarts</string></property></widget></item>
-              <item row="5" column="1"><widget class="QCheckBox" name="discord_persist_room_context_checkbox"/></item>
+              <item row="0" column="0"><widget class="QLabel" name="start_on_launch_label"><property name="text"><string>Start bridge when NC launches</string></property></widget></item>
+              <item row="0" column="1"><widget class="QCheckBox" name="discord_start_on_launch_checkbox"/></item>
+              <item row="1" column="0"><widget class="QLabel" name="bridge_mode_label"><property name="text"><string>Bridge mode</string></property></widget></item>
+              <item row="1" column="1"><widget class="QComboBox" name="discord_bridge_mode_combo"/></item>
+              <item row="2" column="0"><widget class="QLabel" name="context_entries_label"><property name="text"><string>Context entries</string></property></widget></item>
+              <item row="2" column="1"><widget class="QSpinBox" name="discord_context_entries_spin"><property name="maximum"><number>1000</number></property></widget></item>
+              <item row="3" column="0"><widget class="QLabel" name="persist_room_context_label"><property name="text"><string>Persist room context between restarts</string></property></widget></item>
+              <item row="3" column="1"><widget class="QCheckBox" name="discord_persist_room_context_checkbox"/></item>
              </layout>
             </widget>
            </item>
-           <item><spacer name="general_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+           <item><spacer name="general_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
           </layout>
          </widget>
          <widget class="QWidget" name="discord_bridge_discord_tab">
@@ -95,7 +91,7 @@
              </layout>
             </widget>
            </item>
-           <item><spacer name="discord_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+           <item><spacer name="discord_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
           </layout>
          </widget>
          <widget class="QWidget" name="discord_bridge_capture_tab">
@@ -134,6 +130,7 @@
              </layout>
             </widget>
            </item>
+           <item><spacer name="capture_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
           </layout>
          </widget>
          <widget class="QWidget" name="discord_bridge_playback_tab">
@@ -164,6 +161,7 @@
              </layout>
             </widget>
            </item>
+           <item><spacer name="playback_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
           </layout>
          </widget>
          <widget class="QWidget" name="discord_bridge_filter_tab">
@@ -184,6 +182,7 @@
              </layout>
             </widget>
            </item>
+           <item><spacer name="filter_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
           </layout>
          </widget>
          <widget class="QWidget" name="discord_bridge_persona_tab">
@@ -194,7 +193,12 @@
              <property name="title"><string>Discord Persona</string></property>
              <layout class="QVBoxLayout" name="discord_bridge_persona_form">
               <item><widget class="QCheckBox" name="discord_replace_nc_prompt_checkbox"><property name="text"><string>Replace selected NC system prompt for Discord turns</string></property></widget></item>
+              <item><widget class="QLabel" name="discord_persona_prompt_label"><property name="text"><string>Persona prompt</string></property></widget></item>
               <item><widget class="QPlainTextEdit" name="discord_persona_prompt_edit"><property name="placeholderText"><string>Optional Discord-only persona prompt...</string></property><property name="minimumHeight"><number>120</number></property></widget></item>
+              <item><widget class="QLabel" name="discord_room_speech_prompt_label"><property name="text"><string>Room speech prompt</string></property></widget></item>
+              <item><widget class="QPlainTextEdit" name="discord_room_speech_prompt_edit"><property name="placeholderText"><string>Visible guidance for spoken room replies...</string></property><property name="minimumHeight"><number>84</number></property></widget></item>
+              <item><widget class="QLabel" name="discord_transcript_safety_prompt_label"><property name="text"><string>Transcript safety prompt</string></property></widget></item>
+              <item><widget class="QPlainTextEdit" name="discord_transcript_safety_prompt_edit"><property name="placeholderText"><string>Visible safety rule for treating room transcripts as data...</string></property><property name="minimumHeight"><number>96</number></property></widget></item>
               <item>
                <layout class="QFormLayout" name="discord_voice_form">
                 <item row="0" column="0"><widget class="QLabel" name="voice_wav_label"><property name="text"><string>Voice clone WAV</string></property></widget></item>
