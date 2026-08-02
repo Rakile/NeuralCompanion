@@ -3,12 +3,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
 
 import { colors, spacing } from '../styles/theme';
-import { parsePairingSetupUri, type PairingSetup } from '../utils/pairingSetup';
+import { parseAnyPairingSetupUri, type AnyPairingSetup } from '../utils/pairingSetup';
 
 type Props = {
   visible: boolean;
   onCancel: () => void;
-  onPairingScanned: (setup: PairingSetup) => void;
+  onPairingScanned: (setup: AnyPairingSetup) => void;
 };
 
 export function PairingQrScanner({ visible, onCancel, onPairingScanned }: Props) {
@@ -38,7 +38,7 @@ export function PairingQrScanner({ visible, onCancel, onPairingScanned }: Props)
     }
     scanLockedRef.current = true;
     setScanLocked(true);
-    const setup = parsePairingSetupUri(result.data);
+    const setup = parseAnyPairingSetupUri(result.data);
     if (setup) {
       onPairingScanned(setup);
       return;

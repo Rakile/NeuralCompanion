@@ -204,6 +204,67 @@ def test_tail_sync_remains_uncapped_when_visual_batch_size_is_minus_one():
         backend_console_chat._engine = original_engine
 
 
+def test_completed_history_turn_consumes_matching_console_echo_once():
+    class _Engine:
+        conversation_history = [
+            {"role": "user", "origin": "input", "content": "hello"},
+            {"role": "assistant", "origin": "assistant_reply", "content": "one reply"},
+        ]
+
+    original_engine = backend_console_chat._engine
+    backend_console_chat._engine = lambda: _Engine()
+    try:
+        backend = _Backend(batch_size=200)
+        backend._reset_chat_window_state(_Engine.conversation_history)
+        rebuilds = []
+        backend._rebuild_chat_view_from_history = lambda **kwargs: rebuilds.append(dict(kwargs))
+
+        assert backend._consume_history_backed_chat_stream("🤖 Assistant: one reply\n") is True
+        assert rebuilds == []
+    finally:
+        backend_console_chat._engine = original_engine
+
+
+def test_completed_history_turn_rebuilds_when_console_echo_arrives_before_visible_tail():
+    class _Engine:
+        conversation_history = [
+            {"role": "user", "origin": "input", "content": "hello"},
+            {"role": "assistant", "origin": "assistant_reply", "content": "one reply"},
+        ]
+
+    original_engine = backend_console_chat._engine
+    backend_console_chat._engine = lambda: _Engine()
+    try:
+        backend = _Backend(batch_size=200)
+        backend._chat_visible_history_indexes = (0,)
+        backend._chat_visible_history_keys = (
+            backend._chat_history_entry_key(_Engine.conversation_history[0]),
+        )
+        rebuilds = []
+        backend._rebuild_chat_view_from_history = lambda **kwargs: rebuilds.append(dict(kwargs))
+
+        assert backend._consume_history_backed_chat_stream("🤖 Assistant: one reply\n") is True
+        assert rebuilds == [{"force": True}]
+    finally:
+        backend_console_chat._engine = original_engine
+
+
+def test_uncommitted_user_console_line_remains_incremental():
+    class _Engine:
+        conversation_history = [
+            {"role": "assistant", "origin": "assistant_reply", "content": "previous reply"},
+        ]
+
+    original_engine = backend_console_chat._engine
+    backend_console_chat._engine = lambda: _Engine()
+    try:
+        backend = _Backend(batch_size=200)
+        backend._reset_chat_window_state(_Engine.conversation_history)
+        assert backend._consume_history_backed_chat_stream("💬 You: new input\n") is False
+    finally:
+        backend_console_chat._engine = original_engine
+
+
 def main():
     test_window_state_expands_backwards_in_batches()
     test_stale_anchor_restore_is_ignored()
@@ -214,6 +275,9 @@ def main():
     test_tail_sync_slides_the_initial_window_without_growing_it()
     test_tail_sync_preserves_a_manually_expanded_window_capacity()
     test_tail_sync_remains_uncapped_when_visual_batch_size_is_minus_one()
+    test_completed_history_turn_consumes_matching_console_echo_once()
+    test_completed_history_turn_rebuilds_when_console_echo_arrives_before_visible_tail()
+    test_uncommitted_user_console_line_remains_incremental()
     print("smoke_chat_transcript_rendering: ok")
 
 

@@ -74,8 +74,18 @@ class StoryProjectManager:
     def current_project(self) -> dict | None:
         return copy.deepcopy(self._current_project)
 
-    def create(self, name: str) -> dict:
-        project = self.store.create_project(name)
+    def create(
+        self,
+        name: str,
+        *,
+        source_kind: str = "audio",
+        source_reference: Mapping | None = None,
+    ) -> dict:
+        project = self.store.create_project(
+            name,
+            source_kind=source_kind,
+            source_reference=source_reference,
+        )
         return self._select(project)
 
     def open(self, project_id: str) -> dict:

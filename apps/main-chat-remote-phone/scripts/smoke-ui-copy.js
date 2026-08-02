@@ -51,7 +51,7 @@ assertIncludes(composer, 'Photo', 'Chat photo action');
 assertIncludes(app, 'sendImage', 'Photo-to-LLM connection');
 assertIncludes(app, 'photoAvailable={!demoMode && commandsAvailable}', 'Live-only photo capture');
 assertIncludes(index, 'PhoneErrorBoundary', 'Phone crash fallback');
-assertIncludes(phoneDebug, '/api/debug', 'Phone debug upload');
+assertIncludes(phoneDebug, 'uploadDebugPayload', 'Authenticated phone debug upload');
 assertIncludes(phoneSettings, 'chatLayout', 'Saved clean chat layout');
 assertIncludes(phoneSettings, 'chatTextColor', 'Saved clean chat text color');
 assertIncludes(phoneSettings, 'chatIndicatorStyle', 'Saved clean chat indicator');
@@ -82,7 +82,7 @@ if (app.includes('<ChatDisplayBar')) {
   throw new Error('Chat-only display bar must move into global Appearance settings.');
 }
 assertIncludes(chatFeed, 'image_url_path', 'Chat attachment rendering');
-assertIncludes(chatFeed, 'authorizedUrl', 'Authorized chat attachment URL');
+assertIncludes(chatFeed, 'useAuthorizedMediaUrl', 'Authorized chat attachment URL');
 assertIncludes(app, 'Desktop Controls', 'Desktop controls drawer');
 assertIncludes(app, 'RemoteCockpit', 'Remote cockpit shell');
 assertIncludes(app, 'QuickActions', 'Quick action rail');

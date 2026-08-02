@@ -85,6 +85,35 @@ def test_buddy_chat_side_tab_icon_is_registered() -> None:
     assert ast.literal_eval(icon_keywords[0].value) == expected_icon_path
 
 
+def test_buddy_chat_page_uses_responsive_banner() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6 import QtWidgets
+    from addons.buddy_chat.controller import BuddyChatController
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    controller = BuddyChatController(
+        _FakeContext(Path(tempfile.mkdtemp(prefix="nc-buddy-chat-storage-"))),
+        completion_handler=lambda *_args: "ok",
+    )
+    tab = controller.build_tab()
+    try:
+        banner = tab.findChild(QtWidgets.QLabel, "buddy_chat_banner")
+        subtitle = tab.findChild(QtWidgets.QLabel, "buddy_chat_subtitle")
+
+        assert banner is not None
+        assert bool(banner.property("banner_loaded")) is True
+        assert banner.text() == ""
+        assert banner.heightForWidth(725) == 128
+        assert banner.heightForWidth(362) == 64
+        assert banner.heightForWidth(900) == 128
+        assert subtitle is not None
+        assert subtitle.text() == "Natural buddy participation, routed voices, avatars, and optional per-buddy models."
+        assert all(label.text() != "Buddy Chat" for label in tab.findChildren(QtWidgets.QLabel))
+    finally:
+        tab.deleteLater()
+        app.processEvents()
+
+
 def test_per_persona_lmstudio_lan_provider_does_not_mutate_global_settings() -> None:
     from addons.buddy_chat.llm_runtime import BuddyProviderRuntime, ProviderCallConfig
     from addons.buddy_chat.models import BuddyPersona, BuddySettings, ProviderOverride
@@ -769,6 +798,7 @@ def test_buddy_chat_uses_categorized_mprc_style_tabs() -> None:
         buttons = list(controller._controls.get("tab_buttons") or [])
         assert stack is not None
         assert [str(button.property("buddy_tab_title") or "") for button in buttons] == [
+            "Setup",
             "Overview",
             "Buddies",
             "Voices",
@@ -1210,8 +1240,55 @@ def test_persona_prompt_starts_history_with_user_and_repairs_invalid_text() -> N
     assert all("\ufffd" not in message["content"] for message in messages)
 
 
+def test_all_optional_buddies_pass_through_to_normal_chat() -> None:
+    from addons.buddy_chat.models import BuddyPersona
+
+    controller = _new_controller(
+        lambda _config, _params, _additional: "[[BUDDY_PASS]]"
+    )
+    controller.settings.enabled = True
+    controller.settings.reply_mode = "main_answer"
+    controller.settings.personas = [
+        BuddyPersona(id="alex", display_name="Alex"),
+    ]
+
+    assert controller._handle_user_text_command(
+        {"text": "I am just thinking out loud for a moment."}
+    ) is None
+
+
+def test_repetitive_second_buddy_is_not_joined() -> None:
+    from addons.buddy_chat.models import BuddyPersona
+
+    replies = iter(
+        [
+            "Use the smaller local model and lower the context window to save memory.",
+            "Lower the context window and use a smaller local model to save memory.",
+        ]
+    )
+    controller = _new_controller(
+        lambda _config, _params, _additional: next(replies)
+    )
+    controller.settings.enabled = True
+    controller.settings.reply_mode = "main_answer"
+    controller.settings.max_speakers = 2
+    controller.settings.natural_second_speaker_every = 1
+    controller.settings.personas = [
+        BuddyPersona(id="alex", display_name="Alex"),
+        BuddyPersona(id="mira", display_name="Mira"),
+    ]
+
+    result = controller._handle_user_text_command(
+        {"text": "How can I reduce memory use?"}
+    )
+
+    assert isinstance(result, dict)
+    assert result["response_text"].count("[") == 1
+
+
 def run_all() -> None:
     test_buddy_chat_side_tab_icon_is_registered()
+    test_buddy_chat_page_uses_responsive_banner()
     test_per_persona_lmstudio_lan_provider_does_not_mutate_global_settings()
     test_buddy_chat_handles_a_turn_with_only_the_selected_persona()
     test_buddy_settings_roundtrip_forced_buddy_cadence()
@@ -1255,6 +1332,8 @@ def run_all() -> None:
     test_remove_buddy_deletes_persona_and_refreshes_rows()
     test_lmstudio_model_catalog_uses_specific_base_url()
     test_persona_prompt_starts_history_with_user_and_repairs_invalid_text()
+    test_all_optional_buddies_pass_through_to_normal_chat()
+    test_repetitive_second_buddy_is_not_joined()
 
 
 if __name__ == "__main__":

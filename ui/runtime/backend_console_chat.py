@@ -1,4 +1,5 @@
 import json
+import hashlib
 import re
 import threading
 import time
@@ -18,13 +19,35 @@ class _ChatContextMemoryFlushBridge(QtCore.QObject):
     finished = QtCore.Signal(object, object)
 
 
-def _replace_chat_conversation_history(entries, *, allow_pending_loaded_user, expected_history=None):
+def _chat_history_signature(history):
+    digest = hashlib.sha256()
+    for entry in list(history or []):
+        payload = json.dumps(
+            entry,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8", errors="replace")
+        digest.update(len(payload).to_bytes(8, byteorder="big", signed=False))
+        digest.update(payload)
+    return digest.hexdigest()
+
+
+def _replace_chat_conversation_history(
+    entries,
+    *,
+    allow_pending_loaded_user,
+    expected_history=None,
+    reconcile_long_term_memory_archive=False,
+):
     from ui.runtime.engine_access import replace_chat_conversation_history
 
     return replace_chat_conversation_history(
         entries,
         allow_pending_loaded_user=allow_pending_loaded_user,
         expected_history=expected_history,
+        reconcile_long_term_memory_archive=reconcile_long_term_memory_archive,
     )
 
 
@@ -199,7 +222,44 @@ class BackendConsoleChatMixin:
         self._append_chat_text_now(text)
 
     def _append_chat_text_now(self, text):
+        if self._consume_history_backed_chat_stream(text):
+            return
         self._insert_chat_text_now(text, cursor_position=QtGui.QTextCursor.End, allow_auto_scroll=True)
+
+    def _consume_history_backed_chat_stream(self, text):
+        if getattr(self, "_chat_window_rebuild_active", False):
+            return False
+        incoming = self._parse_chat_display_entries_with_spans(text)
+        if len(incoming) != 1:
+            return False
+        history = list(getattr(_engine(), "conversation_history", []) or [])
+        displayable = chat_transcript_window.displayable_history_indexes(history)
+        if not displayable:
+            return False
+        latest_index = int(displayable[-1])
+        latest = dict(history[latest_index] or {})
+        candidate = dict(incoming[0] or {})
+        for key in ("_start", "_end"):
+            candidate.pop(key, None)
+        latest_role = str(latest.get("role", "") or "").strip().lower()
+        latest_origin = str(latest.get("origin", "") or "").strip().lower()
+        candidate_role = str(candidate.get("role", "") or "").strip().lower()
+        candidate_origin = str(candidate.get("origin", "") or "").strip().lower()
+        latest_content = str(latest.get("content", "") or "").strip()
+        if latest_role == "assistant":
+            latest_content = conversation_history_runtime.strip_leading_turn_timestamps(latest_content).strip()
+        candidate_content = str(candidate.get("content", "") or "").strip()
+        if (
+            latest_role != candidate_role
+            or latest_origin != candidate_origin
+            or latest_content != candidate_content
+        ):
+            return False
+        visible = tuple(getattr(self, "_chat_visible_history_indexes", ()) or ())
+        if latest_index in visible and self._chat_window_mapping_matches_history(history):
+            return True
+        self._rebuild_chat_view_from_history(force=True)
+        return True
 
     def _insert_chat_text_now(self, text, *, cursor_position, allow_auto_scroll):
         if getattr(self, "chat_edit_mode", False) and cursor_position != QtGui.QTextCursor.Start:
@@ -463,9 +523,9 @@ class BackendConsoleChatMixin:
         refresh_memory_hint = getattr(self, "_refresh_continuity_memory_hint", None)
         if callable(refresh_memory_hint):
             refresh_memory_hint()
-        refresh_archive_hint = getattr(self, "_refresh_long_term_memory_archive_hint", None)
-        if callable(refresh_archive_hint):
-            refresh_archive_hint()
+        refresh_archive_progress = getattr(self, "_refresh_long_term_memory_archive_progress_hint", None)
+        if callable(refresh_archive_progress):
+            refresh_archive_progress()
 
     def toggle_console_autoscroll(self):
         self.console_auto_scroll = not self.console_auto_scroll
@@ -829,6 +889,7 @@ class BackendConsoleChatMixin:
                 entries,
                 allow_pending_loaded_user=False,
                 expected_history=getattr(self, "_chat_edit_snapshot_full_history", None),
+                reconcile_long_term_memory_archive=True,
             )
             if not bool(result.get("replaced", True)):
                 message = (
@@ -851,6 +912,9 @@ class BackendConsoleChatMixin:
         self._chat_edit_scroll_state_before_edit = None
         self._clear_chat_edit_snapshot()
         self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
+        refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
+        if callable(refresh_archive):
+            refresh_archive()
         print(f"[QtGUI] Chat context edited in place ({int(result.get('conversation_turns', 0))} turn(s)).")
 
     def _chat_display_line_for_history_entry(self, entry):
@@ -954,14 +1018,72 @@ class BackendConsoleChatMixin:
         engine.trigger_manual_action(action)
         print(f"[QtGUI] Control action: {action}")
 
+    def _mark_chat_context_history_saved(self, history=None):
+        if history is None:
+            history = getattr(_engine(), "conversation_history", []) or []
+        self._chat_context_saved_history_signature = _chat_history_signature(history)
+
+    def _chat_context_has_unsaved_history(self):
+        baseline = getattr(self, "_chat_context_saved_history_signature", None)
+        if baseline is None:
+            baseline = _chat_history_signature([])
+        current = _chat_history_signature(getattr(_engine(), "conversation_history", []) or [])
+        return current != baseline
+
+    def _prompt_unsaved_chat_context_decision(self, action_label):
+        dialog = QtWidgets.QMessageBox(self)
+        dialog.setIcon(QtWidgets.QMessageBox.Warning)
+        dialog.setWindowTitle("Unsaved Chat Context")
+        dialog.setText("This conversation contains unsaved chat history.")
+        dialog.setInformativeText(f"Do you want to save it before {action_label}?")
+        save_button = dialog.addButton("Save", QtWidgets.QMessageBox.AcceptRole)
+        discard_button = dialog.addButton("Don't Save", QtWidgets.QMessageBox.DestructiveRole)
+        cancel_button = dialog.addButton(QtWidgets.QMessageBox.Cancel)
+        dialog.setDefaultButton(save_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked is save_button:
+            return "save"
+        if clicked is discard_button:
+            return "discard"
+        return "cancel"
+
+    def _show_chat_context_save_failure(self, error):
+        QtWidgets.QMessageBox.warning(
+            self,
+            "Chat Context Not Saved",
+            f"The conversation could not be saved, so the requested action was cancelled.\n\n{error}",
+        )
+
+    def _confirm_unsaved_chat_context(self, action_label):
+        if not self._chat_context_has_unsaved_history():
+            return True
+        decision = self._prompt_unsaved_chat_context_decision(action_label)
+        if decision == "discard":
+            return True
+        if decision != "save":
+            return False
+        try:
+            return bool(self.save_chat_context())
+        except Exception as exc:
+            self._show_chat_context_save_failure(exc)
+            return False
+
     def reset_chat_session(self):
+        if not self._confirm_unsaved_chat_context("starting a new conversation"):
+            return False
         review_coordinator = getattr(self, "_long_term_memory_image_review_coordinator", None)
         if review_coordinator is not None:
             review_coordinator.cancel_pending()
         _engine().reset_session_state()
+        self._detach_active_chat_context_path()
+        self._disable_memory_for_quick_chat_context()
         self.clear_chat()
+        self._mark_chat_context_history_saved()
         self._refresh_chat_context_save_controls()
         print("[QtGUI] Chat memory reset.")
+        return True
 
     def _default_chat_context_path(self):
         chat_dir = Path("runtime") / "chat_contexts"
@@ -1063,8 +1185,9 @@ class BackendConsoleChatMixin:
             config["long_term_memory_retrieval_max_items"] = max(1, min(12, int(data.get("long_term_memory_retrieval_max_items", config.get("long_term_memory_retrieval_max_items", 6)) or 6)))
             config["long_term_memory_recall_text_budget"] = long_term_memory.normalize_recall_text_budget(data.get("long_term_memory_recall_text_budget", config.get("long_term_memory_recall_text_budget", -1)), default=-1)
             config["long_term_memory_recall_image_limit"] = long_term_memory.normalize_image_recall_limit(data.get("long_term_memory_recall_image_limit", config.get("long_term_memory_recall_image_limit", 1)), default=1)
+            config["long_term_memory_image_context_max_output_tokens"] = long_term_memory.normalize_image_context_max_output_tokens(data.get("long_term_memory_image_context_max_output_tokens", config.get("long_term_memory_image_context_max_output_tokens", long_term_memory.DEFAULT_IMAGE_CONTEXT_MAX_OUTPUT_TOKENS)))
             config["long_term_memory_auto_archive_enabled"] = bool(data.get("long_term_memory_auto_archive_enabled", False))
-            config["long_term_memory_archive_batch_turns"] = max(1, min(10000, int(data.get("long_term_memory_archive_batch_turns", config.get("long_term_memory_archive_batch_turns", 120)) or 120)))
+            config["long_term_memory_archive_batch_turns"] = max(1, min(10000, int(data.get("long_term_memory_archive_batch_turns", config.get("long_term_memory_archive_batch_turns", long_term_memory.DEFAULT_EXTRACTION_TURNS)) or long_term_memory.DEFAULT_EXTRACTION_TURNS)))
             config["long_term_memory_embedding_model"] = str(data.get("long_term_memory_embedding_model", config.get("long_term_memory_embedding_model", "text-embedding-bge-m3")) or "text-embedding-bge-m3")
             config["long_term_memory_embedding_context_length"] = max(512, min(262144, int(data.get("long_term_memory_embedding_context_length", config.get("long_term_memory_embedding_context_length", 8192)) or 8192)))
             config["long_term_memory_embedding_base_url"] = str(data.get("long_term_memory_embedding_base_url", config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1")) or "http://127.0.0.1:1234/v1")
@@ -1089,10 +1212,12 @@ class BackendConsoleChatMixin:
             self.long_term_memory_recall_text_budget_spin.setValue(long_term_memory.normalize_recall_text_budget(config.get("long_term_memory_recall_text_budget", -1), default=-1))
         if hasattr(self, "long_term_memory_recall_image_limit_spin") and isinstance(config, dict):
             self.long_term_memory_recall_image_limit_spin.setValue(long_term_memory.normalize_image_recall_limit(config.get("long_term_memory_recall_image_limit", 1), default=1))
+        if hasattr(self, "long_term_memory_image_context_max_output_tokens_spin") and isinstance(config, dict):
+            self.long_term_memory_image_context_max_output_tokens_spin.setValue(long_term_memory.normalize_image_context_max_output_tokens(config.get("long_term_memory_image_context_max_output_tokens", long_term_memory.DEFAULT_IMAGE_CONTEXT_MAX_OUTPUT_TOKENS)))
         if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") and isinstance(config, dict):
             self.long_term_memory_auto_archive_enabled_checkbox.setChecked(bool(config.get("long_term_memory_auto_archive_enabled", False)))
         if hasattr(self, "long_term_memory_archive_batch_turns_spin") and isinstance(config, dict):
-            self.long_term_memory_archive_batch_turns_spin.setValue(int(config.get("long_term_memory_archive_batch_turns", 120) or 120))
+            self.long_term_memory_archive_batch_turns_spin.setValue(int(config.get("long_term_memory_archive_batch_turns", long_term_memory.DEFAULT_EXTRACTION_TURNS) or long_term_memory.DEFAULT_EXTRACTION_TURNS))
         if hasattr(self, "long_term_memory_embedding_model_edit") and isinstance(config, dict):
             widget = self.long_term_memory_embedding_model_edit
             value = str(config.get("long_term_memory_embedding_model", "") or "")
@@ -1223,6 +1348,7 @@ class BackendConsoleChatMixin:
         if remember_active_context:
             self._remember_chat_context_path(target)
         payload = _engine().export_chat_session_state()
+        saved_history_snapshot = list(payload.get("conversation_history", []) or [])
         payload, asset_report = chat_context_assets.preserve_chat_context_image_assets(payload, target)
         if asset_report.get("copied") or asset_report.get("reused") or asset_report.get("missing"):
             print(
@@ -1233,17 +1359,18 @@ class BackendConsoleChatMixin:
             )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._mark_chat_context_history_saved(saved_history_snapshot)
         if sync_memory:
             memory_payload = chat_context_assets.resolve_chat_context_image_assets(payload, target)
             self._start_chat_context_memory_flush(memory_payload.get("conversation_history", []), label=label)
         print(f"[QtGUI] {label} saved: {target}")
+        return True
 
     def save_chat_context(self):
         target = self._active_chat_context_path()
         if target is None:
-            self.save_chat_context_as()
-            return
-        self._write_chat_context_to_path(target)
+            return self.save_chat_context_as()
+        return self._write_chat_context_to_path(target)
 
     def save_chat_context_as(self):
         default_path = self._default_chat_context_path()
@@ -1256,12 +1383,12 @@ class BackendConsoleChatMixin:
             "Chat Context (*.json);;JSON (*.json);;All Files (*.*)",
         )
         if not path:
-            return
-        self._write_chat_context_to_path(path, reset_memory_identity=True)
+            return False
+        return self._write_chat_context_to_path(path, reset_memory_identity=True)
 
     def quick_save_chat_context(self):
         target = self._quick_chat_context_path()
-        self._write_chat_context_to_path(
+        return self._write_chat_context_to_path(
             target,
             label="Quick chat context",
             remember_active_context=False,
@@ -1278,8 +1405,11 @@ class BackendConsoleChatMixin:
             "Chat Context (*.json);;JSON (*.json);;All Files (*.*)",
         )
         if not path:
-            return
+            return False
+        if not self._confirm_unsaved_chat_context("loading another conversation"):
+            return False
         self._load_chat_context_from_path(path)
+        return True
 
     def _load_chat_context_from_path(self, path):
         payload = self._prepare_loaded_chat_context_payload(json.loads(Path(path).read_text(encoding="utf-8")), path)
@@ -1292,6 +1422,7 @@ class BackendConsoleChatMixin:
             self._remember_chat_context_path(path)
             self._apply_loaded_chat_context_memory_settings(payload)
         _restore_musetalk_preview_snapshot(musetalk_preview_snapshot, self)
+        self._mark_chat_context_history_saved()
         self._set_chat_edit_mode(False)
         self._rebuild_chat_view_from_history(force=True)
         refresh = getattr(self, "_refresh_continuity_memory_hint", None)
@@ -1309,13 +1440,16 @@ class BackendConsoleChatMixin:
         path = self._quick_chat_context_path()
         if not path.exists():
             print(f"[QtGUI] Quick chat context not found: {path}")
-            return
+            return False
+        if not self._confirm_unsaved_chat_context("loading the quick-save conversation"):
+            return False
         payload = self._prepare_loaded_chat_context_payload(json.loads(path.read_text(encoding="utf-8")), path)
         musetalk_preview_snapshot = _capture_musetalk_preview_snapshot(self)
         result = _engine().import_chat_session_state(payload)
         self._detach_active_chat_context_path()
         self._disable_memory_for_quick_chat_context()
         _restore_musetalk_preview_snapshot(musetalk_preview_snapshot, self)
+        self._mark_chat_context_history_saved()
         self._set_chat_edit_mode(False)
         self._rebuild_chat_view_from_history(force=True)
         refresh = getattr(self, "_refresh_continuity_memory_hint", None)
@@ -1325,3 +1459,4 @@ class BackendConsoleChatMixin:
         if callable(refresh_archive):
             refresh_archive()
         print(f"[QtGUI] Quick chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
+        return True

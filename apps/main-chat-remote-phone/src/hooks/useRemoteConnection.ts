@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Network from 'expo-network';
-import * as SecureStore from 'expo-secure-store';
 
 import { RemoteClient, isRemoteAuthError } from '../api/client';
 import type { SendTextOptions } from '../api/client';
@@ -8,12 +7,14 @@ import type { MprcAction, MprcCastAction, MprcSendOptions } from '../api/client'
 import type { VisualAction } from '../api/client';
 import { isRecord, remoteActionError } from '../api/envelope';
 import type { RemoteConnectionStatus, RemoteEnvelope, RemoteHealth, RemoteState, RemoteTransport } from '../api/types';
-import { mergeAudioSnapshot } from '../utils/audioFastStart';
+import { mergeAudioSnapshot, mergeRemoteSnapshot } from '../utils/audioFastStart';
 import { discoverRemoteBaseUrl } from '../utils/lanDiscovery';
 import { recordPhoneDebug } from '../utils/phoneDebugBridge';
 import { normalizeLanUrl } from '../utils/url';
+import { useConnectionProfiles } from './useConnectionProfiles';
+import { connectCandidates, connectionCandidates, type ConnectionRoute, type ConnectionTarget, type ProbeFailureReason } from '../utils/connectionProfiles';
+import type { InternetPairingSetup } from '../utils/pairingSetup';
 
-const CONNECTION_SETTINGS_KEY = 'nc-main-chat-remote.connection';
 const DEFAULT_POLL_INTERVAL_MS = 1800;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 15000;
@@ -58,14 +59,28 @@ function normalizePollingInterval(value: number | undefined): number {
   return Math.max(900, Math.min(15000, Math.round(parsed)));
 }
 
+function targetConnectionKey(target: ConnectionTarget): string { return `${target.route}|${target.baseUrl}|${target.gatewayId}|${target.deviceId}`; }
+function probeFailureReason(exc: unknown): ProbeFailureReason {
+  if (isRemoteAuthError(exc)) return 'auth_error';
+  const message = exc instanceof Error ? exc.message.toLowerCase() : String(exc).toLowerCase();
+  if (message.includes('gateway identity')) return 'gateway_identity_error';
+  if (message.includes('certificate') || message.includes('ssl') || message.includes('tls')) return 'certificate_error';
+  if (message.includes('timed out') || message.includes('timeout')) return 'timeout';
+  if (message.includes('dns') || message.includes('name') || message.includes('host')) return 'dns_error';
+  return 'unreachable';
+}
+
 export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
+  const profiles = useConnectionProfiles();
   const [baseUrl, setBaseUrlValue] = useState('http://192.168.1.10:8777');
   const [pairingCode, setPairingCode] = useState('');
+  const [activeTarget, setActiveTarget] = useState<ConnectionTarget | null>(null);
+  const [enrollmentStatus, setEnrollmentStatus] = useState('');
   const [status, setStatus] = useState<RemoteConnectionStatus>('disconnected');
   const [transport, setTransport] = useState<RemoteTransport>('none');
   const [error, setError] = useState('');
   const [health, setHealth] = useState<RemoteEnvelope<RemoteHealth> | null>(null);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const settingsLoaded = profiles.loaded;
   const [startupAutoConnectRequested, setStartupAutoConnectRequested] = useState(false);
   const [startupDiscoveryComplete, setStartupDiscoveryComplete] = useState(false);
   const [pendingPairingConnectionKey, setPendingPairingConnectionKey] = useState('');
@@ -85,56 +100,35 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
   const pendingSocketCommandsRef = useRef<Map<string, PendingSocketCommand>>(new Map());
   const startupAutoConnectStartedRef = useRef(false);
   const startupAutoConnectCompletedRef = useRef(false);
+  const enrollmentAbortRef = useRef<AbortController | null>(null);
 
-  const client = useMemo(() => new RemoteClient(normalizeLanUrl(baseUrl), pairingCode.trim()), [baseUrl, pairingCode]);
+  const client = useMemo(() => {
+    if (activeTarget?.auth.kind === 'internet') return RemoteClient.forInternet(activeTarget.baseUrl, activeTarget.auth.deviceId, activeTarget.auth.deviceToken);
+    if (activeTarget?.auth.kind === 'lan') return RemoteClient.forLan(activeTarget.baseUrl, activeTarget.auth.pairingCode);
+    return RemoteClient.forLan(normalizeLanUrl(baseUrl), pairingCode.trim());
+  }, [activeTarget, baseUrl, pairingCode, profiles.credentialGeneration]);
   const autoReconnect = options.autoReconnect !== false;
   const pollingIntervalMs = normalizePollingInterval(options.pollingIntervalMs);
-  const hasValidPairingCode = client.pairingCode.length >= MIN_PAIRING_CODE_DIGITS && client.pairingCode.length <= MAX_PAIRING_CODE_DIGITS;
+  const hasValidPairingCode = client.auth.kind === 'internet' || (client.pairingCode.length >= MIN_PAIRING_CODE_DIGITS && client.pairingCode.length <= MAX_PAIRING_CODE_DIGITS);
   const hasConnectionConfig = Boolean(client.baseUrl && hasValidPairingCode);
-  const connectionKey = `${client.baseUrl}|${client.pairingCode}`;
+  const activeRoute: ConnectionRoute = activeTarget?.route || 'lan';
+  const connectionKey = `${activeRoute}|${client.baseUrl}|${activeTarget?.gatewayId || ''}|${activeTarget?.deviceId || ''}`;
   const connected = status === 'connected';
 
   useEffect(() => {
-    let alive = true;
-    SecureStore.getItemAsync(CONNECTION_SETTINGS_KEY)
-      .then((raw) => {
-        if (!alive || !raw) {
-          return;
-        }
-        const payload = JSON.parse(raw) as { baseUrl?: string; pairingCode?: string };
-        const savedBaseUrl = typeof payload.baseUrl === 'string' ? normalizeLanUrl(payload.baseUrl) : '';
-        const savedPairingCode = typeof payload.pairingCode === 'string' ? normalizePairingCode(payload.pairingCode) : '';
-        if (typeof payload.baseUrl === 'string' && payload.baseUrl.trim()) {
-          setBaseUrlValue(payload.baseUrl);
-        }
-        if (typeof payload.pairingCode === 'string') {
-          setPairingCode(savedPairingCode);
-        }
-        if (
-          savedBaseUrl
-          && savedPairingCode.length >= MIN_PAIRING_CODE_DIGITS
-          && savedPairingCode.length <= MAX_PAIRING_CODE_DIGITS
-        ) {
-          setStartupAutoConnectRequested(true);
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (alive) {
-          setSettingsLoaded(true);
-        }
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+    if (!profiles.loaded) return;
+    const savedLan = profiles.settings.lan;
+    if (savedLan.baseUrl) setBaseUrlValue(savedLan.baseUrl);
+    if (savedLan.pairingCode) setPairingCode(savedLan.pairingCode);
+    const candidates = connectionCandidates(profiles.settings);
+    if (candidates.length) { setActiveTarget((current) => current || candidates[0] || null); setStartupAutoConnectRequested(true); }
+  }, [profiles.loaded]);
 
   useEffect(() => {
     if (!settingsLoaded) {
       return;
     }
-    const payload = JSON.stringify({ baseUrl, pairingCode });
-    SecureStore.setItemAsync(CONNECTION_SETTINGS_KEY, payload).catch(() => undefined);
+    profiles.setLan({ baseUrl, pairingCode });
   }, [baseUrl, pairingCode, settingsLoaded]);
 
   const stopPolling = useCallback(() => {
@@ -190,12 +184,12 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
 
   const refreshActiveConnection = useCallback(async () => {
     if (!client.baseUrl) {
-      throw new Error('LAN URL and pairing code are required.');
+      throw new Error('A saved LAN or Internet connection is required.');
     }
     if (!hasValidPairingCode) {
       throw new Error(`Pairing code must be ${MIN_PAIRING_CODE_DIGITS}-${MAX_PAIRING_CODE_DIGITS} digits.`);
     }
-    const health = await client.health();
+    const health = await client.health(activeTarget?.gatewayId || '');
     setHealth(health);
     const readinessError = healthError(health);
     if (readinessError) {
@@ -205,12 +199,12 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     if (activeConnectionKeyRef.current !== connectionKey) {
       return false;
     }
-    setState(nextState);
+    setState((current) => mergeRemoteSnapshot(current, nextState));
     setStatus('connected');
     setTransport((current) => (current === 'websocket' ? current : 'polling'));
     setError('');
     return true;
-  }, [client, connectionKey, hasValidPairingCode]);
+  }, [activeTarget?.gatewayId, client, connectionKey, hasValidPairingCode]);
 
   const refresh = useCallback(async () => {
     try {
@@ -342,11 +336,20 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     }, WEBSOCKET_STALE_MS);
   }, [autoReconnect, clearSocketWatchdog, connectionKey, scheduleReconnect, startPolling]);
 
-  const openSocket = useCallback(() => {
+  const openSocket = useCallback(async () => {
     if (!hasConnectionConfig) {
       return;
     }
-    const socket = new WebSocket(client.websocketUrl());
+    let websocketUrl = '';
+    try {
+      websocketUrl = await client.websocketUrl();
+    } catch (exc) {
+      if (activeConnectionKeyRef.current !== connectionKey) return;
+      setError(exc instanceof Error ? exc.message : 'WebSocket authorization failed.');
+      setStatus('error'); setTransport('polling'); startPolling(); scheduleReconnect(); return;
+    }
+    if (activeConnectionKeyRef.current !== connectionKey) return;
+    const socket = new WebSocket(websocketUrl);
     socketRef.current = socket;
     socket.onopen = () => {
       if (activeConnectionKeyRef.current !== connectionKey || socketRef.current !== socket) {
@@ -394,7 +397,7 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
               return;
             }
             if (isRecord(payload.state)) {
-              setState(payload.state as RemoteState);
+              setState((current) => mergeRemoteSnapshot(current, payload.state as RemoteState));
               setStatus('connected');
               setError('');
               return;
@@ -404,7 +407,7 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
             return;
           }
           if (isRecord(payload)) {
-            setState(payload as RemoteState);
+            setState((current) => mergeRemoteSnapshot(current, payload as RemoteState));
             setStatus('connected');
             setError('');
           }
@@ -494,6 +497,9 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
   }, [clearReconnect, clearSocketWatchdog, rejectPendingSocketCommands, stopPolling]);
 
   const disconnect = useCallback(() => {
+    enrollmentAbortRef.current?.abort();
+    enrollmentAbortRef.current = null;
+    setEnrollmentStatus('');
     reconnectEnabledRef.current = false;
     clearReconnect();
     clearSocketWatchdog();
@@ -506,6 +512,11 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     setStatus('disconnected');
     setTransport('none');
     setError('');
+
+    if (client.auth.kind === 'internet') {
+      setStartupDiscoveryComplete(true);
+      return;
+    }
     setHealth(null);
     setState(null);
   }, [clearReconnect, clearSocketWatchdog, rejectPendingSocketCommands, stopPolling]);
@@ -517,7 +528,7 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     disconnect();
   }, [connectionKey, disconnect]);
 
-  const connect = useCallback(async () => {
+  const connectActive = useCallback(async () => {
     disconnect();
     reconnectEnabledRef.current = autoReconnect;
     reconnectAttemptsRef.current = 0;
@@ -550,6 +561,26 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
       }
     }
   }, [autoReconnect, connectionKey, disconnect, hasConnectionConfig, openSocket, refreshActiveConnection, scheduleReconnect, startPolling, stopActiveConnectionAfterAuthFailure]);
+
+  const connect = useCallback(async () => {
+    const candidates = connectionCandidates({ ...profiles.settings, lan: { baseUrl: normalizeLanUrl(baseUrl), pairingCode: normalizePairingCode(pairingCode) } });
+    if (!candidates.length) { setError('Save a valid LAN pairing or enroll this phone for Internet access first.'); setStatus('error'); return; }
+    setStatus('connecting'); setTransport('none'); setError('');
+    const selected = await connectCandidates(candidates, async (target) => {
+      const probeClient = target.auth.kind === 'lan' ? RemoteClient.forLan(target.baseUrl, target.auth.pairingCode) : RemoteClient.forInternet(target.baseUrl, target.auth.deviceId, target.auth.deviceToken);
+      try {
+        const result = await probeClient.health(target.gatewayId); const readinessError = healthError(result);
+        return readinessError ? { ok: false as const, reason: 'unreachable' as const, error: readinessError } : { ok: true as const };
+      } catch (exc) { return { ok: false as const, reason: probeFailureReason(exc), error: exc instanceof Error ? exc.message : String(exc) }; }
+    });
+    if (!selected.target) {
+      setError(selected.terminalReason ? `Connection stopped for safety: ${selected.terminalReason.replace(/_/g, ' ')}.` : 'No saved connection route could reach NeuralCompanion.');
+      setStatus('error'); setTransport('none'); return;
+    }
+    const nextKey = targetConnectionKey(selected.target);
+    if (nextKey === connectionKey) { await connectActive(); return; }
+    setActiveTarget(selected.target); setPendingPairingConnectionKey(nextKey);
+  }, [baseUrl, connectActive, connectionKey, pairingCode, profiles.settings]);
 
   useEffect(() => {
     if (
@@ -591,7 +622,7 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     return () => {
       alive = false;
     };
-  }, [client.baseUrl, client.pairingCode, hasConnectionConfig, settingsLoaded, startupAutoConnectRequested]);
+  }, [client.auth.kind, client.baseUrl, client.pairingCode, hasConnectionConfig, settingsLoaded, startupAutoConnectRequested]);
 
   useEffect(() => {
     if (
@@ -610,8 +641,8 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
       return;
     }
     setPendingPairingConnectionKey('');
-    void connect();
-  }, [connect, connectionKey, pendingPairingConnectionKey]);
+    void connectActive();
+  }, [connectActive, connectionKey, pendingPairingConnectionKey]);
 
   const sendText = useCallback(
     async (text: string, sendOptions: SendTextOptions = {}) => {
@@ -778,6 +809,50 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     setPairingCode(normalizePairingCode(value));
   }, []);
 
+  const enrollInternetAndConnect = useCallback(async (setup: InternetPairingSetup, deviceName = 'NeuralCompanion phone') => {
+    enrollmentAbortRef.current?.abort();
+    const controller = new AbortController(); enrollmentAbortRef.current = controller;
+    setEnrollmentStatus('Requesting approval from desktop...'); setStatus('connecting'); setError('');
+    const deviceId = `phone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const origins = [setup.hostnameUrl, setup.ipUrl].filter((value, index, values) => value && values.indexOf(value) === index);
+    let selectedOrigin = '';
+    const readJson = async (response: Response) => {
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok || payload.ok === false) throw new Error(String(payload.error || `Enrollment failed with HTTP ${response.status}.`));
+      return payload;
+    };
+    try {
+      let lastError: unknown = null;
+      for (const origin of origins) {
+        try {
+          const response = await fetch(`${origin}/internet/enroll/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enrollment_id: setup.enrollmentId, secret: setup.secret, device_id: deviceId, device_name: String(deviceName || 'NeuralCompanion phone').trim().slice(0, 128) }), signal: controller.signal });
+          await readJson(response); selectedOrigin = origin; break;
+        } catch (exc) { if (controller.signal.aborted) throw exc; lastError = exc; }
+      }
+      if (!selectedOrigin) throw lastError || new Error('Internet enrollment endpoint is unreachable.');
+      setEnrollmentStatus('Waiting for approval on desktop');
+      const deadline = Date.now() + 10 * 60 * 1000;
+      while (Date.now() < deadline && !controller.signal.aborted) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (controller.signal.aborted) break;
+        const query = new URLSearchParams({ enrollment_id: setup.enrollmentId, secret: setup.secret });
+        const payload = await readJson(await fetch(`${selectedOrigin}/internet/enroll/status?${query.toString()}`, { signal: controller.signal }));
+        if (String(payload.status || '') !== 'complete') continue;
+        const deviceToken = String(payload.device_token || ''); const returnedGatewayId = String(payload.gateway_id || '');
+        if (deviceToken.length < 43 || returnedGatewayId !== setup.gatewayId) throw new Error('Desktop approval returned invalid or mismatched credentials.');
+        const internet = { hostnameUrl: setup.hostnameUrl, ipUrl: setup.ipUrl, deviceId, gatewayId: setup.gatewayId, deviceToken };
+        profiles.setInternet(internet); profiles.setMode('internet');
+        const target: ConnectionTarget = { route: selectedOrigin === setup.hostnameUrl ? 'internet_hostname' : 'internet_ip', baseUrl: selectedOrigin, deviceId, gatewayId: setup.gatewayId, auth: { kind: 'internet', deviceId, deviceToken } };
+        setActiveTarget(target); setPendingPairingConnectionKey(targetConnectionKey(target)); setEnrollmentStatus('Approved. Connecting securely...'); return true;
+      }
+      if (controller.signal.aborted) { setEnrollmentStatus('Enrollment cancelled.'); return false; }
+      throw new Error('Desktop approval timed out. Create a new enrollment QR and try again.');
+    } catch (exc) {
+      if (!controller.signal.aborted) { setError(exc instanceof Error ? exc.message : 'Internet enrollment failed.'); setStatus('error'); setEnrollmentStatus('Enrollment failed.'); }
+      return false;
+    } finally { if (enrollmentAbortRef.current === controller) enrollmentAbortRef.current = null; }
+  }, [profiles.setInternet, profiles.setMode]);
+
   const pairAndConnect = useCallback((nextBaseUrl: string, nextPairingCode: string) => {
     const normalizedBaseUrl = normalizeLanUrl(nextBaseUrl);
     const normalizedPairingCode = normalizePairingCode(nextPairingCode);
@@ -792,13 +867,20 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     }
     setBaseUrlValue(normalizedBaseUrl);
     setPairingCode(normalizedPairingCode);
-    setPendingPairingConnectionKey(`${normalizedBaseUrl}|${normalizedPairingCode}`);
+    profiles.setMode('lan');
+    const target: ConnectionTarget = { route: 'lan', baseUrl: normalizedBaseUrl, gatewayId: '', deviceId: '', auth: { kind: 'lan', pairingCode: normalizedPairingCode } };
+    setActiveTarget(target);
+    setPendingPairingConnectionKey(targetConnectionKey(target));
     return true;
-  }, []);
+  }, [profiles.setMode]);
 
   return {
     baseUrl,
     pairingCode,
+    connectionMode: profiles.settings.mode,
+    internetProfile: profiles.settings.internet,
+    activeRoute,
+    enrollmentStatus,
     status,
     transport,
     error,
@@ -811,6 +893,9 @@ export function useRemoteConnection(options: RemoteConnectionOptions = {}) {
     setBaseUrl,
     setPairingCode: setPairingCodeValue,
     pairAndConnect,
+    enrollInternetAndConnect,
+    setConnectionMode: profiles.setMode,
+    forgetInternet: profiles.forgetInternet,
     connect,
     disconnect,
     refresh,

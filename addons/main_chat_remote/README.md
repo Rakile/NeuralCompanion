@@ -12,8 +12,10 @@ Main Chat Remote is a separate addon/service for phone access to the real Neural
   - `qt.engine_lifecycle` for start/stop snapshots
   - `qt.chat_replay` for the current chat feed
 - `media_bridge.py` copies generated TTS audio chunks from the existing `tts.audio_chunk_ready` capability into `runtime/main_chat_remote/audio/`, including desktop- or microphone-originated main-chat replies. Current NC engine chunks are `.wav`; the cache preserves common playable audio suffixes if another backend emits them later.
-- `remote_backend.py` is a separate LAN-facing backend process. Run it from the planned `nc_phone_remote` venv and point it at the addon bridge info file.
+- `remote_backend.py` is the unchanged LAN-facing backend process. Run it from the planned `nc_phone_remote` venv and point it at the addon bridge info file.
 - `backend_process.py` supervises a backend process launched from the addon tab without moving backend logic into the NC UI process.
+- `internet_gateway.py` is an optional TLS-only public proxy. It authenticates enrolled device Bearer tokens, injects the private LAN code only into a fixed loopback request, and issues one-use WebSocket tickets plus short-lived path-scoped media URLs.
+- `certificate_manager.py` installs a checksum-pinned lego helper and manages separate staging/production certificate lifecycles without blocking Qt.
 
 The existing engine TTS chunk notification fans out `tts.audio_chunk_ready` to all initialized addons so Main Chat Remote can capture phone playback chunks without depending on Multi Persona Roleplay addon order or ownership. The media cache is bounded and addon-local; local audio file paths are not exposed to the phone API.
 
@@ -66,11 +68,16 @@ Endpoints:
 
 - `GET /api/state`: runtime status, chat feed, control actions, TTS media, Visual Reply state, MuseTalk state, and feature flags.
 - `POST /api/send`: body `{"text": "hello"}` queues text into the existing main chat runtime.
-- `POST /api/control`: body `{"action": "pause_speech"}` triggers an existing runtime control action.
+- `POST /api/control`: body `{"action": "pause_speech"}` triggers an existing runtime control action. `interrupt_response` is reserved for phone Live Mic barge-in: it cancels active TTS/LLM output and clears captured phone audio for the interrupted response.
 - `POST /api/engine/start`: starts the NC runtime through the existing lifecycle service.
 - `POST /api/engine/stop`: stops the NC runtime through the existing lifecycle service.
 - `GET /api/audio`: lists captured generated TTS chunks.
 - `GET /api/audio/file/<id>`: returns a captured TTS audio chunk with the cached file's content type.
+- `GET /api/audio/spectrum/<id>`: returns an optional versioned 24 FPS / 48-band
+  `uint8-base64` spectrum timeline for a captured chunk. Audio list items expose
+  `spectrum_status`, `spectrum_version`, and `spectrum_url_path` when analysis is
+  ready. Analysis is bounded, asynchronous, and never delays publication or
+  playback of the original TTS audio.
 - `POST /api/stt`: body `{"audio_base64": "...", "format": "wav", "send_to_chat": true}` transcribes phone audio with the selected NC STT backend and optionally queues the transcript into main chat. Uploaded phone clips are stored under `runtime/main_chat_remote/stt_uploads/` with bounded addon-local retention.
 - `POST /api/image`: body `{"image_base64": "...", "format": "jpg", "prompt": "Describe this"}` stores a phone photo and queues it through the existing NC image-turn pipeline. PNG, JPEG, and WebP are accepted.
 - `GET /api/image/file/<id>`: returns an authenticated phone image used in the projected chat feed.
@@ -118,6 +125,12 @@ Client messages:
 {"type": "engine_stop", "request_id": "phone_5"}
 ```
 
+## Secure Internet Remote
+
+The **Internet** sub-tab adds an optional saved public gateway without changing LAN pairing. It supports a Dynamic DNS hostname and a certified numeric public-IP fallback, explicit desktop approval for each phone, revocation, certificate renewal, and redacted diagnostics. Public HTTP is rejected and LAN port `8777` must never be forwarded.
+
+See `docs/addons/main_chat_remote_internet_setup.md` for router, certificate, enrollment, cellular testing, and recovery instructions.
+
 ## Current Limits
 
 - Text send, chat feed, runtime status, runtime controls, LAN pairing, WebSocket state, HTTP TTS chunk access, JSON/base64 phone STT upload, Visual Reply snapshot/request controls, MuseTalk frame polling, and an MJPEG-style MuseTalk frame stream are scaffolded.
@@ -125,7 +138,7 @@ Client messages:
 - The phone debug upload records timing boundaries for text acknowledgement, STT completion, audio snapshot receipt, player preparation, and playback without including message/transcript content or credentials.
 - MuseTalk phone display prefers the frame stream and falls back to frame polling/feed access. It is still not WebRTC-grade smooth video.
 - The Expo app scaffold lives in `apps/main-chat-remote-phone/` and targets Expo SDK 54 / Expo Go client 54.0.8.
-- Internet access remains out of scope until a relay/tunnel/auth layer is deliberately added.
+- Internet Remote requires working inbound port forwarding, a valid public certificate, and a non-CGNAT connection. It is direct self-hosting, not a hosted relay.
 
 ## Validation
 

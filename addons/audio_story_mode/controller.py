@@ -13,7 +13,7 @@ import traceback
 import uuid
 import copy
 import queue
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -22,11 +22,21 @@ from types import MappingProxyType
 
 from addons.audio_story_mode import runtime_bridge as audio_story_runtime
 from addons.audio_story_mode import (
+    analysis_batches,
+    chapter_working_set,
+    chatlog_source,
     checkpointing,
     instructor_adapter,
+    markdown_source,
+    novel_models,
+    novel_pipeline,
+    novel_widgets,
+    planner_guidance,
     project_autosave,
     project_models,
+    project_restore,
     project_store,
+    settings_workload,
     story_projects,
     structured_models,
 )
@@ -165,7 +175,8 @@ _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS = {
 }
 
 _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT = 1800
-_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS = 120.0
+_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS = 180.0
+_AUDIO_STORY_LLM_USER_PROMPT_CHARACTER_LIMIT = 24_000
 _AUDIO_STORY_LLM_ANALYSIS_MAX_CHUNKS = 24
 _AUDIO_STORY_XAI_IMAGE_ASPECT_RATIOS = (
     "1:1",
@@ -761,9 +772,15 @@ class AudioStoryModeController(QtCore.QObject):
     imageFailed = QtCore.Signal(object)
     chromecastJobFinished = QtCore.Signal(object)
     storyProjectJobFinished = QtCore.Signal(object)
+    storyChapterLoadFinished = QtCore.Signal(object)
     storyProjectAutosaveSaved = QtCore.Signal(object)
     storyProjectAutosaveFailed = QtCore.Signal(object)
     storyProjectPipelineReleased = QtCore.Signal()
+    storyModelCatalogFinished = QtCore.Signal(object)
+    storySettingsApplyProgress = QtCore.Signal(object)
+    storySettingsApplyFinished = QtCore.Signal(object)
+    novelJobProgress = QtCore.Signal(object)
+    novelJobFinished = QtCore.Signal(object)
 
     def __init__(self, context=None):
         super().__init__()
@@ -854,8 +871,25 @@ class AudioStoryModeController(QtCore.QObject):
         self._stored_instructor_beats_enabled = False
         self._stored_story_analysis_provider_mode = "current"
         self._stored_story_analysis_model = ""
+        self._story_model_catalog_request_id = 0
+        self._story_model_catalog_cache: dict[str, tuple[str, ...]] = {}
+        self._story_model_catalog_inflight: set[str] = set()
+        self._story_model_catalog_inflight_request_ids: dict[str, int] = {}
+        self._story_model_catalog_shutdown = False
         self._stored_prompt_block_limits = dict(_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS)
         self._stored_prompt_safety_cap = _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT
+        self._applied_planner_settings = self._planner_draft_snapshot()
+        self._applied_style_settings = self._style_draft_snapshot()
+        self._unknown_applied_planner_baseline = None
+        self._unknown_applied_style_baseline = None
+        self._planner_apply_state = "Saved"
+        self._style_apply_state = "Saved"
+        self._story_settings_apply_generation = 0
+        self._story_settings_apply_request: (
+            settings_workload.SettingsApplyRequest | None
+        ) = None
+        self._story_settings_apply_cancel_token: threading.Event | None = None
+        self._story_settings_apply_pipeline_owner: str | None = None
         self._stored_visual_stream_enabled = False
         self._stored_visual_stream_port = 8765
         self._stored_chromecast_device_name = ""
@@ -866,6 +900,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._story_master_prompt_previous_runtime_value = None
         self._tts_render_in_progress = False
         self._pending_play_request = None
+        self._pending_story_chapter_resume = None
         self._tts_bundle = None
         self._tts_signature = ""
         self._refine_bridge = _AudioStoryRefineBridge()
@@ -897,6 +932,8 @@ class AudioStoryModeController(QtCore.QObject):
             "global_negative_prompt": "",
             "global_negative_prompt_enabled": False,
         }
+        self._scene_overrides_version = 0
+        self._story_analysis_state_version = 0
         self.continuity_memory = {
             "last_scene_id": "",
             "last_scene_index": -1,
@@ -914,6 +951,21 @@ class AudioStoryModeController(QtCore.QObject):
         self._story_project_manager_lock = threading.RLock()
         self.current_story_project_id = ""
         self._current_story_project = None
+        self._current_story_project_audio_signature = ""
+        self._current_story_project_open_summary = None
+        self._current_story_chapter_id = ""
+        self._story_chapter_working_set = (
+            chapter_working_set.ChapterWorkingSet(capacity=2)
+        )
+        self._story_chapter_load_generation = 0
+        self._story_chapter_load_inflight: set[
+            chapter_working_set.ChapterCacheKey
+        ] = set()
+        self._story_chapter_load_pending_installs: dict[
+            chapter_working_set.ChapterCacheKey, int
+        ] = {}
+        self._story_chapter_load_threads: set[threading.Thread] = set()
+        self._story_chapter_lazy_loading_active = False
         self._story_projects = []
         self._story_project_generation = 0
         self._story_project_input_fingerprint = ""
@@ -929,6 +981,13 @@ class AudioStoryModeController(QtCore.QObject):
         self._story_project_shutdown = False
         self._story_project_shutdown_save_failure = ""
         self._story_project_shutdown_final_ownership = None
+        self._story_project_status_generation = 0
+        self._story_project_status_color_index = 0
+        self._novel_job_generation = 0
+        self._novel_job_active = False
+        self._novel_job_owner: dict | None = None
+        self._novel_cancel_event: threading.Event | None = None
+        self._novel_narration_cache: dict[str, tuple[dict, ...]] = {}
         self.legacy_story_available_for_migration = False
         self._legacy_story_session_payload = {}
         storage = getattr(self.context, "storage", None)
@@ -946,18 +1005,33 @@ class AudioStoryModeController(QtCore.QObject):
             self._story_project_store,
             audio_story_runtime.audio_duration_seconds,
         )
+        self._novel_pipeline = novel_pipeline.NovelPipeline(
+            self._story_project_store,
+            llm_client=self,
+        )
         self._cache_root = self.context.storage.resolve("cache") if self.context is not None else (Path("runtime") / "audio_story_mode")
         self._cache_root.mkdir(parents=True, exist_ok=True)
         self._preset_root = self.context.storage.resolve("presets") if self.context is not None else (Path("runtime") / "audio_story_mode" / "presets")
         self._preset_root.mkdir(parents=True, exist_ok=True)
-        self._visual_refresh_timer = QtCore.QTimer(self)
-        self._visual_refresh_timer.setSingleShot(True)
-        self._visual_refresh_timer.setInterval(220)
-        self._visual_refresh_timer.timeout.connect(self._flush_scheduled_visual_refresh)
         self._story_rebuild_timer = QtCore.QTimer(self)
         self._story_rebuild_timer.setSingleShot(True)
         self._story_rebuild_timer.setInterval(420)
         self._story_rebuild_timer.timeout.connect(self._flush_scheduled_story_payload_rebuild)
+        self._story_project_status_timer = QtCore.QTimer(self)
+        self._story_project_status_timer.setInterval(420)
+        self._story_project_status_timer.timeout.connect(
+            self._advance_story_project_status_color
+        )
+        self._transcript_display_timer = QtCore.QTimer(self)
+        self._transcript_display_timer.setSingleShot(True)
+        self._transcript_display_timer.setInterval(0)
+        self._transcript_display_timer.timeout.connect(
+            self._flush_transcript_display_batch
+        )
+        self._transcript_display_generation = 0
+        self._transcript_display_batch_generation = -1
+        self._transcript_display_paragraphs = deque()
+        self._transcript_display_has_content = False
         self._pending_story_rebuild_status_text = ""
         self._theme_refresh_timer = QtCore.QTimer(self)
         self._theme_refresh_timer.setSingleShot(True)
@@ -999,12 +1073,33 @@ class AudioStoryModeController(QtCore.QObject):
         self.ttsCacheScanFinished.connect(
             self._on_tts_cache_scan_finished, queued_connection
         )
+        self.storyModelCatalogFinished.connect(
+            self._on_story_analysis_model_catalog_finished,
+            queued_connection,
+        )
+        self.storySettingsApplyProgress.connect(
+            self._on_story_settings_apply_progress,
+            queued_connection,
+        )
+        self.storySettingsApplyFinished.connect(
+            self._on_story_settings_apply_finished,
+            queued_connection,
+        )
         self.imageReady.connect(self._on_image_ready)
         self.imageFailed.connect(self._on_image_failed)
         self.chromecastJobFinished.connect(self._on_chromecast_job_finished)
         self.storyProjectJobFinished.connect(self._on_story_project_job_finished)
+        self.storyChapterLoadFinished.connect(
+            self._on_story_chapter_load_finished
+        )
         self.storyProjectAutosaveSaved.connect(self._on_story_project_autosave_saved)
         self.storyProjectAutosaveFailed.connect(self._on_story_project_autosave_failed)
+        self.novelJobProgress.connect(
+            self._apply_novel_job_progress, queued_connection
+        )
+        self.novelJobFinished.connect(
+            self._apply_novel_job_result, queued_connection
+        )
 
     def _visual_reply_capability(self, capability: str, payload=None, default=None):
         bridge = getattr(self, "capability_bridge", None)
@@ -1366,11 +1461,16 @@ class AudioStoryModeController(QtCore.QObject):
                 if str(widget.styleSheet() or "") != str(stylesheet or ""):
                     widget.setStyleSheet(str(stylesheet or ""))
             except RuntimeError:
-                raise
+                return
             except Exception:
                 return
 
-        colors = self._audio_story_theme_colors(palette_data)
+        try:
+            colors = self._audio_story_theme_colors(palette_data)
+        except RuntimeError:
+            if root is getattr(self, "audio_story_tab_widget", None):
+                self.audio_story_tab_widget = None
+            return
         text = colors["text"]
         muted = colors["muted"]
         subtle = colors["subtle"]
@@ -1889,7 +1989,7 @@ class AudioStoryModeController(QtCore.QObject):
             )
         if self.audio_story_project_chapter_list is not None:
             self.audio_story_project_chapter_list.itemSelectionChanged.connect(
-                self._refresh_story_project_ui
+                self._on_story_project_chapter_selection_changed
             )
 
     def _bind_designer_runtime_widget(self, root):
@@ -2118,6 +2218,15 @@ class AudioStoryModeController(QtCore.QObject):
         if self.audio_story_instructor_beats_checkbox is not None:
             self.audio_story_instructor_beats_checkbox.toggled.connect(self._on_instructor_beats_toggled)
         self._sync_instructor_controls()
+        self.audio_story_recommended_continuity_button = self._ui_child(
+            root,
+            "audio_story_recommended_continuity_button",
+            QtWidgets.QPushButton,
+        )
+        if self.audio_story_recommended_continuity_button is not None:
+            self.audio_story_recommended_continuity_button.clicked.connect(
+                self._stage_recommended_continuity_settings
+            )
         self.audio_story_analysis_mode_combo = self._ui_child(root, "audio_story_analysis_mode_combo", QtWidgets.QComboBox)
         if self.audio_story_analysis_mode_combo is not None:
             self.audio_story_analysis_mode_combo.addItem("Scene Only", "scene_only")
@@ -2170,6 +2279,38 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_prompt_safety_cap_spin.setValue(int(self._stored_prompt_safety_cap or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT))
             self.audio_story_prompt_safety_cap_spin.setSuffix(" chars")
             self.audio_story_prompt_safety_cap_spin.valueChanged.connect(self._on_prompt_safety_cap_changed)
+        self.audio_story_style_apply_button = self._ui_child(root, "audio_story_style_apply_button", QtWidgets.QPushButton)
+        self.audio_story_style_cancel_button = self._ui_child(root, "audio_story_style_cancel_button", QtWidgets.QPushButton)
+        self.audio_story_style_apply_status_label = self._ui_child(root, "audio_story_style_apply_status_label", QtWidgets.QLabel)
+        self.audio_story_planner_apply_button = self._ui_child(root, "audio_story_planner_apply_button", QtWidgets.QPushButton)
+        self.audio_story_planner_cancel_button = self._ui_child(root, "audio_story_planner_cancel_button", QtWidgets.QPushButton)
+        self.audio_story_planner_apply_status_label = self._ui_child(root, "audio_story_planner_apply_status_label", QtWidgets.QLabel)
+        for apply_button in (
+            self.audio_story_style_apply_button,
+            self.audio_story_style_cancel_button,
+            self.audio_story_planner_apply_button,
+            self.audio_story_planner_cancel_button,
+        ):
+            if apply_button is not None:
+                apply_button.setStyleSheet(compact_button_style)
+        if self.audio_story_planner_apply_button is not None:
+            self.audio_story_planner_apply_button.clicked.connect(
+                self._start_planner_settings_apply
+            )
+        if self.audio_story_style_apply_button is not None:
+            self.audio_story_style_apply_button.clicked.connect(
+                self._start_style_settings_apply
+            )
+        for cancel_button in (
+            self.audio_story_planner_cancel_button,
+            self.audio_story_style_cancel_button,
+        ):
+            if cancel_button is not None:
+                cancel_button.clicked.connect(
+                    self._cancel_story_settings_apply
+                )
+        self._sync_style_apply_state()
+        self._sync_planner_apply_state()
         self.audio_story_generate_ahead_slider = self._ui_child(root, "audio_story_generate_ahead_slider", QtWidgets.QSlider)
         if self.audio_story_generate_ahead_slider is not None:
             self.audio_story_generate_ahead_slider.setRange(0, 12)
@@ -2443,6 +2584,8 @@ class AudioStoryModeController(QtCore.QObject):
         project_layout.addStretch(1)
         audio_layout.addWidget(source_frame)
         audio_layout.addStretch(1)
+        self.audio_story_novel_panel = novel_widgets.NovelWorkshopPanel()
+        self._bind_novel_workshop_panel()
         story_layout.addWidget(timing_group)
         story_layout.addWidget(analysis_group)
         master_prompt_group = QtWidgets.QGroupBox("Story Master Prompt")
@@ -2478,16 +2621,1200 @@ class AudioStoryModeController(QtCore.QObject):
             "#f59e0b",
         )
         navigation.add_page("audio", audio_page, "Audio", "Import, order, and transcribe story audio files.", "#38bdf8")
+        navigation.add_page(
+            "novel",
+            self.audio_story_novel_panel,
+            "Novel",
+            "Turn chatlogs into reviewed chapters and narrate Markdown documents.",
+            "#f97316",
+        )
         navigation.add_page("story", story_page, "Story", "Plan story scenes and structured visual beats.", "#a78bfa")
         navigation.add_page("images", images_page, "Images", "Configure image styles, continuity, and provider options.", "#fb7185")
         navigation.add_page("review", review_page, "Review", "Review transcript scenes and apply visual overrides.", "#facc15")
         navigation.add_page("play", play_page, "Play / Cast", "Play the continuous story or cast it to another display.", "#22c55e")
-        navigation.select_key("audio" if self.current_story_project_id else "project")
+        source_kind = novel_models.normalize_source_kind(
+            dict(self._current_story_project or {}).get("source_kind")
+        )
+        if not self.current_story_project_id:
+            initial_key = "project"
+        elif source_kind == novel_models.SOURCE_KIND_AUDIO:
+            initial_key = "audio"
+        else:
+            initial_key = "novel"
+        navigation.select_key(initial_key)
         header_index = content_layout.indexOf(project_header) if project_header is not None else -1
         insert_index = header_index + 1 if header_index >= 0 else (1 if content_layout.count() else 0)
         content_layout.insertWidget(insert_index, navigation)
         self.audio_story_inner_tabs = navigation
         return navigation
+
+    def _bind_novel_workshop_panel(self) -> None:
+        panel = getattr(self, "audio_story_novel_panel", None)
+        if panel is None or bool(panel.property("_nc_novel_bound")):
+            return
+        panel.setProperty("_nc_novel_bound", True)
+        panel.newProjectRequested.connect(self._create_novel_project)
+        panel.chooseSourceRequested.connect(self._choose_novel_source)
+        panel.inspectRequested.connect(self._inspect_novel_source)
+        panel.importRequested.connect(self._import_novel_source)
+        panel.storyMapRequested.connect(self._build_novel_story_map)
+        panel.outlineRequested.connect(self._build_novel_outline)
+        panel.outlineSaveRequested.connect(self._save_novel_outline)
+        panel.generateRequested.connect(self._approve_and_generate_novel)
+        panel.retrySceneRequested.connect(self._retry_novel_scene)
+        panel.assembleRequested.connect(self._assemble_novel)
+        panel.cancelRequested.connect(self._cancel_novel_job)
+        panel.narrateRequested.connect(self._install_novel_narration_chapter)
+        panel.storyHandoffRequested.connect(self._handoff_novel_chapter_to_story)
+        self._set_novel_panel_project(self._current_story_project)
+
+    @staticmethod
+    def _is_novel_source_kind(source_kind: str) -> bool:
+        return novel_models.normalize_source_kind(source_kind) in {
+            novel_models.SOURCE_KIND_CHATLOG_JSON,
+            novel_models.SOURCE_KIND_MARKDOWN,
+        }
+
+    def _set_novel_panel_project(self, project: Mapping | None) -> None:
+        panel = getattr(self, "audio_story_novel_panel", None)
+        if panel is None:
+            return
+        source = dict(project or {}) if isinstance(project, Mapping) else {}
+        source_kind = novel_models.normalize_source_kind(source.get("source_kind"))
+        incoming_project_id = str(source.get("project_id") or "")
+        if panel.current_project_id != incoming_project_id:
+            self._novel_narration_cache.clear()
+        if not source or not self._is_novel_source_kind(source_kind):
+            panel.set_project("", "", "")
+            panel.set_preview(None)
+            panel.set_story_map(None)
+            return
+        panel.set_project(
+            str(source.get("project_id") or ""),
+            str(source.get("name") or "Untitled Project"),
+            source_kind,
+        )
+        if source_kind == novel_models.SOURCE_KIND_MARKDOWN:
+            chapters = dict(source.get("chapters") or {})
+            panel.set_outline(
+                {
+                    "title": str(source.get("name") or "Markdown Document"),
+                    "chapters": [
+                        {
+                            "chapter_id": str(chapter_id),
+                            "title": str(
+                                dict(chapters.get(chapter_id) or {}).get(
+                                    "display_name"
+                                )
+                                or "Untitled Chapter"
+                            ),
+                            "summary": "Imported Markdown chapter",
+                            "enabled": True,
+                            "scenes": [],
+                        }
+                        for chapter_id in source.get("chapter_order") or ()
+                        if str(chapter_id) in chapters
+                    ],
+                }
+            )
+
+    def _create_novel_project(self) -> None:
+        if self._story_project_busy or self._novel_job_active:
+            return
+        dialog = novel_widgets.NovelProjectDialog(
+            getattr(self, "audio_story_tab_widget", None)
+        )
+        if dialog.exec() != QtWidgets.QDialog.Accepted:
+            return
+        name, source_kind = dialog.selection()
+        if not name or not self._is_novel_source_kind(source_kind):
+            return
+        self._launch_story_project_job(
+            "create",
+            lambda: {
+                "project": self._story_project_manager.create(
+                    name, source_kind=source_kind
+                ),
+                "recovery_changed": False,
+            },
+            project_id="__new_project__",
+            switch_project=True,
+            busy_text="Creating Novel Workshop project...",
+            success_text="Novel Workshop project created",
+        )
+
+    def _current_novel_source_revision(self) -> int:
+        source = dict(self._current_story_project or {})
+        reference = dict(source.get("source_reference") or {})
+        try:
+            return max(0, int(reference.get("import_revision", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _current_novel_project(self) -> dict | None:
+        project = dict(self._current_story_project or {})
+        if (
+            str(project.get("project_id") or "") != self.current_story_project_id
+            or not self._is_novel_source_kind(project.get("source_kind"))
+        ):
+            return None
+        return project
+
+    def _choose_novel_source(self, source_kind: str) -> None:
+        project = self._current_novel_project()
+        if project is None:
+            self._show_warning(
+                "Novel Workshop",
+                "Create or open a Novel Workshop project first.",
+            )
+            return
+        normalized_kind = novel_models.normalize_source_kind(source_kind)
+        project_kind = novel_models.normalize_source_kind(project.get("source_kind"))
+        if normalized_kind != project_kind:
+            expected = (
+                "Chatlog JSON"
+                if project_kind == novel_models.SOURCE_KIND_CHATLOG_JSON
+                else "Markdown"
+            )
+            self._show_warning(
+                "Novel Workshop",
+                f"This project expects {expected}. Create a separate project for "
+                "the other source type.",
+            )
+            return
+        if normalized_kind == novel_models.SOURCE_KIND_CHATLOG_JSON:
+            title = "Choose Chatlog JSON"
+            file_filter = "Chatlogs (*.json *.jsonl *.ndjson);;All files (*)"
+        else:
+            title = "Choose Markdown Document"
+            file_filter = "Markdown (*.md *.markdown);;All files (*)"
+        path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            getattr(self, "audio_story_tab_widget", None),
+            title,
+            "",
+            file_filter,
+        )
+        if path:
+            self._inspect_novel_source(path, None)
+
+    def _inspect_novel_source(self, path: str, field_map=None) -> None:
+        project = self._current_novel_project()
+        if project is None or not str(path or "").strip():
+            return
+        source_kind = novel_models.normalize_source_kind(project.get("source_kind"))
+        normalized_map = (
+            field_map
+            if isinstance(field_map, novel_models.ChatlogFieldMap)
+            else None
+        )
+
+        def work(progress, cancel_check):
+            progress(5, "Inspecting source structure")
+            if source_kind == novel_models.SOURCE_KIND_CHATLOG_JSON:
+                preview = chatlog_source.ChatlogSourceAdapter().inspect(
+                    path,
+                    normalized_map,
+                    cancel_check=cancel_check,
+                )
+            else:
+                preview = markdown_source.MarkdownSourceAdapter().inspect(
+                    path,
+                    cancel_check=cancel_check,
+                )
+            progress(100, "Source inspection complete")
+            return {"preview": preview}
+
+        self._launch_novel_job(
+            "inspect",
+            work,
+            project_id=str(project.get("project_id") or ""),
+            source_revision=self._current_novel_source_revision(),
+            status_text="Inspecting source without loading it into memory...",
+        )
+
+    def _import_novel_source(self, preview) -> None:
+        project = self._current_novel_project()
+        if project is None or not isinstance(preview, novel_models.SourcePreview):
+            return
+        project_id = str(project.get("project_id") or "")
+        source_kind = novel_models.normalize_source_kind(project.get("source_kind"))
+        if preview.source_kind != source_kind or preview.ambiguities:
+            self._show_warning(
+                "Novel Workshop",
+                "Confirm a source and any required field mapping before importing.",
+            )
+            return
+
+        def work(progress, cancel_check):
+            if source_kind == novel_models.SOURCE_KIND_CHATLOG_JSON:
+                imported = self._novel_pipeline.import_chatlog(
+                    project_id,
+                    preview.source_path,
+                    preview,
+                    progress=progress,
+                    cancel_check=cancel_check,
+                )
+            else:
+                imported = self._novel_pipeline.import_markdown(
+                    project_id,
+                    preview.source_path,
+                    preview,
+                    progress=progress,
+                    cancel_check=cancel_check,
+                )
+            return {
+                "import_result": imported,
+                "project": self._story_project_store.load_project(project_id),
+                "state": self._novel_pipeline.restore_state(project_id),
+            }
+
+        self._launch_novel_job(
+            "import",
+            work,
+            project_id=project_id,
+            source_revision=self._current_novel_source_revision(),
+            status_text=(
+                "Importing and indexing chatlog chunks..."
+                if source_kind == novel_models.SOURCE_KIND_CHATLOG_JSON
+                else "Importing and indexing Markdown chapters..."
+            ),
+        )
+
+    def _restore_novel_workspace(self, project_id: str) -> None:
+        project = self._current_novel_project()
+        if (
+            project is None
+            or str(project.get("project_id") or "") != str(project_id or "")
+            or self._novel_job_active
+        ):
+            return
+
+        def optional_json(reference: str) -> dict:
+            try:
+                value = self._story_project_store.load_project_json_artifact(
+                    project_id, reference
+                )
+            except project_store.ProjectStoreError:
+                return {}
+            return dict(value) if isinstance(value, Mapping) else {}
+
+        def work(progress, cancel_check):
+            del cancel_check
+            progress(25, "Restoring saved Novel Workshop state")
+            result = {
+                "state": self._novel_pipeline.restore_state(project_id),
+                "story_map": optional_json("novel/story_map.json"),
+            }
+            if novel_models.normalize_source_kind(project.get("source_kind")) == novel_models.SOURCE_KIND_CHATLOG_JSON:
+                outline = optional_json("novel/novel_outline.json")
+                if not outline:
+                    outline = optional_json("novel/novel_outline.proposed.json")
+                result["outline"] = outline
+            progress(100, "Novel Workshop restored")
+            return result
+
+        self._launch_novel_job(
+            "restore",
+            work,
+            project_id=project_id,
+            source_revision=self._current_novel_source_revision(),
+            status_text="Restoring saved Novel Workshop state...",
+        )
+
+    def _novel_settings_snapshot(self) -> novel_models.FrozenNovelSettings:
+        panel = getattr(self, "audio_story_novel_panel", None)
+        if panel is None:
+            raise RuntimeError("Novel Workshop is unavailable.")
+        provider, model = self._active_story_analysis_chat_provider()
+        if not provider:
+            raise RuntimeError("Select an available LLM provider in Scene Planner.")
+        if not model:
+            raise RuntimeError("Select or load an LLM model before generating a novel.")
+        values = panel.settings_values()
+        return novel_models.FrozenNovelSettings(
+            provider_id=provider,
+            model=model,
+            adaptation_style=str(values.get("adaptation_style") or ""),
+            novel_instructions=str(values.get("novel_instructions") or ""),
+            prompt_additions=dict(values.get("prompt_additions") or {}),
+            source_revision=self._current_novel_source_revision(),
+        )
+
+    @staticmethod
+    def _novel_settings_signature(
+        settings: novel_models.FrozenNovelSettings | None,
+    ) -> str:
+        if settings is None:
+            return ""
+        encoded = json.dumps(
+            settings.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _novel_provider_is_local(provider_id: str) -> bool:
+        return str(provider_id or "").strip().lower() in {
+            "lmstudio",
+            "ollama",
+            "koboldcpp",
+            "llamacpp",
+            "text-generation-webui",
+            "textgen",
+            "vllm",
+        }
+
+    def _novel_remote_confirmation_exists(
+        self, project: Mapping, provider_id: str, source_revision: int
+    ) -> bool:
+        for item in list(project.get("novel_remote_provider_confirmations") or []):
+            if not isinstance(item, Mapping):
+                continue
+            try:
+                confirmed_revision = int(item.get("source_revision", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if (
+                str(item.get("provider_id") or "").strip().lower()
+                == str(provider_id or "").strip().lower()
+                and confirmed_revision == int(source_revision)
+            ):
+                return True
+        return False
+
+    def _confirm_novel_provider_use(
+        self, settings: novel_models.FrozenNovelSettings
+    ) -> tuple[str, int] | None | bool:
+        if self._novel_provider_is_local(settings.provider_id):
+            return None
+        project = self._current_novel_project()
+        if project is None:
+            return False
+        if self._novel_remote_confirmation_exists(
+            project, settings.provider_id, settings.source_revision
+        ):
+            return None
+        answer = QtWidgets.QMessageBox.question(
+            getattr(self, "audio_story_tab_widget", None),
+            "Send Novel Source to Remote Provider?",
+            "Novel generation will send bounded excerpts from this imported source "
+            f"to the remote provider '{settings.provider_id}'. No request is sent "
+            "until you approve. Continue?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            panel = getattr(self, "audio_story_novel_panel", None)
+            if panel is not None:
+                panel.set_status("Remote provider request cancelled.", state="saved")
+            return False
+        return settings.provider_id, settings.source_revision
+
+    def _persist_novel_remote_confirmation(
+        self, project_id: str, provider_id: str, source_revision: int
+    ) -> None:
+        project = self._story_project_store.load_project(project_id)
+        confirmations = [
+            dict(item)
+            for item in list(project.get("novel_remote_provider_confirmations") or [])
+            if isinstance(item, Mapping)
+        ]
+        if not self._novel_remote_confirmation_exists(
+            {"novel_remote_provider_confirmations": confirmations},
+            provider_id,
+            source_revision,
+        ):
+            confirmations.append(
+                {
+                    "provider_id": str(provider_id or "").strip().lower(),
+                    "source_revision": int(source_revision),
+                    "confirmed_at": time.time(),
+                }
+            )
+            project["novel_remote_provider_confirmations"] = confirmations
+            self._story_project_store.save_project(project)
+
+    def _settings_for_novel_stage(
+        self,
+    ) -> tuple[
+        novel_models.FrozenNovelSettings,
+        tuple[str, int] | None,
+    ] | None:
+        try:
+            settings = self._novel_settings_snapshot()
+        except Exception as exc:
+            self._show_warning("Novel Workshop", str(exc))
+            return None
+        confirmation = self._confirm_novel_provider_use(settings)
+        if confirmation is False:
+            return None
+        return settings, confirmation
+
+    def _build_novel_story_map(self) -> None:
+        project = self._current_novel_project()
+        selected = self._settings_for_novel_stage() if project is not None else None
+        if project is None or selected is None:
+            return
+        settings, confirmation = selected
+        project_id = str(project.get("project_id") or "")
+
+        def work(progress, cancel_check):
+            story_map = self._novel_pipeline.build_story_map(
+                project_id,
+                settings,
+                progress=progress,
+                cancel_check=cancel_check,
+            )
+            return {
+                "story_map": story_map,
+                "state": self._novel_pipeline.restore_state(project_id),
+            }
+
+        self._launch_novel_job(
+            "build_story_map",
+            work,
+            project_id=project_id,
+            source_revision=settings.source_revision,
+            status_text="Building source-supported story map...",
+            settings=settings,
+            remote_confirmation=confirmation,
+        )
+
+    def _build_novel_outline(self) -> None:
+        project = self._current_novel_project()
+        selected = self._settings_for_novel_stage() if project is not None else None
+        if project is None or selected is None:
+            return
+        settings, confirmation = selected
+        project_id = str(project.get("project_id") or "")
+
+        def work(progress, cancel_check):
+            outline = self._novel_pipeline.build_outline(
+                project_id,
+                settings,
+                progress=progress,
+                cancel_check=cancel_check,
+            )
+            return {
+                "outline": outline,
+                "state": self._novel_pipeline.restore_state(project_id),
+            }
+
+        self._launch_novel_job(
+            "build_outline",
+            work,
+            project_id=project_id,
+            source_revision=settings.source_revision,
+            status_text="Building an editable chapter and scene outline...",
+            settings=settings,
+            remote_confirmation=confirmation,
+        )
+
+    def _save_novel_outline(self, outline) -> None:
+        project = self._current_novel_project()
+        if project is None or not isinstance(outline, Mapping):
+            return
+        project_id = str(project.get("project_id") or "")
+
+        def work(progress, cancel_check):
+            del cancel_check
+            progress(20, "Saving outline revision")
+            saved = self._novel_pipeline.save_outline(project_id, outline)
+            progress(100, "Outline saved")
+            return {
+                "outline": saved,
+                "state": self._novel_pipeline.restore_state(project_id),
+            }
+
+        self._launch_novel_job(
+            "save_outline",
+            work,
+            project_id=project_id,
+            source_revision=self._current_novel_source_revision(),
+            status_text="Saving outline revision...",
+        )
+
+    def _approve_and_generate_novel(self, outline) -> None:
+        project = self._current_novel_project()
+        selected = self._settings_for_novel_stage() if project is not None else None
+        if project is None or selected is None or not isinstance(outline, Mapping):
+            return
+        settings, confirmation = selected
+        project_id = str(project.get("project_id") or "")
+
+        def work(progress, cancel_check):
+            progress(3, "Saving approved outline")
+            saved = self._novel_pipeline.save_outline(project_id, outline)
+            approved = self._novel_pipeline.approve_outline(
+                project_id, int(saved.get("revision", 0) or 0)
+            )
+            generated = self._novel_pipeline.generate(
+                project_id,
+                settings,
+                progress=progress,
+                cancel_check=cancel_check,
+            )
+            return {
+                "outline": approved,
+                "generation_result": generated,
+                "project": self._story_project_store.load_project(project_id),
+                "state": self._novel_pipeline.restore_state(project_id),
+            }
+
+        self._launch_novel_job(
+            "generate",
+            work,
+            project_id=project_id,
+            source_revision=settings.source_revision,
+            status_text="Generating scene plans and prose sequentially...",
+            settings=settings,
+            remote_confirmation=confirmation,
+        )
+
+    def _retry_novel_scene(self, scene_id: str) -> None:
+        project = self._current_novel_project()
+        selected = self._settings_for_novel_stage() if project is not None else None
+        normalized_scene_id = str(scene_id or "").strip()
+        if project is None or selected is None or not normalized_scene_id:
+            return
+        settings, confirmation = selected
+        project_id = str(project.get("project_id") or "")
+
+        def work(progress, cancel_check):
+            result = self._novel_pipeline.retry_scene(
+                project_id,
+                normalized_scene_id,
+                settings,
+                progress=progress,
+                cancel_check=cancel_check,
+            )
+            return {
+                "generation_result": result,
+                "state": self._novel_pipeline.restore_state(project_id),
+            }
+
+        self._launch_novel_job(
+            "retry_scene",
+            work,
+            project_id=project_id,
+            source_revision=settings.source_revision,
+            status_text=f"Retrying scene {normalized_scene_id}...",
+            settings=settings,
+            remote_confirmation=confirmation,
+        )
+
+    def _assemble_novel(self, allow_partial: bool) -> None:
+        project = self._current_novel_project()
+        if project is None:
+            return
+        project_id = str(project.get("project_id") or "")
+
+        def work(progress, cancel_check):
+            if cancel_check():
+                raise novel_pipeline.NovelPipelineCancelled("Assembly cancelled")
+            progress(15, "Assembling chapter artifacts")
+            result = self._novel_pipeline.assemble(
+                project_id, allow_partial=bool(allow_partial)
+            )
+            progress(100, "Novel assembly complete")
+            return {
+                "assembly_result": result,
+                "state": self._novel_pipeline.restore_state(project_id),
+            }
+
+        self._launch_novel_job(
+            "assemble",
+            work,
+            project_id=project_id,
+            source_revision=self._current_novel_source_revision(),
+            status_text=(
+                "Assembling partial novel preview..."
+                if allow_partial
+                else "Assembling completed novel..."
+            ),
+        )
+
+    def _launch_novel_job(
+        self,
+        operation: str,
+        work,
+        *,
+        project_id: str,
+        source_revision: int,
+        status_text: str,
+        settings: novel_models.FrozenNovelSettings | None = None,
+        remote_confirmation: tuple[str, int] | None = None,
+    ) -> None:
+        panel = getattr(self, "audio_story_novel_panel", None)
+        if (
+            panel is None
+            or self._novel_job_active
+            or self._story_project_busy
+            or str(project_id or "") != self.current_story_project_id
+        ):
+            return
+        self._novel_job_generation += 1
+        generation_id = int(self._novel_job_generation)
+        settings_signature = self._novel_settings_signature(settings)
+        cancel_event = threading.Event()
+        owner = {
+            "operation": str(operation),
+            "project_id": str(project_id),
+            "generation_id": generation_id,
+            "source_revision": int(source_revision),
+            "settings_signature": settings_signature,
+        }
+        self._novel_job_active = True
+        self._novel_job_owner = copy.deepcopy(owner)
+        self._novel_cancel_event = cancel_event
+        panel.set_busy(True, status_text, 0)
+
+        def progress(percent: int, message: str) -> None:
+            try:
+                self.novelJobProgress.emit(
+                    {
+                        **owner,
+                        "percent": max(0, min(100, int(percent))),
+                        "message": str(
+                            message
+                            or "Novel Workshop is processing the current stage."
+                        ),
+                    }
+                )
+            except RuntimeError:
+                pass
+
+        def worker():
+            payload = copy.deepcopy(owner)
+            try:
+                confirmed_project = None
+                if remote_confirmation is not None:
+                    self._persist_novel_remote_confirmation(
+                        project_id,
+                        remote_confirmation[0],
+                        remote_confirmation[1],
+                    )
+                    confirmed_project = self._story_project_store.load_project(
+                        project_id
+                    )
+                if cancel_event.is_set():
+                    raise novel_pipeline.NovelPipelineCancelled(
+                        "Novel Workshop job cancelled"
+                    )
+                result = work(progress, cancel_event.is_set)
+                if confirmed_project is not None and isinstance(result, Mapping):
+                    result = dict(result)
+                    result.setdefault("project", confirmed_project)
+                payload["result"] = result
+            except novel_pipeline.NovelPipelineCancelled as exc:
+                payload["cancelled"] = True
+                payload["error"] = str(exc or "Novel Workshop job cancelled")[:2000]
+            except Exception as exc:
+                payload["error"] = str(
+                    exc or "Novel Workshop operation failed."
+                )[:2000]
+            try:
+                self.novelJobFinished.emit(payload)
+            except RuntimeError:
+                pass
+
+        threading.Thread(
+            target=worker,
+            name=f"audio-story-novel-{operation}",
+            daemon=True,
+        ).start()
+
+    def _novel_job_payload_is_current(self, payload: Mapping) -> bool:
+        owner = self._novel_job_owner
+        if not self._novel_job_active or not isinstance(owner, Mapping):
+            return False
+        for key in (
+            "operation",
+            "project_id",
+            "generation_id",
+            "source_revision",
+            "settings_signature",
+        ):
+            if str(payload.get(key, "")) != str(owner.get(key, "")):
+                return False
+        return bool(
+            str(payload.get("project_id") or "")
+            == self.current_story_project_id
+            and int(payload.get("generation_id", -1) or -1)
+            == int(self._novel_job_generation)
+        )
+
+    @QtCore.Slot(object)
+    def _apply_novel_job_progress(self, payload) -> None:
+        data = dict(payload or {})
+        if not self._novel_job_payload_is_current(data):
+            return
+        panel = getattr(self, "audio_story_novel_panel", None)
+        if panel is not None:
+            panel.set_busy(
+                True,
+                str(data.get("message") or "Novel Workshop is working..."),
+                int(data.get("percent", 0) or 0),
+            )
+
+    @QtCore.Slot(object)
+    def _apply_novel_job_result(self, payload) -> None:
+        data = dict(payload or {})
+        if not self._novel_job_payload_is_current(data):
+            return
+        panel = getattr(self, "audio_story_novel_panel", None)
+        self._novel_job_active = False
+        self._novel_job_owner = None
+        self._novel_cancel_event = None
+        if panel is None:
+            return
+        error = str(data.get("error") or "").strip()
+        if error:
+            panel.set_busy(False, "", 0)
+            panel.set_status(
+                "Cancelled; completed checkpoints were kept."
+                if bool(data.get("cancelled"))
+                else f"Novel Workshop error: {error}",
+                state="saved" if bool(data.get("cancelled")) else "error",
+            )
+            return
+        result = data.get("result")
+        result = dict(result or {}) if isinstance(result, Mapping) else {}
+        project = result.get("project")
+        if isinstance(project, Mapping):
+            installed = copy.deepcopy(dict(project))
+            self._current_story_project = installed
+            self._replace_story_project_summary(installed)
+            self._set_novel_panel_project(installed)
+            self._refresh_story_project_ui()
+        preview = result.get("preview")
+        if isinstance(preview, novel_models.SourcePreview):
+            panel.set_preview(preview)
+        state = result.get("state")
+        if isinstance(state, novel_models.NovelProjectState):
+            current = self._current_novel_project() or {}
+            panel.set_project(
+                self.current_story_project_id,
+                str(current.get("name") or "Untitled Project"),
+                str(current.get("source_kind") or ""),
+                state,
+            )
+        if "story_map" in result:
+            panel.set_story_map(result.get("story_map"))
+        if "outline" in result:
+            panel.set_outline(result.get("outline"))
+        if "narration_chunks" in result:
+            self._apply_novel_narration_payload(
+                str(result.get("chapter_id") or ""),
+                result.get("narration_chunks") or (),
+                str(result.get("next_chapter_id") or ""),
+                result.get("next_narration_chunks") or (),
+            )
+        if isinstance(result.get("story_handoff"), Mapping):
+            self._apply_novel_story_handoff(result["story_handoff"])
+        panel.set_busy(False, "", 100)
+        operation = str(data.get("operation") or "")
+        status_messages = {
+            "inspect": "Source inspection ready for confirmation.",
+            "import": "Source import complete and checkpointed.",
+            "restore": "Saved Novel Workshop state restored.",
+            "build_story_map": "Story map complete and saved.",
+            "build_outline": "Draft outline ready for review.",
+            "save_outline": "Outline revision saved.",
+            "retry_scene": "Selected scene retry finished.",
+            "assemble": "Novel assembled and saved in the project.",
+            "narration": "Selected chapter is ready for TTS narration.",
+            "story_handoff": "Selected chapter is ready in Story / Images.",
+        }
+        if operation == "generate":
+            generated = result.get("generation_result")
+            failed = tuple(getattr(generated, "failed_scene_ids", ()) or ())
+            completed = tuple(getattr(generated, "completed_scene_ids", ()) or ())
+            message = f"Generated {len(completed)} scene(s)."
+            if failed:
+                message += f" {len(failed)} scene(s) need retry."
+                panel.set_status(message, state="error")
+            else:
+                panel.set_status(message, state="saved")
+        elif operation == "assemble":
+            assembled = result.get("assembly_result")
+            reference = str(getattr(assembled, "novel_ref", "") or "")
+            panel.set_status(
+                f"Novel assembled and saved as {reference}."
+                if reference
+                else "Novel assembled and saved in the project.",
+                state="saved",
+            )
+        else:
+            panel.set_status(
+                status_messages.get(operation, "Novel Workshop operation complete."),
+                state="saved",
+            )
+        self._refresh_controls()
+
+    def _cancel_novel_job(self) -> None:
+        event = self._novel_cancel_event
+        if not self._novel_job_active or event is None:
+            return
+        event.set()
+        panel = getattr(self, "audio_story_novel_panel", None)
+        if panel is not None:
+            panel.set_status(
+                "Cancelling after the current provider request...",
+                state="working",
+            )
+
+    def _invalidate_novel_job(self) -> None:
+        """Cancel obsolete work and release UI ownership after a project switch."""
+        self._novel_job_generation += 1
+        event = self._novel_cancel_event
+        if event is not None:
+            event.set()
+        self._novel_job_active = False
+        self._novel_job_owner = None
+        self._novel_cancel_event = None
+        panel = getattr(self, "audio_story_novel_panel", None)
+        if panel is not None:
+            panel.set_busy(False, "", 0)
+
+    def request_json(
+        self,
+        stage: str,
+        payload: Mapping,
+        settings: novel_models.FrozenNovelSettings,
+        cancel_check=None,
+    ):
+        raw = self._novel_complete_chat(
+            stage,
+            payload,
+            settings,
+            structured=True,
+            cancel_check=cancel_check,
+        )
+        try:
+            parsed = self._parse_llm_json_object(raw)
+        except Exception:
+            return raw
+        return parsed if isinstance(parsed, Mapping) else raw
+
+    def request_text(
+        self,
+        stage: str,
+        payload: Mapping,
+        settings: novel_models.FrozenNovelSettings,
+        cancel_check=None,
+    ) -> str:
+        return self._novel_complete_chat(
+            stage,
+            payload,
+            settings,
+            structured=False,
+            cancel_check=cancel_check,
+        )
+
+    def _novel_complete_chat(
+        self,
+        stage: str,
+        payload: Mapping,
+        settings: novel_models.FrozenNovelSettings,
+        *,
+        structured: bool,
+        cancel_check=None,
+    ) -> str:
+        if callable(cancel_check) and cancel_check():
+            raise novel_pipeline.NovelPipelineCancelled("Novel generation cancelled")
+        provider = str(settings.provider_id or "").strip().lower()
+        model = str(settings.model or "").strip()
+        if not provider or not model:
+            raise RuntimeError("Novel generation requires a provider and model.")
+        stage_labels = {
+            "story_map_batch": "extract source-supported story facts",
+            "outline": "create a structured novel outline",
+            "scene_plan": "create a continuity-safe scene plan",
+            "json_repair": "repair structured JSON without inventing facts",
+            "scene_prose": "write polished scene prose from the supplied plan",
+        }
+        system_prompt = (
+            "You are NeuralCompanion's Novel Workshop. "
+            f"Your task is to {stage_labels.get(stage, 'complete the requested novel stage')}. "
+            + (
+                "Return exactly one valid JSON object and no commentary."
+                if structured
+                else "Return prose only, without JSON, headings, or commentary."
+            )
+        )
+        user_prompt = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        if len(user_prompt) >= _AUDIO_STORY_LLM_USER_PROMPT_CHARACTER_LIMIT:
+            raise ValueError("Novel Workshop prompt exceeds its 24,000 character limit.")
+        params = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.15 if structured else 0.7,
+            "max_tokens": 5000,
+            "timeout": _AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
+        }
+        if structured:
+            params["response_format"] = {"type": "json_object"}
+        additional_params = {}
+        if provider == "deepseek":
+            additional_params["thinking_type"] = "disabled"
+        if provider == "lmstudio":
+            audio_story_runtime.ensure_chat_provider_model_ready(provider, model)
+        audio_story_runtime.apply_chat_provider_generation_fields(
+            params, additional_params, provider=provider
+        )
+        token_keys = [
+            key
+            for key in ("max_tokens", "max_completion_tokens")
+            if key in params
+        ]
+        if not token_keys:
+            params["max_tokens"] = 5000
+            token_keys = ["max_tokens"]
+        for key in token_keys:
+            try:
+                token_value = int(float(params.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                token_value = 0
+            if token_value >= 0 and token_value < 5000:
+                params[key] = 5000
+        if structured:
+            params["response_format"] = {"type": "json_object"}
+        last_error = None
+        for _attempt in range(2):
+            if callable(cancel_check) and cancel_check():
+                raise novel_pipeline.NovelPipelineCancelled(
+                    "Novel generation cancelled"
+                )
+            try:
+                response = str(
+                    chat_providers.complete_chat(provider, params, additional_params)
+                    or ""
+                ).strip()
+                if callable(cancel_check) and cancel_check():
+                    raise novel_pipeline.NovelPipelineCancelled(
+                        "Novel generation cancelled"
+                    )
+                return response
+            except novel_pipeline.NovelPipelineCancelled:
+                raise
+            except Exception as exc:
+                last_error = exc
+                message = str(exc).lower()
+                changed = False
+                for key, markers in (
+                    ("temperature", ("temperature",)),
+                    ("max_tokens", ("max_tokens", "max completion")),
+                    ("response_format", ("response_format", "json_object")),
+                    ("timeout", ("timeout",)),
+                ):
+                    if key in params and any(marker in message for marker in markers):
+                        params.pop(key, None)
+                        changed = True
+                if not changed:
+                    raise
+        if last_error is not None:
+            raise last_error
+        return ""
+
+    def _install_novel_narration_chapter(self, chapter_id: str) -> None:
+        project = self._current_novel_project()
+        normalized_chapter_id = str(chapter_id or "").strip()
+        if project is None:
+            return
+        if not normalized_chapter_id:
+            chapter_order = [str(value) for value in project.get("chapter_order") or ()]
+            normalized_chapter_id = chapter_order[0] if chapter_order else ""
+        if not normalized_chapter_id:
+            self._show_warning("Novel Workshop", "Select an available chapter first.")
+            return
+        project_id = str(project.get("project_id") or "")
+        chapter_order = [str(value) for value in project.get("chapter_order") or ()]
+        try:
+            selected_index = chapter_order.index(normalized_chapter_id)
+        except ValueError:
+            selected_index = -1
+        next_chapter_id = (
+            chapter_order[selected_index + 1]
+            if 0 <= selected_index < len(chapter_order) - 1
+            else ""
+        )
+
+        def work(progress, cancel_check):
+            if cancel_check():
+                raise novel_pipeline.NovelPipelineCancelled("Narration load cancelled")
+            progress(20, "Loading selected chapter narration")
+            selected_chunks = self._novel_pipeline.narration_chunks(
+                project_id, normalized_chapter_id
+            )
+            next_chunks = ()
+            if next_chapter_id and not cancel_check():
+                progress(75, "Preloading the next chapter")
+                next_chunks = self._novel_pipeline.narration_chunks(
+                    project_id, next_chapter_id
+                )
+            progress(100, "Selected chapter narration ready")
+            return {
+                "chapter_id": normalized_chapter_id,
+                "narration_chunks": selected_chunks,
+                "next_chapter_id": next_chapter_id,
+                "next_narration_chunks": next_chunks,
+            }
+
+        self._launch_novel_job(
+            "narration",
+            work,
+            project_id=project_id,
+            source_revision=self._current_novel_source_revision(),
+            status_text="Loading selected chapter and preloading the next...",
+        )
+
+    def _apply_novel_narration_payload(
+        self,
+        chapter_id: str,
+        narration_chunks,
+        next_chapter_id: str = "",
+        next_narration_chunks=(),
+    ) -> None:
+        selected = tuple(
+            copy.deepcopy(dict(value))
+            for value in narration_chunks
+            if isinstance(value, Mapping)
+        )
+        if not selected:
+            return
+        cache = {str(chapter_id): selected}
+        preloaded = tuple(
+            copy.deepcopy(dict(value))
+            for value in next_narration_chunks
+            if isinstance(value, Mapping)
+        )
+        if next_chapter_id and preloaded:
+            cache[str(next_chapter_id)] = preloaded
+        self._novel_narration_cache = cache
+        self._stop_story()
+        self._invalidate_tts_queue(clear_plan=True)
+        self.imported_audio_path = ""
+        self.imported_audio_paths = []
+        self.imported_audio_sources = []
+        self.transcript_chunks = [copy.deepcopy(item) for item in selected]
+        self._raw_transcript_segments = [copy.deepcopy(item) for item in selected]
+        self.full_transcript_text = "\n\n".join(
+            str(item.get("text") or "").strip() for item in selected
+        ).strip()
+        self.imported_audio_duration_seconds = max(
+            float(item.get("end_seconds", 0.0) or 0.0) for item in selected
+        )
+        self._last_transcription_audio_duration = self.imported_audio_duration_seconds
+        self.scene_plan = []
+        self._current_chunk_index = -1
+        combo = getattr(self, "audio_story_playback_mode_combo", None)
+        if combo is not None:
+            tts_index = combo.findText("Use TTS Narration")
+            if tts_index >= 0:
+                combo.setCurrentIndex(tts_index)
+        transcript_edit = getattr(self, "audio_story_transcript_edit", None)
+        if transcript_edit is not None:
+            transcript_edit.setPlainText(
+                "\n\n".join(
+                    f"[{self._format_seconds(item.get('start_seconds', 0.0))} - "
+                    f"{self._format_seconds(item.get('end_seconds', 0.0))}] "
+                    f"{str(item.get('text') or '').strip()}"
+                    for item in selected
+                )
+            )
+        self._update_slider_range()
+        navigation = getattr(self, "audio_story_inner_tabs", None)
+        if navigation is not None:
+            navigation.select_key("play")
+        preload_text = (
+            f" Next chapter {next_chapter_id} is preloaded."
+            if next_chapter_id and preloaded
+            else ""
+        )
+        self._set_status(
+            f"Novel chapter is ready for TTS narration.{preload_text}"
+        )
+        self._refresh_controls()
+
+    def _handoff_novel_chapter_to_story(self, chapter_id: str) -> None:
+        project = self._current_novel_project()
+        normalized_chapter_id = str(chapter_id or "").strip()
+        if project is None:
+            return
+        if not normalized_chapter_id:
+            chapter_order = [str(value) for value in project.get("chapter_order") or ()]
+            normalized_chapter_id = chapter_order[0] if chapter_order else ""
+        if not normalized_chapter_id:
+            self._show_warning("Novel Workshop", "Select an available chapter first.")
+            return
+        project_id = str(project.get("project_id") or "")
+
+        def work(progress, cancel_check):
+            if cancel_check():
+                raise novel_pipeline.NovelPipelineCancelled("Story handoff cancelled")
+            progress(25, "Preparing selected chapter for Story / Images")
+            payload = self._novel_pipeline.story_handoff(
+                project_id, normalized_chapter_id
+            )
+            progress(100, "Story / Images handoff ready")
+            return {"story_handoff": payload}
+
+        self._launch_novel_job(
+            "story_handoff",
+            work,
+            project_id=project_id,
+            source_revision=self._current_novel_source_revision(),
+            status_text="Preparing selected chapter for Story / Images...",
+        )
+
+    def _apply_novel_story_handoff(self, payload: Mapping) -> None:
+        source = copy.deepcopy(dict(payload or {}))
+        transcript_chunks = [
+            dict(value)
+            for value in source.get("transcript_chunks") or ()
+            if isinstance(value, Mapping)
+        ]
+        if not transcript_chunks:
+            return
+        self._apply_story_payload(
+            {
+                "audio_sources": [],
+                "audio_path": "",
+                "audio_duration_seconds": float(
+                    source.get("audio_duration_seconds", 0.0) or 0.0
+                ),
+                "transcript_chunks": transcript_chunks,
+                "transcript_windows": transcript_chunks,
+                "raw_segments": list(source.get("raw_segments") or transcript_chunks),
+                "full_text": str(source.get("full_text") or ""),
+                "story_bible": dict(source.get("story_bible") or {}),
+                "scene_plan": list(source.get("scene_plan") or ()),
+                "story_style_guide": self.story_style_guide,
+                "chunk_seconds": self._stored_transcribe_seconds,
+                "transcription_start_seconds": 0,
+                "transcription_end_seconds": int(
+                    math.ceil(float(source.get("audio_duration_seconds", 0.0) or 0.0))
+                ),
+                "image_frequency_seconds": self._stored_image_frequency_seconds,
+                "image_timing_mode": "scene_changes",
+                "continuity_strength": self._stored_continuity_strength,
+                "novel_source_revision": int(
+                    source.get("novel_source_revision", 0) or 0
+                ),
+            },
+            start_visual_generation=False,
+            prepare_media=False,
+        )
+        navigation = getattr(self, "audio_story_inner_tabs", None)
+        if navigation is not None:
+            navigation.select_key("story")
+        self._set_status(
+            "Novel chapter copied into Story / Images. Review settings before "
+            "starting image generation."
+        )
 
     def _start_story_project_services(self) -> None:
         self._story_project_shutdown = False
@@ -2507,8 +3834,17 @@ class AudioStoryModeController(QtCore.QObject):
             )
 
     def _story_project_autosave_worker_saved(self, result: dict) -> None:
-        project_id = str(dict(result or {}).get("project_id") or "")
-        revision = int(dict(result or {}).get("autosave_revision", 0) or 0)
+        result_mapping = dict(result or {})
+        project_id = str(result_mapping.get("project_id") or "")
+        revision = int(result_mapping.get("autosave_revision", 0) or 0)
+        with self._lock:
+            if (project_id, revision) not in self._story_project_autosave_ownership:
+                return
+        try:
+            owned_project = copy.deepcopy(result_mapping)
+            open_summary = self._prepare_story_project_open_summary(owned_project)
+        except Exception:
+            return
         with self._lock:
             ownership = self._story_project_autosave_ownership.pop(
                 (project_id, revision), None
@@ -2532,7 +3868,11 @@ class AudioStoryModeController(QtCore.QObject):
             return
         try:
             self.storyProjectAutosaveSaved.emit(
-                {**ownership, "project": copy.deepcopy(dict(result or {}))}
+                {
+                    **ownership,
+                    "project": owned_project,
+                    "open_summary": open_summary,
+                }
             )
         except RuntimeError:
             return
@@ -2612,7 +3952,10 @@ class AudioStoryModeController(QtCore.QObject):
             int(self._story_project_generation),
             input_fingerprint,
         )
-        self._set_story_project_autosave_text("Saving recovery state...")
+        self._set_story_project_autosave_text(
+            "Saving recovery state...",
+            state="active",
+        )
         self._refresh_story_project_ui()
         self._refresh_controls()
         try:
@@ -2635,14 +3978,129 @@ class AudioStoryModeController(QtCore.QObject):
             ):
                 self._story_project_pending_autosave = None
             self._set_story_project_autosave_text(
-                f"Autosave failed: {str(exc or 'unknown error').strip()}"
+                f"Autosave failed: {str(exc or 'unknown error').strip()}",
+                state="error",
             )
             self._refresh_story_project_ui()
             self._refresh_controls()
             return None
         return project_id, revision
 
-    def _story_project_autosave_result_is_current(self, payload: dict) -> bool:
+    @staticmethod
+    def _prepare_story_project_recovery_autosave(project: Mapping) -> dict:
+        """Build the recovery autosave snapshot and fingerprint in a worker."""
+        if not isinstance(project, Mapping):
+            raise TypeError("Recovered Audio Story project must be a mapping")
+        snapshot = copy.deepcopy(dict(project))
+        project_id = str(snapshot.get("project_id") or "").strip()
+        if not project_id:
+            raise ValueError("Recovered Audio Story project has no project ID")
+        revision_value = snapshot.get("autosave_revision", 0)
+        if isinstance(revision_value, bool):
+            raise ValueError("Recovered Audio Story autosave revision is invalid")
+        try:
+            current_revision = int(revision_value or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Recovered Audio Story autosave revision is invalid"
+            ) from exc
+        if current_revision < 0:
+            raise ValueError("Recovered Audio Story autosave revision is invalid")
+        revision = current_revision + 1
+        snapshot["autosave_revision"] = revision
+        input_fingerprint = hashlib.sha256(
+            json.dumps(snapshot, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        ).hexdigest()
+        return {
+            "project_id": project_id,
+            "revision": revision,
+            "input_fingerprint": input_fingerprint,
+            "snapshot": snapshot,
+        }
+
+    def _queue_prepared_story_project_recovery_autosave(
+        self, prepared: Mapping
+    ) -> tuple[str, int] | None:
+        """Queue a worker-owned recovery snapshot without GUI-thread copying."""
+        queue_service = self._story_project_autosave_queue
+        if queue_service is None or not isinstance(prepared, Mapping):
+            return None
+        snapshot = prepared.get("snapshot")
+        project_id = str(prepared.get("project_id") or "").strip()
+        revision_value = prepared.get("revision")
+        input_fingerprint = str(prepared.get("input_fingerprint") or "").strip()
+        if (
+            not isinstance(snapshot, dict)
+            or not project_id
+            or project_id != self.current_story_project_id
+            or isinstance(revision_value, bool)
+            or not input_fingerprint
+        ):
+            return None
+        try:
+            revision = int(revision_value)
+            snapshot_revision_value = snapshot.get("autosave_revision")
+            if isinstance(snapshot_revision_value, bool):
+                return None
+            snapshot_revision = int(snapshot_revision_value)
+        except (TypeError, ValueError):
+            return None
+        if (
+            revision < 1
+            or snapshot_revision != revision
+            or str(snapshot.get("project_id") or "").strip() != project_id
+        ):
+            return None
+        generation_id = int(self._story_project_generation)
+        ownership = {
+            "project_id": project_id,
+            "revision": revision,
+            "generation_id": generation_id,
+            "input_fingerprint": input_fingerprint,
+        }
+        with self._lock:
+            self._story_project_autosave_ownership[(project_id, revision)] = ownership
+            self._story_project_dirty_autosave = {
+                **ownership,
+                "snapshot": snapshot,
+            }
+        self._story_project_pending_autosave = (
+            project_id,
+            revision,
+            generation_id,
+            input_fingerprint,
+        )
+        self._set_story_project_autosave_text(
+            "Saving recovery state...",
+            state="active",
+        )
+        self._refresh_story_project_ui()
+        self._refresh_controls()
+        try:
+            queue_service.request(
+                project_autosave.SaveRequest(project_id, revision, snapshot)
+            )
+        except Exception as exc:
+            with self._lock:
+                self._story_project_autosave_ownership.pop(
+                    (project_id, revision), None
+                )
+            if (
+                self._story_project_pending_autosave is not None
+                and self._story_project_pending_autosave[:2]
+                == (project_id, revision)
+            ):
+                self._story_project_pending_autosave = None
+            self._set_story_project_autosave_text(
+                f"Autosave failed: {str(exc or 'unknown error').strip()}",
+                state="error",
+            )
+            self._refresh_story_project_ui()
+            self._refresh_controls()
+            return None
+        return project_id, revision
+
+    def _story_project_autosave_result_is_current(self, payload: Mapping) -> bool:
         pending = self._story_project_pending_autosave
         if pending is None:
             return False
@@ -2653,7 +4111,9 @@ class AudioStoryModeController(QtCore.QObject):
                 generation_id=pending[2],
                 input_fingerprint=pending[3],
             )
-            and int(payload.get("revision", -1) or -1) == pending[1]
+            and type(pending[1]) is int
+            and type(payload.get("revision")) is int
+            and payload.get("revision") == pending[1]
             and pending[0] == self.current_story_project_id
             and pending[2] == self._story_project_generation
         )
@@ -2662,15 +4122,50 @@ class AudioStoryModeController(QtCore.QObject):
     def _on_story_project_autosave_saved(self, payload) -> None:
         if self._story_project_shutdown:
             return
-        data = dict(payload or {})
+        if not isinstance(payload, Mapping):
+            return
+        data = payload
         if not self._story_project_autosave_result_is_current(data):
             return
-        project = dict(data.get("project") or {})
+        project = data.get("project")
+        open_summary = data.get("open_summary")
+        project_summary = (
+            open_summary.get("project_summary")
+            if isinstance(open_summary, Mapping)
+            else None
+        )
+        revision = data.get("revision")
+        if (
+            type(project) is not dict
+            or type(project.get("project_id")) is not str
+            or project.get("project_id") != self.current_story_project_id
+            or type(project.get("autosave_revision")) is not int
+            or project.get("autosave_revision") != revision
+            or type(project.get("manifest_revision")) is not int
+            or project.get("manifest_revision") < 0
+            or type(open_summary) is not dict
+            or type(open_summary.get("project_id")) is not str
+            or open_summary.get("project_id") != project.get("project_id")
+            or type(open_summary.get("manifest_revision")) is not int
+            or open_summary.get("manifest_revision")
+            != project.get("manifest_revision")
+            or type(open_summary.get("resume_plan_count")) is not int
+            or open_summary.get("resume_plan_count") < 0
+            or type(open_summary.get("chapter_rows")) is not tuple
+            or type(project_summary) is not dict
+            or type(project_summary.get("project_id")) is not str
+            or project_summary.get("project_id") != project.get("project_id")
+            or type(project_summary.get("manifest_revision")) is not int
+            or project_summary.get("manifest_revision")
+            != project.get("manifest_revision")
+            or type(project_summary.get("chapter_order")) is not list
+        ):
+            return
         self._story_project_pending_autosave = None
-        if project.get("project_id") == self.current_story_project_id:
-            self._current_story_project = copy.deepcopy(project)
-            self._replace_story_project_summary(project)
-            self._refresh_story_project_ui()
+        self._current_story_project = project
+        self._current_story_project_open_summary = open_summary
+        self._replace_story_project_summary(project_summary, take_ownership=True)
+        self._refresh_story_project_ui()
         self._set_story_project_autosave_text("Saved")
         self._refresh_controls()
 
@@ -2683,15 +4178,93 @@ class AudioStoryModeController(QtCore.QObject):
             return
         self._story_project_pending_autosave = None
         detail = str(data.get("error") or "Project autosave failed.").strip()
-        self._set_story_project_autosave_text(f"Autosave failed: {detail}")
+        self._set_story_project_autosave_text(
+            f"Autosave failed: {detail}",
+            state="error",
+        )
         self._set_status(f"Audio Story project autosave failed: {detail}")
         self._refresh_story_project_ui()
         self._refresh_controls()
 
-    def _set_story_project_autosave_text(self, text: str) -> None:
+    def _apply_story_project_status_color(self, color: str) -> None:
+        label = getattr(self, "audio_story_project_autosave_label", None)
+        if label is not None:
+            label.setStyleSheet(
+                f"color: {str(color or '#9fb4ca')}; font-weight: 700;"
+            )
+
+    def _advance_story_project_status_color(self) -> None:
+        colors = ("#28d17c", "#ff5964", "#f5b942")
+        self._story_project_status_color_index = (
+            int(self._story_project_status_color_index) + 1
+        ) % len(colors)
+        self._apply_story_project_status_color(
+            colors[self._story_project_status_color_index]
+        )
+
+    def _reset_story_project_status_if_current(self, generation: int) -> None:
+        if (
+            self._story_project_shutdown
+            or int(generation) != self._story_project_status_generation
+        ):
+            return
+        self._set_story_project_autosave_text("Saved")
+
+    def _set_story_project_autosave_text(
+        self,
+        text: str,
+        *,
+        state: str = "idle",
+        reset_after_ms: int | None = None,
+    ) -> int:
+        self._story_project_status_generation += 1
+        generation = self._story_project_status_generation
+        self._story_project_status_timer.stop()
+        self._story_project_status_color_index = 0
         label = getattr(self, "audio_story_project_autosave_label", None)
         if label is not None:
             label.setText(str(text or "").strip())
+        if state == "active":
+            self._apply_story_project_status_color("#28d17c")
+            self._story_project_status_timer.start()
+        elif state == "error":
+            self._apply_story_project_status_color("#ff5964")
+        else:
+            self._apply_story_project_status_color("#28d17c")
+        if reset_after_ms is not None:
+            QtCore.QTimer.singleShot(
+                max(0, int(reset_after_ms)),
+                lambda owner=generation: self._reset_story_project_status_if_current(
+                    owner
+                ),
+            )
+        return generation
+
+    @staticmethod
+    def _story_project_operation_busy_text(operation: str) -> str:
+        return {
+            "list": "Refreshing projects...",
+            "create": "Creating project...",
+            "open": "Opening project...",
+            "rename": "Renaming project...",
+            "close": "Closing project...",
+            "delete": "Deleting project...",
+            "import-review": "Checking audio files...",
+            "import": "Importing audio files...",
+            "relink": "Relinking chapter audio...",
+            "chapter-rename": "Renaming chapter...",
+            "chapter-reorder": "Reordering chapters...",
+            "archive": "Archiving chapter...",
+            "restore": "Restoring chapter...",
+            "legacy-migration-preview": "Checking current story...",
+            "legacy-migration-commit": "Saving current story...",
+        }.get(str(operation or ""), "Updating project...")
+
+    @staticmethod
+    def _audio_file_count_text(count: int) -> str:
+        normalized_count = max(0, int(count))
+        suffix = "" if normalized_count == 1 else "s"
+        return f"{normalized_count} audio file{suffix}"
 
     def _invalidate_tts_queue(self, *, clear_plan: bool, state: str = "Idle") -> None:
         """Cancel the active queue without waiting for its worker on the UI thread."""
@@ -2736,9 +4309,17 @@ class AudioStoryModeController(QtCore.QObject):
         self._refresh_controls()
 
     def _invalidate_story_project_work(self) -> None:
+        self._story_settings_apply_generation += 1
+        cancel_token = self._story_settings_apply_cancel_token
+        if cancel_token is not None:
+            cancel_token.set()
+        self._story_settings_apply_request = None
+        self._story_settings_apply_cancel_token = None
+        self._story_settings_apply_pipeline_owner = None
         self._story_project_generation += 1
         self._audio_sources_revision += 1
         self._transcription_job_id += 1
+        self._cancel_transcript_display_batches()
         self._invalidate_tts_queue(clear_plan=True)
         self._cancel_visual_generation()
         self._pending_play_request = None
@@ -2792,6 +4373,8 @@ class AudioStoryModeController(QtCore.QObject):
         switch_project: bool,
         show_busy: bool = True,
         supersede_busy: bool = False,
+        busy_text: str | None = None,
+        success_text: str | None = None,
     ) -> None:
         if show_busy and not supersede_busy and (
             self._story_project_busy
@@ -2809,7 +4392,10 @@ class AudioStoryModeController(QtCore.QObject):
         self._story_project_input_fingerprint = input_fingerprint
         if show_busy:
             self._story_project_busy = True
-            self._set_story_project_autosave_text("Working...")
+            self._set_story_project_autosave_text(
+                busy_text or self._story_project_operation_busy_text(operation),
+                state="active",
+            )
             self._refresh_story_project_ui()
             self._refresh_controls()
 
@@ -2819,6 +4405,7 @@ class AudioStoryModeController(QtCore.QObject):
                 "project_id": str(project_id),
                 "generation_id": generation_id,
                 "input_fingerprint": input_fingerprint,
+                "success_text": str(success_text or "").strip(),
             }
             try:
                 with self._story_project_manager_lock:
@@ -2871,7 +4458,10 @@ class AudioStoryModeController(QtCore.QObject):
         error = str(data.get("error") or "").strip()
         if error:
             self._story_project_busy = False
-            self._set_story_project_autosave_text(f"Project error: {error}")
+            self._set_story_project_autosave_text(
+                f"Project error: {error}",
+                state="error",
+            )
             self._set_status(f"Audio Story project error: {error}")
             self._offer_legacy_project_migration()
             self._refresh_controls()
@@ -2901,22 +4491,41 @@ class AudioStoryModeController(QtCore.QObject):
                         "One or more selected files are duplicates or already belong "
                         "to a Story Project. Nothing was imported.",
                     )
+                    self._set_story_project_autosave_text(
+                        "Audio import blocked",
+                        state="error",
+                    )
                 else:
                     self._set_status("Story audio import was cancelled; nothing was changed.")
+                    self._set_story_project_autosave_text(
+                        "Audio import cancelled"
+                    )
                 self._refresh_story_project_ui()
                 self._refresh_controls()
                 return
             bound_review = copy.deepcopy(review)
+            count_text = self._audio_file_count_text(
+                len(list(bound_review.get("valid") or []))
+            )
             self._run_story_project_mutation(
                 "import",
                 lambda: self._story_project_manager.commit_import(
                     bound_review, valid_only=bool(decision)
                 ),
+                busy_text=f"Importing {count_text}...",
+                success_text=f"Imported {count_text}",
             )
             return
         if operation == "recovery-repair":
             if bool(dict(result or {}).get("repaired")):
                 self._set_status("Recovered project storage was repaired in the background.")
+                self._set_story_project_autosave_text(
+                    "Storage repaired",
+                    state="success",
+                    reset_after_ms=3000,
+                )
+            else:
+                self._set_story_project_autosave_text("Saved")
             return
         if operation == "legacy-migration-preview":
             self._story_project_busy = False
@@ -2935,6 +4544,10 @@ class AudioStoryModeController(QtCore.QObject):
                     "Save Current Story as Project",
                     "The current story cannot be saved while source audio belongs "
                     f"to another project or is duplicated:\n{paths}",
+                )
+                self._set_story_project_autosave_text(
+                    "Project save blocked",
+                    state="error",
                 )
                 self._offer_legacy_project_migration()
                 self._refresh_controls()
@@ -2967,6 +4580,9 @@ class AudioStoryModeController(QtCore.QObject):
             )
             if answer != QtWidgets.QMessageBox.Yes:
                 self._set_status("Current story was not saved as a project.")
+                self._set_story_project_autosave_text(
+                    "Project save cancelled"
+                )
                 self._offer_legacy_project_migration()
                 self._refresh_controls()
                 return
@@ -2976,6 +4592,10 @@ class AudioStoryModeController(QtCore.QObject):
             if not project_id:
                 self._set_status(
                     "Audio Story project migration failed: preview has no project ID."
+                )
+                self._set_story_project_autosave_text(
+                    "Project save failed",
+                    state="error",
                 )
                 self._offer_legacy_project_migration()
                 self._refresh_controls()
@@ -3008,19 +4628,33 @@ class AudioStoryModeController(QtCore.QObject):
             self._set_story_project_autosave_text("No project open")
             self._set_status("Audio Story project deleted. Original audio files were kept.")
             return
-        project = dict(dict(result or {}).get("project") or {})
+        result_mapping = result if isinstance(result, Mapping) else {}
+        prepared_open = result_mapping.get("prepared_open")
+        if operation == "open" and isinstance(prepared_open, Mapping):
+            project = prepared_open.get("project")
+        else:
+            project_value = result_mapping.get("project")
+            project = dict(project_value or {}) if isinstance(project_value, Mapping) else {}
         if not project:
             self._story_project_busy = False
-            self._set_story_project_autosave_text("Project operation returned no data.")
+            self._set_story_project_autosave_text(
+                "Project operation returned no data.",
+                state="error",
+            )
             self._refresh_controls()
             return
         self._apply_open_story_project(
             project,
             replace_derived_state=operation in {"open", "legacy-migration-commit"},
+            restoration=result_mapping.get("restoration"),
+            prepared_open=prepared_open if operation == "open" else None,
         )
-        backup_recovered = bool(dict(result or {}).get("backup_recovered"))
+        backup_recovered = bool(result_mapping.get("backup_recovered"))
         if backup_recovered:
-            self._set_story_project_autosave_text("Recovered backup; repairing storage...")
+            self._set_story_project_autosave_text(
+                "Recovered backup; repairing storage...",
+                state="active",
+            )
             self._set_status(
                 "Opened Audio Story project from its recovery backup; "
                 "storage repair is running in the background."
@@ -3034,25 +4668,62 @@ class AudioStoryModeController(QtCore.QObject):
                 f"Saved current story as Audio Story project: {project.get('name', '')}"
             )
             return
-        if bool(dict(result or {}).get("recovery_changed")):
-            self._queue_story_project_autosave(project)
+        if bool(result_mapping.get("recovery_changed")):
+            prepared_recovery_autosave = (
+                prepared_open.get("recovery_autosave")
+                if isinstance(prepared_open, Mapping)
+                else None
+            )
+            if isinstance(prepared_recovery_autosave, Mapping):
+                self._queue_prepared_story_project_recovery_autosave(
+                    prepared_recovery_autosave
+                )
+            else:
+                self._queue_story_project_autosave(project)
             if not backup_recovered:
                 self._set_status("Recovered interrupted Audio Story project work.")
         elif operation == "open" and not backup_recovered:
             self._set_story_project_autosave_text("Opened")
-            self._set_status(f"Opened Audio Story project: {project.get('name', '')}")
+            restore_status = str(
+                result_mapping.get("restoration", {}).get("status_text")
+                if isinstance(result_mapping.get("restoration"), Mapping)
+                else ""
+            ).strip()
+            self._set_status(
+                f"Opened Audio Story project: {project.get('name', '')}"
+                + (f" {restore_status}" if restore_status else "")
+            )
         elif not backup_recovered:
-            self._set_story_project_autosave_text("Saved")
+            success_text = str(data.get("success_text") or "").strip()
+            if success_text:
+                self._set_story_project_autosave_text(
+                    success_text,
+                    state="success",
+                    reset_after_ms=3000,
+                )
+            else:
+                self._set_story_project_autosave_text("Saved")
             self._set_status(f"Audio Story project updated: {project.get('name', '')}")
 
     def _schedule_story_project_recovery_repair(self, project: Mapping) -> None:
         """Repair a backup-opened primary only after the GUI accepted the project."""
-        snapshot = copy.deepcopy(dict(project or {}))
-        project_id = str(snapshot.get("project_id") or "")
-        revision = int(snapshot.get("manifest_revision", 0) or 0)
+        if not isinstance(project, Mapping):
+            return
+        project_id = str(project.get("project_id") or "")
+        try:
+            revision_value = project.get("manifest_revision", 0)
+            if isinstance(revision_value, bool):
+                return
+            revision = int(revision_value or 0)
+        except (TypeError, ValueError):
+            return
         generation_id = int(self._story_project_generation)
         input_fingerprint = str(self._story_project_input_fingerprint or "")
-        if not project_id or project_id != self.current_story_project_id:
+        if (
+            not project_id
+            or project_id != self.current_story_project_id
+            or revision < 0
+        ):
             return
 
         def worker():
@@ -3083,11 +4754,13 @@ class AudioStoryModeController(QtCore.QObject):
             daemon=True,
         ).start()
 
-    def _replace_story_project_summary(self, project: dict) -> None:
+    def _replace_story_project_summary(
+        self, project: dict, *, take_ownership: bool = False
+    ) -> None:
         project_id = str(project.get("project_id") or "")
         if not project_id:
             return
-        replacement = copy.deepcopy(project)
+        replacement = project if take_ownership else copy.deepcopy(project)
         for index, existing in enumerate(self._story_projects):
             if str(existing.get("project_id") or "") == project_id:
                 self._story_projects[index] = replacement
@@ -3199,11 +4872,27 @@ class AudioStoryModeController(QtCore.QObject):
         project, backup_recovered = self._story_project_manager.open_with_recovery(
             project_id
         )
-        return {
-            "project": project,
-            "recovery_changed": False,
+        interrupted_issues = self._story_project_interrupted_issues(project)
+        recovered, changed = checkpointing.recover_interrupted(project)
+        artifacts = project_restore.ProjectArtifactRestore(
+            str(recovered.get("project_id") or ""),
+            (),
+            (),
+        )
+        prepared_open = self._prepare_story_project_open_state(
+            recovered,
+            artifacts,
+            interrupted_issues=interrupted_issues,
+            prepare_recovery_autosave=changed,
+        )
+        result = {
+            "project": prepared_open["project"],
+            "recovery_changed": changed,
             "backup_recovered": backup_recovered,
+            "restoration": prepared_open["restoration"],
+            "prepared_open": prepared_open,
         }
+        return result
 
     def _open_story_project(self) -> None:
         project_id = self._selected_story_project_id()
@@ -3215,12 +4904,27 @@ class AudioStoryModeController(QtCore.QObject):
             project, backup_recovered = (
                 self._story_project_manager.open_with_recovery(project_id)
             )
+            interrupted_issues = self._story_project_interrupted_issues(project)
             recovered, changed = checkpointing.recover_interrupted(project)
-            return {
-                "project": recovered,
+            artifacts = project_restore.ProjectArtifactRestore(
+                str(recovered.get("project_id") or ""),
+                (),
+                (),
+            )
+            prepared_open = self._prepare_story_project_open_state(
+                recovered,
+                artifacts,
+                interrupted_issues=interrupted_issues,
+                prepare_recovery_autosave=changed,
+            )
+            result = {
+                "project": prepared_open["project"],
                 "recovery_changed": changed,
                 "backup_recovered": backup_recovered,
+                "restoration": prepared_open["restoration"],
+                "prepared_open": prepared_open,
             }
+            return result
 
         self._launch_story_project_job(
             "open",
@@ -3311,7 +5015,321 @@ class AudioStoryModeController(QtCore.QObject):
         data = item.data(QtCore.Qt.UserRole) if item is not None else None
         return dict(data) if isinstance(data, dict) else {}
 
-    def _run_story_project_mutation(self, operation: str, mutation) -> None:
+    @QtCore.Slot()
+    def _on_story_project_chapter_selection_changed(self) -> None:
+        self._refresh_story_project_ui()
+        selection = self._selected_story_project_chapter()
+        chapter_id = str(selection.get("chapter_id") or "").strip()
+        pending = self._pending_story_chapter_resume
+        if (
+            isinstance(pending, Mapping)
+            and chapter_id
+            and str(pending.get("chapter_id") or "") != chapter_id
+        ):
+            self._pending_story_chapter_resume = None
+        if (
+            self._story_chapter_lazy_loading_active
+            and not self._story_project_shutdown
+            and self.current_story_project_id
+            and chapter_id
+            and not bool(selection.get("archived"))
+            and chapter_id != self._current_story_chapter_id
+        ):
+            self._request_story_project_chapter(
+                chapter_id,
+                reason="selection",
+            )
+
+    def _story_chapter_cache_key(
+        self,
+        project: Mapping,
+        chapter_id: str,
+    ) -> chapter_working_set.ChapterCacheKey:
+        return chapter_working_set.ChapterCacheKey(
+            project_id=str(project.get("project_id") or "").strip(),
+            manifest_revision=int(project.get("manifest_revision", 0) or 0),
+            chapter_id=str(chapter_id or "").strip(),
+        )
+
+    def _prepare_story_chapter_open_state(
+        self,
+        project: Mapping,
+        chapter_id: str,
+    ) -> dict:
+        owned_project = project_models.normalize_project_manifest(project)
+        key = self._story_chapter_cache_key(owned_project, chapter_id)
+        if not key.project_id or not key.chapter_id:
+            raise ValueError("Audio Story chapter load has no project or chapter ID")
+        artifacts = project_restore.load_chapter_artifacts(
+            self._story_project_store,
+            owned_project,
+            key.chapter_id,
+        )
+        restoration = self._assemble_project_restore_payload(
+            owned_project,
+            artifacts,
+        )
+        return {
+            "key": key,
+            "restoration": restoration,
+        }
+
+    def _request_story_project_chapter(
+        self,
+        chapter_id: str,
+        *,
+        reason: str,
+        resume_position: float | None = None,
+    ) -> None:
+        del resume_position
+        if self._story_project_shutdown:
+            return
+        project = self._current_story_project
+        if not isinstance(project, Mapping):
+            return
+        key = self._story_chapter_cache_key(project, chapter_id)
+        if not key.project_id or not key.chapter_id:
+            return
+        install = str(reason or "") != "prefetch"
+        cached = self._story_chapter_working_set.get(key)
+        if isinstance(cached, Mapping):
+            if install:
+                self._story_chapter_load_generation += 1
+                self._install_prepared_story_chapter(cached)
+                self._prefetch_next_story_project_chapter(key.chapter_id)
+            return
+        if key in self._story_chapter_load_inflight:
+            if install:
+                self._story_chapter_load_generation += 1
+                self._story_chapter_load_pending_installs[key] = int(
+                    self._story_chapter_load_generation
+                )
+                self._set_story_project_autosave_text(
+                    f"Loading chapter: {self._story_project_chapter_name(key.chapter_id)}",
+                    state="active",
+                )
+            return
+        if install:
+            self._story_chapter_load_generation += 1
+            self._set_story_project_autosave_text(
+                f"Loading chapter: {self._story_project_chapter_name(key.chapter_id)}",
+                state="active",
+            )
+        generation = int(self._story_chapter_load_generation)
+        self._story_chapter_load_inflight.add(key)
+
+        def worker() -> None:
+            payload = {
+                "key": key,
+                "generation": generation,
+                "install": install,
+                "reason": str(reason or ""),
+            }
+            try:
+                project_snapshot = self._story_project_store.load_project(
+                    key.project_id
+                )
+                if int(
+                    project_snapshot.get("manifest_revision", 0) or 0
+                ) != key.manifest_revision:
+                    raise RuntimeError(
+                        "Audio Story project changed before the chapter loaded"
+                    )
+                payload["result"] = self._prepare_story_chapter_open_state(
+                    project_snapshot,
+                    key.chapter_id,
+                )
+            except Exception as exc:
+                payload["error"] = self._transcription_console_safe_message(
+                    str(exc)
+                )
+            try:
+                self.storyChapterLoadFinished.emit(payload)
+            except RuntimeError:
+                pass
+            finally:
+                with self._lock:
+                    self._story_chapter_load_threads.discard(
+                        threading.current_thread()
+                    )
+
+        thread = threading.Thread(
+            target=worker,
+            name=f"audio-story-chapter-load-{key.chapter_id[:12]}",
+            daemon=True,
+        )
+        with self._lock:
+            self._story_chapter_load_threads.add(thread)
+        thread.start()
+
+    def _story_project_chapter_name(self, chapter_id: str) -> str:
+        project = self._current_story_project
+        chapters = (
+            project.get("chapters")
+            if isinstance(project, Mapping)
+            else {}
+        )
+        chapter = (
+            chapters.get(str(chapter_id))
+            if isinstance(chapters, Mapping)
+            else {}
+        )
+        name = (
+            str(chapter.get("display_name") or "").strip()
+            if isinstance(chapter, Mapping)
+            else ""
+        )
+        return name or str(chapter_id or "")
+
+    @QtCore.Slot(object)
+    def _on_story_chapter_load_finished(self, payload) -> None:
+        data = dict(payload or {})
+        key = data.get("key")
+        if not isinstance(key, chapter_working_set.ChapterCacheKey):
+            return
+        self._story_chapter_load_inflight.discard(key)
+        promoted_generation = self._story_chapter_load_pending_installs.pop(
+            key, None
+        )
+        if self._story_project_shutdown:
+            return
+        if promoted_generation is not None:
+            data["install"] = True
+            data["generation"] = int(promoted_generation)
+        project = self._current_story_project
+        if not isinstance(project, Mapping):
+            return
+        expected_key = self._story_chapter_cache_key(project, key.chapter_id)
+        if key != expected_key:
+            return
+        install = bool(data.get("install"))
+        if install and int(data.get("generation", -1)) != int(
+            self._story_chapter_load_generation
+        ):
+            return
+        error = str(data.get("error") or "").strip()
+        if error:
+            if install:
+                pending = self._pending_story_chapter_resume
+                if (
+                    isinstance(pending, Mapping)
+                    and str(pending.get("chapter_id") or "") == key.chapter_id
+                ):
+                    self._pending_story_chapter_resume = None
+                self._set_story_project_autosave_text(
+                    f"Chapter load failed: {error}",
+                    state="error",
+                )
+                self._set_status(
+                    f"Could not load {self._story_project_chapter_name(key.chapter_id)}: "
+                    f"{error}"
+                )
+                self._refresh_controls()
+            return
+        result = data.get("result")
+        if not isinstance(result, Mapping) or result.get("key") != key:
+            return
+        owned = dict(result)
+        protected = (
+            key.chapter_id
+            if install
+            else str(self._current_story_chapter_id or "")
+        )
+        self._story_chapter_working_set.put(
+            key,
+            owned,
+            protected_chapter_id=protected,
+        )
+        if not install:
+            return
+        selection = self._selected_story_project_chapter()
+        if str(selection.get("chapter_id") or "") != key.chapter_id:
+            return
+        installed = self._install_prepared_story_chapter(owned)
+        self._prefetch_next_story_project_chapter(key.chapter_id)
+        if installed:
+            self._resume_pending_story_chapter_playback(key.chapter_id)
+
+    def _install_prepared_story_chapter(
+        self,
+        result: Mapping[str, object],
+    ) -> bool:
+        key = result.get("key")
+        restoration = result.get("restoration")
+        project = self._current_story_project
+        if (
+            not isinstance(key, chapter_working_set.ChapterCacheKey)
+            or not isinstance(project, Mapping)
+            or key != self._story_chapter_cache_key(project, key.chapter_id)
+            or not isinstance(restoration, Mapping)
+        ):
+            return False
+        self._clear_audio_story_derived_state()
+        installed = self._install_project_restore_payload(
+            restoration,
+            take_ownership=True,
+        )
+        if installed:
+            self._current_story_chapter_id = key.chapter_id
+        self._restore_project_image_cache(project)
+        status_text = str(restoration.get("status_text") or "").strip()
+        if installed:
+            self._set_story_project_autosave_text("Chapter ready")
+            self._set_status(
+                f"Loaded {self._story_project_chapter_name(key.chapter_id)}. "
+                f"{status_text}".strip()
+            )
+        else:
+            pending = self._pending_story_chapter_resume
+            if (
+                isinstance(pending, Mapping)
+                and str(pending.get("project_id") or "") == key.project_id
+                and str(pending.get("chapter_id") or "") == key.chapter_id
+            ):
+                self._pending_story_chapter_resume = None
+            self._set_story_project_autosave_text(
+                "Chapter artifacts unavailable",
+                state="error",
+            )
+            self._set_status(
+                f"{self._story_project_chapter_name(key.chapter_id)} artifacts "
+                f"are unavailable. {status_text}".strip()
+            )
+        self._refresh_controls()
+        return installed
+
+    def _prefetch_next_story_project_chapter(self, chapter_id: str) -> None:
+        project = self._current_story_project
+        if not isinstance(project, Mapping):
+            return
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        archived = {
+            str(value or "")
+            for value in list(project.get("archived_chapter_ids") or [])
+        }
+        active = [
+            str(value or "")
+            for value in list(project.get("chapter_order") or [])
+            if str(value or "") in chapters and str(value or "") not in archived
+        ]
+        try:
+            next_id = active[active.index(str(chapter_id)) + 1]
+        except (ValueError, IndexError):
+            return
+        self._request_story_project_chapter(
+            next_id,
+            reason="prefetch",
+        )
+
+    def _run_story_project_mutation(
+        self,
+        operation: str,
+        mutation,
+        *,
+        busy_text: str | None = None,
+        success_text: str | None = None,
+    ) -> None:
         project_id = self.current_story_project_id
         if not project_id:
             return
@@ -3332,6 +5350,8 @@ class AudioStoryModeController(QtCore.QObject):
             work,
             project_id=project_id,
             switch_project=False,
+            busy_text=busy_text,
+            success_text=success_text,
         )
 
     def _relink_story_project_chapter(self) -> None:
@@ -3765,6 +5785,7 @@ class AudioStoryModeController(QtCore.QObject):
             return
         prepared_indices: list[int] = []
         provider_info = dict(self._visual_reply_generation_info() or {})
+        self._sync_image_provider_guidance(provider_info)
         for context in contexts:
             chapter_id = str(context.get("chapter_id") or "")
             chapter = dict(dict(project.get("chapters") or {}).get(chapter_id) or {})
@@ -3853,6 +5874,1065 @@ class AudioStoryModeController(QtCore.QObject):
             name="audio-story-image-retry",
             daemon=True,
         ).start()
+
+    @staticmethod
+    def _story_project_interrupted_issues(project: Mapping) -> tuple[dict, ...]:
+        """Summarize running checkpoints before recovery changes their status."""
+        chapters = project.get("chapters")
+        if not isinstance(chapters, Mapping):
+            return ()
+        counts: dict[tuple[str, str], int] = {}
+        for chapter_id, chapter_value in chapters.items():
+            if not isinstance(chapter_value, Mapping):
+                continue
+            normalized_chapter_id = str(chapter_id or "").strip()
+            stages = chapter_value.get("stages")
+            if isinstance(stages, Mapping):
+                for stage, checkpoint in stages.items():
+                    if (
+                        isinstance(checkpoint, Mapping)
+                        and checkpoint.get("status") == "running"
+                    ):
+                        key = (normalized_chapter_id, str(stage or "checkpoint"))
+                        counts[key] = counts.get(key, 0) + 1
+            scene_checkpoints = chapter_value.get("scene_checkpoints")
+            if isinstance(scene_checkpoints, Mapping):
+                values = scene_checkpoints.values()
+            elif isinstance(scene_checkpoints, Sequence) and not isinstance(
+                scene_checkpoints, (str, bytes, bytearray)
+            ):
+                values = scene_checkpoints
+            else:
+                values = ()
+            running_scenes = sum(
+                1
+                for checkpoint in values
+                if isinstance(checkpoint, Mapping)
+                and checkpoint.get("status") == "running"
+            )
+            if running_scenes:
+                key = (normalized_chapter_id, "image_generation")
+                counts[key] = counts.get(key, 0) + running_scenes
+        return tuple(
+            {
+                "chapter_id": chapter_id,
+                "stage": stage,
+                "message": (
+                    f"Recovered {count} interrupted checkpoint"
+                    f"{'s' if count != 1 else ''}."
+                ),
+            }
+            for (chapter_id, stage), count in sorted(counts.items())
+        )
+
+    def _prepare_story_project_audio_state(self, project: Mapping) -> dict:
+        """Validate project audio references and calculate offsets off the GUI thread."""
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        archived = {
+            str(value)
+            for value in list(project.get("archived_chapter_ids") or [])
+        }
+        sources: list[AudioSource] = []
+        signature_sources: list[dict] = []
+        offset = 0.0
+        for value in list(project.get("chapter_order") or []):
+            chapter_id = str(value or "")
+            if chapter_id in archived:
+                continue
+            chapter = chapters.get(chapter_id)
+            chapter = chapter if isinstance(chapter, Mapping) else {}
+            audio = chapter.get("audio_reference") or chapter.get("audio")
+            audio = audio if isinstance(audio, Mapping) else {}
+            fingerprint = audio.get("fingerprint")
+            fingerprint = fingerprint if isinstance(fingerprint, Mapping) else {}
+            path = str(audio.get("path") or "").strip()
+            try:
+                duration = max(
+                    0.0,
+                    float(fingerprint.get("duration_ms", 0) or 0) / 1000.0,
+                )
+            except (TypeError, ValueError):
+                duration = 0.0
+            if not math.isfinite(duration):
+                duration = 0.0
+            valid = bool(path and duration > 0.0 and Path(path).is_file())
+            playable_duration = duration if valid else 0.0
+            source = AudioSource(
+                index=len(sources),
+                path=path,
+                display_name=str(
+                    chapter.get("display_name")
+                    or (Path(path).name if path else "")
+                    or chapter_id
+                ),
+                duration_seconds=playable_duration,
+                global_start_seconds=offset,
+                global_end_seconds=offset + playable_duration,
+                valid=valid,
+                error="" if valid else "audio file is missing or unavailable",
+            )
+            sources.append(source)
+            signature_sources.append(
+                {
+                    "chapter_id": chapter_id,
+                    "path": path,
+                    "algorithm": str(fingerprint.get("algorithm") or ""),
+                    "digest": str(fingerprint.get("digest") or ""),
+                    "size_bytes": int(fingerprint.get("size_bytes", 0) or 0),
+                    "duration_ms": int(fingerprint.get("duration_ms", 0) or 0),
+                    "valid": valid,
+                }
+            )
+            if valid:
+                offset += playable_duration
+        paths = [source.path for source in sources if source.path]
+        return {
+            "sources": sources,
+            "paths": paths,
+            "path": paths[0] if paths else "",
+            "duration_seconds": total_duration_seconds(sources),
+            "has_valid_source": any(source.valid for source in sources),
+            "signature": checkpointing.settings_fingerprint(
+                {
+                    "project_id": str(project.get("project_id") or ""),
+                    "sources": signature_sources,
+                }
+            ),
+        }
+
+    def _prepare_project_image_cache_state(
+        self, project: Mapping
+    ) -> tuple[dict[int, dict], dict[str, dict]]:
+        """Resolve reusable project-owned image checkpoints off the GUI thread."""
+        project_id = str(project.get("project_id") or "")
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        archived = {
+            str(value)
+            for value in list(project.get("archived_chapter_ids") or [])
+        }
+        restored: dict[int, dict] = {}
+        restored_prompts: dict[str, dict] = {}
+        if not project_id:
+            return restored, restored_prompts
+        for value in list(project.get("chapter_order") or []):
+            chapter_id = str(value or "")
+            if chapter_id in archived:
+                continue
+            chapter = chapters.get(chapter_id)
+            chapter = chapter if isinstance(chapter, Mapping) else {}
+            stored = chapter.get("scene_checkpoints")
+            if not isinstance(stored, Mapping):
+                continue
+            for scene_id, value in stored.items():
+                if not isinstance(value, Mapping):
+                    continue
+                checkpoint = dict(value)
+                if not self._story_checkpoint_is_reusable(checkpoint):
+                    continue
+                image_path = self._project_owned_story_image_path(
+                    project_id,
+                    chapter_id,
+                    str(checkpoint.get("output_ref") or ""),
+                )
+                if image_path is None:
+                    continue
+                try:
+                    chunk_index = int(checkpoint.get("chunk_index", -1))
+                    scene_index = int(
+                        checkpoint.get("scene_index", chunk_index + 1)
+                        or chunk_index + 1
+                    )
+                except (TypeError, ValueError):
+                    continue
+                if chunk_index < 0:
+                    continue
+                normalized_scene_id = str(
+                    checkpoint.get("scene_id") or scene_id
+                )
+                entry = {
+                    "image_path": str(image_path),
+                    "prompt_text": str(checkpoint.get("prompt_text") or ""),
+                    "source_text": str(checkpoint.get("source_text") or ""),
+                    "prompt_signature": str(
+                        checkpoint.get("prompt_signature") or ""
+                    ),
+                    "generation_mode": str(
+                        checkpoint.get("generation_mode") or "fresh"
+                    ),
+                    "reference_image_paths": list(
+                        checkpoint.get("reference_image_paths") or []
+                    ),
+                    "scene_id": normalized_scene_id,
+                    "scene_index": scene_index,
+                    "scene_context": {
+                        "chapter_id": chapter_id,
+                        "scene_id": normalized_scene_id,
+                        "scene_index": scene_index,
+                        "chunk_index": chunk_index,
+                    },
+                }
+                restored[chunk_index] = entry
+                signature = str(entry["prompt_signature"] or "")
+                if signature:
+                    restored_prompts[signature] = dict(entry)
+        return restored, restored_prompts
+
+    @staticmethod
+    def _story_project_resume_item_count(project: Mapping) -> int:
+        """Count resumable units without copying the complete manifest."""
+
+        def reusable(checkpoint: object) -> bool:
+            if not isinstance(checkpoint, Mapping):
+                return False
+            expected = str(
+                checkpoint.get("expected_input_fingerprint")
+                or checkpoint.get("current_input_fingerprint")
+                or ""
+            ).strip()
+            return bool(
+                checkpoint.get("status") == "completed"
+                and expected
+                and str(checkpoint.get("input_fingerprint") or "") == expected
+            )
+
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        archived = {
+            str(value)
+            for value in list(project.get("archived_chapter_ids") or [])
+        }
+        count = 0
+        for value in list(project.get("chapter_order") or []):
+            chapter_id = str(value or "")
+            if chapter_id in archived:
+                continue
+            chapter = chapters.get(chapter_id)
+            if not isinstance(chapter, Mapping):
+                continue
+            stages = chapter.get("stages")
+            stages = stages if isinstance(stages, Mapping) else {}
+            if any(
+                isinstance(stages.get(stage), Mapping)
+                and stages[stage].get("status") == "missing_audio"
+                for stage in checkpointing.STAGE_ORDER
+            ):
+                continue
+            for stage in checkpointing.STAGE_ORDER:
+                checkpoint = stages.get(stage)
+                if reusable(checkpoint):
+                    if stage != "image_generation":
+                        continue
+                if stage == "image_generation":
+                    scene_checkpoints = chapter.get("scene_checkpoints")
+                    if isinstance(scene_checkpoints, Mapping):
+                        incomplete = sum(
+                            1
+                            for scene_checkpoint in scene_checkpoints.values()
+                            if not reusable(scene_checkpoint)
+                        )
+                    elif isinstance(scene_checkpoints, Sequence) and not isinstance(
+                        scene_checkpoints, (str, bytes, bytearray)
+                    ):
+                        incomplete = sum(
+                            1
+                            for scene_checkpoint in scene_checkpoints
+                            if not reusable(scene_checkpoint)
+                        )
+                    else:
+                        incomplete = 0
+                    count += incomplete or (0 if reusable(checkpoint) else 1)
+                else:
+                    count += 1
+                break
+        return count
+
+    def _prepare_story_project_open_summary(self, project: Mapping) -> dict:
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        archived = {
+            str(value)
+            for value in list(project.get("archived_chapter_ids") or [])
+        }
+        ordered_ids = list(project.get("chapter_order") or [])
+        ordered_ids.extend(
+            chapter_id
+            for chapter_id in list(project.get("archived_chapter_ids") or [])
+            if chapter_id not in ordered_ids
+        )
+        rows: list[dict] = []
+        for value in ordered_ids:
+            chapter_id = str(value or "")
+            chapter = chapters.get(chapter_id)
+            chapter = chapter if isinstance(chapter, Mapping) else {}
+            stages = chapter.get("stages")
+            stages = stages if isinstance(stages, Mapping) else {}
+            statuses = [
+                str(checkpoint.get("status") or "pending")
+                for checkpoint in stages.values()
+                if isinstance(checkpoint, Mapping)
+            ]
+            status = (
+                "complete"
+                if statuses and all(value == "completed" for value in statuses)
+                else next(
+                    (
+                        candidate
+                        for candidate in (
+                            "missing_audio",
+                            "failed",
+                            "interrupted",
+                            "stale",
+                            "running",
+                        )
+                        if candidate in statuses
+                    ),
+                    "pending",
+                )
+            )
+            rows.append(
+                {
+                    "chapter_id": chapter_id,
+                    "display_name": str(
+                        chapter.get("display_name") or "Untitled Chapter"
+                    ),
+                    "archived": chapter_id in archived,
+                    "status": status,
+                    "stage_lines": tuple(
+                        f"{str(stage).replace('_', ' ').title()}: "
+                        f"{checkpoint.get('status', 'pending')}"
+                        for stage, checkpoint in stages.items()
+                        if isinstance(checkpoint, Mapping)
+                    ),
+                }
+            )
+        return {
+            "project_id": str(project.get("project_id") or ""),
+            "manifest_revision": int(project.get("manifest_revision", 0) or 0),
+            "name": str(project.get("name") or ""),
+            "chapter_rows": tuple(rows),
+            "resume_plan_count": self._story_project_resume_item_count(project),
+            "project_summary": {
+                "project_id": str(project.get("project_id") or ""),
+                "manifest_revision": int(
+                    project.get("manifest_revision", 0) or 0
+                ),
+                "name": str(project.get("name") or ""),
+                "chapter_order": list(project.get("chapter_order") or []),
+            },
+        }
+
+    def _prepare_project_legacy_restore_payload(
+        self, project: Mapping
+    ) -> dict | None:
+        legacy_payload = project.get("legacy_session_payload")
+        if not isinstance(legacy_payload, Mapping):
+            return None
+        payload = flatten_audio_story_mode_settings(legacy_payload)
+        transcript_chunks = payload.get("audio_story_mode_transcript_chunks")
+        transcript_chunks = transcript_chunks if isinstance(transcript_chunks, list) else []
+        scene_plan = payload.get("audio_story_mode_scene_plan")
+        scene_plan = scene_plan if isinstance(scene_plan, list) else []
+        raw_segments = payload.get("audio_story_mode_raw_transcript_segments")
+        raw_segments = raw_segments if isinstance(raw_segments, list) else []
+        paragraphs = deque()
+        display_segments = raw_segments or transcript_chunks
+        for value in display_segments:
+            if not isinstance(value, Mapping):
+                continue
+            text = str(value.get("text") or "").strip()
+            if not text:
+                continue
+            try:
+                start_seconds = float(value.get("start_seconds", 0.0) or 0.0)
+                end_seconds = float(
+                    value.get("end_seconds", start_seconds) or start_seconds
+                )
+            except (TypeError, ValueError):
+                continue
+            paragraphs.append(
+                f"[{self._format_seconds(start_seconds)} - "
+                f"{self._format_seconds(end_seconds)}] {text}"
+            )
+        try:
+            duration = max(
+                0.0,
+                float(
+                    payload.get("audio_story_mode_audio_duration_seconds", 0.0)
+                    or 0.0
+                ),
+            )
+        except (TypeError, ValueError):
+            duration = 0.0
+        return {
+            "story_bible": payload.get("audio_story_mode_story_bible")
+            if isinstance(payload.get("audio_story_mode_story_bible"), dict)
+            else {},
+            "scene_plan": scene_plan,
+            "scene_overrides": restore_story_overrides(
+                payload.get("audio_story_mode_scene_overrides")
+                if isinstance(
+                    payload.get("audio_story_mode_scene_overrides"), dict
+                )
+                else {}
+            ),
+            "continuity_memory": payload.get(
+                "audio_story_mode_continuity_memory"
+            )
+            if isinstance(
+                payload.get("audio_story_mode_continuity_memory"), dict
+            )
+            else {},
+            "character_anchors": payload.get(
+                "audio_story_mode_character_anchors"
+            )
+            if isinstance(payload.get("audio_story_mode_character_anchors"), dict)
+            else {},
+            "location_anchors": payload.get("audio_story_mode_location_anchors")
+            if isinstance(payload.get("audio_story_mode_location_anchors"), dict)
+            else {},
+            "transcript_chunks": transcript_chunks,
+            "full_text": str(
+                payload.get("audio_story_mode_full_transcript_text") or ""
+            ).strip(),
+            "raw_segments": raw_segments,
+            "audio_duration_seconds": duration,
+            "transcript_paragraphs": paragraphs,
+            "chunk_count": len(transcript_chunks),
+            "scene_count": len(
+                {
+                    str(value.get("scene_id") or "")
+                    for value in scene_plan
+                    if isinstance(value, Mapping)
+                    and str(value.get("scene_id") or "").strip()
+                }
+            ),
+        }
+
+    @staticmethod
+    def _prepared_story_project_activity_text(
+        issues: Sequence[Mapping], source_paths: Sequence[str]
+    ) -> str:
+        lines: list[str] = []
+        normalized_paths = [
+            str(value or "").strip()
+            for value in source_paths
+            if str(value or "").strip()
+        ]
+        for issue in issues:
+            if not isinstance(issue, Mapping):
+                continue
+            chapter_id = str(issue.get("chapter_id") or "unknown").strip()
+            stage = str(issue.get("stage") or "project_open").strip()
+            message = " ".join(str(issue.get("message") or "").split()).strip()
+            message = re.sub(
+                r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+",
+                "Bearer [redacted]",
+                message,
+            )
+            message = re.sub(
+                r"(?i)\b(api[_ -]?key|authorization|access[_ -]?token|token|password)"
+                r"(\s*[:=]\s*)[^\s,;]+",
+                lambda match: f"{match.group(1)}{match.group(2)}[redacted]",
+                message,
+            )
+            for path in normalized_paths:
+                filename = Path(path).name or "audio file"
+                message = message.replace(path, filename)
+                message = message.replace(path.replace("\\", "/"), filename)
+            if message:
+                lines.append(f"Chapter {chapter_id} [{stage}]: {message}")
+        return "\n".join(lines)
+
+    def _prepare_story_project_open_state(
+        self,
+        project: Mapping,
+        artifacts: project_restore.ProjectArtifactRestore,
+        *,
+        interrupted_issues: Sequence[Mapping] = (),
+        prepare_recovery_autosave: bool = False,
+    ) -> dict:
+        """Prepare an owned, installation-ready project state in a worker."""
+        if not isinstance(project, Mapping):
+            raise TypeError("Prepared Audio Story project must be a mapping")
+        requested_project_id = str(project.get("project_id") or "").strip()
+        if not requested_project_id:
+            raise ValueError("Prepared Audio Story project has no project ID")
+        owned_project = project_models.normalize_project_manifest(project)
+        project_id = str(owned_project.get("project_id") or "").strip()
+        if project_id != requested_project_id:
+            raise ValueError("Prepared Audio Story project identity changed")
+        artifact_project_id = str(getattr(artifacts, "project_id", "") or "")
+        if artifact_project_id and artifact_project_id != project_id:
+            raise ValueError("Prepared artifact project identity does not match")
+        source_kind = novel_models.normalize_source_kind(
+            owned_project.get("source_kind")
+        )
+        restoration = self._assemble_project_restore_payload(
+            owned_project, artifacts
+        )
+        if source_kind == novel_models.SOURCE_KIND_AUDIO:
+            audio = self._prepare_story_project_audio_state(owned_project)
+        else:
+            audio = {
+                "signature": "",
+                "sources": (),
+                "paths": (),
+                "path": "",
+                "duration_seconds": 0.0,
+                "has_valid_source": False,
+            }
+        image_cache, prompt_image_cache = self._prepare_project_image_cache_state(
+            owned_project
+        )
+        summary = self._prepare_story_project_open_summary(owned_project)
+        legacy_restoration = None
+        if not bool(restoration.get("modern_artifacts_installed")):
+            legacy_restoration = self._prepare_project_legacy_restore_payload(
+                owned_project
+            )
+        issues = list(restoration.get("issues") or [])
+        issues.extend(
+            issue for issue in interrupted_issues if isinstance(issue, Mapping)
+        )
+        return {
+            "project_id": project_id,
+            "manifest_revision": int(
+                owned_project.get("manifest_revision", 0) or 0
+            ),
+            "project": owned_project,
+            "project_summary": summary["project_summary"],
+            "open_summary": summary,
+            "audio_signature": str(audio["signature"]),
+            "audio_sources": audio["sources"],
+            "audio_paths": audio["paths"],
+            "audio_path": str(audio["path"]),
+            "audio_duration_seconds": float(audio["duration_seconds"]),
+            "has_valid_source": bool(audio["has_valid_source"]),
+            "restoration": restoration,
+            "legacy_restoration": legacy_restoration,
+            "image_cache": image_cache,
+            "prompt_image_cache": prompt_image_cache,
+            "recovery_autosave": (
+                self._prepare_story_project_recovery_autosave(owned_project)
+                if prepare_recovery_autosave
+                else None
+            ),
+            "activity_text": self._prepared_story_project_activity_text(
+                issues, audio["paths"]
+            ),
+        }
+
+    def _assemble_project_restore_payload(
+        self,
+        project: Mapping,
+        artifacts: project_restore.ProjectArtifactRestore,
+    ) -> dict:
+        """Build immutable-open state in the project worker without touching Qt."""
+        combined_raw_segments: list[dict] = []
+        combined_chunks: list[dict] = []
+        combined_scenes: list[dict] = []
+        combined_text_parts: list[str] = []
+        transcript_paragraphs = deque()
+        combined_character_anchors: dict = {}
+        combined_location_anchors: dict = {}
+        combined_story_bible: dict = {}
+        combined_style_guide = ""
+        issues = [
+            {
+                "chapter_id": str(issue.chapter_id),
+                "stage": str(issue.stage),
+                "message": str(issue.message),
+            }
+            for issue in artifacts.issues
+        ]
+        transcript_count = 0
+        analysis_count = 0
+        unavailable_transcript_count = 0
+        unavailable_analysis_count = 0
+        chunk_index_offset = 0
+        scene_index_offset = 0
+        applied_settings_candidates: list[dict] = []
+        applied_settings_missing = False
+
+        for source_index, chapter_artifacts in enumerate(artifacts.chapters):
+            chapter_id = str(chapter_artifacts.chapter_id)
+            offset = max(
+                0.0, float(chapter_artifacts.global_offset_seconds or 0.0)
+            )
+            local_raw_segments: list[dict] = []
+            transcript = chapter_artifacts.transcript
+            segments = transcript.get("segments") if isinstance(transcript, Mapping) else None
+            if isinstance(segments, Sequence) and not isinstance(
+                segments, (str, bytes, bytearray)
+            ):
+                try:
+                    for value in segments:
+                        if not isinstance(value, Mapping):
+                            continue
+                        text = str(value.get("text") or "").strip()
+                        if not text:
+                            continue
+                        local_start = max(
+                            0.0, float(value.get("start_seconds", 0.0) or 0.0)
+                        )
+                        local_end = max(
+                            local_start,
+                            float(value.get("end_seconds", local_start) or local_start),
+                        )
+                        segment = copy.deepcopy(dict(value))
+                        segment.update(
+                            {
+                                "chapter_id": chapter_id,
+                                "source_index": source_index,
+                                "start_seconds": offset + local_start,
+                                "end_seconds": offset + local_end,
+                                "source_start_seconds": local_start,
+                                "source_end_seconds": local_end,
+                                "text": text,
+                            }
+                        )
+                        local_raw_segments.append(segment)
+                except (TypeError, ValueError) as exc:
+                    local_raw_segments = []
+                    issues.append(
+                        {
+                            "chapter_id": chapter_id,
+                            "stage": "transcription",
+                            "message": f"Saved transcript is invalid: {exc}",
+                        }
+                    )
+            if local_raw_segments:
+                transcript_count += 1
+                combined_raw_segments.extend(copy.deepcopy(local_raw_segments))
+                chapter_text = " ".join(
+                    str(item.get("text") or "").strip()
+                    for item in local_raw_segments
+                    if str(item.get("text") or "").strip()
+                )
+                if chapter_text:
+                    combined_text_parts.append(chapter_text)
+                transcript_paragraphs.extend(
+                    f"[{self._format_seconds(item['start_seconds'])}"
+                    f" - {self._format_seconds(item['end_seconds'])}] "
+                    f"{item['text']}"
+                    for item in local_raw_segments
+                )
+            else:
+                unavailable_transcript_count += 1
+
+            analysis_payload = None
+            if isinstance(chapter_artifacts.analysis, Mapping):
+                try:
+                    analysis_payload = self._offset_project_analysis_payload(
+                        self._validated_project_analysis_payload(
+                            chapter_artifacts.analysis
+                        ),
+                        chapter_id=chapter_id,
+                        global_offset_seconds=offset,
+                    )
+                    analysis_chunks = [
+                        copy.deepcopy(dict(item))
+                        for item in list(
+                            analysis_payload.get("transcript_chunks") or []
+                        )
+                        if isinstance(item, Mapping)
+                    ]
+                    scenes = [
+                        copy.deepcopy(dict(item))
+                        for item in list(analysis_payload.get("scene_plan") or [])
+                        if isinstance(item, Mapping)
+                    ]
+                    if not analysis_chunks:
+                        analysis_chunks = [
+                            {
+                                "start_seconds": item["start_seconds"],
+                                "end_seconds": item["end_seconds"],
+                                "text": item["text"],
+                            }
+                            for item in local_raw_segments
+                        ]
+                    local_scene_span = max(
+                        [int(item.get("scene_index", 0) or 0) for item in scenes],
+                        default=0,
+                    )
+                    for local_index, chunk in enumerate(analysis_chunks):
+                        chunk["index"] = chunk_index_offset + local_index
+                        chunk["chapter_id"] = chapter_id
+                    for scene in scenes:
+                        scene["chapter_id"] = chapter_id
+                        scene["chunk_index"] = chunk_index_offset + int(
+                            scene.get("chunk_index", 0) or 0
+                        )
+                        scene["scene_index"] = scene_index_offset + int(
+                            scene.get("scene_index", 1) or 1
+                        )
+                except (TypeError, ValueError) as exc:
+                    analysis_payload = None
+                    issues.append(
+                        {
+                            "chapter_id": chapter_id,
+                            "stage": "story_analysis",
+                            "message": f"Saved analysis is invalid: {exc}",
+                        }
+                    )
+            if analysis_payload is None:
+                unavailable_analysis_count += 1
+                fallback_chunks = [
+                    {
+                        "index": chunk_index_offset + local_index,
+                        "chapter_id": chapter_id,
+                        "start_seconds": item["start_seconds"],
+                        "end_seconds": item["end_seconds"],
+                        "text": item["text"],
+                    }
+                    for local_index, item in enumerate(local_raw_segments)
+                ]
+                combined_chunks.extend(fallback_chunks)
+                chunk_index_offset += len(fallback_chunks)
+                continue
+
+            analysis_count += 1
+            applied_settings = analysis_payload.get("applied_settings")
+            if isinstance(applied_settings, Mapping) and isinstance(
+                applied_settings.get("planner"), Mapping
+            ) and isinstance(applied_settings.get("style"), Mapping):
+                applied_settings_candidates.append(
+                    copy.deepcopy(dict(applied_settings))
+                )
+            else:
+                applied_settings_missing = True
+            if analysis_count == 1:
+                combined_style_guide = str(
+                    analysis_payload.get("story_style_guide") or ""
+                ).strip()
+            combined_chunks.extend(analysis_chunks)
+            combined_scenes.extend(scenes)
+            combined_character_anchors.update(
+                copy.deepcopy(dict(analysis_payload.get("character_anchors") or {}))
+            )
+            combined_location_anchors.update(
+                copy.deepcopy(dict(analysis_payload.get("location_anchors") or {}))
+            )
+            story_bible = analysis_payload.get("story_bible")
+            if not isinstance(story_bible, Mapping):
+                story_bible = analysis_payload.get("project_story_memory")
+            combined_story_bible = copy.deepcopy(dict(story_bible or {}))
+            chunk_index_offset += len(analysis_chunks)
+            scene_index_offset += local_scene_span
+
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        archived = {
+            str(value) for value in list(project.get("archived_chapter_ids") or [])
+        }
+        duration_seconds = 0.0
+        for value in list(project.get("chapter_order") or []):
+            chapter_id = str(value or "")
+            if chapter_id in archived:
+                continue
+            chapter = chapters.get(chapter_id)
+            audio = chapter.get("audio_reference") if isinstance(chapter, Mapping) else None
+            fingerprint = audio.get("fingerprint") if isinstance(audio, Mapping) else None
+            try:
+                duration_seconds += max(
+                    0.0,
+                    float(fingerprint.get("duration_ms", 0) or 0) / 1000.0,
+                )
+            except (AttributeError, TypeError, ValueError):
+                continue
+
+        status_parts = [
+            f"Restored {transcript_count} saved transcript(s) and "
+            f"{analysis_count} saved analysis document(s)."
+        ]
+        if unavailable_analysis_count:
+            status_parts.append(
+                f"{unavailable_analysis_count} analysis document(s) unavailable."
+            )
+        if unavailable_transcript_count:
+            status_parts.append(
+                f"{unavailable_transcript_count} transcript document(s) unavailable."
+            )
+        restored_applied_settings = None
+        if applied_settings_candidates and not applied_settings_missing:
+            first_candidate = applied_settings_candidates[0]
+            if all(
+                candidate == first_candidate
+                for candidate in applied_settings_candidates[1:]
+            ):
+                restored_applied_settings = first_candidate
+        return {
+            "project_id": str(project.get("project_id") or ""),
+            "modern_artifacts_installed": bool(
+                combined_raw_segments or combined_chunks or combined_scenes
+            ),
+            "raw_segments": combined_raw_segments,
+            "transcript_chunks": combined_chunks,
+            "full_text": " ".join(combined_text_parts),
+            "story_bible": combined_story_bible,
+            "scene_plan": combined_scenes,
+            "character_anchors": combined_character_anchors,
+            "location_anchors": combined_location_anchors,
+            "story_style_guide": combined_style_guide,
+            "audio_duration_seconds": duration_seconds,
+            "transcript_paragraphs": transcript_paragraphs,
+            "chunk_count": len(combined_chunks),
+            "scene_count": len(
+                {
+                    str(item.get("scene_id") or "")
+                    for item in combined_scenes
+                    if isinstance(item, Mapping)
+                    and str(item.get("scene_id") or "").strip()
+                }
+            ),
+            "issues": issues,
+            "status_text": " ".join(status_parts),
+            "analysis_count": analysis_count,
+            "applied_settings": restored_applied_settings,
+        }
+
+    def _install_project_restore_payload(
+        self,
+        restoration: Mapping | None,
+        *,
+        take_ownership: bool = False,
+    ) -> bool:
+        if not isinstance(restoration, Mapping) or not bool(
+            restoration.get("modern_artifacts_installed")
+        ):
+            return False
+        raw_segments = restoration.get("raw_segments")
+        transcript_chunks = restoration.get("transcript_chunks")
+        story_bible = restoration.get("story_bible")
+        scene_plan = restoration.get("scene_plan")
+        character_anchors = restoration.get("character_anchors")
+        location_anchors = restoration.get("location_anchors")
+        transcript_paragraphs = restoration.get("transcript_paragraphs")
+        prepared_scene_count = 0
+        prepared_chunk_count = 0
+        if take_ownership:
+            try:
+                prepared_scene_count = max(
+                    0, int(restoration.get("scene_count", 0) or 0)
+                )
+                prepared_chunk_count = max(
+                    0, int(restoration.get("chunk_count", 0) or 0)
+                )
+            except (TypeError, ValueError):
+                return False
+        if take_ownership and not (
+            isinstance(raw_segments, list)
+            and isinstance(transcript_chunks, list)
+            and isinstance(story_bible, dict)
+            and isinstance(scene_plan, list)
+            and isinstance(character_anchors, dict)
+            and isinstance(location_anchors, dict)
+            and isinstance(transcript_paragraphs, deque)
+        ):
+            return False
+        self._raw_transcript_segments = (
+            raw_segments
+            if take_ownership
+            else copy.deepcopy(list(raw_segments or []))
+        )
+        self.transcript_chunks = (
+            transcript_chunks
+            if take_ownership
+            else copy.deepcopy(list(transcript_chunks or []))
+        )
+        self.full_transcript_text = str(restoration.get("full_text") or "").strip()
+        self.story_bible = (
+            story_bible
+            if take_ownership
+            else copy.deepcopy(dict(story_bible or {}))
+        )
+        self.scene_plan = (
+            scene_plan
+            if take_ownership
+            else copy.deepcopy(list(scene_plan or []))
+        )
+        self.character_anchors = (
+            character_anchors
+            if take_ownership
+            else copy.deepcopy(dict(character_anchors or {}))
+        )
+        self.location_anchors = (
+            location_anchors
+            if take_ownership
+            else copy.deepcopy(dict(location_anchors or {}))
+        )
+        self._story_analysis_state_version = int(
+            getattr(self, "_story_analysis_state_version", 0)
+        ) + 1
+        self.story_style_guide = str(
+            restoration.get("story_style_guide") or ""
+        ).strip()
+        try:
+            restored_analysis_count = max(
+                0, int(restoration.get("analysis_count", 0) or 0)
+            )
+        except (TypeError, ValueError):
+            restored_analysis_count = 0
+        if restored_analysis_count > 0:
+            applied_settings = restoration.get("applied_settings")
+            if isinstance(applied_settings, Mapping):
+                planner = applied_settings.get("planner")
+                style = applied_settings.get("style")
+                if isinstance(planner, Mapping) and isinstance(style, Mapping):
+                    try:
+                        restored_planner = (
+                            settings_workload.PlannerSettingsSnapshot.from_mapping(
+                                planner
+                            )
+                        )
+                        restored_style = (
+                            settings_workload.StyleSettingsSnapshot.from_mapping(style)
+                        )
+                    except (TypeError, ValueError):
+                        restored_planner = None
+                        restored_style = None
+                    if restored_planner is not None and restored_style is not None:
+                        self._applied_planner_settings = restored_planner
+                        self._applied_style_settings = restored_style
+                        self._unknown_applied_planner_baseline = None
+                        self._unknown_applied_style_baseline = None
+                        self._planner_apply_state = "Saved"
+                        self._style_apply_state = "Saved"
+                        self._sync_planner_apply_state()
+                        self._sync_style_apply_state()
+                    else:
+                        self._applied_planner_settings = None
+                        self._applied_style_settings = None
+                        self._unknown_applied_planner_baseline = (
+                            self._planner_draft_snapshot()
+                        )
+                        self._unknown_applied_style_baseline = (
+                            self._style_draft_snapshot()
+                        )
+                        self._sync_planner_apply_state(state="Saved")
+                        self._sync_style_apply_state(state="Saved")
+                else:
+                    self._applied_planner_settings = None
+                    self._applied_style_settings = None
+                    self._unknown_applied_planner_baseline = (
+                        self._planner_draft_snapshot()
+                    )
+                    self._unknown_applied_style_baseline = (
+                        self._style_draft_snapshot()
+                    )
+                    self._sync_planner_apply_state(state="Saved")
+                    self._sync_style_apply_state(state="Saved")
+            else:
+                self._applied_planner_settings = None
+                self._applied_style_settings = None
+                self._unknown_applied_planner_baseline = (
+                    self._planner_draft_snapshot()
+                )
+                self._unknown_applied_style_baseline = self._style_draft_snapshot()
+                self._sync_planner_apply_state(state="Saved")
+                self._sync_style_apply_state(state="Saved")
+        else:
+            self._applied_planner_settings = None
+            self._applied_style_settings = None
+            self._unknown_applied_planner_baseline = None
+            self._unknown_applied_style_baseline = None
+            self._sync_planner_apply_state(state="Changes not applied")
+            self._sync_style_apply_state(state="Changes not applied")
+        try:
+            duration = max(
+                0.0, float(restoration.get("audio_duration_seconds", 0.0) or 0.0)
+            )
+        except (TypeError, ValueError):
+            duration = 0.0
+        self.imported_audio_duration_seconds = duration
+        self._last_transcription_audio_duration = duration
+        self._start_transcript_display_batches(
+            transcript_paragraphs
+            if take_ownership
+            else list(transcript_paragraphs or [])
+        )
+        if hasattr(self, "audio_story_summary_label"):
+            if take_ownership:
+                scene_count = prepared_scene_count
+                chunk_count = prepared_chunk_count
+            else:
+                scene_count = len(
+                    {
+                        str(item.get("scene_id") or "")
+                        for item in self.scene_plan
+                        if isinstance(item, Mapping)
+                        and str(item.get("scene_id") or "")
+                    }
+                )
+                chunk_count = len(self.transcript_chunks)
+            self.audio_story_summary_label.setText(
+                "Restored saved project artifacts. "
+                f"Image windows: {chunk_count}\n"
+                f"Scenes: {scene_count}\n"
+                f"Audio duration: {self._format_seconds(duration)}"
+            )
+        self._refresh_scene_override_controls()
+        return True
+
+    def _cancel_transcript_display_batches(self) -> None:
+        self._transcript_display_generation += 1
+        self._transcript_display_batch_generation = -1
+        self._transcript_display_paragraphs.clear()
+        self._transcript_display_has_content = False
+        try:
+            self._transcript_display_timer.stop()
+        except RuntimeError:
+            pass
+
+    def _start_transcript_display_batches(
+        self, paragraphs: Sequence[str] | deque[str]
+    ) -> None:
+        self._cancel_transcript_display_batches()
+        transcript_edit = getattr(self, "audio_story_transcript_edit", None)
+        if transcript_edit is None:
+            return
+        try:
+            transcript_edit.clear()
+        except RuntimeError:
+            return
+        self._transcript_display_batch_generation = int(
+            self._transcript_display_generation
+        )
+        self._transcript_display_paragraphs = (
+            paragraphs if isinstance(paragraphs, deque) else deque(paragraphs)
+        )
+        if self._transcript_display_paragraphs:
+            self._transcript_display_timer.start()
+
+    @QtCore.Slot()
+    def _flush_transcript_display_batch(self) -> None:
+        generation = int(self._transcript_display_generation)
+        if self._transcript_display_batch_generation != generation:
+            return
+        transcript_edit = getattr(self, "audio_story_transcript_edit", None)
+        if transcript_edit is None:
+            self._cancel_transcript_display_batches()
+            return
+        try:
+            cursor = QtGui.QTextCursor(transcript_edit.document())
+            cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
+            for _index in range(min(100, len(self._transcript_display_paragraphs))):
+                paragraph = self._transcript_display_paragraphs.popleft()
+                if self._transcript_display_has_content:
+                    cursor.insertText("\n\n")
+                cursor.insertText(paragraph)
+                self._transcript_display_has_content = True
+            transcript_edit.setTextCursor(cursor)
+        except RuntimeError:
+            self._cancel_transcript_display_batches()
+            return
+        if (
+            self._transcript_display_batch_generation == generation
+            and self._transcript_display_paragraphs
+        ):
+            self._transcript_display_timer.start()
 
     def _hydrate_story_project_audio(self, project: dict | None) -> None:
         sources = []
@@ -3977,6 +7057,18 @@ class AudioStoryModeController(QtCore.QObject):
             self._sync_story_generated_master_prompt(refresh_visuals=False)
             self._refresh_scene_override_controls()
             self._prepare_source_media()
+        self._applied_planner_settings = None
+        self._applied_style_settings = None
+        self._unknown_applied_planner_baseline = self._planner_draft_snapshot()
+        self._unknown_applied_style_baseline = self._style_draft_snapshot()
+        self._sync_planner_apply_state(state="Saved")
+        self._sync_style_apply_state(state="Saved")
+        self._scene_overrides_version = int(
+            getattr(self, "_scene_overrides_version", 0)
+        ) + 1
+        self._story_analysis_state_version = int(
+            getattr(self, "_story_analysis_state_version", 0)
+        ) + 1
         return True
 
     def _project_owned_story_image_path(
@@ -4074,16 +7166,330 @@ class AudioStoryModeController(QtCore.QObject):
             self._image_cache = restored
             self._prompt_image_cache = restored_prompts
 
+    @staticmethod
+    def _prepared_story_project_open_is_valid(
+        project: object, prepared_open: object
+    ) -> bool:
+        if not isinstance(project, Mapping) or not isinstance(prepared_open, Mapping):
+            return False
+        owned_project = prepared_open.get("project")
+        restoration = prepared_open.get("restoration")
+        open_summary = prepared_open.get("open_summary")
+        project_summary = prepared_open.get("project_summary")
+        if not (
+            isinstance(owned_project, dict)
+            and isinstance(restoration, Mapping)
+            and isinstance(open_summary, Mapping)
+            and isinstance(project_summary, dict)
+            and isinstance(prepared_open.get("audio_sources"), list)
+            and isinstance(prepared_open.get("audio_paths"), list)
+            and isinstance(prepared_open.get("audio_path"), str)
+            and isinstance(prepared_open.get("audio_signature"), str)
+            and isinstance(prepared_open.get("has_valid_source"), bool)
+            and isinstance(prepared_open.get("image_cache"), dict)
+            and isinstance(prepared_open.get("prompt_image_cache"), dict)
+            and isinstance(prepared_open.get("activity_text"), str)
+            and (
+                prepared_open.get("recovery_autosave") is None
+                or isinstance(prepared_open.get("recovery_autosave"), Mapping)
+            )
+            and (
+                prepared_open.get("legacy_restoration") is None
+                or isinstance(prepared_open.get("legacy_restoration"), dict)
+            )
+        ):
+            return False
+        project_id = str(project.get("project_id") or "").strip()
+        prepared_project_id = str(prepared_open.get("project_id") or "").strip()
+        owned_project_id = str(owned_project.get("project_id") or "").strip()
+        restore_project_id = str(restoration.get("project_id") or "").strip()
+        summary_project_id = str(open_summary.get("project_id") or "").strip()
+        try:
+            project_revision = project.get("manifest_revision", 0)
+            prepared_revision = prepared_open.get("manifest_revision", 0)
+            owned_revision = owned_project.get("manifest_revision", 0)
+            summary_revision = open_summary.get("manifest_revision", 0)
+            if any(
+                isinstance(value, bool)
+                for value in (
+                    project_revision,
+                    prepared_revision,
+                    owned_revision,
+                    summary_revision,
+                )
+            ):
+                return False
+            revisions = {
+                int(project_revision or 0),
+                int(prepared_revision or 0),
+                int(owned_revision or 0),
+                int(summary_revision or 0),
+            }
+        except (TypeError, ValueError):
+            return False
+        return bool(
+            project_id
+            and project_id
+            == prepared_project_id
+            == owned_project_id
+            == restore_project_id
+            == summary_project_id
+            and len(revisions) == 1
+            and next(iter(revisions)) >= 0
+        )
+
+    def _install_prepared_story_project_audio(self, prepared_open: Mapping) -> None:
+        self.imported_audio_sources = prepared_open["audio_sources"]
+        self.imported_audio_paths = prepared_open["audio_paths"]
+        self.imported_audio_path = str(prepared_open["audio_path"])
+        self.imported_audio_duration_seconds = max(
+            0.0, float(prepared_open.get("audio_duration_seconds", 0.0) or 0.0)
+        )
+        self._refresh_audio_source_queue()
+        self._sync_transcription_range_controls()
+
+    def _install_prepared_project_image_cache(
+        self, prepared_open: Mapping
+    ) -> None:
+        with self._lock:
+            self._image_cache = prepared_open["image_cache"]
+            self._prompt_image_cache = prepared_open["prompt_image_cache"]
+
+    def _append_prepared_transcription_console(
+        self, level: str, prepared_text: str
+    ) -> None:
+        """Append worker-sanitized text without rescanning project paths."""
+        console = getattr(self, "audio_story_transcription_console", None)
+        text = str(prepared_text or "").strip()
+        if console is None or not text:
+            return
+        normalized_level = str(level or "INFO").strip().upper()
+        if normalized_level not in {
+            "INFO",
+            "PROGRESS",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+        }:
+            normalized_level = "INFO"
+        signature = f"{normalized_level}\0{text}"
+        if signature == self._last_transcription_console_entry:
+            return
+        self._last_transcription_console_entry = signature
+        timestamp = QtCore.QTime.currentTime().toString("HH:mm:ss")
+        console.appendPlainText(f"[{timestamp}] [{normalized_level}] {text}")
+        scrollbar = console.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def _install_prepared_project_legacy_story_state(
+        self, restoration: Mapping | None
+    ) -> bool:
+        if not isinstance(restoration, Mapping):
+            return False
+        story_bible = restoration.get("story_bible")
+        scene_plan = restoration.get("scene_plan")
+        scene_overrides = restoration.get("scene_overrides")
+        continuity_memory = restoration.get("continuity_memory")
+        character_anchors = restoration.get("character_anchors")
+        location_anchors = restoration.get("location_anchors")
+        transcript_chunks = restoration.get("transcript_chunks")
+        raw_segments = restoration.get("raw_segments")
+        paragraphs = restoration.get("transcript_paragraphs")
+        if not (
+            isinstance(story_bible, dict)
+            and isinstance(scene_plan, list)
+            and isinstance(scene_overrides, dict)
+            and isinstance(continuity_memory, dict)
+            and isinstance(character_anchors, dict)
+            and isinstance(location_anchors, dict)
+            and isinstance(transcript_chunks, list)
+            and isinstance(raw_segments, list)
+            and isinstance(paragraphs, deque)
+        ):
+            return False
+        try:
+            duration = max(
+                0.0,
+                float(restoration.get("audio_duration_seconds", 0.0) or 0.0),
+            )
+            chunk_count = max(0, int(restoration.get("chunk_count", 0) or 0))
+            scene_count = max(0, int(restoration.get("scene_count", 0) or 0))
+        except (TypeError, ValueError):
+            return False
+        self.story_bible = story_bible
+        self.scene_plan = scene_plan
+        self.scene_overrides = scene_overrides
+        self.continuity_memory = continuity_memory
+        self.character_anchors = character_anchors
+        self.location_anchors = location_anchors
+        self.transcript_chunks = transcript_chunks
+        self.full_transcript_text = str(restoration.get("full_text") or "").strip()
+        self._raw_transcript_segments = raw_segments
+        self.imported_audio_duration_seconds = duration
+        self._last_transcription_audio_duration = duration
+        self._scene_overrides_version = int(
+            getattr(self, "_scene_overrides_version", 0)
+        ) + 1
+        self._story_analysis_state_version = int(
+            getattr(self, "_story_analysis_state_version", 0)
+        ) + 1
+        if transcript_chunks:
+            self._start_transcript_display_batches(paragraphs)
+            if hasattr(self, "audio_story_summary_label"):
+                playback_mode = (
+                    self.audio_story_playback_mode_combo.currentText()
+                    if hasattr(self, "audio_story_playback_mode_combo")
+                    else "Play Imported Audio"
+                )
+                self.audio_story_summary_label.setText(
+                    "Restored story plan. "
+                    f"Image windows: {chunk_count}\n"
+                    f"Scenes: {scene_count}\n"
+                    f"Playback mode: {playback_mode}"
+                )
+            self._sync_story_generated_master_prompt(refresh_visuals=False)
+            self._refresh_scene_override_controls()
+        self._applied_planner_settings = None
+        self._applied_style_settings = None
+        self._unknown_applied_planner_baseline = self._planner_draft_snapshot()
+        self._unknown_applied_style_baseline = self._style_draft_snapshot()
+        self._sync_planner_apply_state(state="Saved")
+        self._sync_style_apply_state(state="Saved")
+        return True
+
+    def _apply_prepared_open_story_project(
+        self,
+        project: Mapping,
+        prepared_open: Mapping,
+        *,
+        replace_derived_state: bool,
+    ) -> None:
+        if not self._prepared_story_project_open_is_valid(project, prepared_open):
+            self._story_project_busy = False
+            self._set_story_project_autosave_text(
+                "Project open result was rejected.",
+                state="error",
+            )
+            self._set_status(
+                "Audio Story project open was rejected because its prepared state "
+                "did not match the requested project."
+            )
+            self._refresh_controls()
+            return
+        owned_project = prepared_open["project"]
+        new_project_id = str(prepared_open["project_id"])
+        source_kind = novel_models.normalize_source_kind(
+            owned_project.get("source_kind")
+        )
+        is_audio_project = source_kind == novel_models.SOURCE_KIND_AUDIO
+        self._story_chapter_lazy_loading_active = True
+        identity_changed = new_project_id != self.current_story_project_id
+        if identity_changed:
+            self._invalidate_novel_job()
+        audio_signature = str(prepared_open["audio_signature"])
+        audio_changed = (
+            audio_signature
+            != str(getattr(self, "_current_story_project_audio_signature", "") or "")
+        )
+        if identity_changed:
+            self._stored_selected_range_enabled = False
+        if identity_changed and not self._story_project_busy:
+            self._invalidate_story_project_work()
+            self._story_project_input_fingerprint = ""
+        if identity_changed or audio_changed or replace_derived_state:
+            self._clear_audio_story_derived_state()
+        self.current_story_project_id = new_project_id
+        self._current_story_project = owned_project
+        self._story_chapter_working_set.invalidate(
+            new_project_id,
+            int(owned_project.get("manifest_revision", 0) or 0),
+        )
+        self._story_chapter_load_pending_installs.clear()
+        if identity_changed or replace_derived_state:
+            self._current_story_chapter_id = ""
+            self._story_chapter_load_generation += 1
+        self._current_story_project_audio_signature = audio_signature
+        self._current_story_project_open_summary = prepared_open["open_summary"]
+        self._story_project_busy = False
+        if identity_changed or replace_derived_state:
+            self._story_project_pending_autosave = None
+            self._story_project_dirty_autosave = None
+        self._replace_story_project_summary(
+            prepared_open["project_summary"], take_ownership=True
+        )
+        if self._story_project_pending_autosave is None:
+            self._set_story_project_autosave_text("Project ready")
+        self._install_prepared_story_project_audio(prepared_open)
+        if is_audio_project and (identity_changed or replace_derived_state):
+            modern_installed = self._install_project_restore_payload(
+                prepared_open["restoration"], take_ownership=True
+            )
+            legacy_installed = False
+            if not modern_installed:
+                legacy_installed = self._install_prepared_project_legacy_story_state(
+                    prepared_open.get("legacy_restoration")
+                )
+            if not modern_installed and not legacy_installed:
+                self._applied_planner_settings = None
+                self._applied_style_settings = None
+                self._unknown_applied_planner_baseline = None
+                self._unknown_applied_style_baseline = None
+                self._sync_planner_apply_state(state="Changes not applied")
+                self._sync_style_apply_state(state="Changes not applied")
+        self._install_prepared_project_image_cache(prepared_open)
+        self._append_prepared_transcription_console(
+            "WARNING", str(prepared_open.get("activity_text") or "")
+        )
+        if bool(prepared_open.get("has_valid_source")):
+            self._prepare_source_media()
+        self._refresh_story_project_ui()
+        navigation = getattr(self, "audio_story_inner_tabs", None)
+        if navigation is not None:
+            navigation.select_key("audio" if is_audio_project else "novel")
+        self._set_novel_panel_project(owned_project)
+        if not is_audio_project:
+            self._restore_novel_workspace(new_project_id)
+        selected = self._selected_story_project_chapter()
+        selected_chapter_id = str(selected.get("chapter_id") or "").strip()
+        if is_audio_project and selected_chapter_id and not bool(selected.get("archived")):
+            self._request_story_project_chapter(
+                selected_chapter_id,
+                reason="project-open",
+            )
+        self._refresh_controls()
+
     def _apply_open_story_project(
         self,
         project,
         *,
         replace_derived_state: bool = False,
+        restoration: Mapping | None = None,
+        prepared_open: Mapping | None = None,
     ) -> None:
+        if prepared_open is not None:
+            self._apply_prepared_open_story_project(
+                project,
+                prepared_open,
+                replace_derived_state=replace_derived_state,
+            )
+            return
         normalized = copy.deepcopy(dict(project or {})) if isinstance(project, dict) else None
         new_project_id = str((normalized or {}).get("project_id") or "")
+        source_kind = novel_models.normalize_source_kind(
+            (normalized or {}).get("source_kind")
+        )
+        is_audio_project = source_kind == novel_models.SOURCE_KIND_AUDIO
+        if not new_project_id:
+            self._story_chapter_lazy_loading_active = False
+            self._current_story_chapter_id = ""
+            self._story_chapter_load_generation += 1
+            self._story_chapter_working_set.clear()
+            self._story_chapter_load_pending_installs.clear()
+            self._pending_story_chapter_resume = None
         previous_project = dict(self._current_story_project or {})
         identity_changed = new_project_id != self.current_story_project_id
+        if identity_changed:
+            self._invalidate_novel_job()
 
         def active_audio_signature(value: dict) -> tuple:
             chapters = dict(value.get("chapters") or {})
@@ -4123,6 +7529,16 @@ class AudioStoryModeController(QtCore.QObject):
             self._clear_audio_story_derived_state()
         self.current_story_project_id = new_project_id
         self._current_story_project = normalized
+        if normalized is not None and self._story_chapter_lazy_loading_active:
+            self._story_chapter_working_set.invalidate(
+                new_project_id,
+                int(normalized.get("manifest_revision", 0) or 0),
+            )
+            if identity_changed or audio_changed or replace_derived_state:
+                self._current_story_chapter_id = ""
+                self._story_chapter_load_generation += 1
+                self._story_chapter_load_pending_installs.clear()
+                self._pending_story_chapter_resume = None
         self._story_project_busy = False
         if identity_changed or replace_derived_state:
             self._story_project_pending_autosave = None
@@ -4136,16 +7552,47 @@ class AudioStoryModeController(QtCore.QObject):
                 self._queue_story_project_autosave(normalized)
         if not new_project_id:
             self._set_story_project_autosave_text("No project open")
+            self._applied_planner_settings = self._planner_draft_snapshot()
+            self._applied_style_settings = self._style_draft_snapshot()
+            self._unknown_applied_planner_baseline = None
+            self._unknown_applied_style_baseline = None
+            self._sync_planner_apply_state(state="Saved")
+            self._sync_style_apply_state(state="Saved")
         elif self._story_project_pending_autosave is None:
             self._set_story_project_autosave_text("Project ready")
-        self._hydrate_story_project_audio(normalized)
-        if identity_changed or replace_derived_state:
-            self._hydrate_project_owned_legacy_story_state(normalized)
+        self._hydrate_story_project_audio(normalized if is_audio_project else None)
+        if is_audio_project and (identity_changed or replace_derived_state):
+            modern_artifacts_installed = self._install_project_restore_payload(
+                restoration
+            )
+            if not modern_artifacts_installed:
+                self._hydrate_project_owned_legacy_story_state(normalized)
         self._restore_project_image_cache(normalized)
         navigation = getattr(self, "audio_story_inner_tabs", None)
-        if navigation is not None and not new_project_id:
-            navigation.select_key("project")
+        if navigation is not None:
+            if not new_project_id:
+                navigation.select_key("project")
+            elif identity_changed or replace_derived_state:
+                navigation.select_key("audio" if is_audio_project else "novel")
+        self._set_novel_panel_project(normalized)
+        if new_project_id and not is_audio_project:
+            self._restore_novel_workspace(new_project_id)
         self._refresh_story_project_ui()
+        if (
+            is_audio_project
+            and normalized is not None
+            and self._story_chapter_lazy_loading_active
+            and not self._current_story_chapter_id
+        ):
+            selected = self._selected_story_project_chapter()
+            selected_chapter_id = str(
+                selected.get("chapter_id") or ""
+            ).strip()
+            if selected_chapter_id and not bool(selected.get("archived")):
+                self._request_story_project_chapter(
+                    selected_chapter_id,
+                    reason="project-update",
+                )
         self._refresh_controls()
 
     def _refresh_story_project_ui(self) -> None:
@@ -4173,6 +7620,21 @@ class AudioStoryModeController(QtCore.QObject):
             del blocker
 
         project = dict(self._current_story_project or {})
+        prepared_summary = getattr(
+            self, "_current_story_project_open_summary", None
+        )
+        try:
+            prepared_summary_is_current = bool(
+                isinstance(prepared_summary, Mapping)
+                and str(prepared_summary.get("project_id") or "")
+                == str(project.get("project_id") or "")
+                and int(prepared_summary.get("manifest_revision", 0) or 0)
+                == int(project.get("manifest_revision", 0) or 0)
+            )
+        except (TypeError, ValueError):
+            prepared_summary_is_current = False
+        if not prepared_summary_is_current:
+            prepared_summary = None
         name_label = getattr(self, "audio_story_project_name_label", None)
         if name_label is not None:
             name_label.setText(
@@ -4239,10 +7701,18 @@ class AudioStoryModeController(QtCore.QObject):
                 ]
                 chapter_status.setText("  |  ".join(stage_lines))
         recovery_label = getattr(self, "audio_story_project_recovery_label", None)
-        plan = checkpointing.build_resume_plan(project) if project else []
+        if prepared_summary is not None:
+            resume_plan_count = max(
+                0, int(prepared_summary.get("resume_plan_count", 0) or 0)
+            )
+        else:
+            resume_plan_count = (
+                len(checkpointing.build_resume_plan(project)) if project else 0
+            )
         if recovery_label is not None:
             recovery_label.setText(
-                f"{len(plan)} unfinished work item{'s' if len(plan) != 1 else ''} can be resumed."
+                f"{resume_plan_count} unfinished work item"
+                f"{'s' if resume_plan_count != 1 else ''} can be resumed."
                 if project
                 else "Open a project to continue its chapters and recover unfinished work."
             )
@@ -4270,8 +7740,8 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_story_project_relink_button": bool(chapter_id) and not project_busy,
             "audio_story_project_archive_button": bool(chapter_id) and not bool(selection.get("archived")) and not project_busy,
             "audio_story_project_restore_button": bool(chapter_id) and bool(selection.get("archived")) and not project_busy,
-            "audio_story_project_resume_all_button": bool(plan) and not project_busy,
-            "audio_story_project_retry_button": bool(plan and chapter_id) and not project_busy,
+            "audio_story_project_resume_all_button": bool(resume_plan_count) and not project_busy,
+            "audio_story_project_retry_button": bool(resume_plan_count and chapter_id) and not project_busy,
         }
         for name, enabled in button_states.items():
             button = getattr(self, name, None)
@@ -4321,6 +7791,12 @@ class AudioStoryModeController(QtCore.QObject):
         }
         self.character_anchors = {}
         self.location_anchors = {}
+        self._scene_overrides_version = int(
+            getattr(self, "_scene_overrides_version", 0)
+        ) + 1
+        self._story_analysis_state_version = int(
+            getattr(self, "_story_analysis_state_version", 0)
+        ) + 1
 
     def _normalize_image_timing_mode(self, value=None):
         normalized = str(value if value is not None else self._stored_image_timing_mode or "fixed").strip().lower()
@@ -4434,20 +7910,14 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_continuity_slider()
         self._sync_generate_ahead_slider()
         self._sync_story_master_prompt_controls()
-        self._sync_llm_story_analysis_controls()
-        self._sync_story_analysis_provider_controls()
+        self._sync_llm_story_analysis_controls(sync_provider=False)
+        self._sync_story_analysis_provider_controls(sync_models=False)
+        self._sync_story_analysis_model_controls(discover_candidates=False)
         self._sync_prompt_block_limit_controls()
         self._sync_prompt_safety_cap_control()
         self._sync_audio_story_cost_profile_controls()
-        if rebuild_story and self._raw_transcript_segments:
-            status_text = (
-                f"Analyzing story with {self._story_analysis_provider_status_label()}..."
-                if self._stored_use_llm_story_analysis
-                else "Rebuilding audio story analysis..."
-            )
-            self._start_story_payload_rebuild_job(status_text=status_text)
-        else:
-            self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._sync_planner_apply_state()
+        self._sync_style_apply_state()
         self._refresh_controls()
         return True
 
@@ -4523,7 +7993,6 @@ class AudioStoryModeController(QtCore.QObject):
             self._stored_story_master_prompt_mode = story_master_prompt_mode
         if data.get("audio_story_analysis_mode") is not None:
             self._stored_audio_story_analysis_mode = self._normalize_audio_story_analysis_mode(data.get("audio_story_analysis_mode"))
-            audio_story_runtime.update_runtime_config("audio_story_analysis_mode", self._stored_audio_story_analysis_mode)
         if data.get("use_llm_story_analysis") is not None:
             self._stored_use_llm_story_analysis = bool(data.get("use_llm_story_analysis"))
         if data.get("instructor_beats_enabled") is not None:
@@ -4557,27 +8026,22 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_audio_story_style_controls()
         self._sync_story_master_prompt_controls()
         self._sync_audio_story_analysis_mode_controls()
-        self._sync_llm_story_analysis_controls()
+        self._sync_llm_story_analysis_controls(sync_provider=False)
         self._sync_instructor_controls()
-        self._sync_story_analysis_provider_controls()
-        self._sync_story_analysis_model_controls()
+        self._sync_story_analysis_provider_controls(sync_models=False)
+        self._sync_story_analysis_model_controls(discover_candidates=False)
         self._sync_xai_image_settings_controls()
         self._sync_prompt_block_limit_controls()
         self._sync_prompt_safety_cap_control()
         if hasattr(self, "audio_story_playback_mode_combo") and playback_mode:
             index = self.audio_story_playback_mode_combo.findText(playback_mode)
             if index >= 0:
+                blocker = QtCore.QSignalBlocker(self.audio_story_playback_mode_combo)
                 self.audio_story_playback_mode_combo.setCurrentIndex(index)
+                del blocker
         self._sync_audio_story_cost_profile_controls()
-        if rebuild_story and self._raw_transcript_segments:
-            status_text = (
-                f"Analyzing story with {self._story_analysis_provider_status_label()}..."
-                if self._stored_use_llm_story_analysis
-                else "Rebuilding audio story analysis..."
-            )
-            self._start_story_payload_rebuild_job(status_text=status_text)
-        else:
-            self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._sync_planner_apply_state()
+        self._sync_style_apply_state()
         self._refresh_controls()
 
     def _audio_story_preset_slug(self, name: str):
@@ -4871,14 +8335,14 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_audio_story_analysis_mode_controls()
         if payload.get("audio_story_mode_use_llm_story_analysis") is not None:
             self._stored_use_llm_story_analysis = bool(payload.get("audio_story_mode_use_llm_story_analysis"))
-        self._sync_llm_story_analysis_controls()
+        self._sync_llm_story_analysis_controls(sync_provider=False)
         if payload.get("audio_story_mode_instructor_beats_enabled") is not None:
             self._stored_instructor_beats_enabled = bool(payload.get("audio_story_mode_instructor_beats_enabled"))
         self._sync_instructor_controls()
         analysis_provider_mode = payload.get("audio_story_mode_story_analysis_provider_mode")
         if analysis_provider_mode is not None:
             self._stored_story_analysis_provider_mode = self._normalize_story_analysis_provider_mode(analysis_provider_mode)
-        self._sync_story_analysis_provider_controls()
+        self._sync_story_analysis_provider_controls(sync_models=False)
         analysis_model = payload.get("audio_story_mode_story_analysis_model")
         if analysis_model is not None:
             self._stored_story_analysis_model = self._normalize_story_analysis_model(analysis_model)
@@ -4992,6 +8456,13 @@ class AudioStoryModeController(QtCore.QObject):
             self._sync_story_generated_master_prompt(refresh_visuals=False)
             self._refresh_scene_override_controls()
             self._prepare_source_media()
+        if not project_hint and not self.current_story_project_id:
+            self._applied_planner_settings = self._planner_draft_snapshot()
+            self._applied_style_settings = self._style_draft_snapshot()
+            self._unknown_applied_planner_baseline = None
+            self._unknown_applied_style_baseline = None
+            self._sync_planner_apply_state(state="Saved")
+            self._sync_style_apply_state(state="Saved")
         if project_hint:
             autosave_queue = self._story_project_autosave_queue
             self._launch_story_project_job(
@@ -5009,12 +8480,35 @@ class AudioStoryModeController(QtCore.QObject):
         return None
 
     def shutdown(self):
+        self._novel_job_generation += 1
+        if self._novel_cancel_event is not None:
+            self._novel_cancel_event.set()
+        self._novel_job_active = False
+        self._novel_job_owner = None
+        self._novel_cancel_event = None
+        self._story_project_shutdown = True
+        self._story_model_catalog_shutdown = True
+        self._story_model_catalog_request_id += 1
+        self._story_chapter_load_generation += 1
+        with self._lock:
+            chapter_load_threads = tuple(self._story_chapter_load_threads)
+        chapter_load_deadline = time.monotonic() + 1.0
+        for thread in chapter_load_threads:
+            remaining = chapter_load_deadline - time.monotonic()
+            if remaining <= 0.0:
+                break
+            join = getattr(thread, "join", None)
+            if callable(join):
+                join(timeout=remaining)
+        self._story_chapter_working_set.clear()
+        self._story_chapter_load_inflight.clear()
+        self._story_chapter_load_pending_installs.clear()
+        self._pending_story_chapter_resume = None
         self._invalidate_story_project_work()
         self._story_project_input_fingerprint = ""
         self._story_project_shutdown_save_failure = ""
         self._story_project_shutdown_final_ownership = None
         autosave_queue = self._story_project_autosave_queue
-        self._story_project_shutdown = True
         with self._lock:
             dirty = copy.deepcopy(self._story_project_dirty_autosave)
         dirty_is_current = bool(
@@ -5090,14 +8584,17 @@ class AudioStoryModeController(QtCore.QObject):
                     )
         if self._story_project_shutdown_save_failure:
             detail = self._story_project_shutdown_save_failure
-            self._set_story_project_autosave_text(f"Final save unresolved: {detail}")
+            self._set_story_project_autosave_text(
+                f"Final save unresolved: {detail}",
+                state="error",
+            )
             self._set_status(f"Audio Story project final save unresolved: {detail}")
         try:
-            self._visual_refresh_timer.stop()
+            self._story_rebuild_timer.stop()
         except Exception:
             pass
         try:
-            self._story_rebuild_timer.stop()
+            self._story_project_status_timer.stop()
         except Exception:
             pass
         try:
@@ -5286,6 +8783,10 @@ class AudioStoryModeController(QtCore.QObject):
             review_work,
             project_id=project_id,
             switch_project=False,
+            busy_text=(
+                "Checking "
+                f"{self._audio_file_count_text(len(selected_paths))}..."
+            ),
         )
 
     @staticmethod
@@ -5414,6 +8915,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._refresh_controls()
 
     def _clear_audio_story_derived_state(self):
+        self._cancel_transcript_display_batches()
         self._invalidate_tts_queue(clear_plan=True)
         self.transcript_chunks = []
         self.full_transcript_text = ""
@@ -5424,8 +8926,9 @@ class AudioStoryModeController(QtCore.QObject):
         self._pending_play_request = None
         self._tts_bundle = None
         self._tts_signature = ""
-        self._image_cache = {}
-        self._prompt_image_cache = {}
+        with self._lock:
+            self._image_cache = {}
+            self._prompt_image_cache = {}
         self._current_chunk_index = -1
         if hasattr(self, "audio_story_transcript_edit"):
             self.audio_story_transcript_edit.clear()
@@ -6037,46 +9540,151 @@ class AudioStoryModeController(QtCore.QObject):
     def _project_story_analysis_settings(self, settings: Mapping | None = None) -> dict:
         source = dict(settings or {})
         progress_callback = source.get("progress_callback")
+        planner_defaults = None
+
+        def planner_value(key: str, default=None):
+            nonlocal planner_defaults
+            if key in source:
+                return source.get(key)
+            if planner_defaults is None:
+                planner_defaults = self._planner_draft_snapshot().to_payload()
+            return planner_defaults.get(key, default)
+
+        chunk_seconds = (
+            source.get("chunk_seconds")
+            if "chunk_seconds" in source
+            else self._stored_transcribe_seconds or 8
+        )
+        image_frequency_seconds = (
+            source.get("image_frequency_seconds")
+            if "image_frequency_seconds" in source
+            else self._stored_image_frequency_seconds or 12
+        )
+        continuity_strength = (
+            source.get("continuity_strength")
+            if "continuity_strength" in source
+            else self._stored_continuity_strength or 0.8
+        )
+        image_timing_mode = (
+            source.get("image_timing_mode")
+            if "image_timing_mode" in source
+            else self._stored_image_timing_mode
+        )
+        ownership_job_id = (
+            source.get("_ownership_job_id")
+            if "_ownership_job_id" in source
+            else self._transcription_job_id
+        )
+        ownership_project_id = (
+            source.get("_ownership_project_id")
+            if "_ownership_project_id" in source
+            else self.current_story_project_id
+        )
+        ownership_project_generation = (
+            source.get("_ownership_project_generation")
+            if "_ownership_project_generation" in source
+            else self._story_project_generation
+        )
+        ownership_input_fingerprint = (
+            source.get("_ownership_input_fingerprint")
+            if "_ownership_input_fingerprint" in source
+            else self._story_project_input_fingerprint
+        )
+
         return {
             "chunk_seconds": max(
                 1,
-                int(source.get("chunk_seconds", self._stored_transcribe_seconds or 8) or 1),
+                int(chunk_seconds or 1),
             ),
             "image_frequency_seconds": self._normalize_image_frequency_seconds(
                 int(
-                    source.get(
-                        "image_frequency_seconds",
-                        self._stored_image_frequency_seconds or 12,
-                    )
-                    or 12
+                    image_frequency_seconds or 12
                 )
             ),
             "continuity_strength": float(
                 self._normalize_continuity_strength(
-                    source.get(
-                        "continuity_strength", self._stored_continuity_strength or 0.8
-                    )
+                    continuity_strength
                 )
             ),
+            "image_timing_mode": self._normalize_image_timing_mode(
+                image_timing_mode
+            ),
+            "analysis_mode": self._normalize_audio_story_analysis_mode(
+                planner_value("analysis_mode", "scene_only")
+            ),
+            "use_llm_story_analysis": bool(
+                planner_value("use_llm_story_analysis", False)
+            ),
+            "instructor_beats_enabled": bool(
+                planner_value("instructor_beats_enabled", False)
+            ),
+            "provider_mode": self._normalize_story_analysis_provider_mode(
+                planner_value("provider_mode", "current")
+            ),
+            "provider_id": str(planner_value("provider_id", "") or "")
+            .strip()
+            .lower(),
+            "provider_label": str(
+                planner_value("provider_label", "Current Chat Provider") or ""
+            ).strip(),
+            "model_override": self._normalize_story_analysis_model(
+                planner_value("model_override", "")
+            ),
+            "resolved_model": str(source.get("resolved_model") or "").strip(),
+            "style_settings": copy.deepcopy(
+                dict(source.get("style_settings") or {})
+            ),
+            "scene_overrides": copy.deepcopy(
+                dict(source.get("scene_overrides") or {})
+            ),
+            "continuity_memory": copy.deepcopy(
+                dict(source.get("continuity_memory") or {})
+            ),
+            "character_anchors": copy.deepcopy(
+                dict(source.get("character_anchors") or {})
+            ),
+            "location_anchors": copy.deepcopy(
+                dict(source.get("location_anchors") or {})
+            ),
+            "reference_edits_supported": bool(
+                source.get("reference_edits_supported", False)
+            ),
+            "_cancel_check": (
+                source.get("_cancel_check")
+                if callable(source.get("_cancel_check"))
+                else None
+            ),
+            "_selected_chapter_id": str(
+                source.get("_selected_chapter_id") or ""
+            ).strip(),
+            "_chapter_label": str(
+                source.get("_chapter_label") or ""
+            ).strip(),
             "progress_callback": progress_callback if callable(progress_callback) else None,
+            "_settings_apply_request": source.get("_settings_apply_request"),
+            "_ownership_kind": str(
+                source.get("_ownership_kind") or "transcription"
+            ),
+            "_ownership_apply_generation": int(
+                source.get("_ownership_apply_generation", -1) or 0
+            ),
+            "_ownership_operation": str(
+                source.get("_ownership_operation") or ""
+            ),
+            "_ownership_manifest_revision": int(
+                source.get("_ownership_manifest_revision", -1) or 0
+            ),
             "_ownership_job_id": int(
-                source.get("_ownership_job_id", self._transcription_job_id) or 0
+                ownership_job_id or 0
             ),
             "_ownership_project_id": str(
-                source.get("_ownership_project_id", self.current_story_project_id) or ""
+                ownership_project_id or ""
             ),
             "_ownership_project_generation": int(
-                source.get(
-                    "_ownership_project_generation", self._story_project_generation
-                )
-                or 0
+                ownership_project_generation or 0
             ),
             "_ownership_input_fingerprint": str(
-                source.get(
-                    "_ownership_input_fingerprint",
-                    self._story_project_input_fingerprint,
-                )
-                or ""
+                ownership_input_fingerprint or ""
             ),
         }
 
@@ -6098,30 +9706,73 @@ class AudioStoryModeController(QtCore.QObject):
         if not self._story_project_work_is_current(ownership):
             raise TranscriptionFailure("Story analysis was cancelled.")
 
+    def _story_analysis_work_is_current(self, ownership: Mapping) -> bool:
+        owner = dict(ownership or {})
+        if str(owner.get("kind") or "") != "settings_apply":
+            return self._story_project_work_is_current(owner)
+        request = self._story_settings_apply_request
+        cancel_token = self._story_settings_apply_cancel_token
+        return bool(
+            not self._story_project_shutdown
+            and isinstance(request, settings_workload.SettingsApplyRequest)
+            and request.operation == str(owner.get("operation") or "")
+            and request.generation_id
+            == int(owner.get("apply_generation", -1) or 0)
+            and request.manifest_revision
+            == int(owner.get("manifest_revision", -1) or 0)
+            and request.project_id == str(owner.get("project_id") or "")
+            and request.project_generation
+            == int(owner.get("project_generation", -1) or 0)
+            and request.input_fingerprint
+            == str(owner.get("input_fingerprint") or "")
+            and request.project_id == str(self.current_story_project_id or "")
+            and request.project_generation == int(self._story_project_generation)
+            and request.input_fingerprint
+            == str(self._story_project_input_fingerprint or "")
+            and cancel_token is not None
+            and not cancel_token.is_set()
+        )
+
+    def _require_current_story_analysis_work(self, ownership: Mapping) -> None:
+        if not self._story_analysis_work_is_current(ownership):
+            raise TranscriptionFailure("Story analysis was cancelled.")
+
     def _project_story_analysis_ownership(
         self, project_id: str, settings: Mapping
     ) -> dict:
         source = dict(settings or {})
+        job_id = (
+            source.get("_ownership_job_id")
+            if "_ownership_job_id" in source
+            else self._transcription_job_id
+        )
+        project_generation = (
+            source.get("_ownership_project_generation")
+            if "_ownership_project_generation" in source
+            else self._story_project_generation
+        )
+        input_fingerprint = (
+            source.get("_ownership_input_fingerprint")
+            if "_ownership_input_fingerprint" in source
+            else self._story_project_input_fingerprint
+        )
         return {
-            "job_id": int(
-                source.get("_ownership_job_id", self._transcription_job_id) or 0
+            "kind": str(source.get("_ownership_kind") or "transcription"),
+            "apply_generation": int(
+                source.get("_ownership_apply_generation", -1) or 0
             ),
+            "operation": str(source.get("_ownership_operation") or ""),
+            "manifest_revision": int(
+                source.get("_ownership_manifest_revision", -1) or 0
+            ),
+            "job_id": int(job_id or 0),
             "project_id": str(
                 source.get("_ownership_project_id", project_id) or ""
             ),
             "project_generation": int(
-                source.get(
-                    "_ownership_project_generation", self._story_project_generation
-                )
-                or 0
+                project_generation or 0
             ),
-            "input_fingerprint": str(
-                source.get(
-                    "_ownership_input_fingerprint",
-                    self._story_project_input_fingerprint,
-                )
-                or ""
-            ),
+            "input_fingerprint": str(input_fingerprint or ""),
         }
 
     def _project_story_analysis_input_fingerprint(
@@ -6143,11 +9794,28 @@ class AudioStoryModeController(QtCore.QObject):
                 "continuity_strength": float(
                     settings.get("continuity_strength", 0.8) or 0.8
                 ),
-                "analysis_mode": self._audio_story_analysis_mode(),
-                "llm_story_analysis": bool(self._stored_use_llm_story_analysis),
-                "instructor_beats": bool(self._stored_instructor_beats_enabled),
-                "provider_mode": self._story_analysis_provider_mode(),
-                "model_override": self._story_analysis_model_override(),
+                "analysis_mode": str(
+                    settings.get("analysis_mode") or "scene_only"
+                ),
+                "llm_story_analysis": bool(
+                    settings.get("use_llm_story_analysis", False)
+                ),
+                "instructor_beats": bool(
+                    settings.get("instructor_beats_enabled", False)
+                ),
+                "provider_mode": str(
+                    settings.get("provider_mode") or "current"
+                ),
+                "provider_id": str(settings.get("provider_id") or ""),
+                "model_override": str(
+                    settings.get("model_override") or ""
+                ),
+                "resolved_model": str(
+                    settings.get("resolved_model") or ""
+                ),
+                "style_settings": copy.deepcopy(
+                    dict(settings.get("style_settings") or {})
+                ),
             }
         )
 
@@ -6250,6 +9918,11 @@ class AudioStoryModeController(QtCore.QObject):
             local_start,
             float(selected_range.get("end_seconds", duration) or duration),
         )
+        analysis_settings = {
+            key: value
+            for key, value in dict(settings or {}).items()
+            if key != "_cancel_check"
+        }
         return {
             "job_id": int(job_id),
             "project_id": str(project.get("project_id") or ""),
@@ -6267,11 +9940,22 @@ class AudioStoryModeController(QtCore.QObject):
             "transcription_start_seconds": int(round(local_start)),
             "transcription_end_seconds": int(round(local_end)),
             "progress_callback": settings.get("progress_callback"),
+            "cancel_check": settings.get("_cancel_check"),
             "continuity_seed": copy.deepcopy(dict(continuity_seed)),
             "project_story_memory": copy.deepcopy(dict(continuity_seed)),
+            "analysis_settings": copy.deepcopy(analysis_settings),
+            "style_settings": copy.deepcopy(
+                dict(settings.get("style_settings") or {})
+            ),
         }
 
     def _default_project_story_analyzer(self, request: Mapping) -> dict:
+        analysis_settings = copy.deepcopy(
+            dict(request.get("analysis_settings") or {})
+        )
+        cancel_check = request.get("cancel_check")
+        if callable(cancel_check):
+            analysis_settings["_cancel_check"] = cancel_check
         return self._build_story_payload(
             job_id=int(request.get("job_id", 0) or 0),
             path=str(request.get("path") or ""),
@@ -6294,6 +9978,10 @@ class AudioStoryModeController(QtCore.QObject):
             continuity_seed=copy.deepcopy(dict(request.get("continuity_seed") or {})),
             project_story_memory=copy.deepcopy(
                 dict(request.get("project_story_memory") or {})
+            ),
+            analysis_settings=analysis_settings,
+            style_settings=copy.deepcopy(
+                dict(request.get("style_settings") or {})
             ),
         )
 
@@ -6412,7 +10100,7 @@ class AudioStoryModeController(QtCore.QObject):
         ownership = self._project_story_analysis_ownership(
             project_id, normalized_settings
         )
-        self._require_current_story_project_work(ownership)
+        self._require_current_story_analysis_work(ownership)
         project = self._story_project_store.load_project(project_id)
         chapters = dict(project.get("chapters") or {})
         if chapter_id not in chapters:
@@ -6420,6 +10108,9 @@ class AudioStoryModeController(QtCore.QObject):
         if chapter_id in set(project.get("archived_chapter_ids") or []):
             raise RuntimeError(f"Archived chapter cannot be analyzed: {chapter_id}")
         chapter = dict(chapters[chapter_id])
+        normalized_settings["_chapter_label"] = str(
+            chapter.get("display_name") or chapter_id
+        ).strip()
         transcript = self._load_project_chapter_transcript(
             project_id, chapter_id, chapter
         )
@@ -6437,8 +10128,16 @@ class AudioStoryModeController(QtCore.QObject):
         started = checkpointing.start_checkpoint(
             startable,
             input_fingerprint=input_fingerprint,
-            provider=self._story_analysis_provider_status_label(),
-            model=self._story_analysis_model_override(),
+            provider=str(
+                normalized_settings.get("provider_label")
+                or normalized_settings.get("provider_id")
+                or ""
+            ),
+            model=str(
+                normalized_settings.get("resolved_model")
+                or normalized_settings.get("model_override")
+                or ""
+            ),
         )
         started["expected_input_fingerprint"] = input_fingerprint
         started["output_ref"] = str(previous.get("output_ref") or "")
@@ -6446,7 +10145,7 @@ class AudioStoryModeController(QtCore.QObject):
             previous.get("output_fingerprint") or ""
         )
         project["chapters"][chapter_id]["stages"]["story_analysis"] = started
-        self._require_current_story_project_work(ownership)
+        self._require_current_story_analysis_work(ownership)
         project = self._story_project_store.save_project(project)
         request = self._project_chapter_analysis_request(
             job_id=(
@@ -6462,12 +10161,30 @@ class AudioStoryModeController(QtCore.QObject):
         )
         active_analyzer = analyzer or self._default_project_story_analyzer
         try:
-            self._require_current_story_project_work(ownership)
-            analyzer_result = active_analyzer(copy.deepcopy(request))
-            self._require_current_story_project_work(ownership)
+            self._require_current_story_analysis_work(ownership)
+            analyzer_request = copy.deepcopy(
+                {
+                    key: value
+                    for key, value in request.items()
+                    if key != "cancel_check"
+                }
+            )
+            if callable(request.get("cancel_check")):
+                analyzer_request["cancel_check"] = request["cancel_check"]
+            analyzer_result = active_analyzer(analyzer_request)
+            self._require_current_story_analysis_work(ownership)
             local_payload = self._validated_project_analysis_payload(
                 analyzer_result
             )
+            apply_request = normalized_settings.get("_settings_apply_request")
+            if isinstance(
+                apply_request, settings_workload.SettingsApplyRequest
+            ):
+                local_payload["applied_settings"] = {
+                    "schema_version": 1,
+                    "planner": apply_request.planner.to_payload(),
+                    "style": apply_request.style.to_payload(),
+                }
             merged_story_bible = merge_committed_story_bible(
                 continuity_seed, local_payload["project_story_memory"]
             )
@@ -6514,7 +10231,7 @@ class AudioStoryModeController(QtCore.QObject):
             prepared["chapters"][chapter_id]["stages"][
                 "scene_planning"
             ] = scene_checkpoint
-            self._require_current_story_project_work(ownership)
+            self._require_current_story_analysis_work(ownership)
             committed = self._story_project_store.commit_analysis_transaction(
                 prepared,
                 chapter_id,
@@ -6522,7 +10239,7 @@ class AudioStoryModeController(QtCore.QObject):
                 merged_story_bible,
             )
         except Exception as exc:
-            if not self._story_project_work_is_current(ownership):
+            if not self._story_analysis_work_is_current(ownership):
                 raise
             latest = self._story_project_store.load_project(project_id)
             if int(latest.get("story_bible_revision", 0) or 0) == story_revision:
@@ -6542,8 +10259,6 @@ class AudioStoryModeController(QtCore.QObject):
                     ] = failed
                     self._story_project_store.save_project(latest)
             raise
-        if project_id == str(self.current_story_project_id or ""):
-            self._current_story_project = copy.deepcopy(committed)
         return global_payload
 
     def _build_project_story_payload(
@@ -6559,7 +10274,7 @@ class AudioStoryModeController(QtCore.QObject):
         ownership = self._project_story_analysis_ownership(
             project_id, normalized_settings
         )
-        self._require_current_story_project_work(ownership)
+        self._require_current_story_analysis_work(ownership)
         project = self._story_project_store.load_project(project_id)
         chapters = dict(project.get("chapters") or {})
         archived = set(project.get("archived_chapter_ids") or [])
@@ -6575,9 +10290,18 @@ class AudioStoryModeController(QtCore.QObject):
         ]
         if not selected_ids:
             raise RuntimeError("The selected project range contains no analyzable chapters")
-        chapter_payloads = []
+        requested_selected_chapter_id = str(
+            normalized_settings.get("_selected_chapter_id") or ""
+        ).strip()
+        selected_chapter_id = (
+            requested_selected_chapter_id
+            if requested_selected_chapter_id in selected_ids
+            else selected_ids[0]
+        )
+        selected_payload = None
+        batch_stats = {"total": 0, "llm": 0, "heuristic": 0}
         for chapter_id in selected_ids:
-            self._require_current_story_project_work(ownership)
+            self._require_current_story_analysis_work(ownership)
             project = self._story_project_store.load_project(project_id)
             chapter = dict(project["chapters"][chapter_id])
             checkpoint = dict(chapter["stages"]["story_analysis"])
@@ -6614,79 +10338,44 @@ class AudioStoryModeController(QtCore.QObject):
                     settings=normalized_settings,
                     job_id=job_id,
                 )
-            chapter_payloads.append(chapter_payload)
+            local_stats = chapter_payload.get("batch_stats")
+            if isinstance(local_stats, Mapping):
+                for name in batch_stats:
+                    batch_stats[name] += max(
+                        0, int(local_stats.get(name, 0) or 0)
+                    )
+            if chapter_id == selected_chapter_id:
+                selected_payload = chapter_payload
+            else:
+                del chapter_payload
 
-        self._require_current_story_project_work(ownership)
-        combined = copy.deepcopy(chapter_payloads[0])
-        for key in (
-            "transcript_chunks",
-            "transcript_windows",
-            "scene_plan",
-            "raw_segments",
-        ):
-            combined[key] = []
-        combined["character_anchors"] = {}
-        combined["location_anchors"] = {}
-        combined["full_text"] = ""
-        chunk_index_offset = 0
-        scene_index_offset = 0
-        for chapter_id, chapter_payload in zip(selected_ids, chapter_payloads):
-            chunks = [
-                copy.deepcopy(dict(item))
-                for item in list(chapter_payload.get("transcript_chunks") or [])
-                if isinstance(item, Mapping)
-            ]
-            scenes = [
-                copy.deepcopy(dict(item))
-                for item in list(chapter_payload.get("scene_plan") or [])
-                if isinstance(item, Mapping)
-            ]
-            local_scene_span = max(
-                [int(item.get("scene_index", 0) or 0) for item in scenes],
-                default=0,
+        self._require_current_story_analysis_work(ownership)
+        if not isinstance(selected_payload, dict):
+            raise RuntimeError(
+                f"Selected chapter {selected_chapter_id} produced no analysis payload"
             )
-            for local_index, chunk in enumerate(chunks):
-                chunk["index"] = chunk_index_offset + local_index
-                chunk["chapter_id"] = chapter_id
-            for scene in scenes:
-                scene["chapter_id"] = chapter_id
-                scene["chunk_index"] = chunk_index_offset + int(
-                    scene.get("chunk_index", 0) or 0
-                )
-                scene["scene_index"] = scene_index_offset + int(
-                    scene.get("scene_index", 1) or 1
-                )
-            combined["transcript_chunks"].extend(chunks)
-            combined["transcript_windows"].extend(
-                copy.deepcopy(list(chapter_payload.get("transcript_windows") or []))
-            )
-            combined["scene_plan"].extend(scenes)
-            combined["raw_segments"].extend(
-                copy.deepcopy(list(chapter_payload.get("raw_segments") or []))
-            )
-            combined["character_anchors"].update(
-                copy.deepcopy(dict(chapter_payload.get("character_anchors") or {}))
-            )
-            combined["location_anchors"].update(
-                copy.deepcopy(dict(chapter_payload.get("location_anchors") or {}))
-            )
-            text = str(chapter_payload.get("full_text") or "").strip()
-            if text:
-                combined["full_text"] = " ".join(
-                    part for part in (combined["full_text"], text) if part
-                )
-            combined["story_bible"] = copy.deepcopy(
-                dict(chapter_payload.get("story_bible") or {})
-            )
-            chunk_index_offset += len(chunks)
-            scene_index_offset += local_scene_span
         final_project = self._story_project_store.load_project(project_id)
-        self._require_current_story_project_work(ownership)
-        combined["project_id"] = project_id
-        combined["chapter_ids"] = list(selected_ids)
-        combined["job_id"] = int(job_id)
-        combined["project_story_memory"] = self._load_committed_project_story_memory(
+        self._require_current_story_analysis_work(ownership)
+        final_story_memory = self._load_committed_project_story_memory(
             project_id
+        )
+        self._require_current_story_analysis_work(ownership)
+        selected_story_bible = selected_payload.get("story_bible")
+        if isinstance(selected_story_bible, Mapping):
+            canonical_keys = set(empty_story_memory())
+            for name, value in selected_story_bible.items():
+                if name not in canonical_keys:
+                    final_story_memory[name] = value
+        selected_payload["story_bible"] = final_story_memory
+        selected_payload["project_story_memory"] = final_story_memory
+        selected_payload["project_id"] = project_id
+        selected_payload["chapter_ids"] = list(selected_ids)
+        selected_payload["selected_chapter_id"] = selected_chapter_id
+        selected_payload["job_id"] = int(job_id)
+        selected_payload["batch_stats"] = batch_stats
+        selected_payload["project"] = final_project
+        selected_payload["manifest_revision"] = int(
+            final_project.get("manifest_revision", 0) or 0
         )
         active_ids = [
             chapter_id
@@ -6694,7 +10383,7 @@ class AudioStoryModeController(QtCore.QObject):
             if chapter_id in dict(final_project.get("chapters") or {})
             and chapter_id not in set(final_project.get("archived_chapter_ids") or [])
         ]
-        combined["audio_duration_seconds"] = sum(
+        selected_payload["audio_duration_seconds"] = sum(
             max(
                 0.0,
                 float(
@@ -6712,7 +10401,7 @@ class AudioStoryModeController(QtCore.QObject):
             )
             for chapter_id in active_ids
         )
-        return combined
+        return selected_payload
 
     def _start_transcription(self):
         self._append_transcription_console(
@@ -6784,13 +10473,16 @@ class AudioStoryModeController(QtCore.QObject):
         story_project_input_fingerprint = str(
             self._story_project_input_fingerprint or ""
         )
+        selected_chapter_id = str(
+            self._selected_story_project_chapter().get("chapter_id") or ""
+        ).strip()
         threading.Thread(
             target=self._run_transcription_job,
-            args=(job_id, tuple(sources), chunk_seconds, image_frequency_seconds, continuity_strength, transcription_start_seconds, transcription_end_seconds, story_project_id, story_project_generation, story_project_input_fingerprint, selected_range_enabled),
+            args=(job_id, tuple(sources), chunk_seconds, image_frequency_seconds, continuity_strength, transcription_start_seconds, transcription_end_seconds, story_project_id, story_project_generation, story_project_input_fingerprint, selected_range_enabled, selected_chapter_id),
             daemon=True,
         ).start()
 
-    def _run_transcription_job(self, job_id: int, sources, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0, project_id: str = "", project_generation: int = 0, project_input_fingerprint: str = "", selected_range_enabled: bool = False):
+    def _run_transcription_job(self, job_id: int, sources, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0, project_id: str = "", project_generation: int = 0, project_input_fingerprint: str = "", selected_range_enabled: bool = False, selected_chapter_id: str = ""):
         try:
             source_items = [item for item in list(sources or []) if isinstance(item, AudioSource)]
             audio_duration = total_duration_seconds(source_items)
@@ -6831,7 +10523,7 @@ class AudioStoryModeController(QtCore.QObject):
                     if selected_range_enabled
                     else active_chapter_ids
                 )
-                raw_segments = self._run_project_transcription_units(
+                self._run_project_transcription_units(
                     project_id,
                     chapter_ids,
                     selected_range_enabled=selected_range_enabled,
@@ -6843,6 +10535,7 @@ class AudioStoryModeController(QtCore.QObject):
                     transcription_end_seconds=transcription_end_seconds,
                     transcribe_file=audio_story_runtime.transcribe_audio,
                 )
+                raw_segments = []
             else:
                 normalized_segments = transcribe_slices(
                     source_slices,
@@ -6882,6 +10575,14 @@ class AudioStoryModeController(QtCore.QObject):
                         "_ownership_project_id": project_id,
                         "_ownership_project_generation": project_generation,
                         "_ownership_input_fingerprint": project_input_fingerprint,
+                        "_selected_chapter_id": selected_chapter_id,
+                        "_cancel_check": lambda: (
+                            int(job_id) != int(self._transcription_job_id)
+                            or int(project_generation)
+                            != int(self._story_project_generation)
+                            or str(project_id or "")
+                            != str(self.current_story_project_id or "")
+                        ),
                     },
                 )
             else:
@@ -6980,6 +10681,7 @@ class AudioStoryModeController(QtCore.QObject):
                 end_seconds = min(audio_duration_seconds, end_seconds)
             image_chunks.append(
                 {
+                    "chunk_index": len(image_chunks),
                     "start_seconds": max(0.0, float(bucket.get("start_seconds", 0.0) or 0.0)),
                     "end_seconds": max(0.0, end_seconds),
                     "text": text,
@@ -7138,18 +10840,51 @@ class AudioStoryModeController(QtCore.QObject):
         progress_callback: Callable[[int, str], None] | None = None,
         continuity_seed: dict | None = None,
         project_story_memory: dict | None = None,
+        analysis_settings: Mapping | None = None,
+        style_settings: Mapping | None = None,
     ) -> dict:
         def progress(percent: int, message: str):
             if callable(progress_callback):
                 try:
                     progress_callback(int(percent), str(message or "").strip())
+                except settings_workload.SettingsApplyCancelled:
+                    raise
                 except Exception:
                     pass
 
+        resolved_analysis = self._project_story_analysis_settings(
+            analysis_settings
+        )
+        resolved_style = self._story_style_settings_payload(style_settings)
+        scene_overrides = copy.deepcopy(
+            dict(resolved_analysis.get("scene_overrides") or {})
+        )
+        reference_context = {
+            "continuity_memory": copy.deepcopy(
+                dict(resolved_analysis.get("continuity_memory") or {})
+            ),
+            "character_anchors": copy.deepcopy(
+                dict(resolved_analysis.get("character_anchors") or {})
+            ),
+            "location_anchors": copy.deepcopy(
+                dict(resolved_analysis.get("location_anchors") or {})
+            ),
+        }
+        prompt_block_limits = dict(
+            resolved_style.get("prompt_block_limits") or {}
+        )
+        prompt_safety_cap = int(
+            resolved_style.get(
+                "prompt_safety_cap", _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT
+            )
+            or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT
+        )
         progress(76, "Building transcript and image timing windows...")
         base_start_seconds = max(0.0, float(transcription_start_seconds or 0.0))
         transcript_windows = self._build_transcript_chunks(raw_segments, audio_duration, float(chunk_seconds), base_start_seconds=base_start_seconds)
-        image_timing_mode = self._image_timing_mode()
+        image_timing_mode = self._normalize_image_timing_mode(
+            resolved_analysis.get("image_timing_mode", "fixed")
+        )
         image_chunk_seconds = float(chunk_seconds if image_timing_mode == "scene_changes" else image_frequency_seconds)
         image_chunks = self._build_image_chunks(raw_segments, audio_duration, image_chunk_seconds, base_start_seconds=base_start_seconds)
         if image_chunks and float(image_chunks[0].get("start_seconds", 0.0) or 0.0) > base_start_seconds:
@@ -7160,25 +10895,49 @@ class AudioStoryModeController(QtCore.QObject):
             full_text,
             continuity_strength=self._normalize_continuity_strength(continuity_strength),
         )
+        generated_master_prompt = (
+            self._build_story_generated_master_prompt(
+                full_text=full_text,
+                story_style_guide=story_style_guide,
+                style_settings=resolved_style,
+            )
+            if bool(resolved_style.get("master_prompt_enabled", False))
+            else ""
+        )
         progress(84, "Building heuristic story anchors...")
         fallback_story_bible = self._merge_story_continuity_seed(
             self._build_story_bible(
-                full_text, continuity_strength=continuity_strength
+                full_text,
+                continuity_strength=continuity_strength,
+                story_style_guide=story_style_guide,
+                style_settings=resolved_style,
+                generated_master_prompt=generated_master_prompt,
             ),
             continuity_seed or project_story_memory,
         )
         llm_analysis = {}
-        if self._stored_use_llm_story_analysis and full_text and image_chunks:
-            progress(86, f"Analyzing story with {self._story_analysis_provider_status_label()} (max {int(_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS)}s)...")
+        if bool(resolved_analysis.get("use_llm_story_analysis")) and full_text and image_chunks:
+            progress(
+                86,
+                f"Analyzing story with {str(resolved_analysis.get('provider_label') or 'the selected provider')} "
+                f"in bounded batches (max {int(_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS)}s each)...",
+            )
             try:
-                llm_analysis = self._build_llm_story_analysis_with_timeout(
+                llm_analysis = self._build_batched_llm_story_analysis(
                     full_text=full_text,
                     image_chunks=image_chunks,
                     story_style_guide=story_style_guide,
                     continuity_strength=continuity_strength,
                     fallback_story_bible=fallback_story_bible,
                     continuity_seed=continuity_seed or project_story_memory,
+                    settings=resolved_analysis,
+                    style_settings=resolved_style,
+                    generated_master_prompt=generated_master_prompt,
+                    progress_callback=lambda message: progress(88, message),
+                    cancel_check=resolved_analysis.get("_cancel_check"),
                 )
+            except settings_workload.SettingsApplyCancelled:
+                raise
             except Exception as exc:
                 print(f"[AudioStoryMode] LLM story analysis failed; falling back to heuristic analysis: {exc}")
                 progress(90, "Story analysis timed out or failed. Using heuristic analysis...")
@@ -7203,7 +10962,9 @@ class AudioStoryModeController(QtCore.QObject):
         previous_scene = None
         scene_index = 0
         total_chunks = max(1, len(image_chunks))
-        analysis_mode = self._audio_story_analysis_mode()
+        analysis_mode = str(
+            resolved_analysis.get("analysis_mode") or "scene_only"
+        )
         print(f"[StoryBible] mode selected: {analysis_mode}")
         story_memory_store = None
         story_memory = None
@@ -7238,7 +10999,13 @@ class AudioStoryModeController(QtCore.QObject):
                 )
             else:
                 features = self._infer_scene_features(str(chunk.get("text", "") or ""), story_bible, previous_scene=previous_scene)
-                transition = self._classify_scene_transition(features, previous_scene, str(chunk.get("text", "") or ""), story_bible)
+                transition = self._classify_scene_transition(
+                    features,
+                    previous_scene,
+                    str(chunk.get("text", "") or ""),
+                    story_bible,
+                    continuity_strength=continuity_strength,
+                )
                 if previous_scene is None or transition.get("is_new_scene", False):
                     scene_index += 1
                     scene_label = str(features.get("scene_label", "") or "").strip()
@@ -7275,8 +11042,23 @@ class AudioStoryModeController(QtCore.QObject):
                     "transition_reasons": list(transition.get("reasons", []) or []),
                     "analysis_source": "heuristic",
                 }
-            scene_entry["reference_image_paths"] = self._story_reference_image_paths(scene_entry, previous_scene=previous_scene)
-            scene_entry["generation_mode"] = self._choose_generation_mode(scene_entry, previous_scene=previous_scene).get("mode", "fresh")
+            scene_entry["reference_image_paths"] = self._story_reference_image_paths(
+                scene_entry,
+                previous_scene=previous_scene,
+                continuity_memory=reference_context["continuity_memory"],
+                character_anchors=reference_context["character_anchors"],
+                location_anchors=reference_context["location_anchors"],
+                scene_overrides=scene_overrides,
+            )
+            scene_entry["generation_mode"] = self._choose_generation_mode(
+                scene_entry,
+                previous_scene=previous_scene,
+                scene_overrides=scene_overrides,
+                reference_context=reference_context,
+                reference_edits_supported=bool(
+                    resolved_analysis.get("reference_edits_supported", False)
+                ),
+            ).get("mode", "fresh")
             chunk["scene_id"] = scene_entry["scene_id"]
             chunk["scene_index"] = scene_entry["scene_index"]
             chunk["location_id"] = scene_entry["location_id"]
@@ -7319,6 +11101,7 @@ class AudioStoryModeController(QtCore.QObject):
                     scene_entry=scene_entry,
                     memory=story_memory,
                     analyzer_update=update,
+                    style_settings=resolved_style,
                 )
             else:
                 chunk["prompt"] = self._build_story_image_prompt(
@@ -7327,6 +11110,10 @@ class AudioStoryModeController(QtCore.QObject):
                     scene_entry=scene_entry,
                     story_bible=story_bible,
                     previous_scene=previous_scene,
+                    style_settings=resolved_style,
+                    scene_overrides=scene_overrides,
+                    prompt_block_limits=prompt_block_limits,
+                    prompt_safety_cap=prompt_safety_cap,
                 )
             scene_plan.append(scene_entry)
             previous_scene = scene_entry
@@ -7337,6 +11124,14 @@ class AudioStoryModeController(QtCore.QObject):
                 scene_plan,
                 story_bible=story_bible,
                 story_style_guide=story_style_guide,
+                style_settings=resolved_style,
+                scene_overrides=scene_overrides,
+                prompt_block_limits=prompt_block_limits,
+                prompt_safety_cap=prompt_safety_cap,
+                reference_context=reference_context,
+                reference_edits_supported=bool(
+                    resolved_analysis.get("reference_edits_supported", False)
+                ),
             )
             if analysis_mode == "story_bible" and story_memory is not None and story_analyzer is not None:
                 story_memory = self._apply_story_bible_prompts_to_chunks(
@@ -7345,16 +11140,21 @@ class AudioStoryModeController(QtCore.QObject):
                     story_memory_store=story_memory_store,
                     story_memory=story_memory,
                     story_analyzer=story_analyzer,
+                    style_settings=resolved_style,
                 )
         character_anchors = {}
         for entity_id, entity in dict(story_bible.get("characters", {}) or {}).items():
-            existing_anchor = dict(self.character_anchors.get(entity_id) or {})
+            existing_anchor = dict(
+                reference_context["character_anchors"].get(entity_id) or {}
+            )
             anchor = dict(entity or {})
             anchor["image_path"] = str(existing_anchor.get("image_path", "") or "").strip()
             character_anchors[entity_id] = anchor
         location_anchors = {}
         for entity_id, entity in dict(story_bible.get("locations", {}) or {}).items():
-            existing_anchor = dict(self.location_anchors.get(entity_id) or {})
+            existing_anchor = dict(
+                reference_context["location_anchors"].get(entity_id) or {}
+            )
             anchor = dict(entity or {})
             anchor["image_path"] = str(existing_anchor.get("image_path", "") or "").strip()
             location_anchors[entity_id] = anchor
@@ -7384,7 +11184,20 @@ class AudioStoryModeController(QtCore.QObject):
             )
         return payload
 
-    def _collapse_story_chunks_to_scene_changes(self, image_chunks, scene_plan, *, story_bible: dict, story_style_guide: str):
+    def _collapse_story_chunks_to_scene_changes(
+        self,
+        image_chunks,
+        scene_plan,
+        *,
+        story_bible: dict,
+        story_style_guide: str,
+        style_settings: Mapping | None = None,
+        scene_overrides: Mapping | None = None,
+        prompt_block_limits: Mapping | None = None,
+        prompt_safety_cap: int | None = None,
+        reference_context: Mapping | None = None,
+        reference_edits_supported: bool | None = None,
+    ):
         paired = []
         for index, chunk in enumerate(list(image_chunks or [])):
             scene_entry = dict(list(scene_plan or [])[index] or {}) if index < len(list(scene_plan or [])) else {}
@@ -7441,8 +11254,22 @@ class AudioStoryModeController(QtCore.QObject):
                 str(first_scene.get("summary", "") or combined_text).strip(),
                 420,
             )
-            first_scene["reference_image_paths"] = self._story_reference_image_paths(first_scene, previous_scene=previous_scene)
-            first_scene["generation_mode"] = self._choose_generation_mode(first_scene, previous_scene=previous_scene).get("mode", "fresh")
+            context = dict(reference_context or {})
+            first_scene["reference_image_paths"] = self._story_reference_image_paths(
+                first_scene,
+                previous_scene=previous_scene,
+                continuity_memory=context.get("continuity_memory"),
+                character_anchors=context.get("character_anchors"),
+                location_anchors=context.get("location_anchors"),
+                scene_overrides=scene_overrides,
+            )
+            first_scene["generation_mode"] = self._choose_generation_mode(
+                first_scene,
+                previous_scene=previous_scene,
+                scene_overrides=scene_overrides,
+                reference_context=context,
+                reference_edits_supported=reference_edits_supported,
+            ).get("mode", "fresh")
             collapsed_chunk = dict(first_chunk)
             collapsed_chunk.update(
                 {
@@ -7474,13 +11301,23 @@ class AudioStoryModeController(QtCore.QObject):
                 scene_entry=first_scene,
                 story_bible=story_bible,
                 previous_scene=previous_scene,
+                style_settings=style_settings,
+                scene_overrides=scene_overrides,
+                prompt_block_limits=prompt_block_limits,
+                prompt_safety_cap=prompt_safety_cap,
             )
             collapsed_chunks.append(collapsed_chunk)
             collapsed_scenes.append(first_scene)
             previous_scene = first_scene
         return collapsed_chunks, collapsed_scenes
 
-    def _apply_story_payload(self, payload, *, start_visual_generation: bool = True):
+    def _apply_story_payload(
+        self,
+        payload,
+        *,
+        start_visual_generation: bool = True,
+        prepare_media: bool = True,
+    ):
         self._invalidate_tts_queue(clear_plan=True)
         source_payloads = payload.get("audio_sources")
         if isinstance(source_payloads, list):
@@ -7529,13 +11366,17 @@ class AudioStoryModeController(QtCore.QObject):
             self._image_generation_requested_end_index = -1
         self._tts_bundle = None
         self._tts_signature = ""
-        self._image_cache = {}
-        self._prompt_image_cache = {}
+        with self._lock:
+            self._image_cache = {}
+            self._prompt_image_cache = {}
         self._current_chunk_index = -1
         self.story_bible = dict(payload.get("story_bible", {}) or {})
         self.scene_plan = [dict(item) if isinstance(item, dict) else item for item in list(payload.get("scene_plan", []) or [])]
         self.character_anchors = dict(payload.get("character_anchors", {}) or {})
         self.location_anchors = dict(payload.get("location_anchors", {}) or {})
+        self._story_analysis_state_version = int(
+            getattr(self, "_story_analysis_state_version", 0)
+        ) + 1
         if self.current_story_project_id:
             self._restore_project_image_cache()
         self._sync_transcribe_seconds_slider()
@@ -7574,7 +11415,8 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_transcript_edit.setPlainText("\n\n".join(lines))
         self._sync_story_generated_master_prompt(refresh_visuals=False)
         self._refresh_scene_override_controls()
-        self._prepare_source_media()
+        if prepare_media:
+            self._prepare_source_media()
         if start_visual_generation:
             self._restart_visual_generation_from_position(0.0)
         self._refresh_controls()
@@ -7761,7 +11603,30 @@ class AudioStoryModeController(QtCore.QObject):
             "SUCCESS",
             "Audio story transcription and scene planning completed.",
         )
+        committed_project = payload.get("project")
+        selected_chapter_id = str(
+            payload.get("selected_chapter_id") or ""
+        ).strip()
+        if (
+            isinstance(committed_project, dict)
+            and str(committed_project.get("project_id") or "")
+            == self.current_story_project_id
+            and selected_chapter_id
+        ):
+            self._current_story_project = committed_project
+            self._replace_story_project_summary(
+                committed_project,
+                take_ownership=True,
+            )
+            self._story_chapter_working_set.invalidate(
+                self.current_story_project_id,
+                int(committed_project.get("manifest_revision", 0) or 0),
+            )
+            self._current_story_chapter_id = selected_chapter_id
+            self._story_chapter_lazy_loading_active = True
         self._apply_story_payload(payload)
+        if selected_chapter_id and self.current_story_project_id:
+            self._prefetch_next_story_project_chapter(selected_chapter_id)
 
     def _on_transcription_failed(self, detail: str):
         self._end_story_project_mutating_pipeline(
@@ -7902,6 +11767,7 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _stop_story(self):
         self._invalidate_tts_queue(clear_plan=False)
+        self._pending_story_chapter_resume = None
         self._pending_play_request = None
         self._visual_generation_blocked = True
         self._cancel_visual_generation()
@@ -8499,6 +12365,7 @@ class AudioStoryModeController(QtCore.QObject):
         settings_snapshot=None,
         project_id: str | None = None,
         preserve_ready: bool = False,
+        start_position_seconds: float = 0.0,
     ) -> None:
         """Start one owned progressive TTS queue without blocking the UI thread."""
         if self._tts_cache_clear_is_in_progress():
@@ -8545,8 +12412,15 @@ class AudioStoryModeController(QtCore.QObject):
             self._tts_render_in_progress = True
             self._tts_active_segment_index = 0
             self._tts_active_segment_global_offset = 0.0
-            self._tts_playback_position_seconds = 0.0
-            self._tts_buffering_target_seconds = None
+            self._tts_playback_position_seconds = max(
+                0.0, float(start_position_seconds or 0.0)
+            )
+            self._tts_buffering_target_seconds = (
+                self._tts_playback_position_seconds
+                if resume_after_buffering
+                and self._tts_playback_position_seconds > 0.0
+                else None
+            )
             self._tts_render_target_segment_index = 0
             self._tts_render_target_segment_global_offset = 0.0
             self._tts_pending_media_transition = None
@@ -9973,7 +13847,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._set_status(f"TTS render failed: {detail}")
         self._refresh_controls()
 
-    def _restart_visual_generation_from_position(self, position_seconds: float, *, force: bool = False, allow_when_stopped: bool = False):
+    def _restart_visual_generation_from_position(self, position_seconds: float, *, force: bool = False, allow_when_stopped: bool = False, style_change_live: bool | None = None):
         if not self.transcript_chunks:
             return 0
         if bool(getattr(self, "_visual_generation_blocked", False)) and not allow_when_stopped:
@@ -9986,7 +13860,12 @@ class AudioStoryModeController(QtCore.QObject):
         for index in range(max(0, int(start_index)), min(len(self.transcript_chunks) - 1, int(end_index)) + 1):
             chunk = dict(self.transcript_chunks[index] or {})
             prompt_text = str(chunk.get("prompt", "") or "").strip()
-            if not self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk).get("image_path"):
+            if not self._matching_cached_image_entry(
+                index,
+                prompt_text,
+                scene_entry=chunk,
+                style_change_live=style_change_live,
+            ).get("image_path"):
                 needs_generation = True
                 break
         if not needs_generation:
@@ -10010,15 +13889,20 @@ class AudioStoryModeController(QtCore.QObject):
             self._image_generation_worker_running = True
             self._image_generation_active_start_index = int(start_index)
             self._image_generation_requested_end_index = int(end_index)
+        worker_kwargs = {
+            "ownership": self._story_image_launch_ownership(token)
+        }
+        if style_change_live is not None:
+            worker_kwargs["style_change_live"] = bool(style_change_live)
         threading.Thread(
             target=self._run_visual_generation,
             args=(token, int(start_index), int(end_index)),
-            kwargs={"ownership": self._story_image_launch_ownership(token)},
+            kwargs=worker_kwargs,
             daemon=True,
         ).start()
         return token
 
-    def _restart_missing_visual_generation_from_position(self, position_seconds: float, *, max_ahead_frames: int | None = None, force: bool = True, allow_when_stopped: bool = True):
+    def _restart_missing_visual_generation_from_position(self, position_seconds: float, *, max_ahead_frames: int | None = None, force: bool = True, allow_when_stopped: bool = True, style_change_live: bool | None = None):
         if not self.transcript_chunks:
             return int(self._image_generation_token or 0)
         start_index = self._chunk_index_for_position(position_seconds)
@@ -10027,7 +13911,12 @@ class AudioStoryModeController(QtCore.QObject):
         first_missing = -1
         for index in range(max(0, int(start_index)), int(end_index) + 1):
             chunk = dict(self.transcript_chunks[index] or {})
-            if self._matching_cached_image_entry(index, str(chunk.get("prompt", "") or "").strip(), scene_entry=chunk).get("image_path"):
+            if self._matching_cached_image_entry(
+                index,
+                str(chunk.get("prompt", "") or "").strip(),
+                scene_entry=chunk,
+                style_change_live=style_change_live,
+            ).get("image_path"):
                 continue
             first_missing = int(index)
             break
@@ -10040,6 +13929,7 @@ class AudioStoryModeController(QtCore.QObject):
                 self._chunk_start_seconds(first_missing),
                 force=force,
                 allow_when_stopped=allow_when_stopped,
+                style_change_live=style_change_live,
             )
         finally:
             self._stored_generate_ahead_frames = original_ahead
@@ -10091,6 +13981,7 @@ class AudioStoryModeController(QtCore.QObject):
         *,
         ownership: Mapping | None = None,
         requested_indices: Sequence[int] | None = None,
+        style_change_live: bool | None = None,
     ):
         owner = dict(ownership or self._story_image_launch_ownership(token))
         exact_indices = (
@@ -10127,7 +14018,12 @@ class AudioStoryModeController(QtCore.QObject):
                     else:
                         index += 1
                     continue
-                cached = self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk)
+                cached = self._matching_cached_image_entry(
+                    index,
+                    prompt_text,
+                    scene_entry=chunk,
+                    style_change_live=style_change_live,
+                )
                 if cached.get("image_path"):
                     if exact_indices is not None:
                         exact_position += 1
@@ -10854,13 +14750,18 @@ class AudioStoryModeController(QtCore.QObject):
         )
         return any(marker in text for marker in moderation_markers)
 
-    def _publish_visual_for_index(self, index: int, *, keep_current_image: bool):
+    def _publish_visual_for_index(self, index: int, *, keep_current_image: bool, style_change_live: bool | None = None):
         index = int(index or 0)
         if index < 0 or index >= len(self.transcript_chunks):
             return
         chunk = dict(self.transcript_chunks[index] or {})
         prompt_text = str(chunk.get("prompt", "") or "").strip()
-        cached = self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk)
+        cached = self._matching_cached_image_entry(
+            index,
+            prompt_text,
+            scene_entry=chunk,
+            style_change_live=style_change_live,
+        )
         current_state = dict(self._visual_reply_current_state() or {})
         current_image_path = str(current_state.get("image_path", "") or "").strip()
         retained_image_path = current_image_path if keep_current_image and current_image_path and Path(current_image_path).exists() else ""
@@ -11094,7 +14995,249 @@ class AudioStoryModeController(QtCore.QObject):
             )
         return max(0.0, float(start_seconds or 0.0))
 
+    def _chapter_id_for_global_position(self, position_seconds: float) -> str:
+        project = self._current_story_project
+        if not isinstance(project, Mapping) or not self.imported_audio_sources:
+            return ""
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        archived = {
+            str(value or "")
+            for value in list(project.get("archived_chapter_ids") or [])
+        }
+        active_ids = [
+            str(value or "")
+            for value in list(project.get("chapter_order") or [])
+            if str(value or "") in chapters and str(value or "") not in archived
+        ]
+        try:
+            source, _local_seconds = locate_global_position(
+                self.imported_audio_sources,
+                max(0.0, float(position_seconds or 0.0)),
+            )
+        except (TypeError, ValueError):
+            return ""
+        index = int(source.index)
+        return active_ids[index] if 0 <= index < len(active_ids) else ""
+
+    def _select_story_project_chapter_without_request(
+        self,
+        chapter_id: str,
+    ) -> None:
+        chapter_list = getattr(self, "audio_story_project_chapter_list", None)
+        if chapter_list is None:
+            return
+        blocker = QtCore.QSignalBlocker(chapter_list)
+        try:
+            for row in range(chapter_list.count()):
+                item = chapter_list.item(row)
+                data = item.data(QtCore.Qt.UserRole) if item is not None else None
+                if (
+                    isinstance(data, Mapping)
+                    and str(data.get("chapter_id") or "") == str(chapter_id)
+                ):
+                    chapter_list.setCurrentRow(row)
+                    break
+        finally:
+            del blocker
+
+    def _ensure_story_chapter_ready_for_position(
+        self,
+        position_seconds: float,
+    ) -> bool:
+        if (
+            not self._story_chapter_lazy_loading_active
+            or self._story_project_shutdown
+            or not self.current_story_project_id
+        ):
+            return True
+        if self._playback_mode_value() == "tts":
+            return True
+        chapter_id = self._chapter_id_for_global_position(position_seconds)
+        if not chapter_id or chapter_id == self._current_story_chapter_id:
+            return True
+        project = self._current_story_project
+        if not isinstance(project, Mapping):
+            return True
+        key = self._story_chapter_cache_key(project, chapter_id)
+        cached = self._story_chapter_working_set.get(key)
+        if isinstance(cached, Mapping):
+            resume_playback = bool(self._is_audio_story_currently_playing())
+            self._select_story_project_chapter_without_request(chapter_id)
+            if self._install_prepared_story_chapter(cached):
+                self._prefetch_next_story_project_chapter(chapter_id)
+                if self._playback_mode_value() == "tts":
+                    self._start_tts_chapter_playback(
+                        position_seconds,
+                        resume_playback=resume_playback,
+                    )
+                    return False
+                return True
+            return False
+
+        pending = self._pending_story_chapter_resume
+        if (
+            isinstance(pending, Mapping)
+            and str(pending.get("project_id") or "")
+            == self.current_story_project_id
+            and str(pending.get("chapter_id") or "") == chapter_id
+        ):
+            return False
+        resume_playback = bool(self._is_audio_story_currently_playing())
+        player = self.audio_player
+        if player is not None:
+            try:
+                player.pause()
+            except RuntimeError:
+                pass
+        self._pending_story_chapter_resume = {
+            "project_id": self.current_story_project_id,
+            "chapter_id": chapter_id,
+            "position_seconds": max(0.0, float(position_seconds or 0.0)),
+            "resume_playback": resume_playback,
+            "manifest_revision": int(key.manifest_revision),
+            "generation": -1,
+        }
+        self._select_story_project_chapter_without_request(chapter_id)
+        self._set_story_project_autosave_text(
+            f"Loading next chapter: {self._story_project_chapter_name(chapter_id)}",
+            state="active",
+        )
+        self._request_story_project_chapter(
+            chapter_id,
+            reason="playback",
+            resume_position=max(0.0, float(position_seconds or 0.0)),
+        )
+        pending = self._pending_story_chapter_resume
+        if (
+            isinstance(pending, dict)
+            and str(pending.get("chapter_id") or "") == chapter_id
+        ):
+            pending["generation"] = int(self._story_chapter_load_generation)
+        return False
+
+    def _resume_pending_story_chapter_playback(self, chapter_id: str) -> None:
+        pending = self._pending_story_chapter_resume
+        if not isinstance(pending, Mapping):
+            return
+        if (
+            str(pending.get("project_id") or "")
+            != self.current_story_project_id
+            or str(pending.get("chapter_id") or "") != str(chapter_id or "")
+        ):
+            return
+        project = self._current_story_project
+        try:
+            pending_revision = int(pending.get("manifest_revision", -1))
+            active_revision = int(
+                project.get("manifest_revision", -2)
+                if isinstance(project, Mapping)
+                else -2
+            )
+            pending_generation = int(pending.get("generation", -1))
+        except (TypeError, ValueError):
+            self._pending_story_chapter_resume = None
+            return
+        if (
+            pending_revision != active_revision
+            or pending_generation != int(self._story_chapter_load_generation)
+        ):
+            self._pending_story_chapter_resume = None
+            return
+        self._pending_story_chapter_resume = None
+        position_seconds = max(
+            0.0, float(pending.get("position_seconds", 0.0) or 0.0)
+        )
+        if self._playback_mode_value() == "tts":
+            self._start_tts_chapter_playback(
+                position_seconds,
+                resume_playback=bool(pending.get("resume_playback")),
+            )
+            return
+        if self._playback_mode_value() == "source":
+            self._set_source_for_global_position(position_seconds)
+        if bool(pending.get("resume_playback")) and self.audio_player is not None:
+            try:
+                self.audio_player.play()
+            except RuntimeError:
+                pass
+
+    def _start_tts_chapter_playback(
+        self,
+        position_seconds: float,
+        *,
+        resume_playback: bool,
+    ) -> None:
+        target = max(0.0, float(position_seconds or 0.0))
+        with self._tts_render_condition:
+            self._pending_autoplay_tts = bool(resume_playback)
+            self._tts_resume_after_buffering = bool(resume_playback)
+            self._tts_playback_paused = not bool(resume_playback)
+            self._tts_playback_position_seconds = target
+            self._tts_render_condition.notify_all()
+        self._start_tts_render(
+            project_id=self.current_story_project_id,
+            start_position_seconds=target,
+        )
+
+    def _continue_tts_with_next_story_chapter(self) -> bool:
+        project = self._current_story_project
+        if not isinstance(project, Mapping) or not self._current_story_chapter_id:
+            return False
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        archived = {
+            str(value or "")
+            for value in list(project.get("archived_chapter_ids") or [])
+        }
+        active = [
+            str(value or "")
+            for value in list(project.get("chapter_order") or [])
+            if str(value or "") in chapters and str(value or "") not in archived
+        ]
+        try:
+            next_chapter_id = active[
+                active.index(self._current_story_chapter_id) + 1
+            ]
+        except (ValueError, IndexError):
+            return False
+        key = self._story_chapter_cache_key(project, next_chapter_id)
+        cached = self._story_chapter_working_set.get(key)
+        self._select_story_project_chapter_without_request(next_chapter_id)
+        if isinstance(cached, Mapping):
+            if not self._install_prepared_story_chapter(cached):
+                return True
+            self._prefetch_next_story_project_chapter(next_chapter_id)
+            self._start_tts_chapter_playback(0.0, resume_playback=True)
+            return True
+        self._pending_story_chapter_resume = {
+            "project_id": self.current_story_project_id,
+            "chapter_id": next_chapter_id,
+            "position_seconds": 0.0,
+            "resume_playback": True,
+            "manifest_revision": int(key.manifest_revision),
+            "generation": -1,
+        }
+        self._set_story_project_autosave_text(
+            f"Loading next chapter: {self._story_project_chapter_name(next_chapter_id)}",
+            state="active",
+        )
+        self._request_story_project_chapter(
+            next_chapter_id,
+            reason="tts-playback",
+            resume_position=0.0,
+        )
+        pending = self._pending_story_chapter_resume
+        if (
+            isinstance(pending, dict)
+            and str(pending.get("chapter_id") or "") == next_chapter_id
+        ):
+            pending["generation"] = int(self._story_chapter_load_generation)
+        return True
+
     def _sync_visual_to_position(self, position_seconds: float, *, force: bool = False, allow_generation: bool | None = None):
+        if not self._ensure_story_chapter_ready_for_position(position_seconds):
+            return
         if not self.transcript_chunks:
             return
         index = self._chunk_index_for_position(position_seconds)
@@ -11254,6 +15397,8 @@ class AudioStoryModeController(QtCore.QObject):
             )
             next_index = active_index + 1
             if next_index >= len(plan.segments):
+                if self._continue_tts_with_next_story_chapter():
+                    return
                 with self._tts_render_condition:
                     self._tts_playback_position_seconds = boundary
                     self._tts_buffering_target_seconds = None
@@ -11929,6 +16074,1735 @@ class AudioStoryModeController(QtCore.QObject):
             except Exception:
                 pass
 
+    def _planner_draft_snapshot(self) -> settings_workload.PlannerSettingsSnapshot:
+        provider_mode = self._normalize_story_analysis_provider_mode(
+            getattr(self, "_stored_story_analysis_provider_mode", "current")
+        )
+        provider_id = self._story_analysis_provider_id()
+        provider_labels = {
+            "current": "Current Chat Provider",
+            "deepseek": "DeepSeek",
+            "lmstudio": "Local LM Studio",
+        }
+        return settings_workload.PlannerSettingsSnapshot.from_mapping(
+            {
+                "analysis_mode": self._normalize_audio_story_analysis_mode(
+                    getattr(self, "_stored_audio_story_analysis_mode", "scene_only")
+                ),
+                "use_llm_story_analysis": bool(
+                    getattr(self, "_stored_use_llm_story_analysis", False)
+                ),
+                "instructor_beats_enabled": bool(
+                    getattr(self, "_stored_instructor_beats_enabled", False)
+                ),
+                "provider_mode": provider_mode,
+                "provider_id": provider_id,
+                "provider_label": provider_labels.get(
+                    provider_mode, "Current Chat Provider"
+                ),
+                "model_override": self._normalize_story_analysis_model(
+                    getattr(self, "_stored_story_analysis_model", "")
+                ),
+                "continuity_strength": self._normalize_continuity_strength(
+                    getattr(self, "_stored_continuity_strength", 0.8)
+                ),
+            }
+        )
+
+    def _style_draft_snapshot(self) -> settings_workload.StyleSettingsSnapshot:
+        return settings_workload.StyleSettingsSnapshot.from_mapping(
+            {
+                "style_enabled": list(
+                    getattr(self, "_stored_style_enabled", []) or []
+                ),
+                "style_prompts": dict(
+                    getattr(self, "_stored_style_prompts", {}) or {}
+                ),
+                "style_change_live": bool(
+                    getattr(self, "_stored_style_change_live", False)
+                ),
+                "master_prompt_enabled": bool(
+                    getattr(self, "_stored_story_master_prompt_enabled", False)
+                ),
+                "master_prompt_mode": str(
+                    getattr(self, "_stored_story_master_prompt_mode", "medium")
+                    or "medium"
+                ),
+                "prompt_block_limits": dict(
+                    getattr(self, "_stored_prompt_block_limits", {}) or {}
+                ),
+                "prompt_safety_cap": getattr(
+                    self,
+                    "_stored_prompt_safety_cap",
+                    _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT,
+                ),
+            }
+        )
+
+    def _sync_planner_apply_state(self, *, state: str | None = None) -> None:
+        draft = self._planner_draft_snapshot()
+        applied = getattr(self, "_applied_planner_settings", None)
+        unknown_baseline = getattr(
+            self, "_unknown_applied_planner_baseline", None
+        )
+        pending = (
+            draft != applied
+            if applied is not None
+            else unknown_baseline is None or draft != unknown_baseline
+        )
+        current = str(
+            state
+            if state is not None
+            else getattr(self, "_planner_apply_state", "Saved")
+            or "Saved"
+        )
+        if state is None and current != "Applying...":
+            if pending:
+                if current not in {"Cancelled", "Failed"}:
+                    current = "Changes not applied"
+            elif current not in {"Applied"}:
+                current = "Saved"
+        self._planner_apply_state = current
+        label = getattr(self, "audio_story_planner_apply_status_label", None)
+        if label is not None:
+            label.setText(current)
+        apply_button = getattr(self, "audio_story_planner_apply_button", None)
+        if apply_button is not None:
+            conflicting_job = bool(
+                getattr(self, "_story_project_busy", False)
+                or getattr(self, "_story_project_pending_autosave", None) is not None
+                or getattr(self, "_story_project_mutating_pipeline_owner", None)
+                is not None
+            )
+            apply_button.setEnabled(
+                pending
+                and current != "Applying..."
+                and not conflicting_job
+            )
+        cancel_button = getattr(self, "audio_story_planner_cancel_button", None)
+        if cancel_button is not None:
+            cancel_button.setEnabled(current == "Applying...")
+
+    def _sync_style_apply_state(self, *, state: str | None = None) -> None:
+        draft = self._style_draft_snapshot()
+        applied = getattr(self, "_applied_style_settings", None)
+        unknown_baseline = getattr(self, "_unknown_applied_style_baseline", None)
+        pending = (
+            draft != applied
+            if applied is not None
+            else unknown_baseline is None or draft != unknown_baseline
+        )
+        current = str(
+            state
+            if state is not None
+            else getattr(self, "_style_apply_state", "Saved")
+            or "Saved"
+        )
+        if state is None and current != "Applying...":
+            if pending:
+                if current not in {"Cancelled", "Failed"}:
+                    current = "Changes not applied"
+            elif current not in {"Applied"}:
+                current = "Saved"
+        self._style_apply_state = current
+        label = getattr(self, "audio_story_style_apply_status_label", None)
+        if label is not None:
+            label.setText(current)
+        apply_button = getattr(self, "audio_story_style_apply_button", None)
+        if apply_button is not None:
+            conflicting_job = bool(
+                getattr(self, "_story_project_busy", False)
+                or getattr(self, "_story_project_pending_autosave", None) is not None
+                or getattr(self, "_story_project_mutating_pipeline_owner", None)
+                is not None
+            )
+            apply_button.setEnabled(
+                pending
+                and current != "Applying..."
+                and not conflicting_job
+            )
+        cancel_button = getattr(self, "audio_story_style_cancel_button", None)
+        if cancel_button is not None:
+            cancel_button.setEnabled(current == "Applying...")
+
+    def _resolved_planner_apply_model(
+        self, planner: settings_workload.PlannerSettingsSnapshot
+    ) -> str:
+        explicit = str(planner.model_override or "").strip()
+        if explicit:
+            return explicit
+        provider = str(planner.provider_id or "").strip().lower()
+        candidates: list[str] = []
+        if planner.provider_mode == "current":
+            runtime_model = str(
+                audio_story_runtime.runtime_config_value("model_name", "") or ""
+            ).strip()
+            if runtime_model:
+                candidates.append(runtime_model)
+        saved_model = self._story_analysis_saved_model_for_provider(provider)
+        if saved_model and saved_model not in candidates:
+            candidates.append(saved_model)
+        for model in tuple(self._story_model_catalog_cache.get(provider, ())):
+            normalized = str(model or "").strip()
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+        return candidates[0] if candidates else ""
+
+    def _planner_apply_style_snapshot(
+        self,
+    ) -> settings_workload.StyleSettingsSnapshot:
+        applied = getattr(self, "_applied_style_settings", None)
+        if isinstance(applied, settings_workload.StyleSettingsSnapshot):
+            return applied
+        baseline = getattr(self, "_unknown_applied_style_baseline", None)
+        if isinstance(baseline, settings_workload.StyleSettingsSnapshot):
+            return baseline
+        return settings_workload.StyleSettingsSnapshot.from_mapping({})
+
+    def _start_planner_settings_apply(self) -> None:
+        if self._story_settings_apply_request is not None:
+            self._set_status("Planner settings are already being applied.")
+            return
+        project_id = str(self.current_story_project_id or "").strip()
+        project = self._current_story_project or {}
+        if not project_id or str(project.get("project_id") or "") != project_id:
+            self._set_status(
+                "Open an Audio Story project before applying Planner changes."
+            )
+            return
+        if not self._raw_transcript_segments and not self.transcript_chunks:
+            self._set_status(
+                "Transcribe or restore this project's transcript before applying Planner changes."
+            )
+            return
+
+        planner = self._planner_draft_snapshot()
+        style = self._planner_apply_style_snapshot()
+        resolved_model = self._resolved_planner_apply_model(planner)
+        if planner.use_llm_story_analysis and not resolved_model:
+            self._planner_apply_state = "Changes not applied"
+            self._sync_planner_apply_state(state="Changes not applied")
+            self._set_status(
+                f"Choose a model for {planner.provider_label} or load its model list, "
+                "then apply Planner changes again."
+            )
+            return
+
+        pipeline_owner = self._begin_story_project_mutating_pipeline(
+            "planner settings"
+        )
+        if pipeline_owner is None:
+            return
+        self._story_settings_apply_generation += 1
+        request = settings_workload.SettingsApplyRequest(
+            generation_id=int(self._story_settings_apply_generation),
+            operation="planner",
+            project_id=project_id,
+            project_generation=int(self._story_project_generation),
+            manifest_revision=int(project.get("manifest_revision", 0) or 0),
+            input_fingerprint=str(self._story_project_input_fingerprint or ""),
+            planner=planner,
+            style=style,
+        )
+        cancel_token = threading.Event()
+        self._story_settings_apply_request = request
+        self._story_settings_apply_cancel_token = cancel_token
+        self._story_settings_apply_pipeline_owner = pipeline_owner
+
+        style_settings = style.to_payload()
+        selected_chapter_id = str(
+            self._selected_story_project_chapter().get("chapter_id")
+            or self._current_story_chapter_id
+            or ""
+        ).strip()
+        analysis_settings = {
+            "chunk_seconds": max(1, int(self._stored_transcribe_seconds or 8)),
+            "image_frequency_seconds": self._normalize_image_frequency_seconds(
+                self._stored_image_frequency_seconds
+            ),
+            "image_timing_mode": self._normalize_image_timing_mode(
+                self._stored_image_timing_mode
+            ),
+            "continuity_strength": float(
+                planner.continuity_strength
+            ),
+            **planner.to_payload(),
+            "resolved_model": resolved_model,
+            "style_settings": style_settings,
+            "_settings_apply_request": request,
+            "_ownership_kind": "settings_apply",
+            "_ownership_apply_generation": request.generation_id,
+            "_ownership_operation": request.operation,
+            "_ownership_manifest_revision": request.manifest_revision,
+            "_ownership_job_id": request.generation_id,
+            "_ownership_project_id": request.project_id,
+            "_ownership_project_generation": request.project_generation,
+            "_ownership_input_fingerprint": request.input_fingerprint,
+            "_selected_chapter_id": selected_chapter_id,
+        }
+        chapter_ids = tuple(
+            chapter_id
+            for chapter_id in list(project.get("chapter_order") or [])
+            if chapter_id not in set(project.get("archived_chapter_ids") or [])
+        )
+        scene_plan = self.scene_plan
+        scene_overrides = self.scene_overrides
+        continuity_memory = self.continuity_memory
+        character_anchors = self.character_anchors
+        location_anchors = self.location_anchors
+        story_state_version = int(self._story_analysis_state_version)
+        scene_overrides_version = int(self._scene_overrides_version)
+        with self._lock:
+            image_cache = self._image_cache
+            prompt_image_cache = self._prompt_image_cache
+        self._sync_planner_apply_state(state="Applying...")
+        self._set_status("Applying Planner changes in the background...")
+        threading.Thread(
+            target=self._run_planner_settings_apply,
+            args=(
+                request,
+                cancel_token,
+                pipeline_owner,
+                chapter_ids,
+                analysis_settings,
+                style_settings,
+                scene_plan,
+                scene_overrides,
+                continuity_memory,
+                character_anchors,
+                location_anchors,
+                image_cache,
+                prompt_image_cache,
+                story_state_version,
+                scene_overrides_version,
+            ),
+            name=f"audio-story-planner-apply-{request.generation_id}",
+            daemon=True,
+        ).start()
+
+    def _start_style_settings_apply(self) -> None:
+        if self._story_settings_apply_request is not None:
+            self._set_status("Story settings are already being applied.")
+            return
+        project_id = str(self.current_story_project_id or "").strip()
+        project = self._current_story_project or {}
+        if not project_id or str(project.get("project_id") or "") != project_id:
+            self._set_status(
+                "Open an Audio Story project before applying Style changes."
+            )
+            return
+        if not self.transcript_chunks:
+            self._set_status(
+                "Transcribe or restore this project's transcript before applying Style changes."
+            )
+            return
+
+        planner = getattr(self, "_applied_planner_settings", None)
+        if not isinstance(
+            planner, settings_workload.PlannerSettingsSnapshot
+        ):
+            planner = getattr(self, "_unknown_applied_planner_baseline", None)
+        if not isinstance(
+            planner, settings_workload.PlannerSettingsSnapshot
+        ):
+            self._style_apply_state = "Changes not applied"
+            self._sync_style_apply_state(state="Changes not applied")
+            self._set_status(
+                "Apply Planner Changes before applying project styles."
+            )
+            return
+
+        archived = {
+            str(value)
+            for value in list(project.get("archived_chapter_ids") or [])
+        }
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        chapter_ids = tuple(
+            str(value)
+            for value in list(project.get("chapter_order") or [])
+            if str(value) not in archived
+            and isinstance(chapters.get(str(value)), Mapping)
+        )
+        has_saved_analysis = any(
+            str(
+                dict(chapters[chapter_id].get("stages") or {})
+                .get("story_analysis", {})
+                .get("output_ref")
+                or ""
+            ).strip()
+            for chapter_id in chapter_ids
+        )
+        if not chapter_ids or not has_saved_analysis:
+            self._style_apply_state = "Changes not applied"
+            self._sync_style_apply_state(state="Changes not applied")
+            self._set_status(
+                "Apply Planner Changes before applying project styles."
+            )
+            return
+
+        pipeline_owner = self._begin_story_project_mutating_pipeline(
+            "style settings"
+        )
+        if pipeline_owner is None:
+            return
+        self._story_settings_apply_generation += 1
+        style = self._style_draft_snapshot()
+        request = settings_workload.SettingsApplyRequest(
+            generation_id=int(self._story_settings_apply_generation),
+            operation="style",
+            project_id=project_id,
+            project_generation=int(self._story_project_generation),
+            manifest_revision=int(project.get("manifest_revision", 0) or 0),
+            input_fingerprint=str(self._story_project_input_fingerprint or ""),
+            planner=planner,
+            style=style,
+        )
+        cancel_token = threading.Event()
+        self._story_settings_apply_request = request
+        self._story_settings_apply_cancel_token = cancel_token
+        self._story_settings_apply_pipeline_owner = pipeline_owner
+
+        # The claimed project pipeline keeps these owned containers stable while
+        # the worker performs the project-sized copies off the GUI thread.
+        transcript_chunks = self.transcript_chunks
+        scene_plan = self.scene_plan
+        story_bible = self.story_bible
+        story_memory = self.story_bible
+        scene_overrides = self.scene_overrides
+        story_state_version = int(self._story_analysis_state_version)
+        scene_overrides_version = int(self._scene_overrides_version)
+        with self._lock:
+            image_cache = self._image_cache
+            prompt_image_cache = self._prompt_image_cache
+
+        self._sync_style_apply_state(state="Applying...")
+        self._set_status("Applying Style changes in the background...")
+        threading.Thread(
+            target=self._run_style_settings_apply,
+            args=(
+                request,
+                cancel_token,
+                pipeline_owner,
+                chapter_ids,
+                transcript_chunks,
+                scene_plan,
+                story_bible,
+                story_memory,
+                scene_overrides,
+                image_cache,
+                prompt_image_cache,
+                story_state_version,
+                scene_overrides_version,
+            ),
+            name=f"audio-story-style-apply-{request.generation_id}",
+            daemon=True,
+        ).start()
+
+    def _cancel_story_settings_apply(self) -> None:
+        request = self._story_settings_apply_request
+        if request is None:
+            return
+        cancel_token = self._story_settings_apply_cancel_token
+        if cancel_token is not None:
+            cancel_token.set()
+        prefix = "style" if request.operation == "style" else "planner"
+        cancel_button = getattr(
+            self, f"audio_story_{prefix}_cancel_button", None
+        )
+        if cancel_button is not None:
+            cancel_button.setEnabled(False)
+        label = "Style" if request.operation == "style" else "Planner"
+        self._set_status(
+            f"Cancelling {label} settings after the worker acknowledges..."
+        )
+
+    def _run_planner_settings_apply(
+        self,
+        request: settings_workload.SettingsApplyRequest,
+        cancel_token: threading.Event,
+        pipeline_owner: str,
+        chapter_ids: Sequence[str],
+        analysis_settings: Mapping,
+        style_settings: Mapping,
+        scene_plan: Sequence[Mapping],
+        scene_overrides: Mapping,
+        continuity_memory: Mapping,
+        character_anchors: Mapping,
+        location_anchors: Mapping,
+        image_cache: Mapping,
+        prompt_image_cache: Mapping,
+        story_state_version: int,
+        scene_overrides_version: int,
+    ) -> None:
+        result = {
+            "request": request,
+            "pipeline_token": str(pipeline_owner or ""),
+            "original_project_id": request.project_id,
+            "original_manifest_revision": request.manifest_revision,
+        }
+
+        def cancelled() -> bool:
+            return bool(cancel_token.is_set())
+
+        def progress(percent: int, message: str) -> None:
+            if cancelled():
+                raise settings_workload.SettingsApplyCancelled(
+                    "Planner settings application was cancelled."
+                )
+            try:
+                self.storySettingsApplyProgress.emit(
+                    {
+                        "request": request,
+                        "percent": int(percent),
+                        "message": str(message or "").strip(),
+                    }
+                )
+            except RuntimeError:
+                pass
+
+        try:
+            progress(1, "Preparing Planner analysis...")
+            worker_scene_plan = self._copy_style_apply_value(
+                scene_plan, cancelled=cancelled
+            )
+            worker_scene_overrides = self._copy_style_apply_value(
+                scene_overrides, cancelled=cancelled
+            )
+            worker_continuity_memory = self._copy_style_apply_value(
+                continuity_memory, cancelled=cancelled
+            )
+            worker_character_anchors = self._copy_style_apply_value(
+                character_anchors, cancelled=cancelled
+            )
+            worker_location_anchors = self._copy_style_apply_value(
+                location_anchors, cancelled=cancelled
+            )
+            with self._lock:
+                worker_image_cache = self._copy_style_apply_value(
+                    image_cache, cancelled=cancelled
+                )
+                worker_prompt_image_cache = self._copy_style_apply_value(
+                    prompt_image_cache, cancelled=cancelled
+                )
+            if (
+                int(story_state_version)
+                != int(self._story_analysis_state_version)
+                or int(scene_overrides_version)
+                != int(self._scene_overrides_version)
+                or scene_plan is not self.scene_plan
+                or scene_overrides is not self.scene_overrides
+                or continuity_memory is not self.continuity_memory
+                or character_anchors is not self.character_anchors
+                or location_anchors is not self.location_anchors
+            ):
+                cancel_token.set()
+                raise settings_workload.SettingsApplyCancelled(
+                    "Planner inputs changed while the snapshot was captured; apply again."
+                )
+            worker_settings = copy.deepcopy(dict(analysis_settings or {}))
+            worker_settings["_cancel_check"] = cancel_token.is_set
+            worker_settings["style_settings"] = copy.deepcopy(
+                dict(style_settings or {})
+            )
+            worker_settings.update(
+                {
+                    "scene_overrides": worker_scene_overrides,
+                    "continuity_memory": worker_continuity_memory,
+                    "character_anchors": worker_character_anchors,
+                    "location_anchors": worker_location_anchors,
+                    "reference_edits_supported": any(
+                        str(dict(item or {}).get("generation_mode") or "").strip()
+                        in {"edit", "multi_reference"}
+                        for item in worker_scene_plan
+                        if isinstance(item, Mapping)
+                    ),
+                    "progress_callback": progress,
+                }
+            )
+            ownership = self._project_story_analysis_ownership(
+                request.project_id, worker_settings
+            )
+            self._require_current_story_analysis_work(ownership)
+            payload = self._build_project_story_payload(
+                request.generation_id,
+                tuple(chapter_ids),
+                worker_settings,
+            )
+            if cancelled():
+                raise settings_workload.SettingsApplyCancelled(
+                    "Planner settings application was cancelled."
+                )
+            self._require_current_story_analysis_work(ownership)
+            final_project = self._story_project_store.load_project(
+                request.project_id
+            )
+            self._require_current_story_analysis_work(ownership)
+            compatible_caches = self._compatible_story_image_caches(
+                payload,
+                image_cache=worker_image_cache,
+                prompt_image_cache=worker_prompt_image_cache,
+            )
+            final_project_id = str(final_project.get("project_id") or "")
+            final_manifest_revision = int(
+                final_project.get("manifest_revision", 0) or 0
+            )
+            result.update(
+                {
+                    "final_project_id": final_project_id,
+                    "final_manifest_revision": final_manifest_revision,
+                    "store_head_project_id": final_project_id,
+                    "store_head_manifest_revision": final_manifest_revision,
+                    "project": final_project,
+                    "install_payload": {
+                        "selected_chapter_id": str(
+                            payload.get("selected_chapter_id") or ""
+                        ).strip(),
+                        "transcript_chunks": payload.get(
+                            "transcript_chunks"
+                        ),
+                        "story_style_guide": str(
+                            payload.get("story_style_guide") or ""
+                        ).strip(),
+                        "story_bible": payload.get("story_bible")
+                        or payload.get("project_story_memory"),
+                        "scene_plan": payload.get("scene_plan"),
+                        "character_anchors": payload.get(
+                            "character_anchors"
+                        ),
+                        "location_anchors": payload.get(
+                            "location_anchors"
+                        ),
+                        "image_cache": compatible_caches["image_cache"],
+                        "prompt_image_cache": compatible_caches[
+                            "prompt_image_cache"
+                        ],
+                    },
+                }
+            )
+            progress(100, "Planner changes applied.")
+        except Exception as exc:
+            result["cancelled"] = cancelled() or isinstance(
+                exc, settings_workload.SettingsApplyCancelled
+            )
+            result["error"] = (
+                "".join(traceback.format_exception_only(type(exc), exc)).strip()
+                or str(exc)
+            )
+        try:
+            result.update(self._settings_apply_store_head_context(request))
+        except Exception as exc:
+            result["terminal_context_error"] = (
+                "".join(traceback.format_exception_only(type(exc), exc)).strip()
+                or "Planner store head is unavailable."
+            )
+        try:
+            self.storySettingsApplyFinished.emit(result)
+        except RuntimeError:
+            return
+
+    @staticmethod
+    def _copy_style_apply_value(
+        value,
+        *,
+        cancelled: Callable[[], bool],
+    ):
+        visited = 0
+
+        def clone(item):
+            nonlocal visited
+            visited += 1
+            if (visited == 1 or visited % 32 == 0) and cancelled():
+                raise TranscriptionFailure(
+                    "Style application was cancelled."
+                )
+            if isinstance(item, Mapping):
+                copied = {}
+                for key in item:
+                    copied[copy.deepcopy(key)] = clone(item[key])
+                return copied
+            if isinstance(item, list):
+                return [clone(entry) for entry in item]
+            if isinstance(item, tuple):
+                return tuple(clone(entry) for entry in item)
+            return copy.deepcopy(item)
+
+        try:
+            return clone(value)
+        except RuntimeError as exc:
+            if "changed size" not in str(exc).lower():
+                raise
+            raise settings_workload.SettingsApplyCancelled(
+                "Settings inputs changed while the snapshot was captured; apply again."
+            ) from None
+
+    def _preflight_style_analysis_checkpoints(
+        self,
+        *,
+        project: Mapping,
+        chapter_ids: Sequence[str],
+        cancelled: Callable[[], bool],
+    ) -> tuple[tuple[str, dict], ...]:
+        project_id = str(project.get("project_id") or "")
+        chapters = project.get("chapters")
+        chapters = chapters if isinstance(chapters, Mapping) else {}
+        validated: list[tuple[str, dict]] = []
+        for chapter_position, raw_chapter_id in enumerate(chapter_ids, start=1):
+            if cancelled():
+                raise settings_workload.SettingsApplyCancelled(
+                    "Style settings application was cancelled."
+                )
+            chapter_id = str(raw_chapter_id)
+            chapter = chapters.get(chapter_id)
+            stage = (
+                dict(chapter.get("stages") or {}).get("story_analysis", {})
+                if isinstance(chapter, Mapping)
+                else {}
+            )
+            stage = dict(stage) if isinstance(stage, Mapping) else {}
+            label = f"Chapter {chapter_position} ({chapter_id})"
+            if str(stage.get("status") or "") != "completed":
+                raise TranscriptionFailure(
+                    f"{label} has no completed saved analysis checkpoint."
+                )
+            output_ref = str(stage.get("output_ref") or "").strip()
+            output_fingerprint = str(
+                stage.get("output_fingerprint") or ""
+            ).strip()
+            if not output_ref:
+                raise TranscriptionFailure(
+                    f"{label} saved analysis output_ref is missing."
+                )
+            if not output_fingerprint:
+                raise TranscriptionFailure(
+                    f"{label} saved analysis output_fingerprint is missing."
+                )
+            normalized_ref = output_ref.replace("\\", "/")
+            match = re.fullmatch(
+                rf"chapters/{re.escape(chapter_id)}/analysis\.(\d+)\.json",
+                normalized_ref,
+            )
+            if match is None:
+                raise TranscriptionFailure(
+                    f"{label} saved analysis output_ref is invalid."
+                )
+            try:
+                analysis = self._story_project_store.load_chapter_document(
+                    project_id,
+                    chapter_id,
+                    "analysis",
+                    revision=int(match.group(1)),
+                )
+            except Exception as exc:
+                raise TranscriptionFailure(
+                    f"{label} saved analysis checkpoint could not be loaded: {exc}"
+                ) from exc
+            if not isinstance(analysis, Mapping):
+                raise TranscriptionFailure(
+                    f"{label} saved analysis checkpoint is not an object."
+                )
+            analysis_copy = self._copy_style_apply_value(
+                analysis, cancelled=cancelled
+            )
+            if checkpointing.settings_fingerprint(analysis_copy) != output_fingerprint:
+                raise TranscriptionFailure(
+                    f"{label} saved analysis fingerprint does not match its checkpoint."
+                )
+            validated.append((chapter_id, analysis_copy))
+        return tuple(validated)
+
+    @staticmethod
+    def _updated_style_applied_settings(
+        existing,
+        style: settings_workload.StyleSettingsSnapshot,
+    ) -> dict:
+        updated = (
+            copy.deepcopy(dict(existing))
+            if isinstance(existing, Mapping)
+            else {}
+        )
+        if "schema_version" not in updated:
+            updated["schema_version"] = 1
+        updated["style"] = style.to_payload()
+        return updated
+
+    @staticmethod
+    def _style_cache_install_token(
+        request: settings_workload.SettingsApplyRequest,
+        *,
+        final_manifest_revision: int,
+        cache_metadata_fingerprint: str,
+    ) -> str:
+        return checkpointing.settings_fingerprint(
+            {
+                "generation_id": request.generation_id,
+                "operation": request.operation,
+                "project_id": request.project_id,
+                "project_generation": request.project_generation,
+                "original_manifest_revision": request.manifest_revision,
+                "final_manifest_revision": int(final_manifest_revision),
+                "input_fingerprint": request.input_fingerprint,
+                "cache_metadata_fingerprint": str(
+                    cache_metadata_fingerprint or ""
+                ),
+            }
+        )
+
+    def _settings_apply_store_head_context(
+        self, request: settings_workload.SettingsApplyRequest
+    ) -> dict:
+        head = self._story_project_store.load_project(request.project_id)
+        project_id = str(head.get("project_id") or "")
+        if project_id != request.project_id:
+            raise project_store.ProjectConflictError(
+                "Settings apply store head belongs to a different project"
+            )
+        revision_value = head.get("manifest_revision")
+        if isinstance(revision_value, bool):
+            raise project_store.ProjectConflictError(
+                "Settings apply store head revision is invalid"
+            )
+        revision = int(revision_value)
+        if revision < request.manifest_revision:
+            raise project_store.ProjectConflictError(
+                "Settings apply store head precedes the launch revision"
+            )
+        return {
+            "original_project_id": request.project_id,
+            "original_manifest_revision": request.manifest_revision,
+            "final_project_id": project_id,
+            "final_manifest_revision": revision,
+            "store_head_project_id": project_id,
+            "store_head_manifest_revision": revision,
+            "project": head,
+        }
+
+    def _run_style_settings_apply(
+        self,
+        request: settings_workload.SettingsApplyRequest,
+        cancel_token: threading.Event,
+        pipeline_owner: str,
+        chapter_ids: Sequence[str],
+        transcript_chunks: Sequence[Mapping],
+        scene_plan: Sequence[Mapping],
+        story_bible: Mapping,
+        story_memory: Mapping,
+        scene_overrides: Mapping,
+        image_cache: Mapping,
+        prompt_image_cache: Mapping,
+        story_state_version: int,
+        scene_overrides_version: int,
+    ) -> None:
+        ordered_chapter_ids = tuple(str(value) for value in chapter_ids)
+        result = {
+            "request": request,
+            "pipeline_token": str(pipeline_owner or ""),
+        }
+
+        def cancelled() -> bool:
+            return bool(cancel_token.is_set())
+
+        def progress(percent: int, message: str) -> None:
+            if cancelled():
+                raise settings_workload.SettingsApplyCancelled(
+                    "Style settings application was cancelled."
+                )
+            try:
+                self.storySettingsApplyProgress.emit(
+                    {
+                        "request": request,
+                        "percent": int(percent),
+                        "message": str(message or "").strip(),
+                    }
+                )
+            except RuntimeError:
+                pass
+
+        committed_count = 0
+        try:
+            progress(1, "Preparing Style prompts...")
+            project = self._story_project_store.load_project(
+                request.project_id
+            )
+            if (
+                str(project.get("project_id") or "") != request.project_id
+                or int(project.get("manifest_revision", -1) or 0)
+                != request.manifest_revision
+            ):
+                raise project_store.ProjectConflictError(
+                    "Audio Story project changed; reload before applying styles"
+                )
+            validated_analyses = self._preflight_style_analysis_checkpoints(
+                project=project,
+                chapter_ids=ordered_chapter_ids,
+                cancelled=cancelled,
+            )
+            worker_transcript_chunks = self._copy_style_apply_value(
+                transcript_chunks, cancelled=cancelled
+            )
+            worker_scene_plan = self._copy_style_apply_value(
+                scene_plan, cancelled=cancelled
+            )
+            worker_story_bible = self._copy_style_apply_value(
+                story_bible, cancelled=cancelled
+            )
+            worker_scene_overrides = self._copy_style_apply_value(
+                scene_overrides, cancelled=cancelled
+            )
+            committed_story_memory = (
+                self._load_committed_project_story_memory(request.project_id)
+            )
+            if committed_story_memory:
+                worker_story_memory = self._copy_style_apply_value(
+                    committed_story_memory, cancelled=cancelled
+                )
+            else:
+                worker_story_memory = self._copy_style_apply_value(
+                    story_memory, cancelled=cancelled
+                )
+            with self._lock:
+                worker_image_cache = self._copy_style_apply_value(
+                    image_cache, cancelled=cancelled
+                )
+                worker_prompt_image_cache = self._copy_style_apply_value(
+                    prompt_image_cache, cancelled=cancelled
+                )
+            if (
+                int(story_state_version)
+                != int(self._story_analysis_state_version)
+                or int(scene_overrides_version)
+                != int(self._scene_overrides_version)
+                or transcript_chunks is not self.transcript_chunks
+                or scene_plan is not self.scene_plan
+                or story_bible is not self.story_bible
+                or scene_overrides is not self.scene_overrides
+            ):
+                cancel_token.set()
+                raise settings_workload.SettingsApplyCancelled(
+                    "Style inputs changed while the snapshot was captured; apply again."
+                )
+            committed_project_memory = self._copy_style_apply_value(
+                worker_story_memory, cancelled=cancelled
+            )
+            committed_project_global_style = dict(
+                committed_project_memory.get("global_style") or {}
+            )
+            committed_project_global_style.update(
+                request.style.to_payload()
+            )
+            committed_project_memory["global_style"] = (
+                committed_project_global_style
+            )
+            rebuilt = self._build_style_reprompt_result(
+                transcript_chunks=worker_transcript_chunks,
+                scene_plan=worker_scene_plan,
+                story_bible=worker_story_bible,
+                story_memory=worker_story_memory,
+                scene_overrides=worker_scene_overrides,
+                planner=request.planner,
+                style=request.style,
+                cancelled=cancelled,
+            )
+            validated_caches = self._validated_style_image_caches(
+                image_cache=worker_image_cache,
+                prompt_image_cache=worker_prompt_image_cache,
+                cancelled=cancelled,
+            )
+            cache_metadata_fingerprint = checkpointing.settings_fingerprint(
+                {
+                    "image_cache": validated_caches["image_metadata"],
+                    "prompt_image_cache": validated_caches[
+                        "prompt_image_metadata"
+                    ],
+                }
+            )
+            progress(35, "Saving Style prompts...")
+            for chapter_position, (
+                chapter_id,
+                analysis,
+            ) in enumerate(validated_analyses):
+                if cancelled():
+                    raise settings_workload.SettingsApplyCancelled(
+                        "Style settings application was cancelled."
+                    )
+                saved_analysis = self._copy_style_apply_value(
+                    analysis, cancelled=cancelled
+                )
+                local_chunks = saved_analysis.get("transcript_chunks") or []
+                local_scenes = saved_analysis.get("scene_plan") or []
+                local_story_bible = saved_analysis.get("story_bible")
+                if not isinstance(local_story_bible, Mapping):
+                    local_story_bible = saved_analysis.get(
+                        "project_story_memory"
+                    )
+                local_story_memory = saved_analysis.get(
+                    "project_story_memory"
+                )
+                if not isinstance(local_story_memory, Mapping):
+                    local_story_memory = local_story_bible
+                local_rebuilt = self._build_style_reprompt_result(
+                    transcript_chunks=local_chunks,
+                    scene_plan=local_scenes,
+                    story_bible=local_story_bible or {},
+                    story_memory=local_story_memory or {},
+                    scene_overrides=worker_scene_overrides,
+                    planner=request.planner,
+                    style=request.style,
+                    cancelled=cancelled,
+                )
+                saved_analysis["transcript_chunks"] = local_rebuilt[
+                    "transcript_chunks"
+                ]
+                saved_analysis["scene_plan"] = local_rebuilt["scene_plan"]
+                if "story_bible" in saved_analysis:
+                    saved_analysis["story_bible"] = local_rebuilt[
+                        "story_bible"
+                    ]
+                committed_memory = self._copy_style_apply_value(
+                    local_story_memory or {}, cancelled=cancelled
+                )
+                committed_global_style = dict(
+                    committed_memory.get("global_style") or {}
+                )
+                committed_global_style.update(request.style.to_payload())
+                committed_memory["global_style"] = committed_global_style
+                if "project_story_memory" in saved_analysis:
+                    saved_analysis["project_story_memory"] = committed_memory
+                saved_analysis["applied_settings"] = (
+                    self._updated_style_applied_settings(
+                        saved_analysis.get("applied_settings"),
+                        request.style,
+                    )
+                )
+                analysis_fingerprint = checkpointing.settings_fingerprint(
+                    saved_analysis
+                )
+                prepared = copy.deepcopy(project)
+                stage = prepared["chapters"][str(chapter_id)]["stages"][
+                    "story_analysis"
+                ]
+                stage["status"] = "completed"
+                stage["output_fingerprint"] = analysis_fingerprint
+                if cancelled():
+                    raise settings_workload.SettingsApplyCancelled(
+                        "Style settings application was cancelled."
+                    )
+                project = self._story_project_store.commit_analysis_transaction(
+                    prepared,
+                    str(chapter_id),
+                    saved_analysis,
+                    committed_project_memory,
+                )
+                committed_count += 1
+                progress(
+                    35
+                    + int(
+                        55
+                        * committed_count
+                        / max(1, len(ordered_chapter_ids))
+                    ),
+                    f"Saved Style prompts for chapter {chapter_position + 1}/{len(ordered_chapter_ids)}...",
+                )
+            if not committed_count:
+                raise TranscriptionFailure(
+                    "Apply Planner Changes before applying project styles"
+                )
+            if cancelled():
+                raise settings_workload.SettingsApplyCancelled(
+                    "Style settings application was cancelled."
+                )
+            final_project = self._story_project_store.load_project(
+                request.project_id
+            )
+            final_project_id = str(final_project.get("project_id") or "")
+            final_manifest_revision = int(
+                final_project.get("manifest_revision", 0) or 0
+            )
+            cache_install_token = self._style_cache_install_token(
+                request,
+                final_manifest_revision=final_manifest_revision,
+                cache_metadata_fingerprint=cache_metadata_fingerprint,
+            )
+            result.update(
+                {
+                    "original_project_id": request.project_id,
+                    "original_manifest_revision": request.manifest_revision,
+                    "final_project_id": final_project_id,
+                    "final_manifest_revision": final_manifest_revision,
+                    "store_head_project_id": final_project_id,
+                    "store_head_manifest_revision": final_manifest_revision,
+                    "project": final_project,
+                    "cache_metadata_fingerprint": cache_metadata_fingerprint,
+                    "cache_install_token": cache_install_token,
+                    "install_payload": {
+                        "transcript_chunks": rebuilt["transcript_chunks"],
+                        "story_bible": rebuilt["story_bible"],
+                        "scene_plan": rebuilt["scene_plan"],
+                        "image_cache": validated_caches["image_cache"],
+                        "prompt_image_cache": validated_caches[
+                            "prompt_image_cache"
+                        ],
+                    },
+                }
+            )
+            progress(100, "Style changes applied.")
+        except Exception as exc:
+            was_cancelled = cancelled() or isinstance(
+                exc, settings_workload.SettingsApplyCancelled
+            )
+            result["cancelled"] = was_cancelled
+            result["error"] = (
+                "".join(traceback.format_exception_only(type(exc), exc)).strip()
+                or str(exc)
+            )
+            if was_cancelled or committed_count:
+                try:
+                    final_project = self._story_project_store.load_project(
+                        request.project_id
+                    )
+                    final_project_id = str(
+                        final_project.get("project_id") or ""
+                    )
+                    final_manifest_revision = int(
+                        final_project.get("manifest_revision", 0) or 0
+                    )
+                    result.update(
+                        {
+                            "original_project_id": request.project_id,
+                            "original_manifest_revision": request.manifest_revision,
+                            "final_project_id": final_project_id,
+                            "final_manifest_revision": final_manifest_revision,
+                            "store_head_project_id": final_project_id,
+                            "store_head_manifest_revision": final_manifest_revision,
+                            "project": final_project,
+                        }
+                    )
+                except Exception:
+                    pass
+        try:
+            self.storySettingsApplyFinished.emit(result)
+        except RuntimeError:
+            return
+
+    @staticmethod
+    def _validated_style_image_caches(
+        *,
+        image_cache: Mapping,
+        prompt_image_cache: Mapping,
+        cancelled: Callable[[], bool],
+    ) -> dict:
+        accepted_images: dict[int, dict] = {}
+        accepted_prompts: dict[str, dict] = {}
+        image_metadata: dict[str, dict] = {}
+        prompt_image_metadata: dict[str, dict] = {}
+        for position, (raw_index, raw_entry) in enumerate(
+            dict(image_cache or {}).items()
+        ):
+            if position % 32 == 0 and cancelled():
+                raise TranscriptionFailure(
+                    "Style application was cancelled."
+                )
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(raw_entry, Mapping):
+                continue
+            entry = copy.deepcopy(dict(raw_entry))
+            image_path = str(entry.get("image_path") or "").strip()
+            if not image_path or not Path(image_path).exists():
+                continue
+            accepted_images[index] = entry
+            image_metadata[str(index)] = {
+                "image_path": image_path,
+                "prompt_signature": str(
+                    entry.get("prompt_signature") or ""
+                ).strip(),
+                "prompt_text": str(entry.get("prompt_text") or "").strip(),
+            }
+        for position, (signature, raw_entry) in enumerate(
+            dict(prompt_image_cache or {}).items()
+        ):
+            if position % 32 == 0 and cancelled():
+                raise TranscriptionFailure(
+                    "Style application was cancelled."
+                )
+            if not isinstance(raw_entry, Mapping):
+                continue
+            entry = copy.deepcopy(dict(raw_entry))
+            image_path = str(entry.get("image_path") or "").strip()
+            if not image_path or not Path(image_path).exists():
+                continue
+            normalized_signature = str(signature)
+            accepted_prompts[normalized_signature] = entry
+            prompt_image_metadata[normalized_signature] = {
+                "image_path": image_path,
+                "prompt_signature": str(
+                    entry.get("prompt_signature") or ""
+                ).strip(),
+                "prompt_text": str(entry.get("prompt_text") or "").strip(),
+            }
+        return {
+            "image_cache": accepted_images,
+            "prompt_image_cache": accepted_prompts,
+            "image_metadata": image_metadata,
+            "prompt_image_metadata": prompt_image_metadata,
+        }
+
+    @staticmethod
+    def _compatible_story_image_caches(
+        payload: Mapping,
+        *,
+        image_cache: Mapping,
+        prompt_image_cache: Mapping,
+    ) -> dict:
+        prompts_by_index = {
+            int(index): str(dict(chunk or {}).get("prompt") or "").strip()
+            for index, chunk in enumerate(list(payload.get("transcript_chunks") or []))
+        }
+        accepted_images: dict[int, dict] = {}
+        accepted_prompts: dict[str, dict] = {}
+        for raw_index, raw_entry in dict(image_cache or {}).items():
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            entry = copy.deepcopy(dict(raw_entry or {}))
+            expected_prompt = prompts_by_index.get(index, "")
+            if not expected_prompt or str(entry.get("prompt_text") or "").strip() != expected_prompt:
+                continue
+            image_path = str(entry.get("image_path") or "").strip()
+            if not image_path or not Path(image_path).exists():
+                continue
+            accepted_images[index] = entry
+            signature = str(entry.get("prompt_signature") or "").strip()
+            if signature:
+                accepted_prompts[signature] = copy.deepcopy(entry)
+        accepted_prompt_texts = set(prompts_by_index.values())
+        for signature, raw_entry in dict(prompt_image_cache or {}).items():
+            entry = copy.deepcopy(dict(raw_entry or {}))
+            image_path = str(entry.get("image_path") or "").strip()
+            prompt_text = str(entry.get("prompt_text") or "").strip()
+            if (
+                prompt_text in accepted_prompt_texts
+                and image_path
+                and Path(image_path).exists()
+            ):
+                accepted_prompts[str(signature)] = entry
+        return {
+            "image_cache": accepted_images,
+            "prompt_image_cache": accepted_prompts,
+        }
+
+    @QtCore.Slot(object)
+    def _on_story_settings_apply_progress(self, payload) -> None:
+        data = dict(payload or {})
+        request = data.get("request")
+        if request != self._story_settings_apply_request:
+            return
+        if (
+            request.operation == "style"
+            and self._story_settings_apply_cancel_token is not None
+            and self._story_settings_apply_cancel_token.is_set()
+        ):
+            return
+        if request.operation == "style":
+            self._sync_style_apply_state(state="Applying...")
+        else:
+            self._sync_planner_apply_state(state="Applying...")
+        message = str(data.get("message") or "").strip()
+        if message:
+            self._set_status(message)
+
+    def _settings_apply_terminal_result_is_current(
+        self,
+        request: settings_workload.SettingsApplyRequest,
+        pipeline_token: str,
+    ) -> bool:
+        if request is not self._story_settings_apply_request:
+            return False
+        if request.operation not in {"planner", "style"}:
+            return False
+        if str(self._story_settings_apply_pipeline_owner or "") != str(
+            pipeline_token or ""
+        ):
+            return False
+        if request.project_id != str(self.current_story_project_id or ""):
+            return False
+        active_project = self._current_story_project
+        if (
+            not isinstance(active_project, Mapping)
+            or str(active_project.get("project_id") or "")
+            != request.project_id
+        ):
+            return False
+        if request.project_generation != int(self._story_project_generation):
+            return False
+        if request.input_fingerprint != str(
+            self._story_project_input_fingerprint or ""
+        ):
+            return False
+        with self._lock:
+            central_owner = self._story_project_mutating_pipeline_owner
+            central_owner = (
+                dict(central_owner)
+                if isinstance(central_owner, Mapping)
+                else {}
+            )
+        return bool(
+            str(central_owner.get("token") or "")
+            == str(pipeline_token or "")
+            and str(central_owner.get("label") or "")
+            == f"{request.operation} settings"
+            and str(central_owner.get("project_id") or "")
+            == request.project_id
+            and int(central_owner.get("generation", -1) or 0)
+            == request.project_generation
+        )
+
+    def _style_terminal_result_is_current(
+        self,
+        request: settings_workload.SettingsApplyRequest,
+        pipeline_token: str,
+    ) -> bool:
+        return bool(
+            request.operation == "style"
+            and self._settings_apply_terminal_result_is_current(
+                request, pipeline_token
+            )
+        )
+
+    @QtCore.Slot(object)
+    def _on_story_settings_apply_finished(self, payload) -> None:
+        if not isinstance(payload, Mapping):
+            return
+        data = payload
+        request = data.get("request")
+        pipeline_owner = str(data.get("pipeline_token") or "")
+        if not isinstance(request, settings_workload.SettingsApplyRequest):
+            return
+        if request is not self._story_settings_apply_request:
+            return
+        active_pipeline_owner = self._story_settings_apply_pipeline_owner
+        if pipeline_owner != str(active_pipeline_owner or ""):
+            return
+        if not self._settings_apply_terminal_result_is_current(
+            request, pipeline_owner
+        ):
+            return
+        error = str(data.get("error") or "").strip()
+        cancel_requested = bool(
+            self._story_settings_apply_cancel_token is not None
+            and self._story_settings_apply_cancel_token.is_set()
+        )
+        if error or bool(data.get("cancelled")) or cancel_requested:
+            was_cancelled = bool(data.get("cancelled")) or cancel_requested
+            if request.operation == "style":
+                self._reconcile_style_apply_head(data, request)
+            elif not self._reconcile_planner_apply_head(data, request):
+                self._set_status(
+                    "Planner worker finished, but its authoritative project head "
+                    "could not be verified. The apply pipeline remains owned."
+                )
+                return
+            self._end_story_project_mutating_pipeline(pipeline_owner)
+            self._story_settings_apply_request = None
+            self._story_settings_apply_cancel_token = None
+            self._story_settings_apply_pipeline_owner = None
+            if request.operation == "style":
+                final_state = "Cancelled" if was_cancelled else "Failed"
+                self._style_apply_state = final_state
+                self._sync_style_apply_state(state=final_state)
+                if was_cancelled:
+                    self._set_status("Style settings application cancelled.")
+                elif error:
+                    self._set_status(
+                        f"Could not apply Style changes: {error}"
+                    )
+            else:
+                final_state = "Cancelled" if was_cancelled else "Failed"
+                self._planner_apply_state = final_state
+                self._sync_planner_apply_state(state=final_state)
+                if was_cancelled:
+                    self._set_status("Planner settings application cancelled.")
+                elif error:
+                    self._set_status(
+                        f"Could not apply Planner changes: {error}"
+                    )
+            self._refresh_controls()
+            return
+        if request.operation == "style":
+            if not self._apply_style_settings_result(data, request):
+                self._reconcile_style_apply_head(data, request)
+                self._end_story_project_mutating_pipeline(pipeline_owner)
+                self._story_settings_apply_request = None
+                self._story_settings_apply_cancel_token = None
+                self._story_settings_apply_pipeline_owner = None
+                self._style_apply_state = "Failed"
+                self._sync_style_apply_state(state="Failed")
+                self._refresh_controls()
+                return
+            self._end_story_project_mutating_pipeline(pipeline_owner)
+            self._story_settings_apply_request = None
+            self._story_settings_apply_cancel_token = None
+            self._story_settings_apply_pipeline_owner = None
+            self._applied_style_settings = request.style
+            self._unknown_applied_style_baseline = None
+            if self._style_draft_snapshot() == request.style:
+                self._sync_style_apply_state(state="Applied")
+            else:
+                self._sync_style_apply_state(state="Changes not applied")
+            self._refresh_scene_override_controls()
+            self._set_status(
+                "Style changes applied. Existing project images were kept."
+            )
+            if (
+                request.style.style_change_live
+                and self._is_audio_story_currently_playing()
+            ):
+                self._refresh_current_scene_after_style_apply(request.style)
+            return
+        if not self._apply_story_analysis_result(data, request):
+            if not self._reconcile_planner_apply_head(data, request):
+                self._set_status(
+                    "Planner result was rejected and its authoritative project head "
+                    "could not be verified. The apply pipeline remains owned."
+                )
+                return
+            self._end_story_project_mutating_pipeline(pipeline_owner)
+            self._story_settings_apply_request = None
+            self._story_settings_apply_cancel_token = None
+            self._story_settings_apply_pipeline_owner = None
+            self._planner_apply_state = "Failed"
+            self._sync_planner_apply_state(state="Failed")
+            self._refresh_controls()
+            return
+        self._end_story_project_mutating_pipeline(pipeline_owner)
+        self._story_settings_apply_request = None
+        self._story_settings_apply_cancel_token = None
+        self._story_settings_apply_pipeline_owner = None
+        self._applied_planner_settings = request.planner
+        self._unknown_applied_planner_baseline = None
+        if self._planner_draft_snapshot() == request.planner:
+            self._sync_planner_apply_state(state="Applied")
+        else:
+            self._sync_planner_apply_state(state="Changes not applied")
+        self._refresh_scene_override_controls()
+        self._set_status("Planner changes applied. Existing playback was left unchanged.")
+        self._refresh_controls()
+
+    def _reconcile_style_apply_head(
+        self,
+        payload: Mapping,
+        request: settings_workload.SettingsApplyRequest,
+    ) -> bool:
+        if request is not self._story_settings_apply_request:
+            return False
+        if request.project_id != str(self.current_story_project_id or ""):
+            return False
+        if request.project_generation != int(self._story_project_generation):
+            return False
+        if request.input_fingerprint != str(
+            self._story_project_input_fingerprint or ""
+        ):
+            return False
+        active = self._current_story_project
+        committed = payload.get("project")
+        if not isinstance(active, Mapping) or not isinstance(committed, dict):
+            return False
+        try:
+            active_revision = int(active.get("manifest_revision", -1))
+            original_revision = int(
+                payload.get("original_manifest_revision", -1)
+            )
+            final_revision = int(payload.get("final_manifest_revision", -1))
+            store_head_revision = int(
+                payload.get("store_head_manifest_revision", -1)
+            )
+            committed_revision = int(
+                committed.get("manifest_revision", -1)
+            )
+        except (TypeError, ValueError):
+            return False
+        if not (
+            active_revision
+            == original_revision
+            == request.manifest_revision
+        ):
+            return False
+        project_ids = {
+            str(payload.get("original_project_id") or ""),
+            str(payload.get("final_project_id") or ""),
+            str(payload.get("store_head_project_id") or ""),
+            str(committed.get("project_id") or ""),
+        }
+        if project_ids != {request.project_id}:
+            return False
+        if not (
+            committed_revision
+            == final_revision
+            == store_head_revision
+            and final_revision >= original_revision
+        ):
+            return False
+        self._current_story_project = committed
+        self._replace_story_project_summary(committed, take_ownership=True)
+        return True
+
+    def _reconcile_planner_apply_head(
+        self,
+        payload: Mapping,
+        request: settings_workload.SettingsApplyRequest,
+    ) -> bool:
+        if request.operation != "planner":
+            return False
+        return self._reconcile_style_apply_head(payload, request)
+
+    def _apply_style_settings_result(
+        self,
+        payload: Mapping,
+        applied_request: settings_workload.SettingsApplyRequest,
+    ) -> bool:
+        if applied_request is not self._story_settings_apply_request:
+            return False
+        ownership = {
+            "kind": "settings_apply",
+            "apply_generation": applied_request.generation_id,
+            "operation": applied_request.operation,
+            "manifest_revision": applied_request.manifest_revision,
+            "project_id": applied_request.project_id,
+            "project_generation": applied_request.project_generation,
+            "input_fingerprint": applied_request.input_fingerprint,
+        }
+        if not self._story_analysis_work_is_current(ownership):
+            return False
+        active_project = self._current_story_project
+        if not isinstance(active_project, Mapping):
+            return False
+        if str(active_project.get("project_id") or "") != applied_request.project_id:
+            return False
+        try:
+            active_manifest_revision = int(
+                active_project.get("manifest_revision", 0) or 0
+            )
+            original_manifest_revision = int(
+                payload.get("original_manifest_revision", -1)
+            )
+            final_manifest_revision = int(
+                payload.get("final_manifest_revision", -1)
+            )
+            store_head_manifest_revision = int(
+                payload.get("store_head_manifest_revision", -1)
+            )
+        except (TypeError, ValueError):
+            return False
+        if not (
+            active_manifest_revision
+            == original_manifest_revision
+            == applied_request.manifest_revision
+        ):
+            return False
+        if str(payload.get("original_project_id") or "") != applied_request.project_id:
+            return False
+        final_project_id = str(payload.get("final_project_id") or "")
+        store_head_project_id = str(
+            payload.get("store_head_project_id") or ""
+        )
+        if not (
+            final_project_id
+            == store_head_project_id
+            == applied_request.project_id
+        ):
+            return False
+        committed = payload.get("project")
+        install_payload = payload.get("install_payload")
+        if not isinstance(committed, dict) or not isinstance(
+            install_payload, Mapping
+        ):
+            return False
+        try:
+            committed_revision = int(
+                committed.get("manifest_revision", -1)
+            )
+        except (TypeError, ValueError):
+            return False
+        if str(committed.get("project_id") or "") != final_project_id:
+            return False
+        if not (
+            committed_revision
+            == final_manifest_revision
+            == store_head_manifest_revision
+        ):
+            return False
+        if final_manifest_revision < original_manifest_revision:
+            return False
+        cache_metadata_fingerprint = str(
+            payload.get("cache_metadata_fingerprint") or ""
+        ).strip()
+        cache_install_token = str(
+            payload.get("cache_install_token") or ""
+        ).strip()
+        if not cache_metadata_fingerprint or not cache_install_token:
+            return False
+        if cache_install_token != self._style_cache_install_token(
+            applied_request,
+            final_manifest_revision=final_manifest_revision,
+            cache_metadata_fingerprint=cache_metadata_fingerprint,
+        ):
+            return False
+
+        transcript_chunks = install_payload.get("transcript_chunks")
+        story_bible = install_payload.get("story_bible")
+        scene_plan = install_payload.get("scene_plan")
+        image_cache = install_payload.get("image_cache")
+        prompt_image_cache = install_payload.get("prompt_image_cache")
+        if not (
+            isinstance(transcript_chunks, list)
+            and isinstance(story_bible, dict)
+            and isinstance(scene_plan, list)
+            and isinstance(image_cache, dict)
+            and isinstance(prompt_image_cache, dict)
+        ):
+            return False
+
+        self.transcript_chunks = transcript_chunks
+        self.story_bible = story_bible
+        self.scene_plan = scene_plan
+        self._story_analysis_state_version = int(
+            getattr(self, "_story_analysis_state_version", 0)
+        ) + 1
+        self._current_story_project = committed
+        self._replace_story_project_summary(committed, take_ownership=True)
+        with self._lock:
+            self._image_cache = image_cache
+            self._prompt_image_cache = prompt_image_cache
+        return True
+
+    def _apply_story_analysis_result(
+        self,
+        payload: Mapping,
+        applied_request: settings_workload.SettingsApplyRequest,
+    ) -> bool:
+        if applied_request is not self._story_settings_apply_request:
+            return False
+        ownership = {
+            "kind": "settings_apply",
+            "apply_generation": applied_request.generation_id,
+            "operation": applied_request.operation,
+            "manifest_revision": applied_request.manifest_revision,
+            "project_id": applied_request.project_id,
+            "project_generation": applied_request.project_generation,
+            "input_fingerprint": applied_request.input_fingerprint,
+        }
+        if not self._story_analysis_work_is_current(ownership):
+            return False
+        if not isinstance(payload, Mapping):
+            return False
+        active_project = self._current_story_project
+        if not isinstance(active_project, Mapping):
+            return False
+        if str(active_project.get("project_id") or "") != applied_request.project_id:
+            return False
+        try:
+            active_manifest_revision = int(
+                active_project.get("manifest_revision", 0) or 0
+            )
+            original_manifest_revision = int(
+                payload.get("original_manifest_revision", -1)
+            )
+            final_manifest_revision = int(
+                payload.get("final_manifest_revision", -1)
+            )
+            store_head_manifest_revision = int(
+                payload.get("store_head_manifest_revision", -1)
+            )
+        except (TypeError, ValueError):
+            return False
+        if active_manifest_revision != applied_request.manifest_revision:
+            return False
+        if original_manifest_revision != applied_request.manifest_revision:
+            return False
+        if str(payload.get("original_project_id") or "") != applied_request.project_id:
+            return False
+        final_project_id = str(payload.get("final_project_id") or "")
+        store_head_project_id = str(payload.get("store_head_project_id") or "")
+        if not (
+            final_project_id
+            == store_head_project_id
+            == applied_request.project_id
+        ):
+            return False
+        committed = payload.get("project")
+        install_payload = payload.get("install_payload")
+        if not isinstance(committed, dict) or not isinstance(
+            install_payload, Mapping
+        ):
+            return False
+        try:
+            committed_revision = int(
+                committed.get("manifest_revision", -1)
+            )
+        except (TypeError, ValueError):
+            return False
+        if str(committed.get("project_id") or "") != final_project_id:
+            return False
+        if not (
+            committed_revision
+            == final_manifest_revision
+            == store_head_manifest_revision
+        ):
+            return False
+        if final_manifest_revision < original_manifest_revision:
+            return False
+
+        transcript_chunks = install_payload.get("transcript_chunks")
+        story_bible = install_payload.get("story_bible")
+        scene_plan = install_payload.get("scene_plan")
+        character_anchors = install_payload.get("character_anchors")
+        location_anchors = install_payload.get("location_anchors")
+        image_cache = install_payload.get("image_cache")
+        prompt_image_cache = install_payload.get("prompt_image_cache")
+        if not (
+            isinstance(transcript_chunks, list)
+            and isinstance(story_bible, dict)
+            and isinstance(scene_plan, list)
+            and isinstance(character_anchors, dict)
+            and isinstance(location_anchors, dict)
+            and isinstance(image_cache, dict)
+            and isinstance(prompt_image_cache, dict)
+        ):
+            return False
+
+        self.transcript_chunks = transcript_chunks
+        self.story_style_guide = str(
+            install_payload.get("story_style_guide") or ""
+        ).strip()
+        self.story_bible = story_bible
+        self.scene_plan = scene_plan
+        self.character_anchors = character_anchors
+        self.location_anchors = location_anchors
+        self._story_analysis_state_version = int(
+            getattr(self, "_story_analysis_state_version", 0)
+        ) + 1
+        self._current_story_project = committed
+        self._replace_story_project_summary(committed, take_ownership=True)
+        selected_chapter_id = str(
+            install_payload.get("selected_chapter_id") or ""
+        ).strip()
+        if selected_chapter_id:
+            self._current_story_chapter_id = selected_chapter_id
+            self._story_chapter_lazy_loading_active = True
+            self._story_chapter_working_set.invalidate(
+                applied_request.project_id,
+                final_manifest_revision,
+            )
+        with self._lock:
+            self._image_cache = image_cache
+            self._prompt_image_cache = prompt_image_cache
+        if selected_chapter_id:
+            self._prefetch_next_story_project_chapter(selected_chapter_id)
+        return True
+
     def _sync_audio_story_style_controls(self):
         valid_ids = {str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets()}
         enabled_set = {style_id for style_id in self._stored_style_enabled if style_id in valid_ids}
@@ -11990,13 +17864,14 @@ class AudioStoryModeController(QtCore.QObject):
         finally:
             combo.blockSignals(False)
 
-    def _sync_llm_story_analysis_controls(self):
+    def _sync_llm_story_analysis_controls(self, *, sync_provider: bool = True):
         checkbox = getattr(self, "audio_story_llm_analysis_checkbox", None)
         if checkbox is not None:
             checkbox.blockSignals(True)
             checkbox.setChecked(bool(self._stored_use_llm_story_analysis))
             checkbox.blockSignals(False)
-        self._sync_story_analysis_provider_controls()
+        if sync_provider:
+            self._sync_story_analysis_provider_controls()
 
     def _sync_instructor_controls(self):
         checkbox = getattr(self, "audio_story_instructor_beats_checkbox", None)
@@ -12011,11 +17886,7 @@ class AudioStoryModeController(QtCore.QObject):
                 "The existing scene analyzer is used automatically if Instructor is unavailable."
             )
         if status is not None:
-            if availability.available:
-                version = f" {availability.module_version}" if availability.module_version else ""
-                status.setText(f"Instructor{version} is available. The selected LLM still performs story reasoning.")
-            else:
-                status.setText(f"{availability.reason} Existing scene analysis will be used.")
+            status.setText(planner_guidance.instructor_status_text(availability))
 
     def _normalize_story_analysis_provider_mode(self, value=None):
         normalized = str(value if value is not None else self._stored_story_analysis_provider_mode or "current").strip().lower()
@@ -12061,7 +17932,7 @@ class AudioStoryModeController(QtCore.QObject):
             return f"LLM ({label} / {model_label})"
         return f"LLM ({label})"
 
-    def _sync_story_analysis_provider_controls(self):
+    def _sync_story_analysis_provider_controls(self, *, sync_models: bool = True):
         combo = getattr(self, "audio_story_analysis_provider_combo", None)
         if combo is None:
             return
@@ -12072,7 +17943,8 @@ class AudioStoryModeController(QtCore.QObject):
                 combo.setCurrentIndex(target_index)
         finally:
             combo.blockSignals(False)
-        self._sync_story_analysis_model_controls()
+        if sync_models:
+            self._sync_story_analysis_model_controls()
 
     def _normalize_story_analysis_model(self, value=None):
         text = str(value if value is not None else self._stored_story_analysis_model or "").strip()
@@ -12084,33 +17956,152 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _story_analysis_model_candidates(self, provider: str):
         saved_model = self._story_analysis_saved_model_for_provider(provider)
+        models = []
         if self._story_analysis_provider_mode() == "current":
             runtime_model = str(audio_story_runtime.runtime_config_value("model_name", "") or "").strip()
-            models = []
-            for model in (runtime_model, saved_model):
-                if model and model not in models:
-                    models.append(model)
-            return models
-        if chat_providers.get_provider(provider) is None:
-            return []
-        models = [saved_model] if saved_model else []
-        try:
-            error_placeholder = chat_providers.provider_model_error(provider)
-            for item in list(chat_providers.list_models(provider, quiet=True) or []):
-                model = str(item or "").strip()
-                if model and model != error_placeholder and model not in models:
-                    models.append(model)
-        except Exception:
-            pass
+            if runtime_model:
+                models.append(runtime_model)
+        if saved_model and saved_model not in models:
+            models.append(saved_model)
+        provider_id = str(provider or "").strip().lower()
+        for model in self._story_model_catalog_cache.get(provider_id, ()):
+            if model and model not in models:
+                models.append(model)
         return models
 
-    def _sync_story_analysis_model_controls(self):
+    @staticmethod
+    def _story_analysis_model_name_from_catalog_item(item) -> str:
+        if isinstance(item, Mapping):
+            for key in ("id", "key", "name", "model"):
+                value = item.get(key)
+                model = value.strip() if isinstance(value, str) else ""
+                if model:
+                    return model
+            return ""
+        return item.strip() if isinstance(item, str) else ""
+
+    def _request_story_analysis_model_catalog(self) -> None:
+        if self._story_model_catalog_shutdown:
+            return
+        if self._story_analysis_provider_mode() == "current":
+            self._story_model_catalog_request_id += 1
+            return
+        provider = str(self._story_analysis_provider_id() or "").strip().lower()
+        if not provider or provider in self._story_model_catalog_inflight:
+            return
+        self._story_model_catalog_request_id += 1
+        request_id = self._story_model_catalog_request_id
+        self._story_model_catalog_inflight.add(provider)
+        self._story_model_catalog_inflight_request_ids[provider] = request_id
+
+        def worker() -> None:
+            models: list[str] = []
+            error = ""
+            try:
+                error_placeholder = str(
+                    chat_providers.provider_model_error(provider) or ""
+                ).strip()
+                error_placeholder_seen = False
+                for item in list(
+                    chat_providers.list_models(provider, quiet=True) or []
+                ):
+                    model = self._story_analysis_model_name_from_catalog_item(
+                        item
+                    )
+                    if model == error_placeholder:
+                        error_placeholder_seen = True
+                        continue
+                    if (
+                        model
+                        and model not in models
+                    ):
+                        models.append(model)
+                if error_placeholder_seen and not models:
+                    error = error_placeholder
+            except Exception as exc:
+                error = str(exc).strip() or "Model catalog discovery failed."
+            try:
+                self.storyModelCatalogFinished.emit(
+                    {
+                        "request_id": request_id,
+                        "provider": provider,
+                        "models": tuple(models),
+                        "error": error,
+                    }
+                )
+            except RuntimeError:
+                return
+
+        threading.Thread(
+            target=worker,
+            name=f"audio-story-model-catalog-{provider}",
+            daemon=True,
+        ).start()
+
+    def _on_story_analysis_model_catalog_finished(self, result) -> None:
+        payload = dict(result or {})
+        provider = str(payload.get("provider") or "").strip().lower()
+        try:
+            request_id = int(payload.get("request_id", -1))
+        except (TypeError, ValueError):
+            return
+        if (
+            not provider
+            or self._story_model_catalog_inflight_request_ids.get(provider)
+            != request_id
+        ):
+            return
+        self._story_model_catalog_inflight_request_ids.pop(provider, None)
+        self._story_model_catalog_inflight.discard(provider)
+        if (
+            self._story_model_catalog_shutdown
+            or self._story_analysis_provider_mode() == "current"
+            or provider != self._story_analysis_provider_id()
+        ):
+            return
+        error = str(payload.get("error") or "").strip()
+        if error:
+            self._set_status(
+                f"Could not load {chat_providers.provider_label(provider)} "
+                f"models: {error}"
+            )
+            return
+        preserve_edit_text = None
+        combo = getattr(self, "audio_story_analysis_model_combo", None)
+        if combo is not None and combo.isEditable():
+            live_text = str(combo.currentText() or "")
+            stored_model = self._normalize_story_analysis_model(
+                self._stored_story_analysis_model
+            )
+            if self._normalize_story_analysis_model(live_text) != stored_model:
+                preserve_edit_text = live_text
+        models = tuple(
+            item.strip()
+            for item in tuple(payload.get("models") or ())
+            if isinstance(item, str) and item.strip()
+        )
+        self._story_model_catalog_cache[provider] = tuple(dict.fromkeys(models))
+        self._sync_story_analysis_model_controls(
+            preserve_edit_text=preserve_edit_text
+        )
+
+    def _sync_story_analysis_model_controls(
+        self,
+        *,
+        discover_candidates: bool = True,
+        preserve_edit_text: str | None = None,
+    ):
         combo = getattr(self, "audio_story_analysis_model_combo", None)
         if combo is None:
             return
-        provider = self._story_analysis_provider_id()
         selected_model = self._story_analysis_model_override()
-        models = self._story_analysis_model_candidates(provider)
+        models = (
+            self._story_analysis_model_candidates(
+                self._story_analysis_provider_id()
+            )
+            if discover_candidates
+            else []
+        )
         combo.blockSignals(True)
         try:
             combo.clear()
@@ -12122,6 +18113,8 @@ class AudioStoryModeController(QtCore.QObject):
                 combo.addItem(selected_model, selected_model)
                 target_index = combo.findData(selected_model)
             combo.setCurrentIndex(target_index if target_index >= 0 else 0)
+            if preserve_edit_text is not None and combo.isEditable():
+                combo.setEditText(preserve_edit_text)
         finally:
             combo.blockSignals(False)
 
@@ -12131,11 +18124,16 @@ class AudioStoryModeController(QtCore.QObject):
             label.setText("Image provider settings")
             label.setStyleSheet("font-size: 12px; font-weight: 700; color: #f2f5f9;")
             label.setWordWrap(True)
-        hint = self._ui_child(root, "audio_story_xai_image_settings_hint", QtWidgets.QLabel)
-        if hint is not None:
-            hint.setText("Audio Story uses the active Visual Reply provider. These advanced xAI options apply only when Visual Reply is set to xAI / Grok.")
-            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-            hint.setWordWrap(True)
+        self.audio_story_xai_image_settings_hint = self._ui_child(
+            root,
+            "audio_story_xai_image_settings_hint",
+            QtWidgets.QLabel,
+        )
+        if self.audio_story_xai_image_settings_hint is not None:
+            self.audio_story_xai_image_settings_hint.setStyleSheet(
+                "color: #8ea3b8; font-size: 11px;"
+            )
+            self.audio_story_xai_image_settings_hint.setWordWrap(True)
         self.audio_story_xai_aspect_ratio_combo = self._ui_child(root, "audio_story_xai_aspect_ratio_combo", QtWidgets.QComboBox)
         if self.audio_story_xai_aspect_ratio_combo is not None:
             self.audio_story_xai_aspect_ratio_combo.setToolTip("xAI image API aspect_ratio value.")
@@ -12155,6 +18153,24 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_xai_n_spin.valueChanged.connect(self._on_xai_image_settings_changed)
         self._populate_xai_image_settings_controls()
         self._sync_xai_image_settings_controls()
+
+    def _sync_image_provider_guidance(
+        self,
+        generation_info: Mapping | None = None,
+    ) -> None:
+        hint = getattr(self, "audio_story_xai_image_settings_hint", None)
+        if hint is None:
+            return
+        resolved_info = (
+            dict(generation_info)
+            if isinstance(generation_info, Mapping)
+            else dict(self._visual_reply_generation_info() or {})
+        )
+        hint.setText(
+            planner_guidance.image_provider_continuity_text(
+                resolved_info
+            )
+        )
 
     def _populate_xai_image_settings_controls(self):
         for combo_name, values in (
@@ -12280,6 +18296,28 @@ class AudioStoryModeController(QtCore.QObject):
             return ""
         return "; ".join(parts)
 
+    def _story_style_settings_payload(
+        self, style_settings: Mapping | None = None
+    ) -> dict:
+        if style_settings is None:
+            return self._style_draft_snapshot().to_payload()
+        return settings_workload.StyleSettingsSnapshot.from_mapping(
+            style_settings
+        ).to_payload()
+
+    def _story_style_suffix_from_settings(
+        self, style_settings: Mapping | None = None
+    ) -> str:
+        if style_settings is None:
+            return self._current_audio_story_style_suffix()
+        style = self._story_style_settings_payload(style_settings)
+        prompts = dict(style.get("style_prompts") or {})
+        return "; ".join(
+            str(prompts.get(style_id) or "").strip()
+            for style_id in list(style.get("style_enabled") or [])
+            if str(prompts.get(style_id) or "").strip()
+        )
+
     def _story_bible_memory_path(self, audio_path: str = ""):
         source = str(audio_path or self.imported_audio_path or "audio_story").strip()
         stem = _audio_story_slug(Path(source).stem or "audio_story", prefix="story")
@@ -12289,7 +18327,19 @@ class AudioStoryModeController(QtCore.QObject):
     def _story_bible_store(self, audio_path: str = ""):
         return StoryMemoryStore(self._story_bible_memory_path(audio_path))
 
-    def _build_story_bible_image_prompt(self, text: str, *, chunk_index: int, scene_entry: dict, memory: dict, analyzer_update: dict | None = None):
+    def _build_story_bible_image_prompt(
+        self,
+        text: str,
+        *,
+        chunk_index: int,
+        scene_entry: dict,
+        memory: dict,
+        analyzer_update: dict | None = None,
+        style_settings: Mapping | None = None,
+        style_suffix: str | None = None,
+        prompt_safety_cap: int | None = None,
+        report_diagnostics: bool = True,
+    ):
         scene_entry = dict(scene_entry or {})
         analyzer_update = dict(analyzer_update or {})
         scene_update = dict(analyzer_update.get("scene") or {})
@@ -12313,19 +18363,39 @@ class AudioStoryModeController(QtCore.QObject):
             selected_characters=character_keys,
             selected_location=location_key,
             style_settings={
-                "style_suffix": self._current_audio_story_style_suffix(),
+                "style_suffix": (
+                    self._story_style_suffix_from_settings(style_settings)
+                    if style_suffix is None
+                    else str(style_suffix or "").strip()
+                ),
                 "camera": str(scene_entry.get("camera", "") or "cinematic medium shot").strip(),
             },
             character_reference_image_path=str(scene_entry.get("character_reference_image_path", "") or ""),
             location_reference_image_path=str(scene_entry.get("location_reference_image_path", "") or ""),
             include_reference_images=False,
         )
-        print(f"[StoryBible] final prompt length: {len(prompt)}")
-        if "Needs clarification" in prompt:
+        if report_diagnostics:
+            print(f"[StoryBible] final prompt length: {len(prompt)}")
+        if report_diagnostics and "Needs clarification" in prompt:
             print("[StoryBible] warning: prompt contains unknown visual details that need clarification.")
+        if prompt_safety_cap is not None:
+            safety_cap = self._normalize_prompt_safety_cap(
+                prompt_safety_cap
+            )
+            if len(prompt) > safety_cap:
+                prompt = prompt[:safety_cap].rstrip(" \t\r\n,;:.-")
         return prompt
 
-    def _apply_story_bible_prompts_to_chunks(self, chunks, scenes, *, story_memory_store, story_memory: dict, story_analyzer):
+    def _apply_story_bible_prompts_to_chunks(
+        self,
+        chunks,
+        scenes,
+        *,
+        story_memory_store,
+        story_memory: dict,
+        story_analyzer,
+        style_settings: Mapping | None = None,
+    ):
         memory = dict(story_memory or {})
         for index, chunk in enumerate(list(chunks or [])):
             scene_entry = dict(list(scenes or [])[index] or {}) if index < len(list(scenes or [])) else {}
@@ -12348,6 +18418,7 @@ class AudioStoryModeController(QtCore.QObject):
                 scene_entry=scene_entry,
                 memory=memory,
                 analyzer_update=update,
+                style_settings=style_settings,
             )
             try:
                 chunks[index]["prompt"] = prompt
@@ -12356,26 +18427,64 @@ class AudioStoryModeController(QtCore.QObject):
                 pass
         return memory
 
-    def _build_story_image_prompt(self, text: str, story_style_guide: str, *, scene_entry=None, story_bible=None, previous_scene=None):
+    def _build_story_image_prompt(
+        self,
+        text: str,
+        story_style_guide: str,
+        *,
+        scene_entry=None,
+        story_bible=None,
+        previous_scene=None,
+        style_settings: Mapping | None = None,
+        style_suffix: str | None = None,
+        scene_overrides: Mapping | None = None,
+        prompt_block_limits: Mapping | None = None,
+        prompt_safety_cap: int | None = None,
+    ):
         base_text = str(text or "").strip()
         if not scene_entry or not isinstance(scene_entry, dict):
-            style_suffix = self._current_audio_story_style_suffix()
-            if style_suffix:
-                prompt = f"Story illustration. {style_suffix}. Scene: {base_text}."
+            resolved_style_suffix = (
+                self._story_style_suffix_from_settings(style_settings)
+                if style_suffix is None
+                else str(style_suffix or "").strip()
+            )
+            if resolved_style_suffix:
+                prompt = f"Story illustration. {resolved_style_suffix}. Scene: {base_text}."
+                if story_style_guide:
+                    prompt = f"{prompt} {story_style_guide}"
+            elif style_suffix is not None:
+                prompt = f"Story illustration. Scene: {base_text}."
                 if story_style_guide:
                     prompt = f"{prompt} {story_style_guide}"
             else:
                 prompt = self._visual_reply_story_prompt(base_text, story_style_guide=story_style_guide)
-            if style_suffix:
+            if resolved_style_suffix:
                 prompt = prompt.strip()
-            if len(prompt) > 760:
-                prompt = prompt[:760].rstrip(" \t\r\n,;:.-")
+            safety_cap = (
+                self._normalize_prompt_safety_cap(prompt_safety_cap)
+                if prompt_safety_cap is not None
+                else 760
+            )
+            if len(prompt) > safety_cap:
+                prompt = prompt[:safety_cap].rstrip(" \t\r\n,;:.-")
             return prompt
         return self._compose_story_prompt(
             dict(scene_entry or {}),
-            story_bible=dict(story_bible or self.story_bible or {}),
-            story_style_guide=str(story_style_guide or self.story_style_guide or "").strip(),
+            story_bible=(
+                dict(story_bible or {})
+                if style_settings is not None
+                else dict(story_bible or self.story_bible or {})
+            ),
+            story_style_guide=(
+                str(story_style_guide or "").strip()
+                if style_settings is not None
+                else str(story_style_guide or self.story_style_guide or "").strip()
+            ),
             previous_scene=dict(previous_scene or {}) if isinstance(previous_scene, dict) else None,
+            style_suffix=style_suffix,
+            scene_overrides=scene_overrides,
+            prompt_block_limits=prompt_block_limits,
+            prompt_safety_cap=prompt_safety_cap,
         )
 
     def _audio_story_master_prompt_mode(self):
@@ -12383,11 +18492,29 @@ class AudioStoryModeController(QtCore.QObject):
         valid = {value for value, _label in _audio_story_master_prompt_modes()}
         return mode if mode in valid else "medium"
 
-    def _build_story_generated_master_prompt(self):
-        full_text = self._visual_reply_normalize_prompt_text(self.full_transcript_text)
-        story_style_guide = str(self.story_style_guide or "").strip()
-        style_suffix = self._current_audio_story_style_suffix()
-        mode = self._audio_story_master_prompt_mode()
+    def _build_story_generated_master_prompt(
+        self,
+        *,
+        full_text: str | None = None,
+        story_style_guide: str | None = None,
+        style_settings: Mapping | None = None,
+    ):
+        source_text = (
+            self.full_transcript_text if full_text is None else str(full_text or "")
+        )
+        full_text = self._visual_reply_normalize_prompt_text(source_text)
+        resolved_style_guide = (
+            str(self.story_style_guide or "").strip()
+            if story_style_guide is None
+            else str(story_style_guide or "").strip()
+        )
+        style_suffix = self._story_style_suffix_from_settings(style_settings)
+        style = self._story_style_settings_payload(style_settings)
+        mode = (
+            self._audio_story_master_prompt_mode()
+            if style_settings is None
+            else str(style.get("master_prompt_mode") or "medium")
+        )
         mode_config = {
             "simple": {
                 "context_limit": 160,
@@ -12417,8 +18544,8 @@ class AudioStoryModeController(QtCore.QObject):
         parts = [str(config.get("lead", "") or "").strip()]
         if style_suffix:
             parts.append(style_suffix)
-        if story_style_guide:
-            parts.append(story_style_guide)
+        if resolved_style_guide:
+            parts.append(resolved_style_guide)
         if context_text:
             parts.append(f"Story context: {context_text}")
         tail = str(config.get("tail", "") or "").strip()
@@ -12429,7 +18556,20 @@ class AudioStoryModeController(QtCore.QObject):
             prompt = prompt[:420].rstrip(" \t\r\n,;:.-")
         return prompt
 
-    def _active_story_analysis_chat_provider(self):
+    def _active_story_analysis_chat_provider(
+        self, settings: Mapping | None = None
+    ):
+        if settings is not None:
+            source = dict(settings or {})
+            provider = str(source.get("provider_id") or "").strip().lower()
+            model = str(
+                source.get("resolved_model")
+                or source.get("model_override")
+                or ""
+            ).strip()
+            if not provider or chat_providers.get_provider(provider) is None:
+                return provider, ""
+            return provider, model
         provider = self._story_analysis_provider_id()
         model = self._story_analysis_model_override()
         if chat_providers.get_provider(provider) is None:
@@ -12446,16 +18586,8 @@ class AudioStoryModeController(QtCore.QObject):
         if not model:
             model = self._story_analysis_saved_model_for_provider(provider)
         if not model:
-            try:
-                error_placeholder = chat_providers.provider_model_error(provider)
-                models = [
-                    str(item or "").strip()
-                    for item in list(chat_providers.list_models(provider, quiet=True) or [])
-                    if str(item or "").strip() and str(item or "").strip() != error_placeholder
-                ]
-                model = models[0] if models else ""
-            except Exception:
-                model = ""
+            models = tuple(self._story_model_catalog_cache.get(provider, ()))
+            model = str(models[0] if models else "").strip()
         return provider, model
 
     def _prepare_story_analysis_chat_request(self, *, provider: str, model: str, params: dict, additional_params: dict, min_output_tokens: int, timeout_seconds: float):
@@ -12482,7 +18614,131 @@ class AudioStoryModeController(QtCore.QObject):
             timeout_value = 0.0
         params["timeout"] = max(timeout_value, float(timeout_seconds or 0.0))
 
-    def _build_llm_story_analysis_with_timeout(self, **kwargs):
+    def _build_batched_llm_story_analysis(
+        self,
+        *,
+        full_text: str,
+        image_chunks: Sequence[Mapping],
+        story_style_guide: str,
+        continuity_strength: float,
+        fallback_story_bible: Mapping,
+        continuity_seed: Mapping | None = None,
+        settings: Mapping | None = None,
+        style_settings: Mapping | None = None,
+        generated_master_prompt: str | None = None,
+        cancel_token: CancellationToken | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> dict:
+        del full_text
+        batches = analysis_batches.partition_analysis_chunks(image_chunks)
+        working_story_bible = copy.deepcopy(dict(fallback_story_bible or {}))
+        context_source = copy.deepcopy(
+            dict(continuity_seed or working_story_bible)
+        )
+        scenes: list[dict] = []
+        llm_count = 0
+        heuristic_count = 0
+        total = len(batches)
+
+        def require_current() -> None:
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            if callable(cancel_check) and bool(cancel_check()):
+                raise settings_workload.SettingsApplyCancelled(
+                    "Story analysis was cancelled."
+                )
+
+        for batch_number, batch in enumerate(batches, start=1):
+            require_current()
+            compact_context = analysis_batches.compact_continuity_context(
+                context_source,
+                batch.chunks,
+            )
+            prompt_payload = analysis_batches.bounded_story_prompt_payload(
+                batch=batch,
+                continuity_context=compact_context,
+                story_style_guide=story_style_guide,
+                continuity_strength=continuity_strength,
+            )
+            if callable(progress_callback):
+                chapter_label = str(
+                    dict(settings or {}).get("_chapter_label") or ""
+                ).strip()
+                progress_callback(
+                    f"Analyzing {chapter_label or 'story'} - "
+                    f"batch {batch_number} of {total}..."
+                )
+            try:
+                batch_result = self._build_llm_story_analysis(
+                    full_text=" ".join(
+                        str(item.get("text") or "").strip()
+                        for item in batch.chunks
+                    ).strip(),
+                    image_chunks=[copy.deepcopy(dict(item)) for item in batch.chunks],
+                    story_style_guide=story_style_guide,
+                    continuity_strength=continuity_strength,
+                    fallback_story_bible=working_story_bible,
+                    continuity_seed=compact_context,
+                    settings=settings,
+                    style_settings=style_settings,
+                    generated_master_prompt=generated_master_prompt,
+                    cancel_token=cancel_token,
+                    deadline=JobDeadline(
+                        timeout_seconds=_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS
+                    ),
+                    prompt_payload_override=prompt_payload,
+                )
+                require_current()
+            except settings_workload.SettingsApplyCancelled:
+                raise
+            except Exception as exc:
+                heuristic_count += 1
+                sanitizer = getattr(
+                    self, "_transcription_console_safe_message", None
+                )
+                message = (
+                    sanitizer(str(exc))
+                    if callable(sanitizer)
+                    else str(exc).strip()
+                )
+                print(
+                    "[AudioStoryMode] Story analysis batch "
+                    f"{batch_number}/{total} failed; using heuristic analysis: "
+                    f"{message or type(exc).__name__}"
+                )
+                if callable(progress_callback):
+                    progress_callback(
+                        f"Story analysis batch {batch_number} of {total} failed "
+                        f"({message or type(exc).__name__}); using heuristic analysis."
+                    )
+                continue
+
+            llm_count += 1
+            result_story_bible = batch_result.get("story_bible")
+            if isinstance(result_story_bible, Mapping):
+                working_story_bible = copy.deepcopy(dict(result_story_bible))
+                context_source = working_story_bible
+            for item in list(batch_result.get("scenes") or []):
+                if isinstance(item, Mapping):
+                    scenes.append(copy.deepcopy(dict(item)))
+
+        return {
+            "story_bible": working_story_bible,
+            "scenes": sorted(
+                scenes,
+                key=lambda item: int(item.get("chunk_index", 0) or 0),
+            ),
+            "batch_stats": {
+                "total": total,
+                "llm": llm_count,
+                "heuristic": heuristic_count,
+            },
+        }
+
+    def _build_llm_story_analysis_with_timeout(
+        self, *, settings: Mapping | None = None, **kwargs
+    ):
         result_queue: queue.Queue = queue.Queue(maxsize=1)
         timeout_seconds = float(_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS)
         cancel_token = CancellationToken()
@@ -12490,7 +18746,12 @@ class AudioStoryModeController(QtCore.QObject):
 
         def worker():
             try:
-                result = self._build_llm_story_analysis(cancel_token=cancel_token, deadline=deadline, **kwargs)
+                result = self._build_llm_story_analysis(
+                    settings=settings,
+                    cancel_token=cancel_token,
+                    deadline=deadline,
+                    **kwargs,
+                )
                 cancel_token.raise_if_cancelled()
                 result_queue.put(("ok", result), block=False)
             except Exception as exc:
@@ -12505,8 +18766,13 @@ class AudioStoryModeController(QtCore.QObject):
             status, value = result_queue.get(timeout=timeout_seconds)
         except queue.Empty:
             cancel_token.cancel("timed out")
+            provider_label = (
+                str(dict(settings or {}).get("provider_label") or "").strip()
+                if settings is not None
+                else self._story_analysis_provider_status_label()
+            )
             raise TimeoutError(
-                f"{self._story_analysis_provider_status_label()} story analysis exceeded "
+                f"{provider_label or 'Selected provider'} story analysis exceeded "
                 f"{int(timeout_seconds)} seconds."
             )
         if status == "error":
@@ -12522,28 +18788,55 @@ class AudioStoryModeController(QtCore.QObject):
         continuity_strength: float,
         fallback_story_bible: dict,
         continuity_seed: dict | None = None,
+        settings: Mapping | None = None,
+        style_settings: Mapping | None = None,
+        generated_master_prompt: str | None = None,
         cancel_token: CancellationToken | None = None,
         deadline: JobDeadline | None = None,
+        prompt_payload_override: Mapping | None = None,
     ):
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
-        provider, model = self._active_story_analysis_chat_provider()
+        if settings is None:
+            provider, model = self._active_story_analysis_chat_provider()
+            provider_mode = self._story_analysis_provider_mode()
+            instructor_enabled = bool(self._stored_instructor_beats_enabled)
+            provider_label = self._story_analysis_provider_status_label()
+        else:
+            provider, model = self._active_story_analysis_chat_provider(settings)
+            provider_mode = str(
+                dict(settings or {}).get("provider_mode") or "current"
+            )
+            instructor_enabled = bool(
+                dict(settings or {}).get("instructor_beats_enabled", False)
+            )
+            provider_label = str(
+                dict(settings or {}).get("provider_label")
+                or dict(settings or {}).get("provider_id")
+                or "Selected provider"
+            )
         if not provider or not model:
-            raise RuntimeError(f"No {self._story_analysis_provider_status_label()} model is available for LLM story analysis.")
-        prompt_payload = self._llm_story_analysis_prompt_payload(
-            full_text=full_text,
-            image_chunks=image_chunks,
-            story_style_guide=story_style_guide,
-            continuity_strength=continuity_strength,
-            continuity_seed=continuity_seed,
+            raise RuntimeError(
+                f"No {provider_label} model is available for LLM story analysis."
+            )
+        prompt_payload = (
+            copy.deepcopy(dict(prompt_payload_override))
+            if isinstance(prompt_payload_override, Mapping)
+            else self._llm_story_analysis_prompt_payload(
+                full_text=full_text,
+                image_chunks=image_chunks,
+                story_style_guide=story_style_guide,
+                continuity_strength=continuity_strength,
+                continuity_seed=continuity_seed,
+            )
         )
         cache_payload = {
             "provider": str(provider or "").strip().lower(),
             "model": str(model or "").strip(),
-            "provider_mode": self._story_analysis_provider_mode(),
+            "provider_mode": provider_mode,
             "prompt_payload": prompt_payload,
             "fallback_story_bible": fallback_story_bible,
-            "instructor_beats_enabled": bool(self._stored_instructor_beats_enabled),
+            "instructor_beats_enabled": instructor_enabled,
         }
         cache_key = hashlib.sha1(json.dumps(cache_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         with self._lock:
@@ -12552,7 +18845,7 @@ class AudioStoryModeController(QtCore.QObject):
             return cached
         parsed = None
         analysis_source = "llm"
-        if self._stored_instructor_beats_enabled:
+        if instructor_enabled:
             try:
                 parsed = self._call_instructor_story_analysis(
                     provider=provider,
@@ -12561,6 +18854,8 @@ class AudioStoryModeController(QtCore.QObject):
                     cancel_token=cancel_token,
                     deadline=deadline,
                 )
+            except settings_workload.SettingsApplyCancelled:
+                raise
             except Exception as exc:
                 print(
                     "[AudioStoryMode] Instructor story analysis failed; "
@@ -12585,12 +18880,14 @@ class AudioStoryModeController(QtCore.QObject):
             fallback_story_bible=fallback_story_bible,
             story_style_guide=story_style_guide,
             continuity_strength=continuity_strength,
+            style_settings=style_settings,
+            generated_master_prompt=generated_master_prompt,
         )
         scenes = self._normalize_llm_scene_list(parsed.get("scenes") or [], image_chunks=image_chunks, story_bible=story_bible)
         if not scenes:
             raise RuntimeError("LLM story analysis returned no usable scenes.")
         story_bible["analysis_source"] = analysis_source
-        story_bible["analysis_provider_mode"] = self._story_analysis_provider_mode()
+        story_bible["analysis_provider_mode"] = provider_mode
         story_bible["analysis_provider"] = chat_providers.provider_label(provider)
         story_bible["analysis_model"] = model
         result = {"story_bible": story_bible, "scenes": scenes}
@@ -12667,6 +18964,8 @@ class AudioStoryModeController(QtCore.QObject):
             "Set image_worthy false for dialogue-only or redundant moments. Keep source_evidence brief.\n\n"
             f"Input JSON:\n{json.dumps(prompt_payload, ensure_ascii=False)}"
         )
+        if len(candidate_prompt) >= _AUDIO_STORY_LLM_USER_PROMPT_CHARACTER_LIMIT:
+            return None
         candidate_params = {
             "model": model,
             "messages": [
@@ -12676,7 +18975,7 @@ class AudioStoryModeController(QtCore.QObject):
             "temperature": 0.1,
             "max_tokens": 3600,
             "response_format": {"type": "json_object"},
-            "timeout": 120,
+            "timeout": _AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
         }
         self._prepare_story_analysis_chat_request(
             provider=provider,
@@ -12684,10 +18983,13 @@ class AudioStoryModeController(QtCore.QObject):
             params=candidate_params,
             additional_params={},
             min_output_tokens=3600,
-            timeout_seconds=120,
+            timeout_seconds=_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
         )
         if deadline is not None:
-            candidate_params["timeout"] = deadline.remaining_seconds(default=120.0, minimum=1.0)
+            candidate_params["timeout"] = deadline.remaining_seconds(
+                default=_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
+                minimum=1.0,
+            )
         logger = getattr(self.context, "logger", None) if self.context is not None else None
         candidate = instructor_adapter.generate_story_beats(
             provider=provider,
@@ -12707,6 +19009,11 @@ class AudioStoryModeController(QtCore.QObject):
             "and retain non-image-worthy beats only when needed for continuity.\n\n"
             f"Candidate JSON:\n{json.dumps(candidate, ensure_ascii=False)}"
         )
+        if (
+            len(consolidation_prompt)
+            >= _AUDIO_STORY_LLM_USER_PROMPT_CHARACTER_LIMIT
+        ):
+            return None
         consolidation_params = {
             "model": model,
             "messages": [
@@ -12716,7 +19023,7 @@ class AudioStoryModeController(QtCore.QObject):
             "temperature": 0.05,
             "max_tokens": 3600,
             "response_format": {"type": "json_object"},
-            "timeout": 120,
+            "timeout": _AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
         }
         self._prepare_story_analysis_chat_request(
             provider=provider,
@@ -12724,10 +19031,13 @@ class AudioStoryModeController(QtCore.QObject):
             params=consolidation_params,
             additional_params={},
             min_output_tokens=3600,
-            timeout_seconds=120,
+            timeout_seconds=_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
         )
         if deadline is not None:
-            consolidation_params["timeout"] = deadline.remaining_seconds(default=120.0, minimum=1.0)
+            consolidation_params["timeout"] = deadline.remaining_seconds(
+                default=_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
+                minimum=1.0,
+            )
         consolidated = instructor_adapter.generate_story_beats(
             provider=provider,
             params=consolidation_params,
@@ -12797,8 +19107,12 @@ class AudioStoryModeController(QtCore.QObject):
             "- Keep all fields concise and useful for image prompting; favor continuity over novelty.\n\n"
             "Return compact minified JSON. Keep image_prompt under 220 characters and other text fields under 120 characters.\n\n"
             "Input JSON:\n"
-            f"{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}"
+            f"{json.dumps(prompt_payload, ensure_ascii=False, separators=(',', ':'))}"
         )
+        if len(user_prompt) >= _AUDIO_STORY_LLM_USER_PROMPT_CHARACTER_LIMIT:
+            raise ValueError(
+                "Audio Story analysis user prompt exceeds its 24,000 character limit"
+            )
         params = {
             "model": model,
             "messages": [
@@ -12808,7 +19122,7 @@ class AudioStoryModeController(QtCore.QObject):
             "temperature": 0.1,
             "max_tokens": 3200,
             "response_format": {"type": "json_object"},
-            "timeout": 120,
+            "timeout": _AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
         }
         additional_params = {}
         if str(provider or "").strip().lower() == "deepseek":
@@ -12819,7 +19133,7 @@ class AudioStoryModeController(QtCore.QObject):
             params=params,
             additional_params=additional_params,
             min_output_tokens=3200,
-            timeout_seconds=120,
+            timeout_seconds=_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
         )
         last_error = None
         for _attempt in range(3):
@@ -12830,7 +19144,10 @@ class AudioStoryModeController(QtCore.QObject):
                     cancel_token.cancel("timed out")
                 raise TimeoutError(f"{self._story_analysis_provider_status_label()} story analysis deadline expired.")
             if deadline is not None:
-                remaining = deadline.remaining_seconds(default=120.0, minimum=1.0)
+                remaining = deadline.remaining_seconds(
+                    default=_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS,
+                    minimum=1.0,
+                )
                 try:
                     params["timeout"] = min(float(params.get("timeout", remaining) or remaining), remaining)
                 except Exception:
@@ -12864,7 +19181,19 @@ class AudioStoryModeController(QtCore.QObject):
         return ""
 
     def _repair_llm_story_analysis_json(self, text: str, *, provider: str, model: str, cancel_token: CancellationToken | None = None, deadline: JobDeadline | None = None):
-        raw_text = _audio_story_truncate(str(text or "").strip(), 24000)
+        repair_instruction = (
+            "Repair this malformed story-analysis JSON into one valid compact JSON object. "
+            "If a list item or string is incomplete, close it safely rather than adding prose.\n\n"
+        )
+        raw_text = _audio_story_truncate(
+            str(text or "").strip(),
+            max(
+                0,
+                _AUDIO_STORY_LLM_USER_PROMPT_CHARACTER_LIMIT
+                - len(repair_instruction)
+                - 1,
+            ),
+        )
         if not raw_text:
             raise RuntimeError("LLM story analysis returned an empty response.")
         params = {
@@ -12879,11 +19208,7 @@ class AudioStoryModeController(QtCore.QObject):
                 },
                 {
                     "role": "user",
-                    "content": (
-                        "Repair this malformed story-analysis JSON into one valid compact JSON object. "
-                        "If a list item or string is incomplete, close it safely rather than adding prose.\n\n"
-                        f"{raw_text}"
-                    ),
+                    "content": f"{repair_instruction}{raw_text}",
                 },
             ],
             "temperature": 0,
@@ -13049,19 +19374,39 @@ class AudioStoryModeController(QtCore.QObject):
             }
         return entities
 
-    def _normalize_llm_story_bible(self, raw_bible, *, fallback_story_bible: dict, story_style_guide: str, continuity_strength: float):
+    def _normalize_llm_story_bible(
+        self,
+        raw_bible,
+        *,
+        fallback_story_bible: dict,
+        story_style_guide: str,
+        continuity_strength: float,
+        style_settings: Mapping | None = None,
+        generated_master_prompt: str | None = None,
+    ):
         raw_bible = dict(raw_bible or {}) if isinstance(raw_bible, dict) else {}
         fallback_story_bible = dict(fallback_story_bible or {})
+        style = self._story_style_settings_payload(style_settings)
         global_style = dict(fallback_story_bible.get("global_style", {}) or {})
         global_style.update(
             {
                 "story_style_guide": str(story_style_guide or global_style.get("story_style_guide", "") or "").strip(),
-                "style_suffix": self._current_audio_story_style_suffix(),
-                "master_prompt": str(self._story_generated_master_prompt or "").strip(),
-                "style_enabled": list(self._stored_style_enabled or []),
-                "style_prompts": dict(self._stored_style_prompts or {}),
-                "master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
-                "master_prompt_mode": self._audio_story_master_prompt_mode(),
+                "style_suffix": self._story_style_suffix_from_settings(
+                    style_settings
+                ),
+                "master_prompt": (
+                    str(self._story_generated_master_prompt or "").strip()
+                    if generated_master_prompt is None
+                    else str(generated_master_prompt or "").strip()
+                ),
+                "style_enabled": list(style.get("style_enabled") or []),
+                "style_prompts": dict(style.get("style_prompts") or {}),
+                "master_prompt_enabled": bool(
+                    style.get("master_prompt_enabled", False)
+                ),
+                "master_prompt_mode": str(
+                    style.get("master_prompt_mode") or "medium"
+                ),
                 "continuity_strength": float(self._normalize_continuity_strength(continuity_strength)),
                 "llm_global_visual_style": str(raw_bible.get("global_visual_style", "") or "").strip(),
             }
@@ -13128,7 +19473,13 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _normalize_llm_scene_list(self, raw_scenes, *, image_chunks: list[dict], story_bible: dict):
         scenes = []
-        max_index = max(0, len(image_chunks or []) - 1)
+        allowed_indexes = [
+            int(chunk.get("chunk_index", index) or 0)
+            if isinstance(chunk, Mapping)
+            else index
+            for index, chunk in enumerate(image_chunks or [])
+        ]
+        allowed_index_set = set(allowed_indexes)
         for item in list(raw_scenes or []):
             if not isinstance(item, dict):
                 continue
@@ -13137,8 +19488,11 @@ class AudioStoryModeController(QtCore.QObject):
                 chunk_index = int(-1 if raw_chunk_index is None else raw_chunk_index)
             except Exception:
                 continue
-            if chunk_index < 0 or chunk_index > max_index:
-                continue
+            if chunk_index not in allowed_index_set:
+                if 0 <= chunk_index < len(allowed_indexes):
+                    chunk_index = allowed_indexes[chunk_index]
+                else:
+                    continue
             normalized = dict(item)
             normalized["chunk_index"] = chunk_index
             normalized["active_character_ids"] = self._resolve_llm_entity_ids(
@@ -13359,21 +19713,42 @@ class AudioStoryModeController(QtCore.QObject):
             ).strip("; "),
         }
 
-    def _build_story_bible(self, full_text: str, *, continuity_strength: float):
+    def _build_story_bible(
+        self,
+        full_text: str,
+        *,
+        continuity_strength: float,
+        story_style_guide: str | None = None,
+        style_settings: Mapping | None = None,
+        generated_master_prompt: str | None = None,
+    ):
         entities = self._extract_story_entities(full_text)
-        style_guide = str(self.story_style_guide or "").strip()
-        master_prompt = str(self._story_generated_master_prompt or "").strip()
-        style_suffix = self._current_audio_story_style_suffix()
+        style = self._story_style_settings_payload(style_settings)
+        style_guide = (
+            str(self.story_style_guide or "").strip()
+            if story_style_guide is None
+            else str(story_style_guide or "").strip()
+        )
+        master_prompt = (
+            str(self._story_generated_master_prompt or "").strip()
+            if generated_master_prompt is None
+            else str(generated_master_prompt or "").strip()
+        )
+        style_suffix = self._story_style_suffix_from_settings(style_settings)
         return {
             "summary": _audio_story_truncate(full_text, 260),
             "global_style": {
                 "story_style_guide": style_guide,
                 "style_suffix": style_suffix,
                 "master_prompt": master_prompt,
-                "style_enabled": list(self._stored_style_enabled or []),
-                "style_prompts": dict(self._stored_style_prompts or {}),
-                "master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
-                "master_prompt_mode": self._audio_story_master_prompt_mode(),
+                "style_enabled": list(style.get("style_enabled") or []),
+                "style_prompts": dict(style.get("style_prompts") or {}),
+                "master_prompt_enabled": bool(
+                    style.get("master_prompt_enabled", False)
+                ),
+                "master_prompt_mode": str(
+                    style.get("master_prompt_mode") or "medium"
+                ),
                 "continuity_strength": float(self._normalize_continuity_strength(continuity_strength)),
             },
             "tone": list(entities.get("tone", []) or []),
@@ -13463,7 +19838,15 @@ class AudioStoryModeController(QtCore.QObject):
             "summary": key_action,
         }
 
-    def _classify_scene_transition(self, current_features: dict, previous_scene: dict | None, chunk_text: str, story_bible: dict):
+    def _classify_scene_transition(
+        self,
+        current_features: dict,
+        previous_scene: dict | None,
+        chunk_text: str,
+        story_bible: dict,
+        *,
+        continuity_strength: float | None = None,
+    ):
         previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
         if not previous_scene:
             return {"score": 1.0, "is_new_scene": True, "reasons": ["first_scene"]}
@@ -13503,7 +19886,16 @@ class AudioStoryModeController(QtCore.QObject):
                 reasons.append("low_token_overlap")
         if current_location and not prev_location:
             score += 0.08
-        threshold = 0.38 + (0.34 * float(self._normalize_continuity_strength(self._stored_continuity_strength)))
+        threshold = 0.38 + (
+            0.34
+            * float(
+                self._normalize_continuity_strength(
+                    self._stored_continuity_strength
+                    if continuity_strength is None
+                    else continuity_strength
+                )
+            )
+        )
         return {"score": min(1.0, score), "is_new_scene": score >= threshold, "reasons": reasons}
 
     def _build_character_anchor_text(self, story_bible: dict, character_ids: list[str]):
@@ -13548,15 +19940,39 @@ class AudioStoryModeController(QtCore.QObject):
         continuity_bits.append("Do not redesign faces, clothes, props, or location architecture unless the story explicitly changes them.")
         return " ".join(continuity_bits).strip()
 
-    def _compose_story_prompt(self, scene_entry: dict, *, story_bible: dict, story_style_guide: str, previous_scene=None):
+    def _compose_story_prompt(
+        self,
+        scene_entry: dict,
+        *,
+        story_bible: dict,
+        story_style_guide: str,
+        previous_scene=None,
+        style_suffix: str | None = None,
+        scene_overrides: Mapping | None = None,
+        prompt_block_limits: Mapping | None = None,
+        prompt_safety_cap: int | None = None,
+    ):
         scene_entry = dict(scene_entry or {})
         story_bible = dict(story_bible or {})
-        block_limits = self._prompt_block_limits()
+        overrides = (
+            dict(self.scene_overrides or {})
+            if scene_overrides is None
+            else copy.deepcopy(dict(scene_overrides or {}))
+        )
+        block_limits = (
+            self._prompt_block_limits()
+            if prompt_block_limits is None
+            else self._normalize_prompt_block_limits(prompt_block_limits)
+        )
         style_bits = []
         global_style = dict(story_bible.get("global_style", {}) or {})
-        style_suffix = str(global_style.get("style_suffix", "") or "").strip()
-        if style_suffix:
-            style_bits.append(style_suffix)
+        resolved_style_suffix = (
+            str(global_style.get("style_suffix", "") or "").strip()
+            if style_suffix is None
+            else str(style_suffix or "").strip()
+        )
+        if resolved_style_suffix:
+            style_bits.append(resolved_style_suffix)
         if story_style_guide:
             style_bits.append(story_style_guide)
         if global_style.get("master_prompt_enabled") and global_style.get("master_prompt"):
@@ -13572,11 +19988,11 @@ class AudioStoryModeController(QtCore.QObject):
             world_bits.append(f"time period cue: {str(story_bible.get('time_period', '') or '').strip()}")
         if scene_entry.get("llm_world"):
             world_bits.append(str(scene_entry.get("llm_world", "") or "").strip())
-        pinned_character_ids = [str(item or "").strip() for item in list(self.scene_overrides.get("pinned_character_ids", []) or []) if str(item or "").strip()]
+        pinned_character_ids = [str(item or "").strip() for item in list(overrides.get("pinned_character_ids", []) or []) if str(item or "").strip()]
         active_character_ids = _audio_story_unique_keep_order(list(scene_entry.get("active_character_ids", []) or []) + pinned_character_ids)
         character_text = self._build_character_anchor_text(story_bible, active_character_ids)
         location_id = str(scene_entry.get("location_id", "") or "").strip()
-        pinned_location_ids = [str(item or "").strip() for item in list(self.scene_overrides.get("pinned_location_ids", []) or []) if str(item or "").strip()]
+        pinned_location_ids = [str(item or "").strip() for item in list(overrides.get("pinned_location_ids", []) or []) if str(item or "").strip()]
         if pinned_location_ids and (not location_id or location_id not in pinned_location_ids):
             location_id = pinned_location_ids[0]
         location_text = self._build_location_anchor_text(story_bible, location_id)
@@ -13590,9 +20006,9 @@ class AudioStoryModeController(QtCore.QObject):
             if label or anchor_text:
                 props.append(f"{label}: {anchor_text}".strip(": ").strip())
         scene_id = str(scene_entry.get("scene_id", "") or "").strip()
-        anchor_override = str(dict(self.scene_overrides.get("scene_anchor_overrides", {}) or {}).get(scene_id, "") or "").strip()
-        global_scene_anchor = str(self.scene_overrides.get("global_scene_anchor", "") or "").strip()
-        if bool(self.scene_overrides.get("global_scene_anchor_enabled", False)) and global_scene_anchor:
+        anchor_override = str(dict(overrides.get("scene_anchor_overrides", {}) or {}).get(scene_id, "") or "").strip()
+        global_scene_anchor = str(overrides.get("global_scene_anchor", "") or "").strip()
+        if bool(overrides.get("global_scene_anchor_enabled", False)) and global_scene_anchor:
             anchor_override = global_scene_anchor if not anchor_override else f"{global_scene_anchor}; {anchor_override}"
         llm_image_prompt = str(scene_entry.get("llm_image_prompt", "") or "").strip()
         action = _audio_story_visual_brief(
@@ -13627,11 +20043,11 @@ class AudioStoryModeController(QtCore.QObject):
             "text, captions, watermarks, speech bubbles",
             "invented cast, props, pregnancy, weapons, injuries, or location changes",
         ]
-        negative_prompt_override = str(dict(self.scene_overrides.get("scene_negative_prompt_overrides", {}) or {}).get(scene_id, "") or "").strip()
+        negative_prompt_override = str(dict(overrides.get("scene_negative_prompt_overrides", {}) or {}).get(scene_id, "") or "").strip()
         if negative_prompt_override:
             avoid_bits.insert(0, negative_prompt_override)
-        global_negative_prompt = str(self.scene_overrides.get("global_negative_prompt", "") or "").strip()
-        if bool(self.scene_overrides.get("global_negative_prompt_enabled", False)) and global_negative_prompt:
+        global_negative_prompt = str(overrides.get("global_negative_prompt", "") or "").strip()
+        if bool(overrides.get("global_negative_prompt_enabled", False)) and global_negative_prompt:
             avoid_bits.insert(0, global_negative_prompt)
         if scene_entry.get("llm_avoid"):
             avoid_bits.insert(0, str(scene_entry.get("llm_avoid", "") or "").strip())
@@ -13657,16 +20073,48 @@ class AudioStoryModeController(QtCore.QObject):
             f"Avoid: {_audio_story_truncate(', '.join(avoid_bits), min(160, block_limits['avoid']))}.",
         ]
         prompt = " ".join(part for part in blocks if str(part or "").strip()).strip()
-        safety_cap = min(self._normalize_prompt_safety_cap(), 900)
+        safety_cap = (
+            self._normalize_prompt_safety_cap(prompt_safety_cap)
+            if prompt_safety_cap is not None
+            else min(self._normalize_prompt_safety_cap(), 900)
+        )
         if len(prompt) > safety_cap:
             prompt = prompt[:safety_cap].rstrip(" \t\r\n,;:.-")
         return prompt
 
-    def _story_reference_image_paths(self, scene_entry: dict, previous_scene=None):
+    def _story_reference_image_paths(
+        self,
+        scene_entry: dict,
+        previous_scene=None,
+        *,
+        continuity_memory: Mapping | None = None,
+        character_anchors: Mapping | None = None,
+        location_anchors: Mapping | None = None,
+        scene_overrides: Mapping | None = None,
+    ):
         references = []
         scene_entry = dict(scene_entry or {})
         previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
-        continuity_memory = dict(self.continuity_memory or {})
+        continuity_memory = (
+            dict(self.continuity_memory or {})
+            if continuity_memory is None
+            else copy.deepcopy(dict(continuity_memory or {}))
+        )
+        character_anchor_source = (
+            dict(self.character_anchors or {})
+            if character_anchors is None
+            else copy.deepcopy(dict(character_anchors or {}))
+        )
+        location_anchor_source = (
+            dict(self.location_anchors or {})
+            if location_anchors is None
+            else copy.deepcopy(dict(location_anchors or {}))
+        )
+        overrides = (
+            dict(self.scene_overrides or {})
+            if scene_overrides is None
+            else copy.deepcopy(dict(scene_overrides or {}))
+        )
         scenes_memory = dict(continuity_memory.get("scenes", {}) or {})
         if previous_scene.get("scene_id"):
             prev_scene_memory = dict(scenes_memory.get(str(previous_scene.get("scene_id", "") or ""), {}) or {})
@@ -13680,14 +20128,14 @@ class AudioStoryModeController(QtCore.QObject):
             if scene_image:
                 references.append(scene_image)
         for character_id in list(scene_entry.get("active_character_ids", []) or []):
-            anchor = dict((self.character_anchors or {}).get(character_id) or {})
+            anchor = dict(character_anchor_source.get(character_id) or {})
             if not anchor:
                 anchor = dict(dict(continuity_memory.get("characters", {}) or {}).get(character_id) or {})
             image_path = str(anchor.get("image_path", "") or "").strip()
             if image_path:
                 references.append(image_path)
-        for character_id in list(self.scene_overrides.get("pinned_character_ids", []) or []):
-            anchor = dict((self.character_anchors or {}).get(str(character_id)) or {})
+        for character_id in list(overrides.get("pinned_character_ids", []) or []):
+            anchor = dict(character_anchor_source.get(str(character_id)) or {})
             if not anchor:
                 anchor = dict(dict(continuity_memory.get("characters", {}) or {}).get(str(character_id)) or {})
             image_path = str(anchor.get("image_path", "") or "").strip()
@@ -13695,14 +20143,14 @@ class AudioStoryModeController(QtCore.QObject):
                 references.append(image_path)
         location_id = str(scene_entry.get("location_id", "") or "").strip()
         if location_id:
-            anchor = dict((self.location_anchors or {}).get(location_id) or {})
+            anchor = dict(location_anchor_source.get(location_id) or {})
             if not anchor:
                 anchor = dict(dict(continuity_memory.get("locations", {}) or {}).get(location_id) or {})
             image_path = str(anchor.get("image_path", "") or "").strip()
             if image_path:
                 references.append(image_path)
-        for location_id in list(self.scene_overrides.get("pinned_location_ids", []) or []):
-            anchor = dict((self.location_anchors or {}).get(str(location_id)) or {})
+        for location_id in list(overrides.get("pinned_location_ids", []) or []):
+            anchor = dict(location_anchor_source.get(str(location_id)) or {})
             if not anchor:
                 anchor = dict(dict(continuity_memory.get("locations", {}) or {}).get(str(location_id)) or {})
             image_path = str(anchor.get("image_path", "") or "").strip()
@@ -13717,21 +20165,47 @@ class AudioStoryModeController(QtCore.QObject):
                 continue
         return cleaned
 
-    def _choose_generation_mode(self, scene_entry: dict, previous_scene=None):
+    def _choose_generation_mode(
+        self,
+        scene_entry: dict,
+        previous_scene=None,
+        *,
+        scene_overrides: Mapping | None = None,
+        reference_context: Mapping | None = None,
+        reference_edits_supported: bool | None = None,
+    ):
         scene_entry = dict(scene_entry or {})
         previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
         scene_id = str(scene_entry.get("scene_id", "") or "").strip()
-        forced_mode = str(dict(self.scene_overrides.get("forced_scene_modes", {}) or {}).get(scene_id, "") or "").strip().lower()
+        overrides = (
+            dict(self.scene_overrides or {})
+            if scene_overrides is None
+            else copy.deepcopy(dict(scene_overrides or {}))
+        )
+        forced_mode = str(dict(overrides.get("forced_scene_modes", {}) or {}).get(scene_id, "") or "").strip().lower()
         if forced_mode == "fresh":
             return {"mode": "fresh", "reference_image_paths": [], "reason": "forced_fresh"}
         if forced_mode == "continuation":
             scene_entry["is_new_scene"] = False
             scene_entry["transition_score"] = 0.0
-        if previous_scene.get("scene_id") and previous_scene.get("scene_id") == scene_entry.get("scene_id") and self._visual_provider_supports_reference_edits():
+        supports_reference_edits = (
+            self._visual_provider_supports_reference_edits()
+            if reference_edits_supported is None
+            else bool(reference_edits_supported)
+        )
+        if previous_scene.get("scene_id") and previous_scene.get("scene_id") == scene_entry.get("scene_id") and supports_reference_edits:
             return {"mode": "edit", "reference_image_paths": [], "reason": "same_scene"}
-        if not self._visual_provider_supports_reference_edits():
+        if not supports_reference_edits:
             return {"mode": "fresh", "reference_image_paths": [], "reason": "no_reference_support"}
-        references = self._story_reference_image_paths(scene_entry, previous_scene=previous_scene)
+        context = dict(reference_context or {})
+        references = self._story_reference_image_paths(
+            scene_entry,
+            previous_scene=previous_scene,
+            continuity_memory=context.get("continuity_memory"),
+            character_anchors=context.get("character_anchors"),
+            location_anchors=context.get("location_anchors"),
+            scene_overrides=overrides,
+        )
         is_new_scene = bool(scene_entry.get("is_new_scene", False))
         transition_score = float(scene_entry.get("transition_score", 0.0) or 0.0)
         if is_new_scene and transition_score >= 0.72 and len(scene_entry.get("active_character_ids", []) or []) <= 1 and not scene_entry.get("location_id"):
@@ -13884,6 +20358,171 @@ class AudioStoryModeController(QtCore.QObject):
             "scenes": scenes_memory,
             "characters": characters_memory,
             "locations": locations_memory,
+        }
+
+    @staticmethod
+    def _style_suffix_from_snapshot(
+        style: settings_workload.StyleSettingsSnapshot,
+    ) -> str:
+        prompts = dict(style.style_prompts)
+        return "; ".join(
+            str(prompts.get(style_id) or "").strip()
+            for style_id in style.style_enabled
+            if str(prompts.get(style_id) or "").strip()
+        )
+
+    def _build_story_image_prompt_from_snapshot(
+        self,
+        *,
+        text: str,
+        scene_entry: Mapping,
+        previous_scene: Mapping | None,
+        story_bible: Mapping,
+        planner: settings_workload.PlannerSettingsSnapshot,
+        style: settings_workload.StyleSettingsSnapshot,
+        story_memory: Mapping,
+        scene_overrides: Mapping,
+    ) -> str:
+        resolved_scene = dict(scene_entry or {})
+        resolved_previous = (
+            dict(previous_scene)
+            if isinstance(previous_scene, Mapping)
+            else None
+        )
+        resolved_bible = dict(story_bible or {})
+        resolved_memory = dict(story_memory or {})
+        resolved_overrides = dict(scene_overrides or {})
+        style_suffix = self._style_suffix_from_snapshot(style)
+        block_limits = {
+            key: max(
+                40,
+                min(
+                    1600,
+                    int(
+                        dict(style.prompt_block_limits).get(key, default_value)
+                        or default_value
+                    ),
+                ),
+            )
+            for key, default_value in _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS.items()
+        }
+        if planner.analysis_mode == "story_bible":
+            memory = resolved_memory or resolved_bible
+            return self._build_story_bible_image_prompt(
+                str(text or ""),
+                chunk_index=int(resolved_scene.get("chunk_index", -1) or 0),
+                scene_entry=resolved_scene,
+                memory=memory,
+                analyzer_update=None,
+                style_suffix=style_suffix,
+                prompt_safety_cap=style.prompt_safety_cap,
+                report_diagnostics=False,
+            )
+        global_style = dict(resolved_bible.get("global_style") or {})
+        return self._build_story_image_prompt(
+            str(text or ""),
+            str(global_style.get("story_style_guide") or "").strip(),
+            scene_entry=resolved_scene,
+            story_bible=resolved_bible,
+            previous_scene=resolved_previous,
+            style_settings=style.to_payload(),
+            style_suffix=style_suffix,
+            scene_overrides=resolved_overrides,
+            prompt_block_limits=block_limits,
+            prompt_safety_cap=style.prompt_safety_cap,
+        )
+
+    def _build_style_reprompt_result(
+        self,
+        *,
+        transcript_chunks: Sequence[Mapping],
+        scene_plan: Sequence[Mapping],
+        story_bible: Mapping,
+        story_memory: Mapping,
+        scene_overrides: Mapping,
+        planner: settings_workload.PlannerSettingsSnapshot,
+        style: settings_workload.StyleSettingsSnapshot,
+        cancelled: Callable[[], bool],
+    ) -> dict:
+        if cancelled():
+            raise TranscriptionFailure("Style application was cancelled.")
+        rebuilt_chunks = [
+            item
+            for item in self._copy_style_apply_value(
+                transcript_chunks, cancelled=cancelled
+            )
+            if isinstance(item, dict)
+        ]
+        rebuilt_bible = self._copy_style_apply_value(
+            story_bible or {}, cancelled=cancelled
+        )
+        rebuilt_memory = self._copy_style_apply_value(
+            story_memory or {}, cancelled=cancelled
+        )
+        rebuilt_overrides = self._copy_style_apply_value(
+            scene_overrides or {}, cancelled=cancelled
+        )
+        global_style = dict(rebuilt_bible.get("global_style") or {})
+        global_style.update(style.to_payload())
+        global_style["style_suffix"] = self._style_suffix_from_snapshot(style)
+        if style.master_prompt_enabled:
+            full_text_parts: list[str] = []
+            for index, chunk in enumerate(rebuilt_chunks):
+                if index % 32 == 0 and cancelled():
+                    raise TranscriptionFailure(
+                        "Style application was cancelled."
+                    )
+                text = str(chunk.get("text") or "").strip()
+                if text:
+                    full_text_parts.append(text)
+            global_style["master_prompt"] = (
+                self._build_story_generated_master_prompt(
+                    full_text=" ".join(full_text_parts),
+                    story_style_guide=str(
+                        global_style.get("story_style_guide") or ""
+                    ).strip(),
+                    style_settings=style.to_payload(),
+                )
+            )
+        else:
+            global_style["master_prompt"] = ""
+        rebuilt_bible["global_style"] = global_style
+        scene_by_index: dict[int, dict] = {}
+        rebuilt_scene_plan = [
+            item
+            for item in self._copy_style_apply_value(
+                scene_plan, cancelled=cancelled
+            )
+            if isinstance(item, dict)
+        ]
+        for scene_position, item in enumerate(rebuilt_scene_plan):
+            if scene_position % 32 == 0 and cancelled():
+                raise TranscriptionFailure("Style application was cancelled.")
+            try:
+                chunk_index = int(item.get("chunk_index", -1))
+            except (TypeError, ValueError):
+                continue
+            scene_by_index[chunk_index] = item
+        previous_scene: dict | None = None
+        for index, chunk in enumerate(rebuilt_chunks):
+            if index % 32 == 0 and cancelled():
+                raise TranscriptionFailure("Style application was cancelled.")
+            scene = dict(scene_by_index.get(index) or {})
+            chunk["prompt"] = self._build_story_image_prompt_from_snapshot(
+                text=str(chunk.get("text") or ""),
+                scene_entry=scene,
+                previous_scene=previous_scene,
+                story_bible=rebuilt_bible,
+                planner=planner,
+                style=style,
+                story_memory=rebuilt_memory,
+                scene_overrides=rebuilt_overrides,
+            )
+            previous_scene = scene or previous_scene
+        return {
+            "transcript_chunks": rebuilt_chunks,
+            "story_bible": rebuilt_bible,
+            "scene_plan": rebuilt_scene_plan,
         }
 
     def _apply_scene_prompts(self):
@@ -14042,16 +20681,6 @@ class AudioStoryModeController(QtCore.QObject):
             self.refresh_master_style_anchor({"source": "audio_story_master_prompt_on"})
         return updated
 
-    def _schedule_visual_refresh(self):
-        if not self.transcript_chunks:
-            return False
-        try:
-            self._visual_refresh_timer.start()
-            return True
-        except Exception:
-            self._apply_live_prompt_changes()
-            return True
-
     def _schedule_story_payload_rebuild(self, *, status_text: str = "Updating audio story timing..."):
         if not self._raw_transcript_segments or self._last_transcription_audio_duration <= 0.0:
             return False
@@ -14073,11 +20702,6 @@ class AudioStoryModeController(QtCore.QObject):
         self._rebuild_story_payload_from_cached_segments()
         self._pending_story_rebuild_status_text = ""
 
-    def _flush_scheduled_visual_refresh(self):
-        if not self.transcript_chunks:
-            return
-        self._apply_live_prompt_changes()
-
     def _is_audio_story_currently_playing(self):
         if self.audio_player is None:
             return False
@@ -14088,6 +20712,28 @@ class AudioStoryModeController(QtCore.QObject):
         playback_state_enum = getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PlaybackState", None)
         playing_state = getattr(playback_state_enum, "PlayingState", None) if playback_state_enum is not None else getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PlayingState", None)
         return state == playing_state
+
+    def _refresh_current_scene_after_style_apply(
+        self,
+        style: settings_workload.StyleSettingsSnapshot,
+    ) -> None:
+        if not self.transcript_chunks or not self._is_audio_story_currently_playing():
+            return
+        position_seconds = self._player_position_seconds()
+        index = self._chunk_index_for_position(position_seconds)
+        self._current_chunk_index = index
+        self._publish_visual_for_index(
+            index,
+            keep_current_image=True,
+            style_change_live=style.style_change_live,
+        )
+        self._restart_missing_visual_generation_from_position(
+            position_seconds,
+            max_ahead_frames=0,
+            force=True,
+            allow_when_stopped=False,
+            style_change_live=style.style_change_live,
+        )
 
     def _apply_live_prompt_changes(self):
         if not self.transcript_chunks:
@@ -14148,8 +20794,7 @@ class AudioStoryModeController(QtCore.QObject):
         if label is not None:
             label.setText(f"{int(round(self._stored_continuity_strength * 100.0))}%")
         self._sync_audio_story_cost_profile_controls()
-        if self._raw_transcript_segments:
-            self._schedule_visual_refresh()
+        self._sync_planner_apply_state()
 
     def _on_generate_ahead_frames_changed(self, value: int):
         self._stored_generate_ahead_frames = max(0, int(value or 0))
@@ -14166,11 +20811,7 @@ class AudioStoryModeController(QtCore.QObject):
         else:
             enabled_set.discard(normalized_id)
         self._stored_style_enabled = [str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets() if str(item.get("id") or "").strip().lower() in enabled_set]
-        if self._raw_transcript_segments:
-            if self._stored_style_change_live or not self._is_audio_story_currently_playing():
-                self._schedule_visual_refresh()
-            else:
-                self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._sync_style_apply_state()
 
     def _text_from_refinable_widget(self, widget) -> str:
         if widget is None:
@@ -14312,11 +20953,7 @@ class AudioStoryModeController(QtCore.QObject):
         if not normalized_id:
             return
         self._stored_style_prompts[normalized_id] = str(text or "").strip()
-        if self._raw_transcript_segments:
-            if self._stored_style_change_live or not self._is_audio_story_currently_playing():
-                self._schedule_visual_refresh()
-            else:
-                self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._sync_style_apply_state()
 
     def _on_audio_story_style_label_edit_requested(self, style_id: str):
         normalized_id = str(style_id or "").strip().lower()
@@ -14343,16 +20980,39 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _on_audio_story_style_live_changed(self, checked: bool):
         self._stored_style_change_live = bool(checked)
-        if self._raw_transcript_segments and (self._stored_style_change_live or not self._is_audio_story_currently_playing()):
-            self._schedule_visual_refresh()
+        self._sync_style_apply_state()
+
+    def _stage_recommended_continuity_settings(self) -> None:
+        """Stage continuity-focused settings without starting project work."""
+
+        self._stored_audio_story_analysis_mode = "story_bible"
+        self._stored_use_llm_story_analysis = True
+        self._stored_instructor_beats_enabled = True
+        self._stored_image_timing_mode = "scene_changes"
+        self._stored_continuity_strength = 0.9
+        self._stored_story_master_prompt_enabled = True
+        self._stored_story_master_prompt_mode = "strong"
+        self._stored_cost_profile_id = "custom"
+
+        self._sync_image_timing_mode_controls()
+        self._sync_continuity_slider()
+        self._sync_story_master_prompt_controls()
+        self._sync_audio_story_analysis_mode_controls()
+        self._sync_llm_story_analysis_controls(sync_provider=False)
+        self._sync_instructor_controls()
+        self._sync_audio_story_cost_profile_controls()
+        self._sync_planner_apply_state()
+        self._sync_style_apply_state()
+        self._set_status(
+            "Recommended continuity settings staged. Apply Planner Changes, "
+            "then Apply Style Changes."
+        )
+        self._refresh_controls()
 
     def _on_story_master_prompt_toggled(self, checked: bool):
         self._stored_story_master_prompt_enabled = bool(checked)
         self._sync_audio_story_cost_profile_controls()
-        if self.transcript_chunks:
-            self._schedule_visual_refresh()
-        else:
-            self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._sync_style_apply_state()
         self._refresh_controls()
 
     def _on_story_master_prompt_mode_changed(self, _index: int):
@@ -14362,50 +21022,37 @@ class AudioStoryModeController(QtCore.QObject):
             if value in {mode for mode, _label in _audio_story_master_prompt_modes()}:
                 self._stored_story_master_prompt_mode = value
         self._sync_audio_story_cost_profile_controls()
-        if self.transcript_chunks and self._stored_story_master_prompt_enabled:
-            self._schedule_visual_refresh()
-        else:
-            self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._sync_style_apply_state()
         self._refresh_scene_override_controls()
 
     def _on_llm_story_analysis_toggled(self, checked: bool):
         self._stored_use_llm_story_analysis = bool(checked)
         self._sync_audio_story_cost_profile_controls()
-        if self._raw_transcript_segments:
-            self._start_story_payload_rebuild_job(
-                status_text=f"Analyzing story with {self._story_analysis_provider_status_label()}..." if self._stored_use_llm_story_analysis else "Rebuilding audio story analysis..."
-            )
+        self._sync_planner_apply_state()
         self._refresh_controls()
 
     def _on_instructor_beats_toggled(self, checked: bool):
         self._stored_instructor_beats_enabled = bool(checked)
         self._sync_instructor_controls()
-        if self._raw_transcript_segments and self._stored_use_llm_story_analysis:
-            self._start_story_payload_rebuild_job(
-                status_text="Building structured visual story beats..."
-            )
+        self._sync_planner_apply_state()
         self._refresh_controls()
 
     def _on_audio_story_analysis_mode_changed(self, _index: int):
         combo = getattr(self, "audio_story_analysis_mode_combo", None)
         if combo is not None:
             self._stored_audio_story_analysis_mode = self._normalize_audio_story_analysis_mode(combo.currentData() or combo.currentText())
-        audio_story_runtime.update_runtime_config("audio_story_analysis_mode", self._audio_story_analysis_mode())
-        print(f"[StoryBible] mode selected: {self._audio_story_analysis_mode()}")
-        if self._raw_transcript_segments:
-            self._start_story_payload_rebuild_job(status_text="Rebuilding audio story prompts...")
+        self._sync_planner_apply_state()
         self._refresh_controls()
 
     def _on_story_analysis_provider_mode_changed(self, _index: int):
         combo = getattr(self, "audio_story_analysis_provider_combo", None)
         if combo is not None:
             self._stored_story_analysis_provider_mode = self._normalize_story_analysis_provider_mode(combo.currentData() or combo.currentText())
-        self._sync_story_analysis_provider_controls()
         self._stored_story_analysis_model = ""
         self._sync_story_analysis_model_controls()
+        self._request_story_analysis_model_catalog()
         self._sync_audio_story_cost_profile_controls()
-        if self._stored_use_llm_story_analysis and self._raw_transcript_segments:
-            self._start_story_payload_rebuild_job(status_text=f"Analyzing story with {self._story_analysis_provider_status_label()}...")
+        self._sync_planner_apply_state()
         self._refresh_controls()
 
     def _on_story_analysis_model_changed(self, _index: int):
@@ -14413,27 +21060,21 @@ class AudioStoryModeController(QtCore.QObject):
         if combo is not None:
             self._stored_story_analysis_model = self._normalize_story_analysis_model(combo.currentData() or combo.currentText())
         self._sync_audio_story_cost_profile_controls()
-        if self._stored_use_llm_story_analysis and self._raw_transcript_segments:
-            self._start_story_payload_rebuild_job(status_text=f"Analyzing story with {self._story_analysis_provider_status_label()}...")
+        self._sync_planner_apply_state()
 
     def _on_story_analysis_model_edit_finished(self):
         combo = getattr(self, "audio_story_analysis_model_combo", None)
         if combo is None:
             return
         self._stored_story_analysis_model = self._normalize_story_analysis_model(combo.currentText())
-        self._sync_story_analysis_model_controls()
         self._sync_audio_story_cost_profile_controls()
-        if self._stored_use_llm_story_analysis and self._raw_transcript_segments:
-            self._start_story_payload_rebuild_job(status_text=f"Analyzing story with {self._story_analysis_provider_status_label()}...")
+        self._sync_planner_apply_state()
 
     def _on_xai_image_settings_changed(self, *_args):
         settings = self._current_xai_image_settings()
         for key, value in settings.items():
             audio_story_runtime.update_runtime_config(key, value)
         self._sync_xai_image_settings_controls()
-        if self.transcript_chunks:
-            self._reconcile_cached_images_for_current_prompts()
-            self._schedule_visual_refresh()
 
     def _visual_stream_server_url(self):
         server = getattr(self, "_visual_stream_server", None)
@@ -15047,15 +21688,13 @@ class AudioStoryModeController(QtCore.QObject):
         limits[key] = max(40, min(1600, int(value or _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS[key])))
         self._stored_prompt_block_limits = self._normalize_prompt_block_limits(limits)
         self._sync_audio_story_cost_profile_controls()
-        if self.transcript_chunks:
-            self._schedule_visual_refresh()
+        self._sync_style_apply_state()
 
     def _on_prompt_safety_cap_changed(self, value: int):
         self._stored_prompt_safety_cap = self._normalize_prompt_safety_cap(value)
         self._sync_prompt_safety_cap_control()
         self._sync_audio_story_cost_profile_controls()
-        if self.transcript_chunks:
-            self._schedule_visual_refresh()
+        self._sync_style_apply_state()
 
     def _current_scene_entry(self):
         if not self.transcript_chunks:
@@ -15217,7 +21856,32 @@ class AudioStoryModeController(QtCore.QObject):
         self._refresh_scene_review_panel()
         self.apply_theme_palette()
 
+    def _replace_scene_overrides(self, **changes) -> None:
+        """Publish a copy-on-write override root and invalidate active captures."""
+        updated = dict(self.scene_overrides or {})
+        updated.update(changes)
+        self.scene_overrides = updated
+        self._scene_overrides_version = int(
+            getattr(self, "_scene_overrides_version", 0)
+        ) + 1
+        request = getattr(self, "_story_settings_apply_request", None)
+        cancel_token = getattr(self, "_story_settings_apply_cancel_token", None)
+        if (
+            isinstance(request, settings_workload.SettingsApplyRequest)
+            and cancel_token is not None
+        ):
+            cancel_token.set()
+
     def _scene_override_refresh_after_change(self, *, refresh_visuals: bool = True):
+        if isinstance(
+            getattr(self, "_story_settings_apply_request", None),
+            settings_workload.SettingsApplyRequest,
+        ):
+            self._refresh_scene_override_controls()
+            self._set_status(
+                "Scene overrides changed; cancelling the active settings snapshot."
+            )
+            return
         if not self.transcript_chunks:
             self._refresh_scene_override_controls()
             return
@@ -15240,7 +21904,9 @@ class AudioStoryModeController(QtCore.QObject):
                 pinned.append(character_id)
         else:
             pinned = [item for item in pinned if item != character_id]
-        self.scene_overrides["pinned_character_ids"] = _audio_story_unique_keep_order(pinned)
+        self._replace_scene_overrides(
+            pinned_character_ids=_audio_story_unique_keep_order(pinned)
+        )
         self._scene_override_refresh_after_change(refresh_visuals=True)
 
     def _on_pin_location_toggled(self, checked: bool):
@@ -15256,7 +21922,9 @@ class AudioStoryModeController(QtCore.QObject):
                 pinned.append(location_id)
         else:
             pinned = [item for item in pinned if item != location_id]
-        self.scene_overrides["pinned_location_ids"] = _audio_story_unique_keep_order(pinned)
+        self._replace_scene_overrides(
+            pinned_location_ids=_audio_story_unique_keep_order(pinned)
+        )
         self._scene_override_refresh_after_change(refresh_visuals=True)
 
     def _on_force_scene_mode_changed(self, mode: str, checked: bool):
@@ -15271,7 +21939,7 @@ class AudioStoryModeController(QtCore.QObject):
         else:
             if str(forced_modes.get(scene_id, "") or "").strip().lower() == mode:
                 forced_modes.pop(scene_id, None)
-        self.scene_overrides["forced_scene_modes"] = forced_modes
+        self._replace_scene_overrides(forced_scene_modes=forced_modes)
         other_button = getattr(self, "audio_story_force_continuation_button", None) if mode == "fresh" else getattr(self, "audio_story_force_fresh_button", None)
         if checked and other_button is not None:
             other_button.blockSignals(True)
@@ -15287,7 +21955,7 @@ class AudioStoryModeController(QtCore.QObject):
             return
         anchor_text = str(anchor_edit.toPlainText() or "").strip()
         if bool(self.scene_overrides.get("global_scene_anchor_enabled", False)):
-            self.scene_overrides["global_scene_anchor"] = anchor_text
+            self._replace_scene_overrides(global_scene_anchor=anchor_text)
             self._scene_override_refresh_after_change(refresh_visuals=True)
             return
         anchor_overrides = dict(self.scene_overrides.get("scene_anchor_overrides", {}) or {})
@@ -15295,7 +21963,7 @@ class AudioStoryModeController(QtCore.QObject):
             anchor_overrides[scene_id] = anchor_text
         else:
             anchor_overrides.pop(scene_id, None)
-        self.scene_overrides["scene_anchor_overrides"] = anchor_overrides
+        self._replace_scene_overrides(scene_anchor_overrides=anchor_overrides)
         self._scene_override_refresh_after_change(refresh_visuals=True)
 
     def _on_scene_anchor_text_changed(self):
@@ -15304,14 +21972,17 @@ class AudioStoryModeController(QtCore.QObject):
         anchor_edit = getattr(self, "audio_story_scene_anchor_edit", None)
         if anchor_edit is None:
             return
-        self.scene_overrides["global_scene_anchor"] = str(anchor_edit.toPlainText() or "").strip()
+        self._replace_scene_overrides(
+            global_scene_anchor=str(anchor_edit.toPlainText() or "").strip()
+        )
 
     def _on_scene_anchor_pin_toggled(self, checked: bool):
         anchor_edit = getattr(self, "audio_story_scene_anchor_edit", None)
         anchor_text = str(anchor_edit.toPlainText() or "").strip() if anchor_edit is not None else ""
-        self.scene_overrides["global_scene_anchor_enabled"] = bool(checked)
+        changes = {"global_scene_anchor_enabled": bool(checked)}
         if checked:
-            self.scene_overrides["global_scene_anchor"] = anchor_text
+            changes["global_scene_anchor"] = anchor_text
+        self._replace_scene_overrides(**changes)
         self._scene_override_refresh_after_change(refresh_visuals=bool(self.transcript_chunks))
 
     def _apply_scene_negative_prompt_override(self):
@@ -15322,7 +21993,9 @@ class AudioStoryModeController(QtCore.QObject):
             return
         negative_prompt_text = str(negative_prompt_edit.toPlainText() or "").strip()
         if bool(self.scene_overrides.get("global_negative_prompt_enabled", False)):
-            self.scene_overrides["global_negative_prompt"] = negative_prompt_text
+            self._replace_scene_overrides(
+                global_negative_prompt=negative_prompt_text
+            )
             self._scene_override_refresh_after_change(refresh_visuals=True)
             return
         negative_prompt_overrides = dict(self.scene_overrides.get("scene_negative_prompt_overrides", {}) or {})
@@ -15330,7 +22003,9 @@ class AudioStoryModeController(QtCore.QObject):
             negative_prompt_overrides[scene_id] = negative_prompt_text
         else:
             negative_prompt_overrides.pop(scene_id, None)
-        self.scene_overrides["scene_negative_prompt_overrides"] = negative_prompt_overrides
+        self._replace_scene_overrides(
+            scene_negative_prompt_overrides=negative_prompt_overrides
+        )
         self._scene_override_refresh_after_change(refresh_visuals=True)
 
     def _on_scene_negative_prompt_text_changed(self):
@@ -15339,14 +22014,19 @@ class AudioStoryModeController(QtCore.QObject):
         negative_prompt_edit = getattr(self, "audio_story_scene_negative_prompt_edit", None)
         if negative_prompt_edit is None:
             return
-        self.scene_overrides["global_negative_prompt"] = str(negative_prompt_edit.toPlainText() or "").strip()
+        self._replace_scene_overrides(
+            global_negative_prompt=str(
+                negative_prompt_edit.toPlainText() or ""
+            ).strip()
+        )
 
     def _on_negative_prompt_anchor_toggled(self, checked: bool):
         negative_prompt_edit = getattr(self, "audio_story_scene_negative_prompt_edit", None)
         negative_prompt_text = str(negative_prompt_edit.toPlainText() or "").strip() if negative_prompt_edit is not None else ""
-        self.scene_overrides["global_negative_prompt_enabled"] = bool(checked)
+        changes = {"global_negative_prompt_enabled": bool(checked)}
         if checked:
-            self.scene_overrides["global_negative_prompt"] = negative_prompt_text
+            changes["global_negative_prompt"] = negative_prompt_text
+        self._replace_scene_overrides(**changes)
         self._scene_override_refresh_after_change(refresh_visuals=bool(self.transcript_chunks))
 
     def _scene_entry_for_index(self, index: int):
@@ -15416,7 +22096,7 @@ class AudioStoryModeController(QtCore.QObject):
         raw = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8", errors="ignore")
         return hashlib.sha1(raw).hexdigest(), effective_prompt
 
-    def _matching_cached_image_entry(self, index: int, prompt_text: str, scene_entry=None):
+    def _matching_cached_image_entry(self, index: int, prompt_text: str, scene_entry=None, *, style_change_live: bool | None = None):
         scene_entry = dict(scene_entry or {}) if isinstance(scene_entry, dict) else {}
         previous_scene = self._scene_entry_for_index(index - 1)
         generation_mode = str(scene_entry.get("generation_mode", "") or "").strip()
@@ -15443,7 +22123,12 @@ class AudioStoryModeController(QtCore.QObject):
                 return entry
             if entry.get("image_path") and int(index) < int(self._chunk_index_for_position(self._player_position_seconds())):
                 return entry
-            if entry.get("image_path") and not bool(self._stored_style_change_live):
+            resolved_style_change_live = (
+                bool(self._stored_style_change_live)
+                if style_change_live is None
+                else bool(style_change_live)
+            )
+            if entry.get("image_path") and not resolved_style_change_live:
                 return entry
         entry_signature = str(entry.get("prompt_signature", "") or "").strip()
         if not entry_signature:
@@ -15532,6 +22217,12 @@ class AudioStoryModeController(QtCore.QObject):
     def _refresh_controls(self):
         multimedia_available = QtMultimedia is not None
         has_project = bool(self.current_story_project_id)
+        project_source_kind = novel_models.normalize_source_kind(
+            dict(self._current_story_project or {}).get("source_kind")
+        )
+        is_audio_project = (
+            project_source_kind == novel_models.SOURCE_KIND_AUDIO
+        )
         project_busy = bool(
             self._story_project_busy
             or self._story_project_pending_autosave is not None
@@ -15577,7 +22268,9 @@ class AudioStoryModeController(QtCore.QObject):
         has_position = self._player_position_seconds() > 0.0
 
         if hasattr(self, "audio_story_import_button"):
-            self.audio_story_import_button.setEnabled(has_project and not project_busy)
+            self.audio_story_import_button.setEnabled(
+                has_project and is_audio_project and not project_busy
+            )
         if hasattr(self, "audio_story_path_edit"):
             self.audio_story_path_edit.setEnabled(True)
         source_list = getattr(self, "audio_story_source_list", None)
@@ -15652,6 +22345,7 @@ class AudioStoryModeController(QtCore.QObject):
         if hasattr(self, "audio_story_transcribe_button"):
             self.audio_story_transcribe_button.setEnabled(
                 has_project
+                and is_audio_project
                 and has_valid_audio_sources
                 and not project_busy
                 and not is_playing
@@ -15698,6 +22392,8 @@ class AudioStoryModeController(QtCore.QObject):
                 self.audio_story_status_label.setText("Qt Multimedia is unavailable in this environment.")
             elif is_rendering_tts:
                 self.audio_story_status_label.setText("Rendering TTS narration for timeline-accurate playback...")
+        self._sync_planner_apply_state()
+        self._sync_style_apply_state()
         self._refresh_tts_buffer_ui()
 
     def _format_seconds(self, total_seconds):

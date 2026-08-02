@@ -111,6 +111,52 @@ def test_controller_uses_structured_instructor_reply_when_enabled() -> None:
     assert result["debug"]["instructor_structured_outputs"] == "used"
 
 
+def test_controller_respects_structured_pass_without_raw_fallback() -> None:
+    from smoke_buddy_chat import _new_controller
+    from addons.buddy_chat import instructor_adapter
+    from addons.buddy_chat.models import BuddyPersona
+
+    raw_calls: list[str] = []
+
+    def _raw_complete(
+        config,
+        _params: dict[str, Any],
+        _additional: dict[str, Any],
+    ) -> str:
+        raw_calls.append(config.persona_id)
+        return "This fallback should not be called."
+
+    controller = _new_controller(_raw_complete)
+    controller.settings.enabled = True
+    controller.settings.reply_mode = "main_answer"
+    controller.settings.instructor_structured_outputs_enabled = True
+    controller.settings.personas = [
+        BuddyPersona(id="alex", display_name="Alex"),
+    ]
+
+    original = instructor_adapter.generate_buddy_structured_reply
+    instructor_adapter.generate_buddy_structured_reply = lambda **_kwargs: {
+        "segments": [
+            {
+                "persona_id": "alex",
+                "display_name": "Alex",
+                "text": "",
+                "should_speak": False,
+            }
+        ]
+    }
+    try:
+        result = controller.invoke_capability(
+            "chat.user_text_command",
+            {"text": "I am just thinking out loud for a moment."},
+        )
+    finally:
+        instructor_adapter.generate_buddy_structured_reply = original
+
+    assert result is None
+    assert raw_calls == []
+
+
 def test_instructor_skips_inherited_main_runtime_without_patching_client() -> None:
     from addons.buddy_chat import instructor_adapter
     from addons.buddy_chat.llm_runtime import ProviderCallConfig
@@ -166,6 +212,7 @@ def run_all() -> None:
     test_buddy_instructor_defaults_are_opt_in()
     test_structured_reply_sanitizer_keeps_only_exact_known_buddy_lines()
     test_controller_uses_structured_instructor_reply_when_enabled()
+    test_controller_respects_structured_pass_without_raw_fallback()
     test_instructor_skips_inherited_main_runtime_without_patching_client()
     test_inherited_main_fallback_keeps_final_user_query()
 

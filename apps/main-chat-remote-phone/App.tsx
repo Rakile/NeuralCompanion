@@ -12,6 +12,7 @@ import { MediaPanel } from './src/components/MediaPanel';
 import { MprcPanel } from './src/components/MprcPanel';
 import { MuseTalkPanel } from './src/components/MuseTalkPanel';
 import { PairingQrScanner } from './src/components/PairingQrScanner';
+import { LiveFullscreenScreen } from './src/components/live-fullscreen/LiveFullscreenScreen';
 import { RuntimeBar } from './src/components/RuntimeBar';
 import { SettingsPanel } from './src/components/SettingsPanel';
 import { VisualPanel } from './src/components/VisualPanel';
@@ -23,6 +24,14 @@ import { useImmersiveChrome } from './src/hooks/useImmersiveChrome';
 import { useRecorder } from './src/hooks/useRecorder';
 import { useRemoteConnection } from './src/hooks/useRemoteConnection';
 import { colors, spacing } from './src/styles/theme';
+import {
+  blurKeyboardChrome,
+  createKeyboardChromeMemory,
+  focusKeyboardChrome,
+  keyboardAvoidingBehavior,
+} from './src/utils/keyboardLayout';
+import { shouldInterruptForPhoneText } from './src/utils/audioFastStart';
+import { liveMicPauseReason } from './src/utils/liveMicPolicy';
 import { topControlsSwipeAction } from './src/utils/swipeControls';
 import { shouldForceChromeVisible } from './src/utils/interfaceMode';
 
@@ -345,6 +354,7 @@ function MorePanel({
   musetalkAvailable,
   settings,
   setSettings,
+  setLiveFullscreenSettings,
 }: {
   mode: MoreMode;
   onModeChange: (mode: MoreMode) => void;
@@ -357,6 +367,7 @@ function MorePanel({
   musetalkAvailable: boolean;
   settings: ReturnType<typeof usePhoneSettings>['settings'];
   setSettings: ReturnType<typeof usePhoneSettings>['setSettings'];
+  setLiveFullscreenSettings: ReturnType<typeof usePhoneSettings>['setLiveFullscreenSettings'];
 }) {
   const { mode: interfaceMode, policy } = useInterfaceMode();
   const sendOptions = React.useMemo(() => ({
@@ -403,6 +414,7 @@ function MorePanel({
         <SettingsPanel
           settings={settings}
           onChange={setSettings}
+          onLiveFullscreenChange={setLiveFullscreenSettings}
           state={state}
           health={remote.health}
           status={remote.status}
@@ -421,9 +433,12 @@ export default function App() {
   const [demoMode, setDemoMode] = React.useState(false);
   const [pairingScannerVisible, setPairingScannerVisible] = React.useState(false);
   const [chatPhotoVisible, setChatPhotoVisible] = React.useState(false);
+  const [liveFullscreenVisible, setLiveFullscreenVisible] = React.useState(false);
   const [topControlsCollapsed, setTopControlsCollapsed] = React.useState(false);
+  const keyboardChromeMemoryRef = React.useRef(createKeyboardChromeMemory());
+  const cameraSentCallbackRef = React.useRef<(() => void) | null>(null);
   const { height: screenHeight } = useWindowDimensions();
-  const { settings, setSettings } = usePhoneSettings();
+  const { settings, setLiveFullscreenSettings, setSettings } = usePhoneSettings();
   const remote = useRemoteConnection({
     autoReconnect: settings.autoReconnect,
     pollingIntervalMs: settings.pollingIntervalMs,
@@ -443,23 +458,76 @@ export default function App() {
     capturePhoneAudio: settings.sendMode !== 'text_only',
     visualAfterSend: settings.sendMode === 'visual_reply',
   }), [settings.playOnBackend, settings.sendMode]);
-  const recorder = useRecorder(remote.client, remote.connected && !demoMode, phoneSttAvailable && !demoMode, {
-    sendToChat: settings.micBehavior === 'send_auto',
-    sendOptions,
-  });
-  const audioQueue = useAudioQueue(remote.client, !demoMode && remote.connected ? activeState?.media?.items ?? [] : [], {
+  const pauseLiveForPlaybackRef = React.useRef<() => Promise<void>>(async () => undefined);
+  const audioChunks = !demoMode && sessionActive ? activeState?.media?.items ?? [] : [];
+  const audioQueue = useAudioQueue(remote.client, audioChunks, {
     autoplayEnabled: settings.phoneTtsAutoplay,
     volume: settings.phoneTtsVolume,
     onAutoplayEnabledChange: (phoneTtsAutoplay) => setSettings({ phoneTtsAutoplay }),
+    onBeforePlayback: () => pauseLiveForPlaybackRef.current(),
   });
+  const livePauseReason = liveMicPauseReason({
+    connected: remote.connected && !demoMode,
+    voiceAvailable: phoneSttAvailable && !demoMode,
+    phonePlaying: Boolean(audioQueue.playingId),
+    backendStatus: String(activeState?.status_line || ''),
+  });
+  const phonePlaybackActive = Boolean(
+    audioQueue.playingId
+    || audioQueue.isPlaying
+    || audioQueue.currentChunk
+    || audioQueue.preparedChunk
+  );
+  const recorder = useRecorder(remote.client, remote.connected && !demoMode, phoneSttAvailable && !demoMode, {
+    sendToChat: settings.micBehavior === 'send_auto',
+    sendOptions,
+    livePauseReason,
+    playbackActive: phonePlaybackActive,
+    onLiveSpeechStart: async () => {
+      audioQueue.interrupt();
+      await remote.sendControl('interrupt_response', sendOptions);
+    },
+  });
+  pauseLiveForPlaybackRef.current = recorder.pauseLiveForPlayback;
   const runtimeActivity = React.useMemo(() => {
     const microphone = String(runtime?.microphone_state || '').toLowerCase();
     const status = String(activeState?.status_line || '').toLowerCase();
-    if (microphone.includes('listen') || microphone.includes('record')) return 'listening' as const;
-    if (audioQueue.playingId || status.includes('speak') || status.includes('tts')) return 'speaking' as const;
+    if (phonePlaybackActive || status.includes('speak') || status.includes('tts')) return 'speaking' as const;
+    if (
+      recorder.recording
+      || recorder.liveEnabled
+      || recorder.livePhase === 'speech'
+      || microphone.includes('listen')
+      || microphone.includes('record')
+    ) return 'listening' as const;
     if (status.includes('think') || status.includes('generat') || status.includes('infer')) return 'thinking' as const;
     return 'idle' as const;
-  }, [activeState?.status_line, audioQueue.playingId, runtime?.microphone_state]);
+  }, [
+    activeState?.status_line,
+    audioQueue.playingId,
+    recorder.liveEnabled,
+    recorder.livePhase,
+    recorder.recording,
+    runtime?.microphone_state,
+  ]);
+  const sendPhoneText = React.useCallback(async (text: string) => {
+    if (demoMode) {
+      return demo.sendText(text, sendOptions);
+    }
+    if (shouldInterruptForPhoneText(runtimeActivity, audioQueue.playingId)) {
+      audioQueue.interrupt();
+      await remote.sendControl('interrupt_response', sendOptions).catch(() => undefined);
+    }
+    return remote.sendText(text, sendOptions);
+  }, [
+    audioQueue.interrupt,
+    phonePlaybackActive,
+    demo,
+    demoMode,
+    remote,
+    runtimeActivity,
+    sendOptions,
+  ]);
   const immersiveChrome = useImmersiveChrome({
     mode: settings.interfaceStyle,
     forceVisible: shouldForceChromeVisible({
@@ -480,6 +548,20 @@ export default function App() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setTopControlsCollapsed(!visible);
   }, []);
+  const handleComposerFocus = React.useCallback(() => {
+    const transition = focusKeyboardChrome(topControlsCollapsed, keyboardChromeMemoryRef.current);
+    keyboardChromeMemoryRef.current = transition.memory;
+    if (transition.collapsed !== topControlsCollapsed) {
+      setTopControlsVisible(!transition.collapsed);
+    }
+  }, [setTopControlsVisible, topControlsCollapsed]);
+  const handleComposerBlur = React.useCallback(() => {
+    const transition = blurKeyboardChrome(keyboardChromeMemoryRef.current);
+    keyboardChromeMemoryRef.current = transition.memory;
+    if (transition.collapsed !== topControlsCollapsed) {
+      setTopControlsVisible(!transition.collapsed);
+    }
+  }, [setTopControlsVisible, topControlsCollapsed]);
   const topControlsPanResponder = React.useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_event, gesture) => topControlsSwipeAction({
       dx: gesture.dx,
@@ -521,7 +603,7 @@ export default function App() {
     <InterfaceModeProvider mode={settings.interfaceStyle}>
     <SafeAreaView style={[styles.screen, settings.interfaceStyle === 'immersive' && styles.screenImmersive]}>
       <StatusBar barStyle="light-content" />
-      <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.keyboard} behavior={keyboardAvoidingBehavior(Platform.OS)}>
         <View style={[styles.appShell, settings.interfaceStyle === 'immersive' && styles.appShellImmersive]} {...topControlsPanResponder.panHandlers} onTouchStart={immersiveChrome.revealChrome}>
           {immersiveChrome.chromeVisible ? (
           <Pressable
@@ -542,12 +624,18 @@ export default function App() {
               transport={remote.transport}
               error={remote.error}
               demoMode={demoMode}
+              connectionMode={remote.connectionMode}
+              activeRoute={remote.activeRoute}
+              internetProfile={remote.internetProfile}
+              enrollmentStatus={remote.enrollmentStatus}
               onBaseUrlChange={remote.setBaseUrl}
               onPairingCodeChange={remote.setPairingCode}
               onScanQrCode={() => setPairingScannerVisible(true)}
               onConnect={remote.connect}
               onDisconnect={remote.disconnect}
               onRefresh={remote.refresh}
+              onConnectionModeChange={remote.setConnectionMode}
+              onForgetInternet={remote.forgetInternet}
               onDemoModeChange={(enabled) => {
                 setDemoMode(enabled);
                 if (enabled) {
@@ -586,7 +674,11 @@ export default function App() {
             visible={pairingScannerVisible}
             onCancel={() => setPairingScannerVisible(false)}
             onPairingScanned={(setup) => {
-              if (remote.pairAndConnect(setup.baseUrl, setup.pairingCode)) {
+              if (setup.mode === 'internet') {
+                setDemoMode(false);
+                setPairingScannerVisible(false);
+                void remote.enrollInternetAndConnect(setup);
+              } else if (remote.pairAndConnect(setup.baseUrl, setup.pairingCode)) {
                 setDemoMode(false);
                 setPairingScannerVisible(false);
               }
@@ -594,8 +686,40 @@ export default function App() {
           />
           <ChatPhotoCapture
             visible={chatPhotoVisible}
-            onCancel={() => setChatPhotoVisible(false)}
+            onCancel={() => {
+              cameraSentCallbackRef.current = null;
+              setChatPhotoVisible(false);
+            }}
             onSend={(imageBase64, format, prompt) => remote.sendImage(imageBase64, format, prompt, sendOptions)}
+            onSent={() => cameraSentCallbackRef.current?.()}
+          />
+          <LiveFullscreenScreen
+            visible={liveFullscreenVisible}
+            connected={remote.connected}
+            sessionActive={sessionActive}
+            demoMode={demoMode}
+            state={activeState}
+            client={remote.client}
+            playback={audioQueue}
+            activity={runtimeActivity}
+            meteringDb={recorder.meteringDb}
+            meteringRevision={recorder.meteringRevision}
+            microphoneActive={recorder.liveEnabled || recorder.recording}
+            microphoneSpeechDetected={recorder.recording || recorder.livePhase === 'speech'}
+            settings={settings.liveFullscreen}
+            onSettingsChange={setLiveFullscreenSettings}
+            onSendText={sendPhoneText}
+            onSendImage={(imageBase64, format, prompt) => {
+              if (demoMode) {
+                return Promise.resolve({ ok: false, error: 'Photo input requires a desktop connection.' });
+              }
+              return remote.sendImage(imageBase64, format, prompt, sendOptions);
+            }}
+            onOpenCamera={(onSent) => {
+              cameraSentCallbackRef.current = onSent;
+              setChatPhotoVisible(true);
+            }}
+            onExit={() => setLiveFullscreenVisible(false)}
           />
           <View style={styles.mainArea}>
             {activeTab === 'chat' ? (
@@ -614,11 +738,21 @@ export default function App() {
                   recording={recorder.recording}
                   busy={recorder.busy}
                   recordingError={recorder.error}
+                  liveEnabled={recorder.liveEnabled}
+                  liveStatus={recorder.liveStatus}
+                  fullscreenAvailable={sessionActive}
                   transcript={recorder.transcript}
                   onTranscriptConsumed={recorder.clearTranscript}
-                  onSend={(text) => demoMode ? demo.sendText(text, sendOptions) : remote.sendText(text, sendOptions)}
+                  onSend={sendPhoneText}
                   onRecordPress={recorder.toggleRecording}
-                  onPhotoPress={() => setChatPhotoVisible(true)}
+                  onLivePress={recorder.toggleLive}
+                  onFullscreenPress={() => setLiveFullscreenVisible(true)}
+                  onInputFocus={handleComposerFocus}
+                  onInputBlur={handleComposerBlur}
+                  onPhotoPress={() => {
+                    cameraSentCallbackRef.current = null;
+                    setChatPhotoVisible(true);
+                  }}
                 />
               </View>
             ) : null}
@@ -688,6 +822,7 @@ export default function App() {
                 sessionActive={sessionActive}
                 musetalkAvailable={musetalkAvailable}
                 settings={settings}
+                setLiveFullscreenSettings={setLiveFullscreenSettings}
                 setSettings={setSettings}
               />
             ) : null}

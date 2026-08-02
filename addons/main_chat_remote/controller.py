@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import io
 import json
@@ -18,7 +19,18 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from addons.main_chat_remote.backend_process import BackendProcessSupervisor
+from addons.main_chat_remote.backend_process import (
+    BackendProcessSupervisor,
+    generate_pairing_code,
+    normalize_pairing_code,
+)
+from addons.main_chat_remote.certificate_manager import CertificateManager
+from addons.main_chat_remote.internet_auth import InternetCredentialStore
+from addons.main_chat_remote.internet_process import InternetGatewaySupervisor
+from addons.main_chat_remote.internet_settings import (
+    InternetRemoteSettings,
+    InternetSettingsStore,
+)
 from addons.main_chat_remote.media_bridge import MainChatMediaBridge
 
 try:  # PySide6 is present in the full app, but smoke tests can run without it.
@@ -93,6 +105,7 @@ PHONE_SAFE_URL_PATH_KEYS = {
     "url_path",
 }
 REMOTE_CONTROL_FALLBACK_ACTIONS = {
+    "interrupt_response",
     "pause_speech",
     "regenerate_response",
     "replay_chat_session",
@@ -333,6 +346,8 @@ class MainChatBridgeServer:
                         self._handle_post(path)
                         return
                     self._send_json({"ok": False, "error": "Method not allowed"}, status=405)
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                    return
                 except FileNotFoundError as exc:
                     self._send_json({"ok": False, "error": str(exc) or "not found"}, status=404)
                 except ValueError as exc:
@@ -348,6 +363,11 @@ class MainChatBridgeServer:
                     return
                 if path == "/api/audio":
                     self._send_json({"ok": True, "audio": controller.media_snapshot()})
+                    return
+                if path.startswith("/api/audio/spectrum/"):
+                    audio_id = path.rsplit("/", 1)[-1]
+                    spectrum_path = controller.spectrum_file_path(audio_id)
+                    self._send_file(spectrum_path, content_type="application/json; charset=utf-8")
                     return
                 if path.startswith("/api/audio/file/"):
                     audio_id = path.rsplit("/", 1)[-1]
@@ -591,6 +611,23 @@ class MainChatRemoteController:
             bridge_info_path=self.bridge_info_path,
             logger=getattr(context, "logger", None),
         )
+        self.internet_dir = self.runtime_dir / "internet"
+        self.internet_dir.mkdir(parents=True, exist_ok=True)
+        self._internet_settings_store = InternetSettingsStore(self.internet_dir / "settings.json")
+        self._internet_settings = self._internet_settings_store.load()
+        self._internet_credentials = InternetCredentialStore(
+            self.internet_dir / "credentials.json",
+            signing_key_path=self.internet_dir / "signing.key",
+        )
+        self._certificate_manager = CertificateManager(
+            self._internet_settings,
+            runtime_dir=self.internet_dir,
+        )
+        self._internet_supervisor = InternetGatewaySupervisor(
+            app_root=app_root,
+            runtime_dir=self.internet_dir,
+            logger=getattr(context, "logger", None),
+        )
         self._invoker = _MainThreadInvoker()
         self._settings = BridgeSettings().normalized()
         self._bridge: MainChatBridgeServer | None = None
@@ -598,6 +635,14 @@ class MainChatRemoteController:
         self._refresh_timer = None
         self._backend_task_lock = threading.RLock()
         self._backend_task = ""
+        self._internet_task_lock = threading.RLock()
+        self._internet_task = ""
+        self._internet_status_lock = threading.RLock()
+        self._internet_last_error = ""
+        self._internet_last_result: dict[str, Any] = {}
+        self._internet_enrollment_setup_uri = ""
+        self._internet_renewal_timer: threading.Timer | None = None
+        self._internet_snapshot: dict[str, Any] = {}
         self._stt_lock = threading.Lock()
         self._visual_request_lock = threading.RLock()
         self._visual_requests: list[dict[str, Any]] = []
@@ -605,13 +650,21 @@ class MainChatRemoteController:
         self._chat_image_paths: dict[str, Path] = {}
         self._last_bridge_info_write = 0.0
         self._current_pairing_setup_uri = ""
+        self._refresh_internet_cache()
 
     def build_tab(self):
         if QtWidgets is None:
             raise RuntimeError("PySide6 is required to build the Main Chat Remote tab.")
+        from addons.main_chat_remote.internet_panel import InternetRemotePanel
+
         widget = QtWidgets.QWidget()
         widget.setObjectName("main_chat_remote_tab")
-        layout = QtWidgets.QVBoxLayout(widget)
+        root_layout = QtWidgets.QVBoxLayout(widget)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        tabs = QtWidgets.QTabWidget(widget)
+        tabs.setObjectName("main_chat_remote_connection_tabs")
+        lan_page = QtWidgets.QWidget(tabs)
+        layout = QtWidgets.QVBoxLayout(lan_page)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
@@ -670,8 +723,31 @@ class MainChatRemoteController:
 
         backend_group, backend_layout = step_group(
             "2. Start phone backend",
-            "The phone backend listens on your LAN, shows the pairing code, and serves phone-safe chat, audio, STT, Visual Reply, and MuseTalk data.",
+            "Choose the automatically generated code or enter your own 4–9 digits, then start the LAN backend.",
         )
+
+        pairing_code_row = QtWidgets.QHBoxLayout()
+        pairing_code_label = QtWidgets.QLabel("Pairing code:")
+        pairing_code_row.addWidget(pairing_code_label)
+        self._pairing_code_edit = QtWidgets.QLineEdit(generate_pairing_code())
+        self._pairing_code_edit.setObjectName("main_chat_remote_pairing_code_edit")
+        self._pairing_code_edit.setMaxLength(9)
+        self._pairing_code_edit.setMaximumWidth(160)
+        self._pairing_code_edit.setInputMethodHints(QtCore.Qt.ImhDigitsOnly)
+        self._pairing_code_edit.setValidator(
+            QtGui.QRegularExpressionValidator(QtCore.QRegularExpression(r"\d{4,9}"), self._pairing_code_edit)
+        )
+        self._pairing_code_edit.setToolTip(
+            "Use the generated code or enter a custom code containing 4–9 digits. "
+            "The code is not saved after NC closes."
+        )
+        pairing_code_row.addWidget(self._pairing_code_edit)
+        self._generate_pairing_code_button = QtWidgets.QPushButton("Generate new code")
+        self._generate_pairing_code_button.setObjectName("main_chat_remote_generate_pairing_code_button")
+        self._generate_pairing_code_button.clicked.connect(self._generate_pending_pairing_code)
+        pairing_code_row.addWidget(self._generate_pairing_code_button)
+        pairing_code_row.addStretch(1)
+        backend_layout.addLayout(pairing_code_row)
 
         self._backend_status_label = QtWidgets.QLabel("")
         self._backend_status_label.setObjectName("main_chat_remote_backend_status_label")
@@ -736,6 +812,20 @@ class MainChatRemoteController:
         command_layout.addWidget(self._remote_command)
         layout.addWidget(command_group)
         layout.addStretch(1)
+        tabs.addTab(lan_page, "LAN")
+        self._internet_panel = InternetRemotePanel(tabs)
+        self._internet_panel.settingsSubmitted.connect(self.apply_internet_settings)
+        self._internet_panel.enabledChanged.connect(self.set_internet_enabled)
+        self._internet_panel.installHelperRequested.connect(self.install_certificate_helper)
+        self._internet_panel.stagingTestRequested.connect(self.test_certificate_setup)
+        self._internet_panel.productionIssueRequested.connect(self.issue_internet_certificate)
+        self._internet_panel.refreshPublicIpRequested.connect(self.refresh_public_ip)
+        self._internet_panel.createEnrollmentRequested.connect(self.create_internet_enrollment)
+        self._internet_panel.approveEnrollmentRequested.connect(self.approve_internet_enrollment)
+        self._internet_panel.rejectEnrollmentRequested.connect(self.reject_internet_enrollment)
+        self._internet_panel.revokeDeviceRequested.connect(self.revoke_internet_device)
+        tabs.addTab(self._internet_panel, "Internet")
+        root_layout.addWidget(tabs)
         self._tab = widget
         self._refresh_timer = QtCore.QTimer(widget)
         self._refresh_timer.setInterval(1500)
@@ -758,11 +848,15 @@ class MainChatRemoteController:
                 self.log("warning", "Could not auto-start local bridge: %s", exc)
         else:
             self._remove_bridge_info()
+        if self._internet_settings.enabled:
+            self.set_internet_enabled(True)
         self.refresh_tab()
 
     def shutdown(self) -> None:
         self._stop_refresh_timer()
         self._tab = None
+        self._cancel_internet_renewal_timer()
+        self._internet_supervisor.stop()
         self.backend_process.stop()
         self.stop_bridge()
         self.media_bridge.cleanup()
@@ -827,21 +921,287 @@ class MainChatRemoteController:
             "backend_task": self._current_backend_task(),
             "bridge_info_path": str(self.bridge_info_path),
             "media": self.media_bridge.snapshot(),
+            "internet": self._internet_snapshot_copy(),
         }
 
     def create_backend_venv(self) -> None:
         self._run_backend_task("creating backend venv", self.backend_process.create_venv)
 
     def start_remote_backend(self) -> None:
+        requested_code = ""
+        if hasattr(self, "_pairing_code_edit"):
+            requested_code = str(self._pairing_code_edit.text() or "")
+        try:
+            pairing_code = self._pairing_code_for_start(requested_code)
+        except ValueError as exc:
+            if QtWidgets is not None:
+                QtWidgets.QMessageBox.warning(self._tab, "Invalid pairing code", str(exc))
+            return
+        if hasattr(self, "_pairing_code_edit"):
+            self._pairing_code_edit.setText(pairing_code)
         if self._bridge is None or not self._bridge.running:
             try:
                 self.start_bridge()
             except Exception as exc:
                 self.log("warning", "Could not start local bridge before LAN backend: %s", exc)
-        self._run_backend_task("starting LAN backend", self.backend_process.start)
+        self._run_backend_task(
+            "starting LAN backend",
+            lambda code=pairing_code: self.backend_process.start(pairing_code=code),
+        )
 
     def stop_remote_backend(self) -> None:
         self._run_backend_task("stopping LAN backend", self.backend_process.stop)
+
+    def apply_internet_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        merged = self._internet_settings.to_dict()
+        merged.update(dict(payload or {}))
+        self._internet_settings = self._internet_settings_store.save(
+            InternetRemoteSettings.from_payload(merged)
+        )
+        if hasattr(self._certificate_manager, "settings"):
+            self._certificate_manager.settings = self._internet_settings
+        self._refresh_internet_cache()
+        if self._internet_settings.enabled:
+            self._run_internet_task("applying Internet settings", self._start_internet_services)
+        return self._internet_snapshot_copy()
+
+    def set_internet_enabled(self, enabled: bool) -> None:
+        merged = self._internet_settings.to_dict()
+        merged["enabled"] = bool(enabled)
+        self._internet_settings = self._internet_settings_store.save(
+            InternetRemoteSettings.from_payload(merged)
+        )
+        if hasattr(self._certificate_manager, "settings"):
+            self._certificate_manager.settings = self._internet_settings
+        if not enabled:
+            self._cancel_internet_renewal_timer()
+        self._refresh_internet_cache()
+        operation = self._start_internet_services if enabled else self._stop_internet_services
+        label = "starting Internet Remote" if enabled else "stopping Internet Remote"
+        self._run_internet_task(label, operation)
+
+    def install_certificate_helper(self) -> None:
+        def install() -> dict[str, Any]:
+            result = self._certificate_manager.installer.install()
+            return {
+                "accepted": result.accepted,
+                "message": result.message,
+                "executable": result.executable,
+            }
+
+        self._run_internet_task("installing certificate helper", install)
+
+    def test_certificate_setup(self) -> None:
+        self._run_internet_task(
+            "testing certificate setup",
+            lambda: self._certificate_result_dict(self._certificate_manager.issue(staging=True)),
+        )
+
+    def issue_internet_certificate(self) -> None:
+        def issue() -> dict[str, Any]:
+            result = self._certificate_manager.issue(staging=False)
+            if result.accepted and self._internet_settings.enabled:
+                started = self._start_internet_services()
+                if not started.get("accepted"):
+                    return started
+            return self._certificate_result_dict(result)
+
+        self._run_internet_task("issuing Internet certificate", issue)
+
+    def refresh_public_ip(self) -> None:
+        def refresh() -> dict[str, Any]:
+            result = self._certificate_manager.detect_public_ip(explicit=True)
+            if result.accepted and result.public_ip:
+                merged = self._internet_settings.to_dict()
+                merged["public_ip"] = result.public_ip
+                self._internet_settings = self._internet_settings_store.save(
+                    InternetRemoteSettings.from_payload(merged)
+                )
+                if hasattr(self._certificate_manager, "settings"):
+                    self._certificate_manager.settings = self._internet_settings
+            return {
+                "accepted": result.accepted,
+                "message": result.message,
+                "public_ip": result.public_ip,
+            }
+
+        self._run_internet_task("detecting public IP", refresh)
+
+    def create_internet_enrollment(self) -> dict[str, Any]:
+        enrollment = self._internet_credentials.create_enrollment()
+        settings = self._internet_settings
+        query = urlencode(
+            {
+                "version": "2",
+                "mode": "internet",
+                "gateway_id": self._internet_credentials.gateway_id,
+                "hostname_url": settings.primary_origin,
+                "ip_url": settings.fallback_origin,
+                "enrollment_id": enrollment.enrollment_id,
+                "secret": enrollment.secret,
+            }
+        )
+        self._internet_enrollment_setup_uri = f"ncchatremote://pair?{query}"
+        self._refresh_internet_cache()
+        return {
+            "accepted": True,
+            "enrollment_id": enrollment.enrollment_id,
+            "expires_at": enrollment.expires_at,
+            "setup_uri": self._internet_enrollment_setup_uri,
+        }
+
+    def approve_internet_enrollment(self, enrollment_id: str) -> bool:
+        accepted = self._internet_credentials.approve_enrollment(enrollment_id)
+        self._refresh_internet_cache()
+        return accepted
+
+    def reject_internet_enrollment(self, enrollment_id: str) -> bool:
+        accepted = self._internet_credentials.reject_enrollment(enrollment_id)
+        self._refresh_internet_cache()
+        return accepted
+
+    def revoke_internet_device(self, device_id: str) -> bool:
+        accepted = self._internet_credentials.revoke_device(device_id)
+        self._refresh_internet_cache()
+        return accepted
+
+    def _start_internet_services(self) -> dict[str, Any]:
+        try:
+            self._ensure_bridge_for_internet()
+        except Exception as exc:
+            return {"accepted": False, "message": f"Desktop bridge could not start: {exc}"}
+        backend = dict(self.backend_process.status_snapshot() or {})
+        if not backend.get("running"):
+            pairing_code = generate_pairing_code()
+            result = dict(self.backend_process.start(pairing_code=pairing_code) or {})
+            if not result.get("accepted"):
+                return {
+                    "accepted": False,
+                    "message": result.get("message") or "LAN phone backend could not start.",
+                }
+            backend = dict(self.backend_process.status_snapshot() or result)
+        pairing_code = normalize_pairing_code(str(backend.get("pairing_code") or ""))
+        if not pairing_code:
+            return {"accepted": False, "message": "LAN backend has no active pairing code."}
+        certificate = dict(self._certificate_manager.status_snapshot() or {})
+        if not certificate.get("certificate_exists") or not certificate.get("private_key_exists"):
+            return {
+                "accepted": False,
+                "message": "A valid production certificate is required before opening Internet Remote.",
+            }
+        result = dict(
+            self._internet_supervisor.start(
+                self._internet_settings,
+                upstream_code=pairing_code,
+            )
+            or {}
+        )
+        if result.get("accepted"):
+            self._schedule_internet_renewal()
+        return result
+
+    def _stop_internet_services(self) -> dict[str, Any]:
+        self._cancel_internet_renewal_timer()
+        return dict(self._internet_supervisor.stop() or {})
+
+    def _ensure_bridge_for_internet(self) -> None:
+        if self._bridge is not None and self._bridge.running:
+            return
+        self._settings = BridgeSettings(
+            enabled=True,
+            host=self._settings.host,
+            port=self._settings.port,
+            token=self._settings.token,
+        ).normalized()
+        if self._bridge is None or self._bridge.settings.port != self._settings.port:
+            if self._bridge is not None:
+                self._bridge.stop()
+            self._bridge = MainChatBridgeServer(self, self._settings)
+        self._bridge.start()
+        self._write_bridge_info()
+
+    def _schedule_internet_renewal(self) -> None:
+        self._cancel_internet_renewal_timer()
+        if not self._internet_settings.enabled:
+            return
+        status = dict(self._certificate_manager.status_snapshot() or {})
+        next_check = float(status.get("next_check_at", 0.0) or 0.0)
+        delay = max(60.0, next_check - time.time()) if next_check else 12 * 60 * 60.0
+        timer = threading.Timer(delay, self._internet_renewal_due)
+        timer.name = "nc-main-chat-internet-certificate-renewal"
+        timer.daemon = True
+        self._internet_renewal_timer = timer
+        timer.start()
+
+    def _internet_renewal_due(self) -> None:
+        self._internet_renewal_timer = None
+
+        def renew() -> dict[str, Any]:
+            result = self._certificate_manager.renew_if_due()
+            payload = self._certificate_result_dict(result)
+            if result.accepted and result.changed:
+                backend = dict(self.backend_process.status_snapshot() or {})
+                code = normalize_pairing_code(str(backend.get("pairing_code") or ""))
+                if code:
+                    payload = dict(
+                        self._internet_supervisor.reload(
+                            self._internet_settings,
+                            upstream_code=code,
+                        )
+                        or payload
+                    )
+            self._schedule_internet_renewal()
+            return payload
+
+        self._run_internet_task("renewing Internet certificate", renew)
+
+    def _cancel_internet_renewal_timer(self) -> None:
+        timer = self._internet_renewal_timer
+        self._internet_renewal_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    @staticmethod
+    def _certificate_result_dict(result) -> dict[str, Any]:
+        return {
+            "accepted": bool(result.accepted),
+            "message": str(result.message),
+            "changed": bool(result.changed),
+            "expires_at": float(result.expires_at),
+            "next_check_at": float(result.next_check_at),
+        }
+
+    def _refresh_internet_cache(self) -> None:
+        try:
+            pending = [item.__dict__.copy() for item in self._internet_credentials.pending_enrollments()]
+            devices = [item.__dict__.copy() for item in self._internet_credentials.devices()]
+        except Exception:
+            pending = []
+            devices = []
+        try:
+            gateway = dict(self._internet_supervisor.status_snapshot() or {})
+        except Exception:
+            gateway = {"running": False}
+        try:
+            certificate = dict(self._certificate_manager.status_snapshot() or {})
+        except Exception:
+            certificate = {}
+        with self._internet_status_lock:
+            self._internet_snapshot = {
+                "settings": self._internet_settings.to_dict(),
+                "gateway": gateway,
+                "certificate": certificate,
+                "task": self._current_internet_task(),
+                "last_error": self._internet_last_error,
+                "last_result": dict(self._internet_last_result),
+                "pending_enrollments": pending,
+                "devices": devices,
+                "enrollment_setup_uri": self._internet_enrollment_setup_uri,
+            }
+
+    def _internet_snapshot_copy(self) -> dict[str, Any]:
+        with self._internet_status_lock:
+            return copy.deepcopy(self._internet_snapshot)
 
     def remote_state_snapshot(self) -> dict[str, Any]:
         def build() -> dict[str, Any]:
@@ -1065,6 +1425,9 @@ class MainChatRemoteController:
     def audio_file_path(self, audio_id: str) -> Path:
         return self.media_bridge.audio_file_path(audio_id)
 
+    def spectrum_file_path(self, audio_id: str) -> Path:
+        return self.media_bridge.spectrum_file_path(audio_id)
+
     def remote_send_text(self, text: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
         message = str(text or "").strip()
         if not message:
@@ -1089,14 +1452,14 @@ class MainChatRemoteController:
         try:
             accepted = bool(self._invoke_main(send))
         except Exception as exc:
-            self.media_bridge.stop_capture()
+            self.media_bridge.cancel_tts_capture(capture_id)
             return {
                 "accepted": False,
                 "error": str(exc) or "Main chat runtime did not accept the message.",
                 "state": self.remote_state_snapshot(),
             }
         if not accepted:
-            self.media_bridge.stop_capture()
+            self.media_bridge.cancel_tts_capture(capture_id)
         elif bool(data.get("visual_after_send", False)):
             try:
                 self.remote_visual_request({"action": "generate", "prompt": message, "source_text": message})
@@ -1109,7 +1472,7 @@ class MainChatRemoteController:
         }
 
     def remote_audio_clear(self) -> dict[str, Any]:
-        self.media_bridge.cleanup()
+        self.media_bridge.clear()
         return {
             "accepted": True,
             "message": "Phone audio queue cleared.",
@@ -1121,8 +1484,9 @@ class MainChatRemoteController:
         if not action_key:
             return {"accepted": False, "message": "action is required", "state": self.remote_state_snapshot()}
         data = dict(options or {})
+        capture_generation = 0
         if action_key in REMOTE_TTS_PRODUCING_ACTIONS:
-            self.media_bridge.begin_tts_capture(
+            capture_generation = self.media_bridge.begin_tts_capture(
                 f"Remote control: {action_key}",
                 suppress_backend_playback=not bool(data.get("play_on_backend", False)),
                 capture_phone_audio=bool(data.get("capture_phone_audio", True)),
@@ -1141,8 +1505,10 @@ class MainChatRemoteController:
 
         result = dict(self._invoke_main(trigger) or {})
         accepted = bool(result.get("accepted", False))
+        if accepted and action_key == "interrupt_response":
+            self.media_bridge.clear()
         if not accepted and action_key in REMOTE_TTS_PRODUCING_ACTIONS:
-            self.media_bridge.stop_capture()
+            self.media_bridge.cancel_current_tts_capture(capture_generation)
         return {
             "accepted": accepted,
             "message": result.get("message") or ("Control action queued." if accepted else "Control action was not accepted."),
@@ -1297,7 +1663,7 @@ class MainChatRemoteController:
         try:
             accepted = bool(self._invoke_main(send))
         except Exception as exc:
-            self.media_bridge.stop_capture()
+            self.media_bridge.cancel_tts_capture(capture_id)
             self._unlink_quietly(image_path)
             return {
                 "accepted": False,
@@ -1306,7 +1672,7 @@ class MainChatRemoteController:
                 "state": self.remote_state_snapshot(),
             }
         if not accepted:
-            self.media_bridge.stop_capture()
+            self.media_bridge.cancel_tts_capture(capture_id)
             self._unlink_quietly(image_path)
         return {
             "accepted": accepted,
@@ -1641,6 +2007,15 @@ class MainChatRemoteController:
             self._start_backend_button.setEnabled(not busy and venv_exists and not backend_running)
         if hasattr(self, "_stop_backend_button"):
             self._stop_backend_button.setEnabled(not busy and backend_running)
+        if hasattr(self, "_pairing_code_edit"):
+            pairing_code = str(backend.get("pairing_code") or "")
+            if backend_running and pairing_code:
+                self._pairing_code_edit.setText(pairing_code)
+            self._pairing_code_edit.setEnabled(not busy and not backend_running)
+        if hasattr(self, "_generate_pairing_code_button"):
+            self._generate_pairing_code_button.setEnabled(not busy and not backend_running)
+        if hasattr(self, "_internet_panel"):
+            self._internet_panel.apply_snapshot(dict(snapshot.get("internet") or {}))
 
     def log(self, level: str, message: str, *args) -> None:
         logger = getattr(self.context, "logger", None)
@@ -1656,6 +2031,10 @@ class MainChatRemoteController:
             self.start_bridge()
         else:
             self.stop_bridge()
+
+    def _generate_pending_pairing_code(self) -> None:
+        if hasattr(self, "_pairing_code_edit"):
+            self._pairing_code_edit.setText(generate_pairing_code())
 
     def _stop_refresh_timer(self) -> None:
         timer = self._refresh_timer
@@ -1679,6 +2058,16 @@ class MainChatRemoteController:
         return subprocess.list2cmdline([str(part) for part in list(command or [])])
 
     @staticmethod
+    def _pairing_code_for_start(value: str) -> str:
+        requested = str(value or "").strip()
+        if not requested:
+            return generate_pairing_code()
+        normalized = normalize_pairing_code(requested)
+        if not normalized:
+            raise ValueError("Pairing code must contain 4 to 9 digits.")
+        return normalized
+
+    @staticmethod
     def _pairing_setup_uri(base_url: str, pairing_code: str) -> str:
         normalized_url = str(base_url or "").strip().rstrip("/")
         normalized_code = "".join(ch for ch in str(pairing_code or "") if ch.isdigit())
@@ -1689,21 +2078,52 @@ class MainChatRemoteController:
     @staticmethod
     def _pairing_qr_png(setup_uri: str) -> bytes:
         value = str(setup_uri or "").strip()
-        if not value or qrcode is None:
+        if not value:
             return b""
+        if qrcode is not None:
+            try:
+                qr = qrcode.QRCode(
+                    version=None,
+                    error_correction=qrcode.constants.ERROR_CORRECT_M,
+                    box_size=8,
+                    border=4,
+                )
+                qr.add_data(value)
+                qr.make(fit=True)
+                image = qr.make_image(fill_color="black", back_color="white")
+                output = io.BytesIO()
+                image.save(output, format="PNG")
+                return output.getvalue()
+            except Exception:
+                pass
         try:
-            qr = qrcode.QRCode(
-                version=None,
-                error_correction=qrcode.constants.ERROR_CORRECT_M,
-                box_size=8,
-                border=4,
+            import cv2
+
+            matrix = cv2.QRCodeEncoder_create().encode(value)
+            target_size = 212
+            module_scale = max(1, target_size // max(matrix.shape[:2]))
+            display_matrix = cv2.resize(
+                matrix,
+                None,
+                fx=module_scale,
+                fy=module_scale,
+                interpolation=cv2.INTER_NEAREST,
             )
-            qr.add_data(value)
-            qr.make(fit=True)
-            image = qr.make_image(fill_color="black", back_color="white")
-            output = io.BytesIO()
-            image.save(output, format="PNG")
-            return output.getvalue()
+            height, width = display_matrix.shape[:2]
+            if height <= target_size and width <= target_size:
+                vertical_padding = target_size - height
+                horizontal_padding = target_size - width
+                display_matrix = cv2.copyMakeBorder(
+                    display_matrix,
+                    vertical_padding // 2,
+                    vertical_padding - (vertical_padding // 2),
+                    horizontal_padding // 2,
+                    horizontal_padding - (horizontal_padding // 2),
+                    cv2.BORDER_CONSTANT,
+                    value=255,
+                )
+            encoded, png = cv2.imencode(".png", display_matrix)
+            return png.tobytes() if encoded else b""
         except Exception:
             return b""
 
@@ -1721,30 +2141,77 @@ class MainChatRemoteController:
         with self._backend_task_lock:
             return str(self._backend_task or "")
 
+    def _current_internet_task(self) -> str:
+        with self._internet_task_lock:
+            return str(self._internet_task or "")
+
     def _run_backend_task(self, label: str, func: Callable[[], dict[str, Any]]) -> None:
-        task = str(label or "backend task").strip()
-        with self._backend_task_lock:
-            if self._backend_task:
-                return
-            self._backend_task = task
+        self._run_task(
+            label=label,
+            lock=self._backend_task_lock,
+            slot_name="_backend_task",
+            func=func,
+            thread_name="nc-main-chat-remote-backend-task",
+        )
+
+    def _run_internet_task(self, label: str, func: Callable[[], dict[str, Any]]) -> None:
+        def completed(result: dict[str, Any]) -> None:
+            with self._internet_status_lock:
+                self._internet_last_result = dict(result)
+                self._internet_last_error = (
+                    "" if result.get("accepted") else str(result.get("message") or "Internet operation failed.")
+                )
+            self._refresh_internet_cache()
+
+        started = self._run_task(
+            label=label,
+            lock=self._internet_task_lock,
+            slot_name="_internet_task",
+            func=func,
+            thread_name="nc-main-chat-internet-task",
+            on_complete=completed,
+        )
+        if started:
+            self._refresh_internet_cache()
+
+    def _run_task(
+        self,
+        *,
+        label: str,
+        lock: threading.RLock,
+        slot_name: str,
+        func: Callable[[], dict[str, Any]],
+        thread_name: str,
+        on_complete: Callable[[dict[str, Any]], None] | None = None,
+    ) -> bool:
+        task = str(label or "background task").strip()
+        with lock:
+            if getattr(self, slot_name, ""):
+                return False
+            setattr(self, slot_name, task)
 
         def worker() -> None:
             try:
                 result = dict(func() or {})
-                if not bool(result.get("accepted", False)):
-                    self.log("warning", "%s", result.get("message") or f"{task} failed.")
             except Exception as exc:
-                self.log("warning", "%s failed: %s", task, exc)
-            finally:
-                with self._backend_task_lock:
-                    self._backend_task = ""
+                result = {"accepted": False, "message": str(exc) or f"{task} failed."}
+            if not bool(result.get("accepted", False)):
+                self.log("warning", "%s", result.get("message") or f"{task} failed.")
+            if on_complete is not None:
                 try:
-                    self._invoke_main(self.refresh_tab)
-                except Exception:
-                    pass
+                    on_complete(result)
+                except Exception as exc:
+                    self.log("warning", "%s completion failed: %s", task, exc)
+            with lock:
+                setattr(self, slot_name, "")
+            try:
+                self._invoke_main(self.refresh_tab)
+            except Exception:
+                pass
 
-        threading.Thread(target=worker, name="nc-main-chat-remote-backend-task", daemon=True).start()
+        threading.Thread(target=worker, name=thread_name, daemon=True).start()
         self.refresh_tab()
+        return True
 
     def _write_bridge_info(self) -> None:
         payload = {

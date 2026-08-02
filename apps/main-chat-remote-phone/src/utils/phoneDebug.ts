@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { configurePhoneDebug } from './phoneDebugBridge';
+import type { PhoneDebugUploadClient } from './phoneDebugBridge';
 import type { PhoneDebugEvent, PhoneDebugLevel } from './phoneDebugTypes';
 
 export type { PhoneDebugEvent, PhoneDebugLevel } from './phoneDebugTypes';
@@ -25,7 +26,7 @@ function sanitize(value: unknown, depth = 0): unknown {
     const output: Record<string, unknown> = {};
     Object.entries(value as Record<string, unknown>).slice(0, 50).forEach(([key, child]) => {
       const lowered = key.toLowerCase();
-      output[key.slice(0, 80)] = ['code', 'token', 'secret', 'password', 'api_key', 'authorization'].some((marker) => lowered.includes(marker))
+      output[key.slice(0, 80)] = ['code', 'token', 'secret', 'password', 'api_key', 'authorization', 'ticket', 'signature'].some((marker) => lowered.includes(marker))
         ? '[redacted]'
         : sanitize(child, depth + 1);
     });
@@ -74,29 +75,19 @@ export async function recordPhoneDebug(level: PhoneDebugLevel, event: string, de
   }).catch(() => undefined);
 }
 
-export async function uploadPhoneDebug(baseUrl: string, pairingCode: string, reason = 'automatic', force = false): Promise<number> {
+export async function uploadPhoneDebug(client: PhoneDebugUploadClient, reason = 'automatic', force = false): Promise<number> {
   const now = Date.now();
   if (!force && now - lastUploadAt < MIN_UPLOAD_INTERVAL_MS) return 0;
   if (uploadInFlight) return uploadInFlight;
-  const normalizedBase = String(baseUrl || '').replace(/\/+$/, '');
-  if (!normalizedBase || !pairingCode) return 0;
+  if (!client) return 0;
   uploadInFlight = (async () => {
     const events = await withFileLock(readEvents);
     if (!events.length) return 0;
-    const response = await fetch(`${normalizedBase}/api/debug`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-NC-Phone-Code': pairingCode,
-      },
-      body: JSON.stringify({
-        reason,
-        app: { version: '0.1.0', platform: Platform.OS, runtime: String(Platform.Version) },
-        events,
-      }),
+    const payload = await client.uploadDebugPayload({
+      reason,
+      app: { version: '0.1.0', platform: Platform.OS, runtime: String(Platform.Version) },
+      events,
     });
-    if (!response.ok) throw new Error(`Debug upload failed with HTTP ${response.status}.`);
-    const payload = await response.json() as { result?: { accepted?: boolean; events_written?: number } };
     if (!payload.result?.accepted) throw new Error('Desktop did not accept phone diagnostics.');
     await withFileLock(async () => {
       const current = await readEvents();

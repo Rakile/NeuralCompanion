@@ -2,9 +2,9 @@
   "id": "nc.buddy_chat",
   "name": "Buddy Chat",
   "category": "chat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entry_point": "main.py",
-  "description": "Natural multi-buddy personas for the main chat with shared or per-persona LLM provider routing.",
+  "description": "Natural multi-buddy chat with ready-made groups, guided setup, refinable personalities, routed voices, and shared or per-persona LLM providers.",
   "permissions": [
     "ui.tabs",
     "storage.read",

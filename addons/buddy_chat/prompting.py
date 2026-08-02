@@ -6,6 +6,9 @@ from typing import Any
 from .models import BuddyPersona, BuddySettings
 
 
+MAX_BUDDY_CONTEXT_CHARS = 7000
+
+
 def repair_invalid_text(value: Any) -> str:
     text = str(value or "").replace("\ufffd", "?")
     return re.sub(r"[\ud800-\udfff]", "?", text)
@@ -17,6 +20,47 @@ def compact_text(value: Any, limit: int = 1200) -> str:
     if len(text) <= limit:
         return text
     return text[:limit].rstrip(" \t\r\n,;:.")
+
+
+def behavior_instruction(persona: BuddyPersona) -> str:
+    profile = persona.behavior
+    if profile is None:
+        return ""
+    return (
+        f"behavior: helpfulness {profile.helpfulness}/100; warmth {profile.warmth}/100; "
+        f"humor {profile.humor}/100; expressiveness {profile.expressiveness}/100; "
+        f"initiative {profile.initiative}/100; directness {profile.directness}/100; "
+        f"willingness to disagree {profile.disagreement}/100; "
+        f"flirtation {profile.flirtation}/100; reply length {profile.reply_length}; "
+        f"participation weight {profile.participation_weight}/100"
+    )
+
+
+def intimacy_instruction(settings: BuddySettings) -> str:
+    if settings.adult_nsfw_enabled:
+        editable = compact_text(settings.adult_nsfw_prompt, 900)
+        adult_only_invariant = (
+            "All personas and participants are adults."
+        )
+        return "\n".join(
+            part for part in (editable, adult_only_invariant) if part
+        )
+    return compact_text(settings.normal_intimacy_prompt, 700)
+
+
+def _persona_context_block(persona: BuddyPersona) -> str:
+    lines = [f"- {compact_text(persona.display_name, 80) or 'Buddy'}"]
+    details = (
+        ("role", compact_text(persona.role, 180)),
+        ("description", compact_text(persona.description, 340)),
+        ("speaking style", compact_text(persona.speaking_style, 220)),
+        ("character guidance", compact_text(persona.system_prompt, 520)),
+        ("structured behavior", compact_text(behavior_instruction(persona), 440)),
+    )
+    for label, value in details:
+        if value:
+            lines.append(f"  {label}: {value}")
+    return "\n".join(lines)
 
 
 def buddy_context_prompt(settings: BuddySettings) -> str:
@@ -31,7 +75,7 @@ def buddy_context_prompt(settings: BuddySettings) -> str:
                 [
                     "Buddy Chat main-chat override:",
                     "Treat this section as higher priority than conflicting single-persona reply rules in the main persona prompt.",
-                    override_prompt,
+                    compact_text(override_prompt, 2600),
                     "",
                     "Buddy Chat operating instructions:",
                 ]
@@ -46,18 +90,21 @@ def buddy_context_prompt(settings: BuddySettings) -> str:
             "Preferred buddy format is one short line: [Name] spoken words.",
             "Do not write buddy dialogue only as narration like 'Mira says...' because that prevents reliable voice switching.",
             "Do not force every buddy to respond every turn.",
+            intimacy_instruction(settings),
             "",
             "Active buddies:",
         ]
     )
     for persona in personas:
-        parts = [persona.display_name]
-        if persona.role:
-            parts.append(persona.role)
-        if persona.speaking_style:
-            parts.append("style: " + persona.speaking_style)
-        lines.append("- " + " | ".join(parts))
-    return "\n".join(line for line in lines if str(line or "").strip())
+        block = _persona_context_block(persona)
+        candidate = "\n".join([*lines, block])
+        if len(candidate) > MAX_BUDDY_CONTEXT_CHARS:
+            remaining = MAX_BUDDY_CONTEXT_CHARS - len("\n".join(lines)) - 1
+            if remaining > 80:
+                lines.append(compact_text(block, remaining))
+            break
+        lines.append(block)
+    return "\n".join(line for line in lines if str(line or "").strip())[:MAX_BUDDY_CONTEXT_CHARS]
 
 
 def build_persona_messages(
@@ -68,6 +115,8 @@ def build_persona_messages(
     history: list[dict[str, Any]] | None = None,
     external_contexts: list[str] | None = None,
     previous_replies: list[tuple[BuddyPersona, str]] | None = None,
+    allow_pass: bool = False,
+    is_secondary: bool = False,
 ) -> list[dict[str, str]]:
     roster_lines = []
     for buddy in settings.enabled_personas():
@@ -93,12 +142,59 @@ def build_persona_messages(
         "Active buddy roster:",
         "\n".join(roster_lines),
     ]
-    if persona.system_prompt:
-        system_lines.extend(["", f"{persona.display_name} persona instructions:", persona.system_prompt])
-    if persona.description:
-        system_lines.extend(["", f"{persona.display_name} description:", persona.description])
-    if persona.speaking_style:
-        system_lines.extend(["", f"{persona.display_name} speaking style:", persona.speaking_style])
+    if allow_pass:
+        system_lines.extend(
+            [
+                "",
+                "Optional participation:",
+                "If you have no useful, natural contribution, reply exactly [[BUDDY_PASS]] and nothing else.",
+            ]
+        )
+    else:
+        system_lines.extend(
+            [
+                "",
+                "You are the required primary buddy for this turn. Give one natural spoken response.",
+            ]
+        )
+    if is_secondary:
+        system_lines.extend(
+            [
+                "",
+                "Secondary buddy rule:",
+                "Reply briefly and only with a useful reaction, contrast, correction, or new information. "
+                "Do not answer the original question again.",
+            ]
+        )
+    intimacy = intimacy_instruction(settings)
+    if intimacy:
+        system_lines.extend(["", "Buddy Chat intimacy mode:", intimacy])
+    persona_prompt = compact_text(persona.system_prompt, 6000)
+    if persona_prompt:
+        system_lines.extend(
+            [
+                "",
+                f"{persona.display_name} persona instructions:",
+                persona_prompt,
+            ]
+        )
+    description = compact_text(persona.description, 1500)
+    if description:
+        system_lines.extend(
+            ["", f"{persona.display_name} description:", description]
+        )
+    speaking_style = compact_text(persona.speaking_style, 500)
+    if speaking_style:
+        system_lines.extend(
+            [
+                "",
+                f"{persona.display_name} speaking style:",
+                speaking_style,
+            ]
+        )
+    behavior = behavior_instruction(persona)
+    if behavior:
+        system_lines.extend(["", f"{persona.display_name} structured behavior:", behavior])
     if external_contexts:
         system_lines.extend(["", "Relevant NC context from active addons:", "\n\n".join(external_contexts)])
     if previous_replies:

@@ -1,5 +1,5 @@
-import type { RemoteEnvelope, RemoteHealth, RemoteState } from './types';
-import { recordPhoneDebug, uploadPhoneDebug } from '../utils/phoneDebugBridge';
+import type { AudioSpectrumTimelinePayload, RemoteEnvelope, RemoteHealth, RemoteState } from './types.ts';
+import { recordPhoneDebug, uploadPhoneDebug } from '../utils/phoneDebugBridge.ts';
 
 type JsonRecord = Record<string, unknown>;
 export type SendTextOptions = {
@@ -21,6 +21,7 @@ export type MprcSendOptions = {
   intent?: string;
   speakerId?: string;
 };
+export type RemoteAuth = { kind: 'lan'; pairingCode: string } | { kind: 'internet'; deviceId: string; deviceToken: string };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
 const HEALTH_REQUEST_TIMEOUT_MS = 5000;
@@ -31,13 +32,13 @@ const MAX_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const DROPPED_MEDIA_QUERY_KEYS = new Set(['code', 'token']);
 
 export class RemoteRequestError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-    public readonly payload: unknown,
-  ) {
+  public readonly status: number;
+  public readonly payload: unknown;
+  constructor(message: string, status: number, payload: unknown) {
     super(message);
     this.name = 'RemoteRequestError';
+    this.status = status;
+    this.payload = payload;
   }
 }
 
@@ -58,10 +59,18 @@ function normalizeTimeoutMs(timeoutMs: number | undefined): number {
 }
 
 export class RemoteClient {
-  constructor(
-    public readonly baseUrl: string,
-    public readonly pairingCode: string,
-  ) {}
+  public readonly baseUrl: string;
+  public readonly auth: RemoteAuth;
+  constructor(baseUrl: string, pairingCode: string);
+  constructor(baseUrl: string, auth: RemoteAuth);
+  constructor(baseUrl: string, pairingCodeOrAuth: string | RemoteAuth) {
+    this.baseUrl = String(baseUrl || '').replace(/\/+$/, '');
+    this.auth = typeof pairingCodeOrAuth === 'string' ? { kind: 'lan', pairingCode: pairingCodeOrAuth } : pairingCodeOrAuth;
+  }
+  static forLan(baseUrl: string, pairingCode: string): RemoteClient { return new RemoteClient(baseUrl, { kind: 'lan', pairingCode }); }
+  static forInternet(baseUrl: string, deviceId: string, deviceToken: string): RemoteClient { return new RemoteClient(baseUrl, { kind: 'internet', deviceId, deviceToken }); }
+  get pairingCode(): string { return this.auth.kind === 'lan' ? this.auth.pairingCode : ''; }
+  get identityKey(): string { return this.auth.kind === 'lan' ? `lan|${this.baseUrl}` : `internet|${this.baseUrl}|${this.auth.deviceId}`; }
 
   absoluteUrl(path: string): string {
     const base = this.baseUrl.replace(/\/+$/, '');
@@ -85,8 +94,8 @@ export class RemoteClient {
         search.set(key, String(value));
       }
     }
-    if (this.pairingCode) {
-      search.set('code', this.pairingCode);
+    if (this.auth.kind === 'lan' && this.auth.pairingCode) {
+      search.set('code', this.auth.pairingCode);
     }
     const suffix = search.toString();
     return this.absoluteUrl(`${targetPath}${suffix ? `?${suffix}` : ''}`);
@@ -96,13 +105,27 @@ export class RemoteClient {
     return this.absoluteUrl(path);
   }
 
-  websocketUrl(): string {
-    const url = this.authorizedUrl('/ws');
-    return url.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+  async websocketUrl(): Promise<string> {
+    if (this.auth.kind === 'lan') return this.authorizedUrl('/ws').replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+    const payload = await this.request<{ ok?: boolean; ticket?: unknown }>('POST', '/internet/ws-ticket', {});
+    const ticket = String(payload.ticket || '');
+    if (!/^[A-Za-z0-9_-]{8,512}$/.test(ticket)) throw new Error('Internet gateway returned an invalid WebSocket ticket.');
+    const url = new URL('/ws', this.baseUrl); url.protocol = 'wss:'; url.searchParams.set('ticket', ticket); return url.toString();
   }
 
-  async health(): Promise<RemoteEnvelope<RemoteHealth>> {
-    return this.request('GET', '/health', undefined, { authorize: false, timeoutMs: HEALTH_REQUEST_TIMEOUT_MS });
+  async authorizedMediaUrl(path: string, params: JsonRecord = {}): Promise<{ url: string; expiresAt: number }> {
+    if (this.auth.kind === 'lan') return { url: this.authorizedUrl(path, params), expiresAt: 0 };
+    const payload = await this.request<{ ok?: boolean; url?: unknown; expires_at?: unknown }>('POST', '/internet/media-ticket', { path, method: 'GET', params });
+    const resolved = new URL(String(payload.url || ''), this.baseUrl); const base = new URL(this.baseUrl);
+    if (resolved.origin !== base.origin || resolved.protocol !== 'https:' || resolved.pathname !== '/media') throw new Error('Internet gateway returned an invalid media URL.');
+    const rawExpiry = Number(payload.expires_at || 0); const expiresAt = rawExpiry > 0 && rawExpiry < 1_000_000_000_000 ? rawExpiry * 1000 : rawExpiry;
+    return { url: resolved.toString(), expiresAt };
+  }
+
+  async health(expectedGatewayId = ''): Promise<RemoteEnvelope<RemoteHealth>> {
+    const payload = await this.request<RemoteEnvelope<RemoteHealth>>('GET', '/health', undefined, { authorize: false, timeoutMs: HEALTH_REQUEST_TIMEOUT_MS });
+    if (this.auth.kind === 'internet' && expectedGatewayId && String(payload.gateway_id || '') !== expectedGatewayId) throw new Error('Internet gateway identity does not match the enrolled desktop.');
+    return payload;
   }
 
   async state(): Promise<RemoteState> {
@@ -180,6 +203,10 @@ export class RemoteClient {
     return this.request('POST', '/api/audio/clear', {});
   }
 
+  async audioSpectrum(path: string): Promise<AudioSpectrumTimelinePayload> {
+    return this.request<AudioSpectrumTimelinePayload>('GET', path);
+  }
+
   async stt(audioBase64: string, format = 'm4a', options: SttOptions = {}) {
     return this.request('POST', '/api/stt', {
       audio_base64: audioBase64,
@@ -202,7 +229,11 @@ export class RemoteClient {
   }
 
   async uploadDebug(reason = 'manual'): Promise<number> {
-    return uploadPhoneDebug(this.baseUrl, this.pairingCode, reason, true);
+    return uploadPhoneDebug(this, reason, true);
+  }
+
+  async uploadDebugPayload(payload: JsonRecord): Promise<{ result?: { accepted?: boolean; events_written?: number } }> {
+    return this.request('POST', '/api/debug', payload);
   }
 
   private async request<T>(method: 'GET' | 'POST', path: string, body?: JsonRecord, options: RequestOptions = {}): Promise<T> {
@@ -216,7 +247,8 @@ export class RemoteClient {
       },
     };
     if (options.authorize !== false) {
-      (init.headers as JsonRecord)['X-NC-Phone-Code'] = this.pairingCode;
+      if (this.auth.kind === 'lan') (init.headers as JsonRecord)['X-NC-Phone-Code'] = this.auth.pairingCode;
+      else (init.headers as JsonRecord).Authorization = `Bearer ${this.auth.deviceToken}`;
     }
     if (controller) {
       init.signal = controller.signal;
@@ -276,7 +308,7 @@ export class RemoteClient {
       throw new Error('Remote backend returned an invalid response.');
     }
     if (options.authorize !== false && path !== '/api/debug') {
-      void uploadPhoneDebug(this.baseUrl, this.pairingCode, 'connection_recovered').catch(() => undefined);
+      void uploadPhoneDebug(this, 'connection_recovered').catch(() => undefined);
     }
     return payload as T;
   }

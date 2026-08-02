@@ -128,6 +128,11 @@ def test_router_uses_visual_prompts_and_validates_selected_assets():
     assert "asset_cornfield" in request_text
     assert "cognitive challenge designed to check basic reading skills" in request_text
     assert "request_kind" in request_text
+    output_budget = captured["params"].get(
+        "max_completion_tokens",
+        captured["params"].get("max_tokens"),
+    )
+    assert output_budget == 8192
 
 
 def test_image_candidates_share_one_complete_archived_chunk_context():

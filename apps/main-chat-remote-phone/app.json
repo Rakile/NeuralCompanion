@@ -34,7 +34,14 @@
           "cameraPermission": "Allow NC Main Chat Remote to scan NeuralCompanion pairing QR codes.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow NC Main Chat Remote to choose a private Live Fullscreen background."
+        }
+      ],
+      "expo-video"
     ],
     "ios": {
       "supportsTablet": true,
@@ -44,6 +51,7 @@
     },
     "android": {
       "package": "com.lainol.ncmainchatremote",
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]

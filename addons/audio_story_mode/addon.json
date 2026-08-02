@@ -2,9 +2,9 @@
   "id": "nc.audio_story_mode",
   "name": "Audio Story Mode",
   "category": "visuals",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "entry_point": "main.py",
-  "description": "Import story audio, transcribe it locally, and sync visual story images to playback.",
+  "description": "Import story audio, turn JSON chatlogs into resumable novels, or narrate Markdown chapters with local-first Audio Story tools.",
   "permissions": [
     "ui.tabs",
     "storage.read",
@@ -29,7 +29,7 @@
       "placeholder": "audio_story_mode_tab",
       "icon_path": "../../ui_icons/side_tabs/story_visuals.png",
       "order": 120,
-      "tooltip": "Import story audio, transcribe it locally, and sync visual replies to playback.",
+      "tooltip": "Use audio stories, the Chatlog Novel Workshop, Markdown narration, and synchronized visual replies.",
       "metadata": {
         "runtime_role": "audio_story",
         "real_ui_bridge_module": "addons.audio_story_mode.real_ui_bridge"

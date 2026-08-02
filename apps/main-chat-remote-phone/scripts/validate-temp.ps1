@@ -118,7 +118,7 @@ assert.equal(replied.chat.messages[replied.chat.messages.length - 1].role, "assi
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 try {
   New-Item -ItemType Directory -Path $target | Out-Null
-  foreach ($item in @("app.json", "App.tsx", "index.ts", "package.json", "README.md", "tsconfig.json", "plugins", "scripts", "src")) {
+  foreach ($item in @("app.json", "App.tsx", "index.ts", "package.json", "README.md", "tsconfig.json", "assets", "plugins", "scripts", "src")) {
     $source = Join-Path $appRoot $item
     if (Test-Path -LiteralPath $source) {
       Copy-Item -LiteralPath $source -Destination $target -Recurse
@@ -130,20 +130,21 @@ try {
     Invoke-Native -Command node -Arguments @("scripts/smoke-ui-copy.js")
     Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-lan-discovery.mjs")
     Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-pairing-qr.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-internet-connection.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-internet-client.mjs")
     Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-swipe-controls.mjs")
     Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-interface-mode.mjs")
     Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-audio-fast-start.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-live-mic.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-keyboard-layout.mjs")
+    Invoke-Native -Command node -Arguments @("--no-warnings", "--experimental-strip-types", "scripts/smoke-live-fullscreen.mjs")
     Invoke-Native -Command npm -Arguments @("run", "typecheck")
     Invoke-Native -Command npx -Arguments @("tsc", "src/utils/url.ts", "--target", "ES2020", "--module", "commonjs", "--outDir", "out", "--skipLibCheck")
-    Invoke-Native -Command npx -Arguments @("tsc", "src/api/client.ts", "--target", "ES2020", "--module", "commonjs", "--outDir", "out", "--skipLibCheck")
     Invoke-Native -Command npx -Arguments @("tsc", "src/api/envelope.ts", "--target", "ES2020", "--module", "commonjs", "--outDir", "out", "--skipLibCheck")
     Invoke-Native -Command npx -Arguments @("tsc", "src/demo/demoState.ts", "--target", "ES2020", "--module", "commonjs", "--outDir", "out", "--skipLibCheck")
     $urlSmokePath = Join-Path (Get-Location).Path "out\url-smoke.js"
     Set-Content -LiteralPath $urlSmokePath -Value $urlSmoke -Encoding UTF8
     Invoke-Native -Command node -Arguments @($urlSmokePath)
-    $clientSmokePath = Join-Path (Get-Location).Path "out\client-smoke.js"
-    Set-Content -LiteralPath $clientSmokePath -Value $clientSmoke -Encoding UTF8
-    Invoke-Native -Command node -Arguments @($clientSmokePath)
     $envelopeSmokePath = Join-Path (Get-Location).Path "out\envelope-smoke.js"
     Set-Content -LiteralPath $envelopeSmokePath -Value $envelopeSmoke -Encoding UTF8
     Invoke-Native -Command node -Arguments @($envelopeSmokePath)

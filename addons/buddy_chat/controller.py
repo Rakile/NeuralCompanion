@@ -24,10 +24,99 @@ from .models import (
     default_avatar_prompt,
 )
 from .prompting import buddy_context_prompt, build_persona_messages, compact_text
+from .refinement import (
+    RefinementPatch,
+    RefinementRequest,
+    apply_refinement_patch,
+    build_refinement_messages,
+    parse_refinement_result,
+)
+from .response_policy import (
+    BUDDY_PASS_TOKEN,
+    is_repetitive_secondary,
+    normalize_persona_reply,
+    select_speakers,
+)
+from .setup_models import BuddySetupPreview, apply_setup_preview
+from .setup_studio import (
+    BuddyCharacterEditor,
+    BuddyRefinementReview,
+    SetupStudio,
+)
 from .voice_segments import split_buddy_voice_segments
 
 
 SETTINGS_PATH = "settings.json"
+BUDDY_BANNER_PATH = Path(__file__).resolve().parents[2] / "ui_icons" / "addon_banner" / "buddy_banner.png"
+
+
+class _BuddyBannerLabel(QtWidgets.QLabel):
+    """Responsive Buddy Chat banner with a readable text fallback."""
+
+    def __init__(self, image_path: Path, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("buddy_chat_banner")
+        self.setAlignment(QtCore.Qt.AlignCenter)
+        self.setToolTip("Lets selected buddy personas join main chat naturally without always forcing every persona to answer.")
+        self.setAccessibleName("Buddy Chat")
+        self._source_pixmap = QtGui.QPixmap(str(image_path))
+        banner_loaded = not self._source_pixmap.isNull()
+        self.setProperty("banner_loaded", banner_loaded)
+
+        if banner_loaded:
+            policy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            policy.setHeightForWidth(True)
+            self.setSizePolicy(policy)
+            self.setMaximumWidth(self._source_pixmap.width())
+            self.setMinimumSize(1, 1)
+            self.setText("")
+            return
+
+        self.setText("Buddy Chat")
+        font = self.font()
+        font.setPointSize(16)
+        font.setBold(True)
+        self.setFont(font)
+
+    def hasHeightForWidth(self) -> bool:
+        return bool(self.property("banner_loaded"))
+
+    def heightForWidth(self, width: int) -> int:
+        if self._source_pixmap.isNull():
+            return super().heightForWidth(width)
+        source_width = max(1, self._source_pixmap.width())
+        target_width = min(source_width, max(1, int(width)))
+        return max(1, round(target_width * self._source_pixmap.height() / source_width))
+
+    def sizeHint(self) -> QtCore.QSize:
+        if self._source_pixmap.isNull():
+            return super().sizeHint()
+        return self._source_pixmap.size()
+
+    def minimumSizeHint(self) -> QtCore.QSize:
+        if self._source_pixmap.isNull():
+            return super().minimumSizeHint()
+        return QtCore.QSize(1, 1)
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+        if self._source_pixmap.isNull():
+            super().paintEvent(event)
+            return
+        contents = self.contentsRect()
+        maximum_size = QtCore.QSize(
+            min(contents.width(), self._source_pixmap.width()),
+            min(contents.height(), self._source_pixmap.height()),
+        )
+        target_size = self._source_pixmap.size().scaled(maximum_size, QtCore.Qt.KeepAspectRatio)
+        target_rect = QtCore.QRect(
+            contents.center().x() - target_size.width() // 2,
+            contents.center().y() - target_size.height() // 2,
+            target_size.width(),
+            target_size.height(),
+        )
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform, True)
+        painter.drawPixmap(target_rect, self._source_pixmap)
 
 
 class _BuddyUiBridge(QtCore.QObject):
@@ -35,6 +124,7 @@ class _BuddyUiBridge(QtCore.QObject):
     model_catalog_finished = QtCore.Signal(str, object, str)
     avatar_finished = QtCore.Signal(int, object)
     active_persona_changed = QtCore.Signal(object)
+    refinement_finished = QtCore.Signal(int, object, object, str)
 
     def __init__(self, controller: "BuddyChatController") -> None:
         super().__init__()
@@ -43,6 +133,7 @@ class _BuddyUiBridge(QtCore.QObject):
         self.model_catalog_finished.connect(self._on_model_catalog_finished)
         self.avatar_finished.connect(self._on_avatar_finished)
         self.active_persona_changed.connect(self._on_active_persona_changed)
+        self.refinement_finished.connect(self._on_refinement_finished)
 
     @QtCore.Slot(str)
     def _on_test_finished(self, message: str) -> None:
@@ -67,6 +158,23 @@ class _BuddyUiBridge(QtCore.QObject):
         controller = self.controller
         if controller is not None:
             controller._on_active_persona_changed(dict(payload or {}))
+
+    @QtCore.Slot(int, object, object, str)
+    def _on_refinement_finished(
+        self,
+        token: int,
+        request: object,
+        patch: object,
+        error: str,
+    ) -> None:
+        controller = self.controller
+        if controller is not None:
+            controller._on_refinement_finished(
+                int(token),
+                request,
+                patch,
+                str(error or ""),
+            )
 
 
 class ActivePersonaWindow(QtWidgets.QWidget):
@@ -290,6 +398,7 @@ class BuddyChatController:
         self._settings_write_lock = threading.RLock()
         self._pending_settings_payload: dict[str, Any] | None = None
         self._settings_write_thread: threading.Thread | None = None
+        self._setup_undo_settings: BuddySettings | None = None
         self._last_session_export_state: dict[str, Any] = self._session_export_payload_unlocked()
         self.llm_runtime = BuddyProviderRuntime(completion_handler=completion_handler)
         self.visual_reply_service = context.get_service("qt.visual_reply") if context is not None else None
@@ -298,6 +407,9 @@ class BuddyChatController:
         self._persona_voice_rows_layout: QtWidgets.QVBoxLayout | None = None
         self._persona_avatar_rows_layout: QtWidgets.QVBoxLayout | None = None
         self._persona_provider_rows_layout: QtWidgets.QVBoxLayout | None = None
+        self._setup_studio: SetupStudio | None = None
+        self._refinement_token = 0
+        self._refinement_active_token: int | None = None
         self._model_catalog_lock = threading.RLock()
         self._model_catalog_inflight: set[str] = set()
         self._ui_bridge = _BuddyUiBridge(self)
@@ -626,16 +738,12 @@ class BuddyChatController:
         layout.setContentsMargins(16, 14, 16, 16)
         layout.setSpacing(10)
 
-        header = QtWidgets.QLabel("Buddy Chat")
-        header.setToolTip("Lets selected buddy personas join main chat naturally without always forcing every persona to answer.")
-        font = header.font()
-        font.setPointSize(16)
-        font.setBold(True)
-        header.setFont(font)
+        header = _BuddyBannerLabel(BUDDY_BANNER_PATH)
         subtitle = QtWidgets.QLabel("Natural buddy participation, routed voices, avatars, and optional per-buddy models.")
+        subtitle.setObjectName("buddy_chat_subtitle")
         subtitle.setProperty("muted", True)
         subtitle.setWordWrap(True)
-        layout.addWidget(header)
+        layout.addWidget(header, 0, QtCore.Qt.AlignHCenter)
         layout.addWidget(subtitle)
 
         tabs = QtWidgets.QWidget()
@@ -675,12 +783,41 @@ class BuddyChatController:
         stack = _BuddyCurrentPageStack()
         stack.setObjectName("buddy_inner_tab_stack")
 
+        setup_page, setup_layout = self._new_buddy_tab_page("Setup")
         overview_page, overview_layout = self._new_buddy_tab_page("Overview")
         buddies_page, buddies_layout = self._new_buddy_tab_page("Buddies")
         voices_page, voices_layout = self._new_buddy_tab_page("Voices")
         avatars_page, avatars_layout = self._new_buddy_tab_page("Avatars")
         providers_page, providers_layout = self._new_buddy_tab_page("Providers")
         advanced_page, advanced_layout = self._new_buddy_tab_page("Advanced")
+
+        self._setup_studio = SetupStudio()
+        self._setup_studio.set_adult_mode(
+            bool(self.settings.adult_nsfw_enabled)
+        )
+        self._setup_studio.set_prompt_layers(
+            shared_prompt=self.settings.system_override_prompt,
+            normal_prompt=self.settings.normal_intimacy_prompt,
+            adult_prompt=self.settings.adult_nsfw_prompt,
+        )
+        self._setup_studio.set_undo_available(
+            self._setup_undo_settings is not None
+        )
+        self._setup_studio.apply_requested.connect(
+            self._confirm_apply_setup_preview
+        )
+        self._setup_studio.undo_requested.connect(self._undo_last_setup)
+        self._setup_studio.adult_mode_requested.connect(
+            self._on_adult_mode_requested
+        )
+        self._setup_studio.refinement_requested.connect(
+            self._start_setup_refinement
+        )
+        self._setup_studio.refinement_cancel_requested.connect(
+            self._cancel_setup_refinement
+        )
+        setup_layout.addWidget(self._setup_studio)
+        setup_layout.addStretch(1)
 
         behavior_box = QtWidgets.QGroupBox("Chat Behavior")
         behavior_box.setToolTip("Choose when Buddy Chat is active and how naturally buddies join the main assistant reply.")
@@ -690,8 +827,8 @@ class BuddyChatController:
         enabled.setChecked(self.settings.enabled)
         reply_mode = QtWidgets.QComboBox()
         reply_mode.setToolTip("Choose whether buddies only add context or write the main reply.")
-        reply_mode.addItem("Assist main LLM with buddy context", "context_only")
-        reply_mode.addItem("Buddy replies as main answer", "main_answer")
+        reply_mode.addItem("Natural main conversation - recommended", "context_only")
+        reply_mode.addItem("Direct Buddy-generated replies - advanced", "main_answer")
         self._set_combo_data(reply_mode, self.settings.reply_mode)
         llm_mode = QtWidgets.QComboBox()
         llm_mode.setToolTip("Choose whether buddies use the main LLM, one shared buddy provider, or per-persona providers.")
@@ -875,6 +1012,7 @@ class BuddyChatController:
                 "buddy_base_url": self._controls["buddy_base_url"],
                 "buddy_api_key": self._controls["buddy_api_key"],
                 "status_label": status_label,
+                "setup_studio": self._setup_studio,
             }
         )
 
@@ -903,6 +1041,7 @@ class BuddyChatController:
         self._rebuild_persona_rows()
 
         tab_specs = [
+            ("setup", setup_page, "Setup", "Ready-made groups and guided Buddy setup.", "#22d3ee"),
             ("overview", overview_page, "Overview", "Most-used Buddy Chat controls.", "#38bdf8"),
             ("buddies", buddies_page, "Buddies", "Buddy identity, role, speaking style, and add/remove actions.", "#22c55e"),
             ("voices", voices_page, "Voices", "Per-buddy TTS voice sample routing.", "#f59e0b"),
@@ -1158,6 +1297,10 @@ class BuddyChatController:
         voice_browse = QtWidgets.QPushButton("Voices")
         voice_browse.setToolTip("Browse the project voices folder and choose a voice sample for this buddy.")
         remove_button = QtWidgets.QPushButton("Remove Buddy")
+        edit_character_button = QtWidgets.QPushButton("Edit Character")
+        edit_character_button.setToolTip(
+            "Edit this buddy's detailed prompt and natural-response behavior."
+        )
         if len(list(self.settings.personas or [])) <= 1:
             remove_button.setEnabled(False)
             remove_button.setToolTip("Keep at least one buddy row. Disable Buddy Chat to turn all buddies off.")
@@ -1210,7 +1353,8 @@ class BuddyChatController:
         identity_layout.addWidget(role, 0, 4)
         identity_layout.addWidget(QtWidgets.QLabel("Style"), 1, 1)
         identity_layout.addWidget(style, 1, 2, 1, 3)
-        identity_layout.addWidget(remove_button, 0, 5, 2, 1)
+        identity_layout.addWidget(edit_character_button, 0, 5)
+        identity_layout.addWidget(remove_button, 1, 5)
         identity_layout.setColumnStretch(2, 2)
         identity_layout.setColumnStretch(4, 2)
 
@@ -1277,6 +1421,7 @@ class BuddyChatController:
             "voice_enabled": voice_enabled,
             "voice_path": voice_path,
             "voice_browse": voice_browse,
+            "edit_character": edit_character_button,
             "remove_buddy": remove_button,
         }
         for widget in (enabled, voice_enabled):
@@ -1292,6 +1437,10 @@ class BuddyChatController:
         base_url.editingFinished.connect(lambda target=f"persona_{index}.model": self._refresh_model_catalog_for_key(target))
         api_key.editingFinished.connect(lambda target=f"persona_{index}.model": self._refresh_model_catalog_for_key(target))
         voice_browse.clicked.connect(lambda _checked=False, row_index=index: self._browse_voice_sample_for_persona(row_index))
+        edit_character_button.clicked.connect(
+            lambda _checked=False, row_index=index:
+            self._edit_persona_character(row_index)
+        )
         remove_button.clicked.connect(lambda _checked=False, row_index=index: self._remove_persona_from_ui(row_index))
         return {
             "identity": identity_box,
@@ -1378,10 +1527,10 @@ class BuddyChatController:
         user_text = str(payload.get("text") or "").strip()
         if not user_text or self._looks_like_other_addon_command(user_text):
             return None
-        selected = self._select_speakers(user_text)
+        history = self._current_conversation_history()
+        selected = self._select_speakers(user_text, history=history)
         if not selected:
             return None
-        history = self._current_conversation_history()
         external_contexts = self._external_contexts(history)
         contextual_text = str(payload.get("context") or "").strip()
         if contextual_text:
@@ -1395,7 +1544,9 @@ class BuddyChatController:
         instructor_attempted = False
         instructor_used = False
         instructor_fallback = False
-        for persona in selected:
+        for selection_index, persona in enumerate(selected):
+            is_secondary = selection_index > 0
+            allow_pass = not (forced_buddy and selection_index == 0)
             messages = build_persona_messages(
                 persona=persona,
                 settings=self.settings,
@@ -1403,6 +1554,8 @@ class BuddyChatController:
                 history=history,
                 external_contexts=external_contexts,
                 previous_replies=replies,
+                allow_pass=allow_pass,
+                is_secondary=is_secondary,
             )
             try:
                 config = self.llm_runtime.resolve_call_config(persona=persona, settings=self.settings, fallback_model=fallback_model)
@@ -1434,9 +1587,22 @@ class BuddyChatController:
                 self._record_provider_error(persona, exc, messages)
                 errors.append(f"{persona.display_name}: {exc}")
                 continue
-            normalized = self._ensure_persona_label(persona, reply)
-            if normalized:
-                replies.append((persona, normalized))
+            normalized = normalize_persona_reply(
+                persona,
+                reply,
+                self.settings.enabled_personas(),
+            )
+            if not normalized:
+                continue
+            if is_secondary and is_repetitive_secondary(
+                [
+                    self._strip_visible_persona_label(previous_persona, previous_reply)
+                    for previous_persona, previous_reply in replies
+                ],
+                self._strip_visible_persona_label(persona, normalized),
+            ):
+                continue
+            replies.append((persona, normalized))
         if not replies:
             if errors:
                 if forced_buddy and selected:
@@ -1528,6 +1694,11 @@ class BuddyChatController:
             max_speakers=1,
             allowed_persona_ids={persona.id},
         )
+        if (
+            not list(clean.get("segments") or [])
+            and structured_models.structured_buddy_reply_is_pass(payload)
+        ):
+            return BUDDY_PASS_TOKEN
         return structured_models.structured_buddy_reply_to_text(clean)
 
     @staticmethod
@@ -1542,42 +1713,21 @@ class BuddyChatController:
             return "fallback"
         return "disabled"
 
-    def _select_speakers(self, user_text: str) -> list[BuddyPersona]:
-        personas = self.settings.enabled_personas()
-        if not personas:
-            return []
-        lowered = str(user_text or "").lower()
-        max_speakers = max(1, min(int(self.settings.max_speakers or 1), len(personas)))
-        mentioned = [
-            persona
-            for persona in personas
-            if self._name_mentioned(lowered, persona.display_name) or self._name_mentioned(lowered, persona.id)
-        ]
-        if mentioned:
-            selected = mentioned[:max_speakers]
-        else:
-            start = int(self.settings.turn_index or 0) % len(personas)
-            selected = [personas[start]]
-        if (
-            bool(self.settings.allow_buddy_to_buddy)
-            and max_speakers > 1
-            and len(selected) < max_speakers
-            and (self._asks_group(lowered) or self._natural_second_speaker_due())
-        ):
-            for persona in personas:
-                if persona.id not in {item.id for item in selected}:
-                    selected.append(persona)
-                    break
-        return selected[:max_speakers]
-
-    @staticmethod
-    def _name_mentioned(text: str, name: str) -> bool:
-        clean = re.escape(str(name or "").strip().lower())
-        return bool(clean and re.search(rf"(?<![a-z0-9_]){clean}(?![a-z0-9_])", text))
-
-    @staticmethod
-    def _asks_group(text: str) -> bool:
-        return any(phrase in text for phrase in ("both of you", "you two", "all of you", "everyone", "what do you both"))
+    def _select_speakers(
+        self,
+        user_text: str,
+        *,
+        history: list[dict[str, Any]] | None = None,
+    ) -> list[BuddyPersona]:
+        return select_speakers(
+            personas=self.settings.enabled_personas(),
+            user_text=user_text,
+            max_speakers=int(self.settings.max_speakers or 1),
+            allow_buddy_to_buddy=bool(self.settings.allow_buddy_to_buddy),
+            second_speaker_due=self._natural_second_speaker_due(),
+            turn_index=int(self.settings.turn_index or 0),
+            history=list(history or []),
+        )
 
     def _natural_second_speaker_due(self) -> bool:
         interval = int(self.settings.natural_second_speaker_every or 0)
@@ -1607,19 +1757,6 @@ class BuddyChatController:
             or re.search(r"^(play|pause|stop|next|previous|prev|resume)\b", lowered)
             or lowered.startswith("spotify ")
         )
-
-    @staticmethod
-    def _ensure_persona_label(persona: BuddyPersona, reply: str) -> str:
-        text = str(reply or "").strip()
-        if not text:
-            return ""
-        label = f"[{persona.display_name}]"
-        first = text.splitlines()[0].strip() if text.splitlines() else ""
-        if first.lower() == label.lower():
-            return text
-        if re.match(r"^\s*\[[^\]]+\]", first):
-            return text
-        return f"{label}\n{text}"
 
     @staticmethod
     def _strip_visible_persona_label(persona: BuddyPersona, reply: str) -> str:
@@ -1918,6 +2055,306 @@ class BuddyChatController:
         self._rebuild_persona_rows()
         self._set_status(f"Added Buddy {index}.")
 
+    def _apply_setup_preview(self, preview: BuddySetupPreview) -> None:
+        self._commit_ui_settings()
+        self._setup_undo_settings = BuddySettings.from_dict(
+            copy.deepcopy(self.settings.to_dict())
+        )
+        self.settings = apply_setup_preview(self.settings, preview)
+        self._save_settings()
+        self._sync_setup_controls_from_settings()
+        self._rebuild_persona_rows()
+        if self._setup_studio is not None:
+            self._setup_studio.set_undo_available(True)
+            self._setup_studio.set_prompt_layers(
+                shared_prompt=self.settings.system_override_prompt,
+                normal_prompt=self.settings.normal_intimacy_prompt,
+                adult_prompt=self.settings.adult_nsfw_prompt,
+            )
+        self._set_status(f"Applied Buddy setup: {preview.title}.")
+
+    def _confirm_apply_setup_preview(
+        self,
+        preview: BuddySetupPreview,
+    ) -> None:
+        current_names = ", ".join(
+            persona.display_name
+            for persona in self.settings.enabled_personas()
+        ) or "the current roster"
+        answer = QtWidgets.QMessageBox.question(
+            self._setup_studio,
+            "Replace Buddy roster",
+            f"Replace {current_names} with the {preview.title} setup?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel,
+            QtWidgets.QMessageBox.Cancel,
+        )
+        if answer == QtWidgets.QMessageBox.Yes:
+            self._apply_setup_preview(preview)
+
+    def _on_adult_mode_requested(self, enabled: bool) -> None:
+        requested = bool(enabled)
+        if requested and not self.settings.adult_nsfw_acknowledged:
+            answer = QtWidgets.QMessageBox.question(
+                self._setup_studio,
+                "Enable Adult / NSFW Buddy Chat",
+                "This enables explicit conversation for adult personas. "
+                "The selected model or provider may still impose "
+                "restrictions. Continue?",
+                QtWidgets.QMessageBox.Yes
+                | QtWidgets.QMessageBox.Cancel,
+                QtWidgets.QMessageBox.Cancel,
+            )
+            if answer != QtWidgets.QMessageBox.Yes:
+                if self._setup_studio is not None:
+                    self._setup_studio.set_adult_mode(False)
+                self._set_status("Adult / NSFW Buddy Chat remains off.")
+                return
+            self.settings.adult_nsfw_acknowledged = True
+        self.settings.adult_nsfw_enabled = requested
+        if self._setup_studio is not None:
+            self._setup_studio.set_adult_mode(requested)
+        self._save_settings()
+        self._set_status(
+            "Adult / NSFW Buddy Chat enabled."
+            if requested
+            else "Adult / NSFW Buddy Chat disabled."
+        )
+
+    def _undo_last_setup(self) -> None:
+        if self._setup_undo_settings is None:
+            self._set_status("There is no Buddy setup to undo in this session.")
+            return
+        restored = self._setup_undo_settings
+        self._setup_undo_settings = None
+        self.settings = BuddySettings.from_dict(
+            copy.deepcopy(restored.to_dict())
+        )
+        self._save_settings()
+        self._sync_setup_controls_from_settings()
+        self._rebuild_persona_rows()
+        if self._setup_studio is not None:
+            self._setup_studio.set_undo_available(False)
+            self._setup_studio.set_adult_mode(
+                bool(self.settings.adult_nsfw_enabled)
+            )
+            self._setup_studio.set_prompt_layers(
+                shared_prompt=self.settings.system_override_prompt,
+                normal_prompt=self.settings.normal_intimacy_prompt,
+                adult_prompt=self.settings.adult_nsfw_prompt,
+            )
+        self._set_status("Restored the previous Buddy Chat setup.")
+
+    def _sync_setup_controls_from_settings(self) -> None:
+        bindings = (
+            (
+                self._controls.get("max_speakers"),
+                int(self.settings.max_speakers or 1),
+            ),
+            (
+                self._controls.get("forced_buddy_every"),
+                int(self.settings.forced_buddy_every or 0),
+            ),
+        )
+        for widget, value in bindings:
+            if isinstance(widget, QtWidgets.QSpinBox):
+                blocker = QtCore.QSignalBlocker(widget)
+                widget.setValue(value)
+                del blocker
+        prompt_editor = self._controls.get("system_override_prompt")
+        if isinstance(prompt_editor, QtWidgets.QPlainTextEdit):
+            blocker = QtCore.QSignalBlocker(prompt_editor)
+            prompt_editor.setPlainText(
+                str(self.settings.system_override_prompt or "")
+            )
+            del blocker
+
+    def _edit_persona_character(self, index: int) -> None:
+        target_index = int(index)
+        if target_index < 0 or target_index >= len(self.settings.personas):
+            return
+        self._commit_ui_settings()
+        editor = BuddyCharacterEditor(
+            self.settings.personas[target_index],
+            self._setup_studio,
+        )
+        if editor.exec() == QtWidgets.QDialog.Accepted:
+            self._apply_character_edit(target_index, editor.persona())
+
+    def _apply_character_edit(
+        self,
+        index: int,
+        persona: BuddyPersona,
+    ) -> None:
+        target_index = int(index)
+        if target_index < 0 or target_index >= len(self.settings.personas):
+            return
+        current = self.settings.personas[target_index]
+        updated = BuddyPersona.from_dict(copy.deepcopy(persona.to_dict()))
+        updated.id = current.id
+        updated.enabled = current.enabled
+        updated.provider = ProviderOverride.from_dict(
+            copy.deepcopy(current.provider.to_dict())
+        )
+        updated.voice = type(current.voice).from_dict(
+            copy.deepcopy(current.voice.to_dict())
+        )
+        updated.avatar = type(current.avatar).from_dict(
+            copy.deepcopy(current.avatar.to_dict())
+        )
+        updated.source = current.source
+        self.settings.personas[target_index] = updated
+        self._save_settings()
+        self._rebuild_persona_rows()
+        self._set_status(
+            f"Saved character and behavior for {updated.display_name}."
+        )
+
+    def _start_setup_refinement(
+        self,
+        request: RefinementRequest,
+    ) -> None:
+        if (
+            not isinstance(request, RefinementRequest)
+            or self._setup_studio is None
+        ):
+            return
+        current_preview = self._setup_studio.current_preview()
+        if current_preview is None:
+            self._set_status("Choose or build a Buddy setup first.")
+            return
+        request_snapshot = copy.deepcopy(request)
+        request_snapshot.preview = copy.deepcopy(request.preview)
+        self._setup_studio.set_preview(request_snapshot.preview)
+        settings_snapshot = BuddySettings.from_dict(
+            copy.deepcopy(self.settings.to_dict())
+        )
+        target = next(
+            (
+                item
+                for item in request_snapshot.preview.personas
+                if item.id == request_snapshot.persona_id
+            ),
+            (
+                request_snapshot.preview.personas[0]
+                if request_snapshot.preview.personas
+                else None
+            ),
+        )
+        if target is None:
+            self._set_status("The setup has no Buddy to refine.")
+            return
+        self._refinement_token += 1
+        token = self._refinement_token
+        self._refinement_active_token = token
+        self._setup_studio.set_refinement_busy(True)
+        self._set_status(
+            "Refining the staged Buddy setup with the selected LLM..."
+        )
+
+        def worker() -> None:
+            patch: RefinementPatch | None = None
+            error = ""
+            try:
+                fallback_model = self._current_model_name()
+                text = self.llm_runtime.complete_for_persona(
+                    persona=target,
+                    settings=settings_snapshot,
+                    messages=build_refinement_messages(
+                        request_snapshot
+                    ),
+                    fallback_model=fallback_model,
+                )
+                patch = parse_refinement_result(
+                    text,
+                    request_snapshot,
+                )
+                if patch is None:
+                    error = (
+                        "The LLM returned no valid editable Buddy changes."
+                    )
+            except Exception as exc:
+                error = f"Buddy setup refinement failed: {exc}"
+            self._ui_bridge.refinement_finished.emit(
+                token,
+                request_snapshot,
+                patch,
+                error,
+            )
+
+        threading.Thread(
+            target=worker,
+            name="nc-buddy-setup-refinement",
+            daemon=True,
+        ).start()
+
+    def _cancel_setup_refinement(self) -> None:
+        if self._refinement_active_token is None:
+            return
+        self._refinement_active_token = None
+        if self._setup_studio is not None:
+            self._setup_studio.set_refinement_busy(False)
+        self._set_status(
+            "Buddy setup refinement cancelled. A late model result will be "
+            "ignored."
+        )
+
+    def _on_refinement_finished(
+        self,
+        token: int,
+        request: object,
+        patch: object,
+        error: str,
+    ) -> None:
+        if int(token) != self._refinement_active_token:
+            return
+        self._refinement_active_token = None
+        studio = self._setup_studio
+        if studio is None:
+            return
+        studio.set_refinement_busy(False)
+        if self._shutting_down:
+            return
+        if (
+            error
+            or not isinstance(request, RefinementRequest)
+            or not isinstance(patch, RefinementPatch)
+        ):
+            self._set_status(
+                str(error or "Buddy setup refinement returned no changes.")
+            )
+            return
+        current = studio.current_preview()
+        if current is None or current != request.preview:
+            self._set_status(
+                "The staged setup changed while refinement was running; "
+                "the stale result was discarded."
+            )
+            return
+        after = apply_refinement_patch(current, patch)
+        review = BuddyRefinementReview(current, after, studio)
+        if review.exec() != QtWidgets.QDialog.Accepted:
+            self._set_status(
+                "Buddy setup refinement discarded; the preview is unchanged."
+            )
+            return
+        selected_fields = review.selected_fields()
+        if not selected_fields:
+            self._set_status(
+                "No Buddy refinement fields were selected."
+            )
+            return
+        studio.set_preview(
+            apply_refinement_patch(
+                current,
+                patch,
+                selected_fields=selected_fields,
+            )
+        )
+        self._set_status(
+            f"Applied {len(selected_fields)} refined field(s) to the "
+            "staged preview. Use Apply Group to save them."
+        )
+
     def _load_mprc_personas_to_ui(self) -> None:
         self._commit_ui_settings()
         path = Path(self.context.app_root) / "runtime" / "addons" / "nc.multi_persona_roleplay" / "personas.json"
@@ -2209,6 +2646,7 @@ class BuddyChatController:
             if self._shutting_down:
                 return
             self._shutting_down = True
+            self._refinement_active_token = None
         window = self._active_persona_window
         if window is not None:
             try:

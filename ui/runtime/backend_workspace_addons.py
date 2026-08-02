@@ -24,6 +24,51 @@ def _runtime_config():
     return engine.RUNTIME_CONFIG
 
 class BackendWorkspaceAddonsMixin:
+    def _build_tts_latency_diagnostics_controls(self):
+        group = QtWidgets.QGroupBox("Developer diagnostics")
+        group.setObjectName("tts_latency_diagnostics_group")
+        group_layout = QtWidgets.QVBoxLayout(group)
+
+        checkbox = QtWidgets.QCheckBox("Record TTS/addon latency diagnostics")
+        checkbox.setObjectName("tts_latency_diagnostics_enabled_checkbox")
+        manager = getattr(self, "_addon_manager", None)
+        enabled = bool(manager.latency_diagnostics_enabled()) if manager is not None else False
+        checkbox.setChecked(enabled)
+        checkbox.toggled.connect(self._on_tts_latency_diagnostics_toggled)
+        group_layout.addWidget(checkbox)
+
+        note = QtWidgets.QLabel(
+            "Off by default. While enabled, bounded metadata-only timing traces are written to runtime/logs. "
+            "Turning this off stops new writes but does not delete existing trace files."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        group_layout.addWidget(note)
+
+        self.tts_latency_diagnostics_group = group
+        self.tts_latency_diagnostics_enabled_checkbox = checkbox
+        return group
+
+    def _on_tts_latency_diagnostics_toggled(self, checked):
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None:
+            return
+        manager.set_latency_diagnostics_enabled(bool(checked))
+        state = "enabled" if bool(checked) else "disabled"
+        print(f"[Diagnostics] TTS/addon latency tracing {state}.")
+        self.save_session()
+
+    def _refresh_tts_latency_diagnostics_controls(self):
+        checkbox = getattr(self, "tts_latency_diagnostics_enabled_checkbox", None)
+        manager = getattr(self, "_addon_manager", None)
+        if checkbox is None or manager is None:
+            return
+        previous = checkbox.blockSignals(True)
+        try:
+            checkbox.setChecked(bool(manager.latency_diagnostics_enabled()))
+        finally:
+            checkbox.blockSignals(previous)
+
     def _build_addons_tab(self):
         widget = QtWidgets.QWidget()
         widget.setObjectName("addons_tab")
@@ -57,6 +102,8 @@ class BackendWorkspaceAddonsMixin:
         self.addons_restart_note.setWordWrap(True)
         self.addons_restart_note.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         layout.addWidget(self.addons_restart_note)
+
+        layout.addWidget(self._build_tts_latency_diagnostics_controls())
 
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)

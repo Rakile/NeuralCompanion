@@ -219,6 +219,10 @@ class MainWindowStartupMixin:
         QtCore.QTimer.singleShot(0, self._ensure_window_on_screen)
 
     def closeEvent(self, event):
+        confirm_unsaved = getattr(self, "_confirm_unsaved_chat_context", None)
+        if callable(confirm_unsaved) and not confirm_unsaved("exiting Neural Companion"):
+            event.ignore()
+            return
         self._closing = True
         self._shutdown_long_term_memory_image_review()
         self.save_session()

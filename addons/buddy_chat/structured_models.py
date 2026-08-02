@@ -45,6 +45,7 @@ if PYDANTIC_AVAILABLE:
         display_name: str = ""
         text: str = ""
         emotion: str = ""
+        should_speak: bool = True
 
 
     class StructuredBuddyReply(_BuddyStructuredModel):
@@ -99,6 +100,8 @@ def sanitize_structured_buddy_reply(
     for item in _segment_values(payload):
         if not isinstance(item, dict):
             continue
+        if item.get("should_speak") is False:
+            continue
         persona = _resolve_persona(item, lookup)
         if persona is None:
             continue
@@ -137,6 +140,13 @@ def structured_buddy_reply_to_text(payload: dict[str, Any] | None) -> str:
         if name and text:
             lines.append(f"[{name}] {text}")
     return "\n\n".join(lines).strip()
+
+
+def structured_buddy_reply_is_pass(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    segments = [item for item in _segment_values(payload) if isinstance(item, dict)]
+    return bool(segments) and all(item.get("should_speak") is False for item in segments)
 
 
 def _persona_lookup(personas: list[BuddyPersona]) -> dict[str, BuddyPersona]:
@@ -229,6 +239,7 @@ __all__ = [
     "StructuredBuddyReply",
     "model_to_dict",
     "sanitize_structured_buddy_reply",
+    "structured_buddy_reply_is_pass",
     "structured_buddy_reply_to_text",
     "structured_feature_enabled",
 ]

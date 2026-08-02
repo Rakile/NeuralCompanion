@@ -12,7 +12,7 @@ npm run start
 
 Use the LAN URL and numeric pairing code shown in the Main Chat Remote addon tab after starting the LAN backend. From the repo root, the same backend can be created and started with:
 
-The phone pairing panel also provides **Scan QR code**. It reads the setup QR shown by the desktop addon, saves its LAN URL and pairing code, and connects immediately. Manual URL/code entry remains available.
+The phone pairing panel also provides **Scan QR code**. LAN QR codes keep their existing behavior. Version 2 Internet QR codes wait for explicit approval in the desktop Internet tab before saving the device credential.
 
 ```powershell
 python addons\main_chat_remote\scripts\backend_venv.py --create
@@ -40,6 +40,8 @@ Exit demo mode before connecting to a real Main Chat Remote backend.
 ## Current Scope
 
 - LAN pairing with numeric code.
+- Saved Auto/LAN/Internet profiles with DDNS and certified numeric-IP fallback.
+- Bearer-authenticated Internet JSON calls, one-use WebSocket tickets, and expiring signed media URLs.
 - LAN URL and pairing code persisted with Expo SecureStore. On startup, a saved pairing is tried first; if its address changed, the app scans the phone's current `/24` LAN for port `8777` and accepts only a backend that validates the saved pairing code.
 - WebSocket state stream and command path for text, runtime control, engine lifecycle, and Visual Reply actions, with immediate HTTP polling/fetch fallback for socket failures, disconnects, or stale state streams.
 - Reconnect attempts keep the visible transport in polling mode while the fallback is still active.
@@ -58,8 +60,42 @@ Exit demo mode before connecting to a real Main Chat Remote backend.
 - Immersive navigation returns on tap or downward swipe. Connection, recording, playback, Visual Reply, Buddy provider, and Cast errors keep essential status visible instead of allowing the chrome to hide.
 - In-app camera capture sends a photo and optional prompt through the existing NC image-turn pipeline and shows the submitted image in chat.
 - Runtime controls and engine start/stop.
-- Low-latency sequential TTS playback: dedicated WebSocket audio snapshots update the phone queue independently of the slower full-state stream, the first chunk starts directly from its authenticated URL, and one following chunk is prepared while the current chunk plays. Full-state and HTTP polling remain recovery paths; autoplay, stop, reset, and manual-play behavior is preserved.
+- Low-latency sequential TTS playback: dedicated WebSocket audio snapshots update the phone queue independently of the slower full-state stream, the first chunk starts directly from its authenticated URL, and one following chunk is prepared while the current chunk plays. Full-state and HTTP polling remain recovery paths; older media generations are ignored and temporary empty/reconnect snapshots preserve played IDs so completed TTS does not replay.
 - Phone microphone clip upload to NC STT when the selected desktop STT backend exposes file transcription, with a one-minute clip cap before upload.
+- Live Mic continuously rolls through silence and remains armed while NC is thinking or speaking. On Android it requests the voice-communication input path for device-provided echo control; sustained foreground speech stops the current phone queue, cancels the active desktop TTS/LLM response, and automatically submits the completed utterance. Loudspeaker echo handling is best-effort and still requires a physical-device check; headphones remain the most reliable setup.
+- Live Fullscreen mode beside Live Mic, with a high-contrast circular spectrum
+  driven by pre-analyzed TTS audio when available and safe live/procedural
+  fallbacks otherwise. Double-tap opens text/photo input; a configurable long
+  press adds Exit Fullscreen, vibration, and a local confirmation chime.
+- New Visual Replies created during the current fullscreen session emerge from
+  the circle with softened edges. A single tap dismisses the image. Existing
+  images from before the session are deliberately not auto-opened.
+- A dedicated Live Fullscreen settings tab keeps a live preview on the upper
+  half of the screen. It controls spectrum geometry, color, motion, Visual Reply
+  animation, long-press behavior, and bundled or user-imported image/MP4
+  backgrounds. Imported media is copied to app-private storage; background
+  video is muted, looped, and can pause behind a Visual Reply.
+- Live Fullscreen sliders keep a stable Android drag value while the preview
+  updates, and the controls reserve a right-side gutter for easier vertical
+  scrolling. Rotation speed and the rendered spectrum bar count are adjustable
+  independently of audio motion. At 0% rotation, bar angles and directional
+  travel remain fixed while microphone/TTS energy can still pulse the bars.
+- Temporary WebSocket fallback keeps Live Fullscreen open until the user exits
+  or the configured session actually ends. One shared circle scheduler drives
+  TTS energy and angular motion across long multi-chunk replies. Circle FPS is
+  saved with the fullscreen settings, defaults to 24, and can be adjusted from
+  12 through 60 FPS. When analyzed/live energy is temporarily unavailable, the
+  last fixed bar pattern is retained instead of starting a traveling fake
+  spectrum.
+- Sending new phone text while NC is thinking or speaking first clears pending
+  phone playback and uses the existing `interrupt_response` control, then sends
+  the new turn so it does not wait behind the previous response.
+- In fullscreen, a two-finger gesture that starts on the audio circle moves and
+  scales the circle. The same gesture outside the circle moves and scales an
+  active image or MP4 background. On Android, the second finger immediately
+  starts the transform and cancels tap/hold recognition for that contact
+  sequence. The final transform saves automatically and can be restored with
+  the circle/background reset actions in Settings.
 - Visual Reply generate, snapshot, show, hide, and clear controls.
 - MuseTalk frame stream display with newest-frame fallback when stream loading fails or stalls.
 - Feature-aware controls for desktop STT, Visual Reply, and MuseTalk availability.
@@ -69,8 +105,13 @@ Exit demo mode before connecting to a real Main Chat Remote backend.
 - Hidden desktop proactive replies are not projected into phone chat or phone TTS; phone output is tied to phone text, microphone, and image turns.
 - Offline Demo mode for reviewing the phone UI without a running backend.
 
-WebRTC-grade MuseTalk video and internet relay/auth support remain backend and transport work, not phone-only UI work.
+WebRTC-grade MuseTalk video remains out of scope. Internet Remote is a direct self-hosted TLS gateway, not a hosted relay.
 
 ## Validation
 
-Run `npm run validate:temp` from this directory to typecheck and inspect Expo config from a temporary copy without leaving `node_modules` or lockfiles in the repo. Use `docs/addons/main_chat_remote_manual_validation.md` from the repo root for the real NC runtime and physical phone LAN checklist.
+Run `npm run validate:temp` from this directory to run the phone smoke checks,
+typecheck, and inspect Expo config from a temporary copy. A physical phone is
+still required to validate microphone metering, vibration, background video,
+camera layering, and real TTS synchronization. Use
+`docs/addons/main_chat_remote_manual_validation.md` from the repo root for the
+real NC runtime and physical phone LAN checklist.

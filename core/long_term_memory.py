@@ -15,6 +15,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -26,9 +27,10 @@ CONTENT_FORMAT_VERSION = 1
 CONTENT_MIGRATION_REPORT_META_KEY = "content_format_migration_report"
 MEMORY_DIR = runtime_paths.RUNTIME_DIR / "long_term_memory"
 DEFAULT_DB_PATH = MEMORY_DIR / "memory.sqlite3"
+DEFAULT_IMAGE_CONTEXT_MAX_OUTPUT_TOKENS = 8192
 _ACTIVE_DB_PATH = DEFAULT_DB_PATH
 DEFAULT_LIMIT = 100
-DEFAULT_EXTRACTION_TURNS = 120
+DEFAULT_EXTRACTION_TURNS = 8
 DEFAULT_EXTRACTION_MAX_RECORDS = 12
 DEFAULT_EMBEDDING_CONTEXT_TOKENS = 8192
 EMBEDDING_CHARS_PER_TOKEN = 3
@@ -46,6 +48,8 @@ VALID_MEMORY_TYPES = {
 }
 
 _STORE_MIGRATION_LOCK = threading.RLock()
+_CONNECTIONS_LOCK = threading.RLock()
+_OPEN_CONNECTIONS: dict[Path, set[sqlite3.Connection]] = {}
 _ARCHIVED_ASSISTANT_TIMESTAMP_PREFIX_RE = re.compile(
     r"(?m)^(?P<label>\s*\d+\.\s+Assistant:\s+)"
     r"(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s*)+"
@@ -137,7 +141,11 @@ def db_path_for_memory_id(memory_id: Any = "") -> Path:
 
 def set_default_db_path(path: Any = None) -> Path:
     global _ACTIVE_DB_PATH
-    _ACTIVE_DB_PATH = Path(path) if path else DEFAULT_DB_PATH
+    target = Path(path) if path else DEFAULT_DB_PATH
+    previous = _ACTIVE_DB_PATH
+    if _connection_key(previous) != _connection_key(target):
+        release_store(previous)
+    _ACTIVE_DB_PATH = target
     return _ACTIVE_DB_PATH
 
 
@@ -152,9 +160,59 @@ def _db_path(path: Any = None) -> Path:
 def _connect(path: Any = None) -> sqlite3.Connection:
     target = _db_path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(target))
+    connection = sqlite3.connect(str(target), check_same_thread=False)
     connection.row_factory = sqlite3.Row
+    with _CONNECTIONS_LOCK:
+        _OPEN_CONNECTIONS.setdefault(_connection_key(target), set()).add(connection)
     return connection
+
+
+def _connection_key(path: Any) -> Path:
+    return Path(path).expanduser().resolve(strict=False)
+
+
+def _close_connection(connection: sqlite3.Connection, path: Any) -> None:
+    try:
+        connection.close()
+    finally:
+        key = _connection_key(path)
+        with _CONNECTIONS_LOCK:
+            connections = _OPEN_CONNECTIONS.get(key)
+            if connections is not None:
+                connections.discard(connection)
+                if not connections:
+                    _OPEN_CONNECTIONS.pop(key, None)
+
+
+@contextmanager
+def _managed_connection(path: Any = None):
+    target = _db_path(path)
+    connection = _connect(target)
+    try:
+        with connection:
+            yield connection
+    finally:
+        _close_connection(connection, target)
+
+
+def release_store(path: Any = None) -> int:
+    """Close every tracked connection for one Long-Term Memory database."""
+    target = _db_path(path)
+    key = _connection_key(target)
+    with _CONNECTIONS_LOCK:
+        connections = list(_OPEN_CONNECTIONS.pop(key, set()))
+    closed = 0
+    for connection in connections:
+        try:
+            connection.interrupt()
+        except Exception:
+            pass
+        try:
+            connection.close()
+            closed += 1
+        except Exception:
+            pass
+    return closed
 
 
 def _meta_int(connection: sqlite3.Connection, key: str, default: int = 0) -> int:
@@ -249,7 +307,7 @@ def init_store(path: Any = None) -> Path:
     target = _db_path(path)
     target_existed = target.is_file()
     migration_report = None
-    with _STORE_MIGRATION_LOCK, _connect(target) as connection:
+    with _STORE_MIGRATION_LOCK, _managed_connection(target) as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS memory_meta (
@@ -399,7 +457,7 @@ def pending_content_migration_report(path: Any = None) -> dict[str, int] | None:
         return None
     with _STORE_MIGRATION_LOCK:
         try:
-            with sqlite3.connect(str(target)) as connection:
+            with _managed_connection(target) as connection:
                 row = connection.execute(
                     "SELECT value FROM memory_meta WHERE key = ?",
                     (CONTENT_MIGRATION_REPORT_META_KEY,),
@@ -415,7 +473,7 @@ def acknowledge_content_migration_report(path: Any = None) -> None:
         return
     with _STORE_MIGRATION_LOCK:
         try:
-            with sqlite3.connect(str(target)) as connection:
+            with _managed_connection(target) as connection:
                 connection.execute(
                     "DELETE FROM memory_meta WHERE key = ?",
                     (CONTENT_MIGRATION_REPORT_META_KEY,),
@@ -427,7 +485,7 @@ def acknowledge_content_migration_report(path: Any = None) -> None:
 
 def store_content_format_version(path: Any = None) -> int:
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         return _meta_int(connection, "content_format_version", 0)
 
 
@@ -766,7 +824,7 @@ def upsert_embedding(
     payload = json.dumps(normalized_vector, ensure_ascii=True, separators=(",", ":"))
     content_hash = text_hash(text)
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         connection.execute(
             """
             INSERT INTO long_term_memory_embeddings(
@@ -831,7 +889,7 @@ def list_embedding_targets(
         for chunk in list_archived_chunks(limit=DEFAULT_LIMIT * 100, path=path):
             targets.extend(embedding_targets_for_chunk(chunk, context_length=resolved_context, path=path))
     if only_missing and targets:
-        with _connect(path) as connection:
+        with _managed_connection(path) as connection:
             rows = connection.execute(
                 "SELECT target_kind, target_id, text_hash FROM long_term_memory_embeddings WHERE model = ?",
                 (normalized_model,),
@@ -847,7 +905,7 @@ def list_embedding_targets(
 def embedding_status(*, model: Any = "", path: Any = None) -> dict[str, Any]:
     init_store(path)
     normalized_model = str(model or "").strip()
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         total = connection.execute("SELECT COUNT(*) AS c FROM long_term_memory_embeddings").fetchone()["c"]
         model_total = 0
         if normalized_model:
@@ -868,7 +926,7 @@ def delete_embeddings(*, model: Any = "", path: Any = None) -> int:
     if not normalized_model:
         return 0
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         cursor = connection.execute(
             "DELETE FROM long_term_memory_embeddings WHERE model = ?",
             (normalized_model,),
@@ -879,7 +937,7 @@ def delete_embeddings(*, model: Any = "", path: Any = None) -> int:
 
 def delete_all_embeddings(*, path: Any = None) -> int:
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         cursor = connection.execute("DELETE FROM long_term_memory_embeddings")
         connection.commit()
         return int(cursor.rowcount or 0)
@@ -991,6 +1049,17 @@ def normalize_image_recall_limit(value: Any, default: int = 1) -> int:
     if normalized < -1:
         return int(default)
     return normalized
+
+
+def normalize_image_context_max_output_tokens(
+    value: Any,
+    default: int = DEFAULT_IMAGE_CONTEXT_MAX_OUTPUT_TOKENS,
+) -> int:
+    try:
+        normalized = int(value)
+    except Exception:
+        normalized = int(default)
+    return max(256, min(131072, normalized))
 
 
 def asset_debug_label(asset: dict[str, Any]) -> str:
@@ -1295,7 +1364,7 @@ def upsert_image_asset(
     metadata_payload = dict(metadata or {})
     metadata_payload.setdefault("original_path", str(file_path))
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         connection.execute(
             """
             INSERT INTO long_term_memory_assets(
@@ -1355,7 +1424,7 @@ def link_asset_to_target(
     link_id = _asset_link_id(asset, target_kind_text, target_id_text, index_value, relation_text)
     now = _now_iso()
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         connection.execute(
             """
             INSERT INTO long_term_memory_asset_links(
@@ -1395,7 +1464,7 @@ def list_assets_for_target(target_kind: Any, target_id: Any, *, path: Any = None
     target_id_text = str(target_id or "").strip()
     if not target_id_text:
         return []
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         rows = connection.execute(
             """
             SELECT
@@ -1527,7 +1596,7 @@ def backfill_target_visualization_prompts_from_original_paths(
         metadata["visual_reply_prompt"] = prompt
         link_metadata["visual_reply_prompt"] = prompt
         now = _now_iso()
-        with _connect(path) as connection:
+        with _managed_connection(path) as connection:
             connection.execute(
                 "UPDATE long_term_memory_assets SET metadata_json = ?, updated_at = ? WHERE id = ?",
                 (_metadata_json(metadata), now, str(asset.get("asset_id") or asset.get("id") or "")),
@@ -1543,7 +1612,7 @@ def backfill_target_visualization_prompts_from_original_paths(
 
 def backfill_all_visualization_prompts_from_original_paths(*, path: Any = None) -> int:
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         rows = connection.execute(
             "SELECT DISTINCT target_kind, target_id FROM long_term_memory_asset_links"
         ).fetchall()
@@ -1632,7 +1701,7 @@ def archive_history_chunk(
     now = _now_iso()
     chunk_id = chunk_id_for_segment(source, start, end, text)
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         connection.execute(
             """
             INSERT INTO long_term_memory_chunks(
@@ -1770,7 +1839,7 @@ def upsert_memory(record: dict[str, Any], path: Any = None) -> dict[str, Any]:
         normalized["summary"] = normalized["content"][:320].strip()
     if not normalized["title"]:
         normalized["title"] = normalized["summary"][:80].strip() or normalized["type"]
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         connection.execute(
             """
             INSERT INTO long_term_memory(
@@ -1855,7 +1924,7 @@ def get_memory(memory_id: Any, path: Any = None) -> dict[str, Any] | None:
     normalized_id = normalize_memory_id(memory_id)
     if not normalized_id:
         return None
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         row = connection.execute("SELECT * FROM long_term_memory WHERE id = ?", (normalized_id,)).fetchone()
     return _row_to_record(row)
 
@@ -1882,7 +1951,7 @@ def delete_memory(memory_id: Any, *, hard: bool = False, path: Any = None) -> bo
     if not normalized_id:
         return False
     if hard:
-        with _connect(path) as connection:
+        with _managed_connection(path) as connection:
             cursor = connection.execute("DELETE FROM long_term_memory WHERE id = ?", (normalized_id,))
             connection.commit()
             return cursor.rowcount > 0
@@ -1911,7 +1980,7 @@ def list_memories(
         sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY importance DESC, updated_at DESC LIMIT ? OFFSET ?"
     values.extend([_limit(limit), _offset(offset)])
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         rows = connection.execute(sql, values).fetchall()
     return [record for record in (_row_to_record(row) for row in rows) if record]
 
@@ -1948,7 +2017,7 @@ def search_memories(
         sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY importance DESC, updated_at DESC LIMIT ? OFFSET ?"
     values.extend([_candidate_limit(limit) if text else _limit(limit), _offset(offset)])
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         rows = connection.execute(sql, values).fetchall()
     records = [record for record in (_row_to_record(row) for row in rows) if record]
     if text:
@@ -1968,7 +2037,7 @@ def get_archived_chunk(chunk_id: Any, path: Any = None) -> dict[str, Any] | None
     normalized_id = normalize_memory_id(chunk_id)
     if not normalized_id:
         return None
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         row = connection.execute("SELECT * FROM long_term_memory_chunks WHERE id = ?", (normalized_id,)).fetchone()
     return _row_to_chunk(row)
 
@@ -1993,7 +2062,7 @@ def list_archived_chunks(
         sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
     values.extend([_limit(limit), _offset(offset)])
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         rows = connection.execute(sql, values).fetchall()
     return [chunk for chunk in (_row_to_chunk(row) for row in rows) if chunk]
 
@@ -2027,7 +2096,7 @@ def search_archived_chunks(
         sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
     values.extend([_candidate_limit(limit) if text else _limit(limit), _offset(offset)])
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         rows = connection.execute(sql, values).fetchall()
     chunks = [chunk for chunk in (_row_to_chunk(row) for row in rows) if chunk]
     if text:
@@ -2047,18 +2116,77 @@ def delete_archived_chunk(chunk_id: Any, *, hard: bool = False, path: Any = None
     if not normalized_id:
         return False
     if hard:
-        with _connect(path) as connection:
+        with _managed_connection(path) as connection:
             cursor = connection.execute("DELETE FROM long_term_memory_chunks WHERE id = ?", (normalized_id,))
             connection.commit()
             return cursor.rowcount > 0
     now = _now_iso()
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         cursor = connection.execute(
             "UPDATE long_term_memory_chunks SET status = ?, updated_at = ? WHERE id = ?",
             ("deleted", now, normalized_id),
         )
         connection.commit()
         return cursor.rowcount > 0
+
+
+def delete_archived_chunks_from_message(
+    source_chat_id: Any,
+    source_message_index: Any,
+    *,
+    path: Any = None,
+) -> dict[str, Any]:
+    """Remove raw chunks invalidated by an edit to canonical chat history."""
+    init_store(path)
+    source = normalize_memory_id(source_chat_id, fallback="unsaved_chat")
+    first_changed = max(1, _optional_int(source_message_index) or 1)
+    with _managed_connection(path) as connection:
+        rows = connection.execute(
+            "SELECT id FROM long_term_memory_chunks "
+            "WHERE source_chat_id = ? AND COALESCE(source_message_end, 0) >= ?",
+            (source, first_changed),
+        ).fetchall()
+        chunk_ids = [str(row["id"] or "") for row in rows if str(row["id"] or "")]
+        if not chunk_ids:
+            return {
+                "source_chat_id": source,
+                "first_changed_message": first_changed,
+                "chunks_deleted": 0,
+                "embeddings_deleted": 0,
+                "asset_links_deleted": 0,
+            }
+
+        before_links = connection.total_changes
+        connection.executemany(
+            "DELETE FROM long_term_memory_asset_links WHERE target_kind = 'chunk' AND target_id = ?",
+            [(chunk_id,) for chunk_id in chunk_ids],
+        )
+        asset_links_deleted = connection.total_changes - before_links
+
+        before_embeddings = connection.total_changes
+        connection.executemany(
+            "DELETE FROM long_term_memory_embeddings "
+            "WHERE (target_kind = 'chunk' AND target_id = ?) "
+            "OR (target_kind = 'chunk_slice' AND target_id GLOB ?)",
+            [(chunk_id, f"{chunk_id}_s[0-9][0-9][0-9][0-9]") for chunk_id in chunk_ids],
+        )
+        embeddings_deleted = connection.total_changes - before_embeddings
+
+        before_chunks = connection.total_changes
+        connection.executemany(
+            "DELETE FROM long_term_memory_chunks WHERE id = ?",
+            [(chunk_id,) for chunk_id in chunk_ids],
+        )
+        chunks_deleted = connection.total_changes - before_chunks
+        connection.commit()
+
+    return {
+        "source_chat_id": source,
+        "first_changed_message": first_changed,
+        "chunks_deleted": chunks_deleted,
+        "embeddings_deleted": embeddings_deleted,
+        "asset_links_deleted": asset_links_deleted,
+    }
 
 
 def semantic_search(
@@ -2077,7 +2205,7 @@ def semantic_search(
     normalized_source = normalize_memory_id(source_chat_id)
     threshold = _clamped_float(min_score, -1.0, 1.0, 0.2)
     init_store(path)
-    with _connect(path) as connection:
+    with _managed_connection(path) as connection:
         rows = connection.execute(
             "SELECT target_kind, target_id, vector_json FROM long_term_memory_embeddings WHERE model = ?",
             (normalized_model,),
@@ -2317,6 +2445,7 @@ __all__ = [
     "DEFAULT_EMBEDDING_CONTEXT_TOKENS",
     "DEFAULT_EXTRACTION_MAX_RECORDS",
     "DEFAULT_EXTRACTION_TURNS",
+    "DEFAULT_IMAGE_CONTEXT_MAX_OUTPUT_TOKENS",
     "DEFAULT_DB_PATH",
     "MEMORY_DIR",
     "SCHEMA_VERSION",
@@ -2330,6 +2459,7 @@ __all__ = [
     "db_path_for_memory_id",
     "default_db_path",
     "delete_archived_chunk",
+    "delete_archived_chunks_from_message",
     "delete_all_embeddings",
     "delete_embeddings",
     "delete_memory",
@@ -2356,9 +2486,11 @@ __all__ = [
     "normalize_memory_id",
     "normalize_memory_type",
     "normalize_extracted_memories",
+    "normalize_image_context_max_output_tokens",
     "normalize_status",
     "normalize_tags",
     "pending_content_migration_report",
+    "release_store",
     "retrieve_memories",
     "sanitize_history_turns",
     "search_archived_chunks",

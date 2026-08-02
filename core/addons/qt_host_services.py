@@ -854,6 +854,7 @@ class QtEngineLifecycleService:
 
 class QtRuntimeControlService:
     SUPPORTED_ACTIONS = (
+        "interrupt_response",
         "regenerate_response",
         "retry_user_input",
         "pause_speech",
@@ -879,6 +880,32 @@ class QtRuntimeControlService:
 
     def trigger(self, action: str):
         action_key = str(action or "").strip()
+        if action_key == "interrupt_response":
+            try:
+                result = dict(
+                    engine_access.interrupt_tts_playback(
+                        reason="phone_live_mic",
+                        cancel_llm_streams=True,
+                    )
+                    or {}
+                )
+            except Exception as exc:
+                return {
+                    **self.snapshot(),
+                    "accepted": False,
+                    "action": action_key,
+                    "message": str(exc) or "Could not interrupt the active response.",
+                }
+            self._last_action = action_key
+            return {
+                **self.snapshot(),
+                "accepted": True,
+                "action": action_key,
+                "interrupt": {
+                    "cancelled_controllers": max(0, int(result.get("cancelled_controllers") or 0)),
+                    "cancelled_streams": max(0, int(result.get("cancelled_streams") or 0)),
+                },
+            }
         accepted = False
         if action_key:
             trigger = getattr(self._window, "trigger_control_action", None)

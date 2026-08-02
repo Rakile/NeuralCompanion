@@ -96,6 +96,24 @@ def test_targeted_projection_preserves_exact_context_text() -> None:
     ]
 
 
+def test_pending_phone_turn_preserves_remote_capture_id() -> None:
+    original_pending_turn = copy.deepcopy(engine.pending_loaded_input_turn)
+    try:
+        engine.pending_loaded_input_turn = None
+        engine._set_pending_loaded_input_turn(
+            {
+                "role": "user",
+                "content": "hello from phone",
+                "origin": "input",
+                "remote_capture_id": "phone-capture_123",
+            }
+        )
+        pending = engine._consume_pending_loaded_input_turn()
+        assert pending["remote_capture_id"] == "phone-capture_123"
+    finally:
+        engine.pending_loaded_input_turn = original_pending_turn
+
+
 def test_typed_acceptance_captures_before_append() -> None:
     artifact_ref = ACTIVE["artifact_ref"]
     artifact_hash = ACTIVE["artifact_hash"]
@@ -284,7 +302,10 @@ def test_relay_off_typed_turn_freezes_provider_without_identity_work() -> None:
             )
         )
 
-        result = engine.queue_typed_chat_message("Relay-free turn")
+        result = engine.queue_typed_chat_message(
+            "Relay-free turn",
+            metadata={"remote_capture_id": "phone-capture_123!@"},
+        )
         assert engine.conversation_history == []
         pending = engine._consume_pending_loaded_input_turn()
         request = engine._freeze_normal_chat_request(
@@ -294,6 +315,28 @@ def test_relay_off_typed_turn_freezes_provider_without_identity_work() -> None:
         engine._ensure_normal_chat_transaction_ready(request)
 
         assert result["queued"] is True
+        assert request["remote_capture_id"] == "phone-capture_123"
+        assert engine._normal_chat_reply_source_meta(
+            request,
+            hidden_proactive=False,
+        ) == {
+            "remote_capture_id": "phone-capture_123",
+            "hidden_proactive": False,
+        }
+        assert engine._normal_chat_reply_source_meta(
+            {"remote_capture_id": "phone!" + ("x" * 120)},
+            hidden_proactive=True,
+        ) == {
+            "remote_capture_id": "phone" + ("x" * 91),
+            "hidden_proactive": True,
+        }
+        assert engine._normal_chat_reply_source_meta(
+            None,
+            hidden_proactive=False,
+        ) == {
+            "remote_capture_id": "",
+            "hidden_proactive": False,
+        }
         assert len(runtime.captures) == 1
         transaction_id = engine.conversation_history[-1]["normal_chat_transaction_id"]
         assert engine.normal_chat_transaction_registry[transaction_id]["provider_context"] is runtime.captures[0]
@@ -1666,6 +1709,7 @@ def test_new_chat_advances_generation_before_cleared_history_is_visible() -> Non
 def main() -> int:
     test_targeted_capability_uses_exact_addon_route()
     test_targeted_projection_preserves_exact_context_text()
+    test_pending_phone_turn_preserves_remote_capture_id()
     test_typed_acceptance_captures_before_append()
     test_relay_off_typed_turn_freezes_provider_without_identity_work()
     test_suspended_and_proactive_turns_do_not_store_active_text()

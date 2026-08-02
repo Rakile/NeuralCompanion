@@ -2063,6 +2063,43 @@ def test_completed_regeneration_recaptures_current_provider_binding() -> None:
         _restore_harness(originals)
 
 
+def test_regeneration_reanchors_orphaned_cancelled_user_turn() -> None:
+    runtime, _calls, originals = _install_harness(enabled=False)
+    try:
+        engine.replace_chat_conversation_history([])
+        _turn, request = _accepted_request("What images have I shown you?")
+        engine._ensure_normal_chat_transaction_ready(request)
+        cancelled_id = request["normal_chat_transaction_id"]
+        assert len(engine.conversation_history) == 1
+
+        assert engine._cancel_normal_chat_request(request) is True
+        assert cancelled_id not in engine.normal_chat_transaction_registry
+
+        resumed, removed = engine.conversation_history_runtime.prepare_regeneration_turn(
+            engine.conversation_history,
+            target_in_history=False,
+            input_roles={"user"},
+        )
+        assert removed is False
+        assert resumed["normal_chat_transaction_id"] == cancelled_id
+
+        regenerated_request = engine._freeze_normal_chat_request(
+            resumed,
+            require_existing_transaction=True,
+        )
+        engine._ensure_normal_chat_transaction_ready(regenerated_request)
+
+        assert runtime.capture_count == 2
+        assert len(engine.conversation_history) == 1
+        assert engine.conversation_history[0]["content"] == "What images have I shown you?"
+        assert (
+            engine.conversation_history[0]["normal_chat_transaction_id"]
+            == regenerated_request["normal_chat_transaction_id"]
+        )
+    finally:
+        _restore_harness(originals)
+
+
 def test_detached_continuation_retains_frozen_binding_for_regeneration() -> None:
     runtime, _calls, originals = _install_harness(enabled=False)
     try:
@@ -2819,6 +2856,7 @@ def main() -> int:
     test_restart_regeneration_uses_authorized_persisted_projection()
     test_regeneration_copies_only_transaction_id_not_frozen_context()
     test_completed_regeneration_recaptures_current_provider_binding()
+    test_regeneration_reanchors_orphaned_cancelled_user_turn()
     test_detached_continuation_retains_frozen_binding_for_regeneration()
     test_history_trimming_prunes_obsolete_prepared_payloads()
     test_cancel_between_completion_readiness_and_dispatch_blocks_provider()

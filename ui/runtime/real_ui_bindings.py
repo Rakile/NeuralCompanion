@@ -98,6 +98,7 @@ class MainUiRealBindingMixin:
                 "btn_search_long_term_memory_archive": getattr(self.backend, "search_long_term_memory_archive", None),
                 "btn_review_long_term_memory_archive": getattr(self.backend, "review_long_term_memory_archive", None),
                 "btn_export_session_memory": getattr(self.backend, "export_session_memory_report", None),
+                "btn_rebuild_long_term_memory_archive_candidate": getattr(self.backend, "rebuild_long_term_memory_archive_candidate_now", None),
                 "btn_rebuild_long_term_memory_embeddings": getattr(self.backend, "rebuild_long_term_memory_embeddings_now", None),
             }
             for object_name, handler in bindings.items():
@@ -606,6 +607,9 @@ class MainUiRealBindingMixin:
             long_term_memory_recall_image_limit_spin = self._ui_object("long_term_memory_recall_image_limit_spin")
             if long_term_memory_recall_image_limit_spin is not None and hasattr(long_term_memory_recall_image_limit_spin, "valueChanged"):
                 long_term_memory_recall_image_limit_spin.valueChanged.connect(self._on_frontend_long_term_memory_recall_image_limit_changed)
+            long_term_memory_image_context_max_output_tokens_spin = self._ui_object("long_term_memory_image_context_max_output_tokens_spin")
+            if long_term_memory_image_context_max_output_tokens_spin is not None and hasattr(long_term_memory_image_context_max_output_tokens_spin, "valueChanged"):
+                long_term_memory_image_context_max_output_tokens_spin.valueChanged.connect(self._on_frontend_long_term_memory_image_context_max_output_tokens_changed)
             continuity_memory_auto_turns_spin = self._ui_object("continuity_memory_auto_turns_spin")
             if continuity_memory_auto_turns_spin is not None and hasattr(continuity_memory_auto_turns_spin, "valueChanged"):
                 continuity_memory_auto_turns_spin.valueChanged.connect(self._on_frontend_continuity_memory_auto_turns_changed)

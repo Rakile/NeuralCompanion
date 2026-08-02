@@ -189,6 +189,12 @@ class RealUiActionsChatSensoryMixin:
             finally:
                 self._refresh_chat_session_runtime_frontend()
 
+    def _on_frontend_long_term_memory_image_context_max_output_tokens_changed(self, value):
+            try:
+                self.backend.on_long_term_memory_image_context_max_output_tokens_changed(int(value))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
     def _on_frontend_long_term_memory_archive_batch_turns_changed(self, value):
             try:
                 self.backend.on_long_term_memory_archive_batch_turns_changed(int(value))

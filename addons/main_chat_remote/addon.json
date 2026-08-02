@@ -4,7 +4,7 @@
   "category": "chat",
   "version": "0.1.0",
   "entry_point": "main.py",
-  "description": "LAN phone bridge for the real NeuralCompanion main chat runtime.",
+  "description": "LAN phone bridge with an optional secure Internet gateway for the real NeuralCompanion main chat runtime.",
   "permissions": [
     "ui.tabs",
     "services.register",
@@ -28,7 +28,7 @@
       "title": "Main Chat Remote",
       "area": "top_level",
       "order": 930,
-      "tooltip": "Local bridge status and controls for the phone remote.",
+      "tooltip": "LAN and secure Internet controls for the phone remote.",
       "icon_path": "../../ui_icons/side_tabs/desktop_bridge.png",
       "metadata": {
         "runtime_role": "main_chat_remote"

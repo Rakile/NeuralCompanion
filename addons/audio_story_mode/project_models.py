@@ -6,8 +6,10 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
+from addons.audio_story_mode import novel_models
 
-PROJECT_SCHEMA_VERSION = 1
+
+PROJECT_SCHEMA_VERSION = 2
 CHECKPOINT_STATUSES = frozenset(
     {"pending", "running", "completed", "failed", "interrupted", "stale", "missing_audio"}
 )
@@ -45,6 +47,8 @@ def checkpoint(stage: str, unit_id: str, *, status: str = "pending") -> dict:
 def new_project_manifest(
     name: str,
     *,
+    source_kind: str = novel_models.SOURCE_KIND_AUDIO,
+    source_reference: Mapping | None = None,
     project_id: str | None = None,
     now: float | None = None,
 ) -> dict:
@@ -55,6 +59,8 @@ def new_project_manifest(
             "schema_version": PROJECT_SCHEMA_VERSION,
             "project_id": _identifier(project_id),
             "name": normalized_name,
+            "source_kind": novel_models.normalize_source_kind(source_kind),
+            "source_reference": _copy_mapping(source_reference),
             "created_at": timestamp,
             "updated_at": timestamp,
             "story_bible_revision": 0,
@@ -68,8 +74,9 @@ def new_project_manifest(
 
 def new_chapter_manifest(
     display_name: str,
-    audio_reference: dict,
+    audio_reference: Mapping | None = None,
     *,
+    source_reference: Mapping | None = None,
     chapter_id: str | None = None,
     now: float | None = None,
 ) -> dict:
@@ -82,6 +89,7 @@ def new_chapter_manifest(
             "chapter_id": identifier,
             "display_name": normalized_name,
             "audio_reference": _copy_mapping(audio_reference),
+            "source_reference": _copy_mapping(source_reference),
             "created_at": timestamp,
             "updated_at": timestamp,
             "stages": {stage: checkpoint(stage, identifier) for stage in STAGES},
@@ -95,6 +103,8 @@ def normalize_project_manifest(value: Mapping) -> dict:
     result["schema_version"] = PROJECT_SCHEMA_VERSION
     result["project_id"] = _identifier(source.get("project_id"))
     result["name"] = _normalized_name(source.get("name"), "Untitled Project")
+    result["source_kind"] = novel_models.normalize_source_kind(source.get("source_kind"))
+    result["source_reference"] = _copy_mapping(source.get("source_reference"))
     result["created_at"] = _timestamp_or_default(source.get("created_at"), 0.0)
     result["updated_at"] = _timestamp_or_default(source.get("updated_at"), result["created_at"])
     result["story_bible_revision"] = _nonnegative_int(source.get("story_bible_revision"))
@@ -114,6 +124,7 @@ def normalize_chapter_manifest(value: Mapping) -> dict:
     result["chapter_id"] = identifier
     result["display_name"] = _normalized_name(source.get("display_name"), "Untitled Chapter")
     result["audio_reference"] = _copy_mapping(source.get("audio_reference"))
+    result["source_reference"] = _copy_mapping(source.get("source_reference"))
     result["created_at"] = _timestamp_or_default(source.get("created_at"), 0.0)
     result["updated_at"] = _timestamp_or_default(source.get("updated_at"), result["created_at"])
     normalized_stages = stages

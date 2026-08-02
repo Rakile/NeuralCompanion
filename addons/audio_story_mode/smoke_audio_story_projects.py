@@ -5,17 +5,24 @@ import importlib
 import inspect
 import json
 import os
+import sys
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from pathlib import Path
 from threading import Barrier, Event, Thread
+
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from addons.audio_story_mode import (
     audio_fingerprint,
     checkpointing,
     project_autosave,
     project_models,
+    project_restore,
     project_store,
     story_memory,
     story_projects,
@@ -157,21 +164,26 @@ def test_controller_project_session_hint_reopens_authoritative_store_project() -
                 }
             }
         )
-        assert calls == [
-            (
-                "open",
-                {
-                    "project": authoritative,
-                    "recovery_changed": False,
-                    "backup_recovered": False,
-                },
-                {
-                    "project_id": "project-reopen-hint",
-                    "switch_project": True,
-                    "supersede_busy": True,
-                },
-            )
-        ]
+        assert len(calls) == 1
+        operation, result, kwargs = calls[0]
+        assert operation == "open"
+        restoration = result.pop("restoration")
+        prepared_open = result.pop("prepared_open")
+        assert restoration["modern_artifacts_installed"] is False
+        assert restoration["issues"] == []
+        assert result["project"] is prepared_open["project"]
+        assert result["project"]["project_id"] == authoritative["project_id"]
+        assert result["project"]["manifest_revision"] == 31
+        assert result["project"]["name"] == "Authoritative"
+        assert result["recovery_changed"] is False
+        assert result["backup_recovered"] is False
+        assert prepared_open["restoration"] is restoration
+        assert prepared_open["project_id"] == "project-reopen-hint"
+        assert kwargs == {
+            "project_id": "project-reopen-hint",
+            "switch_project": True,
+            "supersede_busy": True,
+        }
         assert not controller.legacy_story_available_for_migration
         assert controller._legacy_story_session_payload == {}
     finally:
@@ -492,6 +504,292 @@ def test_controller_newer_autosave_success_clears_dirty_snapshot_but_older_does_
     assert controller._story_project_dirty_autosave is None
     controller.shutdown()
     assert len(requests) == 2
+
+
+def test_controller_autosave_completion_adopts_owned_large_project_without_gui_copy() -> None:
+    app, controller = _session_controller()
+    controller_module = importlib.import_module("addons.audio_story_mode.controller")
+    from PySide6 import QtWidgets
+
+    class MainThreadGuardedList(list):
+        def __iter__(self):
+            if threading.current_thread() is threading.main_thread():
+                raise AssertionError(
+                    "project-sized collections must not be traversed in autosave completion"
+                )
+            return super().__iter__()
+
+    class MainThreadGuardedDict(dict):
+        @staticmethod
+        def _check_thread() -> None:
+            if threading.current_thread() is threading.main_thread():
+                raise AssertionError(
+                    "project-sized mappings must not be traversed in autosave completion"
+                )
+
+        def __iter__(self):
+            self._check_thread()
+            return super().__iter__()
+
+        def items(self):
+            self._check_thread()
+            return super().items()
+
+        def keys(self):
+            self._check_thread()
+            return super().keys()
+
+        def values(self):
+            self._check_thread()
+            return super().values()
+
+    source_project = project_models.new_project_manifest(
+        "Recovered large project", project_id="large-autosave-project", now=1.0
+    )
+    source_project["autosave_revision"] = 8
+    source_project["large_regression_payload"] = MainThreadGuardedList(
+        {"index": index, "text": f"scene-{index}"} for index in range(12000)
+    )
+    chapter = project_models.new_chapter_manifest(
+        "Large chapter",
+        {
+            "path": "missing-large-chapter.wav",
+            "fingerprint": {
+                "algorithm": "sha256-sampled-v1",
+                "digest": "large-chapter",
+                "size_bytes": 12000,
+                "duration_ms": 120000,
+            },
+        },
+        chapter_id="large-chapter",
+    )
+    for stage_name in checkpointing.STAGE_ORDER:
+        checkpoint = chapter["stages"][stage_name]
+        checkpoint["status"] = "completed"
+        checkpoint["input_fingerprint"] = f"{stage_name}-input"
+        checkpoint["expected_input_fingerprint"] = f"{stage_name}-input"
+    chapter["stages"]["image_generation"]["status"] = "running"
+    chapter["scene_checkpoints"] = MainThreadGuardedDict(
+        {
+            f"scene-{index}": {
+                "status": "pending",
+                "scene_id": f"scene-{index}",
+            }
+            for index in range(12000)
+        }
+    )
+    source_project["chapters"]["large-chapter"] = chapter
+    source_project["chapter_order"] = ["large-chapter"]
+    preparation: dict[str, object] = {}
+
+    def prepare_recovery_autosave() -> None:
+        try:
+            preparation["open_summary"] = (
+                controller._prepare_story_project_open_summary(source_project)
+            )
+            preparation["value"] = (
+                controller._prepare_story_project_recovery_autosave(source_project)
+            )
+        except BaseException as exc:
+            preparation["error"] = exc
+
+    preparation_thread = Thread(target=prepare_recovery_autosave, daemon=True)
+    preparation_thread.start()
+    preparation_thread.join(timeout=5.0)
+    assert not preparation_thread.is_alive()
+    if "error" in preparation:
+        raise preparation["error"]
+    prepared = preparation["value"]
+    initial_open_summary = preparation["open_summary"]
+    requests = []
+
+    class HoldingQueue:
+        @staticmethod
+        def request(request):
+            requests.append(request)
+
+        @staticmethod
+        def flush(timeout=0.0):
+            return True
+
+        @staticmethod
+        def shutdown(timeout=0.0):
+            return None
+
+    project_id = prepared["project_id"]
+    controller.current_story_project_id = project_id
+    initial_project = source_project
+    controller._current_story_project = initial_project
+    controller._current_story_project_open_summary = initial_open_summary
+    controller._story_projects = [initial_open_summary["project_summary"]]
+    controller._story_project_autosave_queue = HoldingQueue()
+    controller.audio_story_project_list = QtWidgets.QListWidget()
+    controller.audio_story_project_chapter_list = QtWidgets.QListWidget()
+    controller.audio_story_project_name_label = QtWidgets.QLabel()
+    controller.audio_story_project_chapter_status_label = QtWidgets.QLabel()
+    controller.audio_story_project_recovery_label = QtWidgets.QLabel()
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    controller.audio_story_project_resume_all_button = QtWidgets.QPushButton()
+    original_deepcopy = controller_module.copy.deepcopy
+    original_build_resume_plan = controller_module.checkpointing.build_resume_plan
+    original_normalize_project = (
+        controller_module.project_models.normalize_project_manifest
+    )
+    original_is_file = controller_module.Path.is_file
+    original_exists = controller_module.Path.exists
+    original_settings_fingerprint = (
+        controller_module.checkpointing.settings_fingerprint
+    )
+    original_sha256 = controller_module.hashlib.sha256
+    observed_payloads: list[dict] = []
+    observer_connected = False
+
+    def observe_saved(payload) -> None:
+        observed_payloads.append(payload)
+
+    try:
+        ownership = controller._queue_prepared_story_project_recovery_autosave(
+            prepared
+        )
+        assert ownership == (project_id, prepared["revision"])
+        assert len(requests) == 1
+        assert requests[0].snapshot is prepared["snapshot"]
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Saving recovery state..."
+        )
+        assert not controller.audio_story_project_resume_all_button.isEnabled()
+        pending = controller._story_project_pending_autosave
+        dirty = controller._story_project_dirty_autosave
+        ownership_key = (project_id, prepared["revision"])
+        ownership_record = controller._story_project_autosave_ownership[ownership_key]
+        valid_payload = {
+            "project_id": pending[0],
+            "revision": pending[1],
+            "generation_id": pending[2],
+            "input_fingerprint": pending[3],
+            "project": prepared["snapshot"],
+            "open_summary": initial_open_summary,
+        }
+        malformed_project = {
+            **prepared["snapshot"],
+            "autosave_revision": str(prepared["revision"]),
+        }
+        rejected_payloads = (
+            {**valid_payload, "revision": pending[1] + 1},
+            {**valid_payload, "revision": str(pending[1])},
+            {**valid_payload, "project": malformed_project},
+            {
+                **valid_payload,
+                "project": {
+                    "project_id": "other-project",
+                    "autosave_revision": pending[1],
+                },
+            },
+        )
+
+        def forbid_gui(name, original):
+            def checked(*args, **kwargs):
+                if threading.current_thread() is threading.main_thread():
+                    raise AssertionError(
+                        f"{name} must not run in autosave completion"
+                    )
+                return original(*args, **kwargs)
+
+            return checked
+
+        controller_module.copy.deepcopy = forbid_gui(
+            "copy.deepcopy", original_deepcopy
+        )
+        controller_module.checkpointing.build_resume_plan = forbid_gui(
+            "build_resume_plan", original_build_resume_plan
+        )
+        controller_module.project_models.normalize_project_manifest = forbid_gui(
+            "normalize_project_manifest", original_normalize_project
+        )
+        controller_module.Path.is_file = forbid_gui("Path.is_file", original_is_file)
+        controller_module.Path.exists = forbid_gui("Path.exists", original_exists)
+        controller_module.checkpointing.settings_fingerprint = forbid_gui(
+            "settings_fingerprint", original_settings_fingerprint
+        )
+        controller_module.hashlib.sha256 = forbid_gui("sha256", original_sha256)
+        for rejected in rejected_payloads:
+            controller._on_story_project_autosave_saved(rejected)
+            assert controller._current_story_project is initial_project
+            assert controller._story_project_pending_autosave is pending
+            assert controller._story_project_dirty_autosave is dirty
+            assert (
+                controller._story_project_autosave_ownership[ownership_key]
+                is ownership_record
+            )
+
+        controller.storyProjectAutosaveSaved.connect(observe_saved)
+        observer_connected = True
+        published = Event()
+
+        def publish_saved_project() -> None:
+            try:
+                worker_result = original_deepcopy(requests[0].snapshot)
+                worker_result["manifest_revision"] = (
+                    int(worker_result.get("manifest_revision", 0) or 0) + 1
+                )
+                controller._story_project_autosave_worker_saved(worker_result)
+            finally:
+                published.set()
+
+        publish_thread = Thread(target=publish_saved_project, daemon=True)
+        publish_thread.start()
+        assert published.wait(5.0)
+        publish_thread.join(timeout=1.0)
+        for _ in range(100):
+            app.processEvents()
+            if observed_payloads:
+                break
+
+        assert len(observed_payloads) == 1
+        owned_project = observed_payloads[0]["project"]
+        owned_open_summary = observed_payloads[0]["open_summary"]
+        assert controller._current_story_project is owned_project
+        assert controller._current_story_project_open_summary is owned_open_summary
+        assert controller._story_projects[0] is owned_open_summary["project_summary"]
+        assert owned_open_summary["manifest_revision"] == (
+            owned_project["manifest_revision"]
+        )
+        assert controller._story_project_pending_autosave is None
+        assert controller._story_project_dirty_autosave is None
+        assert ownership_key not in controller._story_project_autosave_ownership
+        assert controller.audio_story_project_autosave_label.text() == "Saved"
+        assert controller.audio_story_project_name_label.text() == (
+            "Project: Recovered large project"
+        )
+        assert controller.audio_story_project_chapter_list.count() == 1
+        assert controller.audio_story_project_recovery_label.text() == (
+            "12000 unfinished work items can be resumed."
+        )
+        assert controller.audio_story_project_resume_all_button.isEnabled()
+    finally:
+        controller_module.copy.deepcopy = original_deepcopy
+        controller_module.checkpointing.build_resume_plan = original_build_resume_plan
+        controller_module.project_models.normalize_project_manifest = (
+            original_normalize_project
+        )
+        controller_module.Path.is_file = original_is_file
+        controller_module.Path.exists = original_exists
+        controller_module.checkpointing.settings_fingerprint = (
+            original_settings_fingerprint
+        )
+        controller_module.hashlib.sha256 = original_sha256
+        if observer_connected:
+            try:
+                controller.storyProjectAutosaveSaved.disconnect(observe_saved)
+            except (RuntimeError, TypeError):
+                pass
+        controller._story_project_autosave_queue = None
+        controller._story_project_pending_autosave = None
+        controller._story_project_dirty_autosave = None
+        controller.current_story_project_id = ""
+        controller._current_story_project = None
+        controller._story_projects = []
+        controller.shutdown()
 
 
 def test_controller_same_id_session_hint_reopens_and_replaces_stale_derived_state() -> None:
@@ -843,7 +1141,9 @@ def test_controller_shutdown_reports_unresolved_final_save_failure() -> None:
     }
     controller._story_project_autosave_queue = FailingQueue()
     controller._set_status = statuses.append
-    controller._set_story_project_autosave_text = lambda text: statuses.append(text)
+    controller._set_story_project_autosave_text = (
+        lambda text, **_kwargs: statuses.append(text)
+    )
     controller._sync_story_generated_master_prompt = lambda **_kwargs: None
     controller._stop_story = lambda: None
     controller._stop_visual_stream = lambda: None
@@ -913,7 +1213,9 @@ def test_controller_shutdown_ignores_old_failure_after_newer_final_save_succeeds
     }
     controller._story_project_autosave_queue = OldFailureThenSuccessQueue()
     controller._set_status = statuses.append
-    controller._set_story_project_autosave_text = statuses.append
+    controller._set_story_project_autosave_text = (
+        lambda text, **_kwargs: statuses.append(text)
+    )
     controller._sync_story_generated_master_prompt = lambda **_kwargs: None
     controller._stop_story = lambda: None
     controller._stop_visual_stream = lambda: None
@@ -961,7 +1263,9 @@ def test_controller_shutdown_matching_success_during_shutdown_clears_timeout_fai
     }
     controller._story_project_autosave_queue = SuccessDuringShutdownQueue()
     controller._set_status = statuses.append
-    controller._set_story_project_autosave_text = statuses.append
+    controller._set_story_project_autosave_text = (
+        lambda text, **_kwargs: statuses.append(text)
+    )
     controller._sync_story_generated_master_prompt = lambda **_kwargs: None
     controller._stop_story = lambda: None
     controller._stop_visual_stream = lambda: None
@@ -985,7 +1289,9 @@ def test_controller_shutdown_ignores_stale_queue_error_without_final_ownership()
 
     controller._story_project_autosave_queue = StaleFailingQueue()
     controller._set_status = statuses.append
-    controller._set_story_project_autosave_text = statuses.append
+    controller._set_story_project_autosave_text = (
+        lambda text, **_kwargs: statuses.append(text)
+    )
     controller._sync_story_generated_master_prompt = lambda **_kwargs: None
     controller._stop_story = lambda: None
     controller._stop_visual_stream = lambda: None
@@ -1029,7 +1335,9 @@ def test_controller_shutdown_matching_success_is_not_overridden_by_flush_error()
     }
     controller._story_project_autosave_queue = SavedThenFlushErrorQueue()
     controller._set_status = statuses.append
-    controller._set_story_project_autosave_text = statuses.append
+    controller._set_story_project_autosave_text = (
+        lambda text, **_kwargs: statuses.append(text)
+    )
     controller._sync_story_generated_master_prompt = lambda **_kwargs: None
     controller._stop_story = lambda: None
     controller._stop_visual_stream = lambda: None
@@ -1889,7 +2197,9 @@ def test_new_project_and_chapter_have_stable_versioned_shape() -> None:
         chapter_id="chapter-1",
         now=101.0,
     )
-    assert project["schema_version"] == 1
+    assert project["schema_version"] == 2
+    assert project["source_kind"] == "audio"
+    assert project["source_reference"] == {}
     assert project["chapter_order"] == []
     assert chapter["chapter_id"] == "chapter-1"
     assert chapter["stages"]["transcription"]["status"] == "pending"
@@ -2634,6 +2944,211 @@ def _mark_checkpoint_reusable(checkpoint: dict, fingerprint: str = "input") -> N
     checkpoint["expected_input_fingerprint"] = fingerprint
 
 
+def _save_completed_restore_artifacts(store: project_store.StoryProjectStore, project: dict) -> dict:
+    for chapter_id in ("c1", "c2"):
+        transcript = {"segments": [{"text": "checkpoint revision"}]}
+        analysis = {"scene_plan": [{"scene_id": f"scene-{chapter_id}"}]}
+        transcript_ref = store.save_chapter_document(
+            project["project_id"], chapter_id, "transcript", 1, transcript
+        )
+        analysis_ref = store.save_chapter_document(
+            project["project_id"], chapter_id, "analysis", 1, analysis
+        )
+        stages = project["chapters"][chapter_id]["stages"]
+        stages["transcription"].update(
+            {
+                "status": "completed",
+                "output_ref": transcript_ref,
+                "output_fingerprint": checkpointing.settings_fingerprint(transcript),
+            }
+        )
+        stages["story_analysis"].update(
+            {
+                "status": "completed",
+                "output_ref": analysis_ref,
+                "output_fingerprint": checkpointing.settings_fingerprint(analysis),
+            }
+        )
+    return store.save_project(project)
+
+
+def test_project_restore_loads_exact_checkpoint_revisions(tmp_path: Path) -> None:
+    store = project_store.StoryProjectStore(tmp_path / "projects")
+    saved = _save_completed_restore_artifacts(store, _project_with_two_chapters(completed=False))
+    store.save_chapter_document(
+        saved["project_id"], "c1", "transcript", 2, {"segments": [{"text": "newer revision"}]}
+    )
+
+    restore = project_restore.load_project_artifacts(store, saved)
+
+    assert [item.chapter_id for item in restore.chapters] == ["c1", "c2"]
+    assert restore.chapters[0].transcript["segments"][0]["text"] == "checkpoint revision"
+    assert restore.chapters[0].analysis["scene_plan"][0]["scene_id"] == "scene-c1"
+    assert restore.issues == ()
+
+
+def test_project_restore_loads_only_requested_chapter(tmp_path: Path) -> None:
+    store = project_store.StoryProjectStore(tmp_path / "projects")
+    saved = _save_completed_restore_artifacts(
+        store, _project_with_two_chapters(completed=False)
+    )
+    loaded = []
+    original_loader = store.load_chapter_document
+
+    def tracked_loader(project_id, chapter_id, kind, revision=None):
+        loaded.append((chapter_id, kind, revision))
+        return original_loader(
+            project_id,
+            chapter_id,
+            kind,
+            revision=revision,
+        )
+
+    store.load_chapter_document = tracked_loader
+
+    restore = project_restore.load_chapter_artifacts(store, saved, "c2")
+
+    assert [item.chapter_id for item in restore.chapters] == ["c2"]
+    assert restore.chapters[0].global_offset_seconds == 10.0
+    assert loaded == [("c2", "transcript", 1), ("c2", "analysis", 1)]
+    assert restore.issues == ()
+
+
+def test_chapter_working_set_owns_at_most_selected_and_next() -> None:
+    chapter_working_set = importlib.import_module(
+        "addons.audio_story_mode.chapter_working_set"
+    )
+    cache = chapter_working_set.ChapterWorkingSet(capacity=2)
+    key1 = chapter_working_set.ChapterCacheKey("p1", 1, "c1")
+    key2 = chapter_working_set.ChapterCacheKey("p1", 1, "c2")
+    key3 = chapter_working_set.ChapterCacheKey("p1", 1, "c3")
+    payload1 = {"chapter_id": "c1"}
+    payload2 = {"chapter_id": "c2"}
+    payload3 = {"chapter_id": "c3"}
+
+    cache.put(key1, payload1, protected_chapter_id="c1")
+    cache.put(key2, payload2, protected_chapter_id="c1")
+    cache.put(key3, payload3, protected_chapter_id="c1")
+
+    assert cache.get(key1) is payload1
+    assert cache.get(key2) is None
+    assert cache.get(key3) is payload3
+    assert len(cache) == 2
+    assert cache.keys() == (key1, key3)
+
+    cache.invalidate("p1", 2)
+    assert len(cache) == 0
+    cache.put(
+        chapter_working_set.ChapterCacheKey("p1", 2, "c1"),
+        payload1,
+        protected_chapter_id="c1",
+    )
+    cache.clear()
+    assert len(cache) == 0
+
+
+def test_project_restore_keeps_valid_chapters_when_one_artifact_is_bad(tmp_path: Path) -> None:
+    store = project_store.StoryProjectStore(tmp_path / "projects")
+    saved = _save_completed_restore_artifacts(store, _project_with_two_chapters(completed=False))
+    reference = saved["chapters"]["c2"]["stages"]["transcription"]["output_ref"]
+    (store.project_path(saved["project_id"]).parent / reference).unlink()
+
+    restore = project_restore.load_project_artifacts(store, saved)
+
+    assert restore.chapters[0].transcript is not None
+    assert len(restore.issues) == 1
+    assert restore.issues[0].chapter_id == "c2"
+    assert restore.issues[0].stage == "transcription"
+    assert "not found" in restore.issues[0].message.lower()
+
+
+def test_project_restore_rejects_present_mismatched_document_project_ids(
+    tmp_path: Path,
+) -> None:
+    for kind, stage in (("transcript", "transcription"), ("analysis", "story_analysis")):
+        case_root = tmp_path / kind
+        store = project_store.StoryProjectStore(case_root / "projects")
+        saved = _save_completed_restore_artifacts(
+            store, _project_with_two_chapters(completed=False)
+        )
+        document = store.load_chapter_document("p1", "c1", kind, revision=1)
+        document["project_id"] = "different-project"
+        store.save_chapter_document("p1", "c1", kind, 1, document)
+        saved["chapters"]["c1"]["stages"][stage]["output_fingerprint"] = (
+            checkpointing.settings_fingerprint(document)
+        )
+        saved = store.save_project(saved)
+
+        restore = project_restore.load_project_artifacts(store, saved)
+
+        c1 = restore.chapters[0]
+        c2 = restore.chapters[1]
+        assert getattr(c1, kind) is None
+        assert getattr(c2, kind) is not None
+        matching = [issue for issue in restore.issues if issue.stage == stage]
+        assert len(matching) == 1
+        assert matching[0].chapter_id == "c1"
+        assert "project" in matching[0].message.lower()
+        assert "match" in matching[0].message.lower()
+
+
+def test_project_restore_rejects_present_mismatched_document_chapter_ids(
+    tmp_path: Path,
+) -> None:
+    for kind, stage in (("transcript", "transcription"), ("analysis", "story_analysis")):
+        case_root = tmp_path / kind
+        store = project_store.StoryProjectStore(case_root / "projects")
+        saved = _save_completed_restore_artifacts(
+            store, _project_with_two_chapters(completed=False)
+        )
+        document = store.load_chapter_document("p1", "c1", kind, revision=1)
+        document["chapter_id"] = "c2"
+        store.save_chapter_document("p1", "c1", kind, 1, document)
+        saved["chapters"]["c1"]["stages"][stage]["output_fingerprint"] = (
+            checkpointing.settings_fingerprint(document)
+        )
+        saved = store.save_project(saved)
+
+        restore = project_restore.load_project_artifacts(store, saved)
+
+        c1 = restore.chapters[0]
+        c2 = restore.chapters[1]
+        assert getattr(c1, kind) is None
+        assert getattr(c2, kind) is not None
+        matching = [issue for issue in restore.issues if issue.stage == stage]
+        assert len(matching) == 1
+        assert matching[0].chapter_id == "c1"
+        assert "chapter" in matching[0].message.lower()
+        assert "match" in matching[0].message.lower()
+
+
+def test_project_restore_skips_archived_chapters_and_their_offsets(tmp_path: Path) -> None:
+    store = project_store.StoryProjectStore(tmp_path / "projects")
+    project = _project_with_two_chapters(completed=False)
+    project["chapters"]["c3"] = project_models.new_chapter_manifest(
+        "Chapter 3",
+        {
+            "path": "chapter_3.wav",
+            "fingerprint": {
+                "algorithm": "sha256-sampled-v1",
+                "digest": "digest-3",
+                "size_bytes": 103,
+                "duration_ms": 30000,
+            },
+        },
+        chapter_id="c3",
+        now=3.0,
+    )
+    project["chapter_order"] = ["c1", "c2", "c3"]
+    project["archived_chapter_ids"] = ["c2"]
+    saved = store.save_project(project)
+
+    restore = project_restore.load_project_artifacts(store, saved)
+
+    assert [item.chapter_id for item in restore.chapters] == ["c1", "c3"]
+    assert restore.chapters[1].global_offset_seconds == 10.0
+
+
 def test_checkpoint_transitions_fingerprint_and_attempt_history() -> None:
     checkpoint = project_models.checkpoint("transcription", "c1")
     assert checkpointing.settings_fingerprint({"b": [2, 1], "a": "å"}) == checkpointing.settings_fingerprint(
@@ -3094,6 +3609,227 @@ def test_controller_partial_import_requires_explicit_valid_only_confirmation() -
     controller.shutdown()
 
 
+def test_controller_audio_import_review_reports_selected_file_count() -> None:
+    _app, controller = _session_controller()
+    controller.current_story_project_id = "project-import-status"
+    captured: list[tuple[str, dict]] = []
+    controller._launch_story_project_job = (
+        lambda operation, _work, **kwargs: captured.append((operation, kwargs))
+    )
+    try:
+        controller._import_story_project_audio_paths(("one.wav", "two.wav"))
+
+        assert captured == [
+            (
+                "import-review",
+                {
+                    "project_id": "project-import-status",
+                    "switch_project": False,
+                    "busy_text": "Checking 2 audio files...",
+                },
+            )
+        ]
+    finally:
+        controller.shutdown()
+
+
+def test_controller_audio_import_commit_reports_valid_file_count() -> None:
+    for valid_paths, count_text in (
+        (("one.wav",), "1 audio file"),
+        (("one.wav", "two.wav"), "2 audio files"),
+    ):
+        _app, controller = _session_controller()
+        controller.current_story_project_id = "project-import-status"
+        controller._story_project_input_fingerprint = "owned-import-review"
+        captured: list[tuple[str, dict]] = []
+        controller._run_story_project_mutation = (
+            lambda operation, _mutation, **kwargs: captured.append(
+                (operation, kwargs)
+            )
+        )
+        review = {
+            "valid": [{"path": path} for path in valid_paths],
+            "invalid": [],
+            "conflicts": [],
+        }
+        try:
+            controller._on_story_project_job_finished(
+                {
+                    "operation": "import-review",
+                    "project_id": "project-import-status",
+                    "generation_id": controller._story_project_generation,
+                    "input_fingerprint": "owned-import-review",
+                    "result": review,
+                }
+            )
+
+            assert captured == [
+                (
+                    "import",
+                    {
+                        "busy_text": f"Importing {count_text}...",
+                        "success_text": f"Imported {count_text}",
+                    },
+                )
+            ]
+        finally:
+            controller.shutdown()
+
+
+def test_controller_project_job_error_marks_header_red() -> None:
+    _app, controller = _session_controller()
+    from PySide6 import QtWidgets
+
+    controller.current_story_project_id = "project-error-status"
+    controller._story_project_input_fingerprint = "owned-project-error"
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    try:
+        controller._on_story_project_job_finished(
+            {
+                "operation": "rename",
+                "project_id": "project-error-status",
+                "generation_id": controller._story_project_generation,
+                "input_fingerprint": "owned-project-error",
+                "error": "disk full",
+            }
+        )
+
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Project error: disk full"
+        )
+        assert "#ff5964" in (
+            controller.audio_story_project_autosave_label.styleSheet()
+        )
+    finally:
+        controller.shutdown()
+
+
+def test_controller_terminal_import_review_stops_header_animation() -> None:
+    _app, controller = _session_controller()
+    from PySide6 import QtWidgets
+
+    controller.current_story_project_id = "project-import-terminal"
+    controller._story_project_input_fingerprint = "owned-import-terminal"
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    controller._set_story_project_autosave_text(
+        "Checking 2 audio files...",
+        state="active",
+    )
+    try:
+        controller._on_story_project_job_finished(
+            {
+                "operation": "import-review",
+                "project_id": "project-import-terminal",
+                "generation_id": controller._story_project_generation,
+                "input_fingerprint": "owned-import-terminal",
+                "result": {
+                    "valid": [],
+                    "invalid": [],
+                    "conflicts": [{"path": "duplicate.wav"}],
+                },
+            }
+        )
+
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Audio import blocked"
+        )
+        assert not controller._story_project_status_timer.isActive()
+        assert "#ff5964" in (
+            controller.audio_story_project_autosave_label.styleSheet()
+        )
+    finally:
+        controller.shutdown()
+
+
+def test_controller_terminal_migration_preview_stops_header_animation() -> None:
+    _app, controller = _session_controller()
+    from PySide6 import QtWidgets
+
+    controller._story_project_input_fingerprint = "owned-migration-terminal"
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    controller._set_story_project_autosave_text(
+        "Checking current story...",
+        state="active",
+    )
+    try:
+        controller._on_story_project_job_finished(
+            {
+                "operation": "legacy-migration-preview",
+                "project_id": "__legacy_migration__",
+                "generation_id": controller._story_project_generation,
+                "input_fingerprint": "owned-migration-terminal",
+                "result": {
+                    "project": {"project_id": "migration-project"},
+                    "valid": [],
+                    "invalid": [],
+                    "conflicts": [{"path": "owned.wav"}],
+                },
+            }
+        )
+
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Project save blocked"
+        )
+        assert not controller._story_project_status_timer.isActive()
+        assert "#ff5964" in (
+            controller.audio_story_project_autosave_label.styleSheet()
+        )
+    finally:
+        controller.shutdown()
+
+
+def test_controller_chapter_operation_statuses_are_specific() -> None:
+    _app, controller = _session_controller()
+    try:
+        assert controller._story_project_operation_busy_text(
+            "chapter-rename"
+        ) == "Renaming chapter..."
+        assert controller._story_project_operation_busy_text(
+            "chapter-reorder"
+        ) == "Reordering chapters..."
+    finally:
+        controller.shutdown()
+
+
+def test_controller_rejected_project_results_mark_header_red() -> None:
+    _app, controller = _session_controller()
+    from PySide6 import QtWidgets
+
+    controller.current_story_project_id = "project-rejected-result"
+    controller._story_project_input_fingerprint = "owned-rejected-result"
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    try:
+        controller._on_story_project_job_finished(
+            {
+                "operation": "rename",
+                "project_id": "project-rejected-result",
+                "generation_id": controller._story_project_generation,
+                "input_fingerprint": "owned-rejected-result",
+                "result": {},
+            }
+        )
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Project operation returned no data."
+        )
+        assert "#ff5964" in (
+            controller.audio_story_project_autosave_label.styleSheet()
+        )
+
+        controller._apply_prepared_open_story_project(
+            {},
+            {},
+            replace_derived_state=True,
+        )
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Project open result was rejected."
+        )
+        assert "#ff5964" in (
+            controller.audio_story_project_autosave_label.styleSheet()
+        )
+    finally:
+        controller.shutdown()
+
+
 def test_controller_project_pipeline_owner_rejects_overlap_and_releases_exact_owner() -> None:
     _app, controller = _session_controller()
     controller.current_story_project_id = "project-1"
@@ -3206,7 +3942,9 @@ def test_controller_schedules_backup_repair_only_after_visible_open() -> None:
     controller._schedule_story_project_recovery_repair = (
         lambda value: events.append(f"repair:{value['project_id']}")
     )
-    controller._set_story_project_autosave_text = lambda _text: None
+    controller._set_story_project_autosave_text = (
+        lambda _text, **_kwargs: None
+    )
     controller._set_status = lambda text: events.append(
         "visible-recovery-status"
         if "recovery backup" in str(text).lower()
@@ -3233,6 +3971,60 @@ def test_controller_schedules_backup_repair_only_after_visible_open() -> None:
         "repair:recover-1",
     ]
     controller.shutdown()
+
+
+def test_controller_backup_repair_header_transitions_from_active_to_complete() -> None:
+    _app, controller = _session_controller()
+    from PySide6 import QtWidgets
+
+    project = project_models.new_project_manifest(
+        "Recovered",
+        project_id="recover-status",
+    )
+    controller.current_story_project_id = "recover-status"
+    controller._story_project_input_fingerprint = "owned-recovery-status"
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    controller._apply_open_story_project = lambda *_args, **_kwargs: None
+    controller._schedule_story_project_recovery_repair = lambda _project: None
+    try:
+        controller._on_story_project_job_finished(
+            {
+                "operation": "open",
+                "project_id": "recover-status",
+                "generation_id": controller._story_project_generation,
+                "input_fingerprint": "owned-recovery-status",
+                "result": {
+                    "project": project,
+                    "recovery_changed": False,
+                    "backup_recovered": True,
+                },
+            }
+        )
+
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Recovered backup; repairing storage..."
+        )
+        assert controller._story_project_status_timer.isActive()
+
+        controller._on_story_project_job_finished(
+            {
+                "operation": "recovery-repair",
+                "project_id": "recover-status",
+                "generation_id": controller._story_project_generation,
+                "input_fingerprint": "owned-recovery-status",
+                "result": {"repaired": True},
+            }
+        )
+
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Storage repaired"
+        )
+        assert not controller._story_project_status_timer.isActive()
+        assert "#28d17c" in (
+            controller.audio_story_project_autosave_label.styleSheet()
+        )
+    finally:
+        controller.shutdown()
 
 
 def main() -> int:

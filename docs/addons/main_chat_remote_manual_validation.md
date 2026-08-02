@@ -5,8 +5,8 @@ Use this checklist after the local smoke tests pass and before treating Main Cha
 ## Scope
 
 - Validate the separate `addons/main_chat_remote` addon/service, not Multi Persona Roleplay.
-- Validate the LAN backend process and Expo phone app together.
-- Do not use internet port forwarding. Internet support remains deferred until a relay/tunnel/auth layer exists.
+- Validate the LAN backend process, optional secure Internet gateway, and Expo phone app together.
+- Never forward LAN port `8777`; follow `main_chat_remote_internet_setup.md` for Internet testing.
 - Keep unrelated desktop runtime behavior unchanged.
 
 ## Preflight
@@ -17,7 +17,7 @@ Use this checklist after the local smoke tests pass and before treating Main Cha
    git branch --show-current
    ```
 
-   Expected: `best-architecture`.
+   Expected: the intended development branch (currently `main`).
 
 2. Run local smoke checks from the repo root:
 
@@ -75,6 +75,17 @@ Use this checklist after the local smoke tests pass and before treating Main Cha
    - wrong pairing code returns a visible unauthorized error
    - repeated wrong pairing codes eventually return a visible rate-limit error without continuous reconnect/poll retry churn, then the correct code connects again
    - changing the URL or pairing code disconnects stale sessions
+
+## Secure Internet Remote
+
+1. Complete `main_chat_remote_internet_setup.md`, including DDNS, TCP 443 → 8788, and TCP 80 → 8780.
+2. Run staging before issuing the production certificate.
+3. Create an enrollment QR, scan it, verify the phone name, and approve it on desktop.
+4. With phone Wi-Fi disabled, confirm Auto reports the active DDNS route.
+5. Temporarily make DDNS unreachable and confirm the certified numeric-IP route works.
+6. Confirm authentication, certificate, and gateway identity errors stop fallback.
+7. Revoke the phone and confirm HTTP, WebSocket ticket, and refreshed media authorization fail.
+8. Disable Internet Remote and confirm LAN chat remains connected.
 
 ## Main Chat
 

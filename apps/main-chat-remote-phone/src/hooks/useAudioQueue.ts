@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import type { AudioPlayer } from 'expo-audio';
 
 import { RemoteClient } from '../api/client';
 import type { AudioChunk } from '../api/types';
-import { nextUnseenAudioChunk } from '../utils/audioFastStart';
+import {
+  audioHistoryAfterBoundary,
+  createLatestAudioSampleBuffer,
+  nextUnseenAudioChunk,
+  refreshAudioChunkMetadata,
+} from '../utils/audioFastStart';
 import { recordPhoneDebug } from '../utils/phoneDebugBridge';
+import { AuthorizedMediaResolver } from '../utils/authorizedMedia';
 
 const PLAYBACK_STATUS_INTERVAL_MS = 100;
 const PLAYBACK_FALLBACK_GRACE_MS = 1500;
@@ -17,8 +24,16 @@ export type PlaybackState = {
   playingId: string;
   playedCount: number;
   error: string;
+  currentChunk: AudioChunk | null;
+  preparedChunk: AudioChunk | null;
+  positionSeconds: number;
+  isPlaying: boolean;
+  activePlayer: AudioPlayer | null;
+  getLiveSample: () => readonly number[] | null;
+  setLiveSample: (sample: readonly number[] | null) => void;
   setEnabled: (enabled: boolean) => void;
   playNow: (chunk: AudioChunk) => Promise<void>;
+  interrupt: () => void;
   stop: () => void;
   reset: () => void;
 };
@@ -27,9 +42,11 @@ type AudioQueueOptions = {
   autoplayEnabled?: boolean;
   volume?: number;
   onAutoplayEnabledChange?: (enabled: boolean) => void;
+  onBeforePlayback?: () => Promise<void> | void;
 };
 
 type AudioStatus = {
+  currentTime?: number;
   didJustFinish?: boolean;
   error?: string;
   isLoaded?: boolean;
@@ -90,10 +107,16 @@ function timingDetails(chunk: AudioChunk, eventAtMs: number): Record<string, num
 }
 
 export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], options: AudioQueueOptions = {}): PlaybackState {
+  const mediaResolver = useMemo(() => new AuthorizedMediaResolver(client), [client.identityKey]);
   const [enabled, setEnabledState] = useState(options.autoplayEnabled ?? true);
   const [playingId, setPlayingId] = useState('');
   const [playedCount, setPlayedCount] = useState(0);
   const [error, setError] = useState('');
+  const [currentChunk, setCurrentChunk] = useState<AudioChunk | null>(null);
+  const [preparedChunk, setPreparedChunk] = useState<AudioChunk | null>(null);
+  const [positionSeconds, setPositionSeconds] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [activePlayer, setActivePlayer] = useState<AudioPlayer | null>(null);
   const volume = normalizeVolume(options.volume);
   const played = useRef<Set<string>>(new Set());
   const autoplaySeen = useRef<Set<string>>(new Set());
@@ -104,10 +127,13 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
   const volumeRef = useRef(volume);
   const playNextRef = useRef<() => void>(() => undefined);
   const prepareNextRef = useRef<() => void>(() => undefined);
+  const optionsRef = useRef(options);
+  const liveSampleBuffer = useRef(createLatestAudioSampleBuffer()).current;
 
   chunksRef.current = chunks;
   enabledRef.current = enabled;
   volumeRef.current = volume;
+  optionsRef.current = options;
 
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true }).catch(() => undefined);
@@ -141,16 +167,22 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
     }
     current?.subscription?.remove?.();
     releasePlayer(current?.player);
+    setCurrentChunk(null);
+    setActivePlayer(null);
+    setPositionSeconds(0);
+    setIsPlaying(false);
+    liveSampleBuffer.set(null);
     if (clearPlaying) {
       setPlayingId('');
     }
-  }, []);
+  }, [liveSampleBuffer]);
 
   const releasePrepared = useCallback(() => {
     const current = prepared.current;
     prepared.current = null;
     current?.subscription?.remove?.();
     releasePlayer(current?.player);
+    setPreparedChunk(null);
   }, []);
 
   const activateChunk = useCallback(async (chunk: AudioChunk, preparedSlot?: PlayerSlot | null) => {
@@ -158,12 +190,18 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
     if (!chunkId) {
       return;
     }
+    try {
+      await optionsRef.current.onBeforePlayback?.();
+    } catch {
+      // Playback must remain available if microphone cleanup fails.
+    }
     releaseActive(false);
     let player: AudioPlayerHandle;
     let createdAtMs = Date.now();
     let usedPreparedPlayer = false;
     if (preparedSlot && prepared.current === preparedSlot && preparedSlot.id === chunkId) {
       prepared.current = null;
+      setPreparedChunk(null);
       preparedSlot.subscription?.remove?.();
       preparedSlot.subscription = undefined;
       player = preparedSlot.player;
@@ -171,8 +209,8 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
       usedPreparedPlayer = true;
     } else {
       releasePrepared();
-      const url = client.authorizedUrl(chunk.url_path);
-      player = createAudioPlayer(url, { updateInterval: PLAYBACK_STATUS_INTERVAL_MS }) as AudioPlayerHandle;
+      const media = await mediaResolver.resolve(chunk.url_path);
+      player = createAudioPlayer(media.url, { updateInterval: PLAYBACK_STATUS_INTERVAL_MS }) as AudioPlayerHandle;
       createdAtMs = Date.now();
       void recordPhoneDebug('info', 'audio_player_created', {
         ...timingDetails(chunk, createdAtMs),
@@ -191,11 +229,18 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
         createdAtMs,
       };
       active.current = slot;
+      setCurrentChunk(chunk);
+      setActivePlayer(player as AudioPlayer);
+      setPositionSeconds(0);
+      setIsPlaying(false);
+      liveSampleBuffer.set(null);
       slot.subscription = player.addListener?.('playbackStatusUpdate', (status: AudioStatus) => {
         const current = active.current;
         if (!current || current.id !== chunkId || current.player !== player) {
           return;
         }
+        setPositionSeconds(Math.max(0, Number(status.currentTime || 0)));
+        setIsPlaying(Boolean(status.playing));
         if (status.playing && !current.playbackStartedLogged) {
           current.playbackStartedLogged = true;
           const startedAtMs = Date.now();
@@ -258,9 +303,9 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
       });
       setTimeout(() => playNextRef.current(), 0);
     }
-  }, [client, releaseActive, releasePrepared]);
+  }, [mediaResolver, releaseActive, releasePrepared]);
 
-  const prepareNext = useCallback(() => {
+  const prepareNext = useCallback(async () => {
     const current = active.current;
     if (!enabledRef.current || !current) {
       releasePrepared();
@@ -276,8 +321,10 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
     }
     releasePrepared();
     try {
+      const media = await mediaResolver.resolve(next.url_path);
+      if (active.current?.id !== current.id || prepared.current) return;
       const createdAtMs = Date.now();
-      const player = createAudioPlayer(client.authorizedUrl(next.url_path), {
+      const player = createAudioPlayer(media.url, {
         updateInterval: PLAYBACK_STATUS_INTERVAL_MS,
         downloadFirst: true,
       }) as AudioPlayerHandle;
@@ -289,6 +336,7 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
         createdAtMs,
       };
       prepared.current = slot;
+      setPreparedChunk(next);
       void recordPhoneDebug('info', 'audio_player_created', {
         ...timingDetails(next, createdAtMs),
         prepared: true,
@@ -323,7 +371,7 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
         phase: 'prepare',
       });
     }
-  }, [client, releasePrepared]);
+  }, [mediaResolver, releasePrepared]);
 
   const playNext = useCallback(() => {
     if (!enabledRef.current || active.current) {
@@ -363,8 +411,8 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
   useEffect(() => {
     releaseActive(true);
     releasePrepared();
-    played.current.clear();
-    autoplaySeen.current.clear();
+    played.current = audioHistoryAfterBoundary(played.current, 'connection_changed');
+    autoplaySeen.current = audioHistoryAfterBoundary(autoplaySeen.current, 'connection_changed');
     setPlayedCount(0);
     setError('');
   }, [client.baseUrl, client.pairingCode, releaseActive, releasePrepared]);
@@ -373,11 +421,27 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
     if (!chunks.length) {
       releaseActive(true);
       releasePrepared();
-      played.current.clear();
-      autoplaySeen.current.clear();
-      setPlayedCount(0);
+      played.current = audioHistoryAfterBoundary(played.current, 'empty_snapshot');
+      autoplaySeen.current = audioHistoryAfterBoundary(autoplaySeen.current, 'empty_snapshot');
+      setPlayedCount(played.current.size);
       setError('');
       return;
+    }
+    const updatedActive = refreshAudioChunkMetadata(
+      active.current?.chunk ?? null,
+      chunks,
+    );
+    if (updatedActive && active.current && active.current.chunk !== updatedActive) {
+      active.current.chunk = updatedActive;
+      setCurrentChunk(updatedActive);
+    }
+    const updatedPrepared = refreshAudioChunkMetadata(
+      prepared.current?.chunk ?? null,
+      chunks,
+    );
+    if (updatedPrepared && prepared.current && prepared.current.chunk !== updatedPrepared) {
+      prepared.current.chunk = updatedPrepared;
+      setPreparedChunk(updatedPrepared);
     }
     const validIds = new Set(chunks.map((chunk) => chunk.id).filter(Boolean));
     if (active.current && !validIds.has(active.current.id)) {
@@ -408,8 +472,27 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
     playingId,
     playedCount,
     error,
+    currentChunk,
+    preparedChunk,
+    positionSeconds,
+    isPlaying,
+    activePlayer,
+    getLiveSample: liveSampleBuffer.get,
+    setLiveSample: liveSampleBuffer.set,
     setEnabled,
     playNow,
+    interrupt: () => {
+      for (const item of chunksRef.current) {
+        if (item.id) {
+          autoplaySeen.current.add(item.id);
+          played.current.add(item.id);
+        }
+      }
+      releaseActive(true);
+      releasePrepared();
+      setPlayedCount(played.current.size);
+      setError('');
+    },
     stop: () => {
       releaseActive(true);
       releasePrepared();
@@ -418,8 +501,8 @@ export function useAudioQueue(client: RemoteClient, chunks: AudioChunk[], option
     reset: () => {
       releaseActive(true);
       releasePrepared();
-      played.current.clear();
-      autoplaySeen.current.clear();
+      played.current = audioHistoryAfterBoundary(played.current, 'explicit_reset');
+      autoplaySeen.current = audioHistoryAfterBoundary(autoplaySeen.current, 'explicit_reset');
       setPlayedCount(0);
       setError('');
     },

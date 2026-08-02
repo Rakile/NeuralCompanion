@@ -59,7 +59,7 @@ class AddonManager:
         self._host_services = dict(host_services or {})
         self._records: list[LoadedAddon] = []
         self._registry_state = self._load_registry_state()
-        self._latency_diagnostics = TtsLatencyDiagnostics(self.app_root)
+        self._latency_diagnostics: TtsLatencyDiagnostics | None = None
         self._host_services.setdefault("diagnostics.tts_latency", self.record_latency_event)
 
     def _load_registry_state(self) -> dict[str, Any]:
@@ -383,6 +383,20 @@ class AddonManager:
         diagnostics = getattr(self, "_latency_diagnostics", None)
         return True if diagnostics is None else bool(diagnostics.flush(timeout=timeout))
 
+    def latency_diagnostics_enabled(self) -> bool:
+        return getattr(self, "_latency_diagnostics", None) is not None
+
+    def set_latency_diagnostics_enabled(self, enabled: bool, timeout: float = 1.0) -> None:
+        should_enable = bool(enabled)
+        diagnostics = getattr(self, "_latency_diagnostics", None)
+        if should_enable:
+            if diagnostics is None:
+                self._latency_diagnostics = TtsLatencyDiagnostics(self.app_root)
+            return
+        if diagnostics is not None:
+            self._latency_diagnostics = None
+            diagnostics.close(timeout=timeout)
+
     def record_latency_event(self, event: str, **fields: Any) -> None:
         diagnostics = getattr(self, "_latency_diagnostics", None)
         if diagnostics is not None:
@@ -391,6 +405,7 @@ class AddonManager:
     def close_latency_diagnostics(self, timeout: float = 1.0) -> None:
         diagnostics = getattr(self, "_latency_diagnostics", None)
         if diagnostics is not None:
+            self._latency_diagnostics = None
             diagnostics.close(timeout=timeout)
 
     @staticmethod
@@ -491,6 +506,7 @@ class AddonManager:
 
     def export_session_state(self) -> dict[str, Any]:
         session: dict[str, Any] = {}
+        session["tts_latency_diagnostics_enabled"] = self.latency_diagnostics_enabled()
         session["addon_registry_state"] = {
             "version": 1,
             "categories": dict(self._registry_state.get("categories", {}) or {}),
@@ -510,6 +526,7 @@ class AddonManager:
 
     def import_session_state(self, session: dict[str, Any] | None) -> None:
         payload = dict(session or {})
+        self.set_latency_diagnostics_enabled(bool(payload.get("tts_latency_diagnostics_enabled", False)))
         registry_payload = payload.get("addon_registry_state")
         if isinstance(registry_payload, dict):
             categories = registry_payload.get("categories", {})

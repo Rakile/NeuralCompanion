@@ -3,6 +3,11 @@ import * as SecureStore from 'expo-secure-store';
 
 import { resolveInterfaceStyle } from '../utils/interfaceMode';
 import type { InterfaceStyle } from '../utils/interfaceMode';
+import {
+  DEFAULT_LIVE_FULLSCREEN_SETTINGS,
+  normalizeLiveFullscreenSettings,
+} from '../utils/liveFullscreenSettings';
+import type { LiveFullscreenSettings } from '../utils/liveFullscreenSettings';
 
 export type { InterfaceStyle } from '../utils/interfaceMode';
 
@@ -27,6 +32,7 @@ export type PhoneSettings = {
   chatTextColor: ChatTextColor;
   chatIndicatorStyle: ChatIndicatorStyle;
   interfaceStyle: InterfaceStyle;
+  liveFullscreen: LiveFullscreenSettings;
 };
 
 const SETTINGS_KEY = 'nc-main-chat-remote.phone-settings';
@@ -47,6 +53,7 @@ export const DEFAULT_PHONE_SETTINGS: PhoneSettings = {
   chatTextColor: 'white',
   chatIndicatorStyle: 'dot',
   interfaceStyle: 'classic',
+  liveFullscreen: DEFAULT_LIVE_FULLSCREEN_SETTINGS,
 };
 
 function boolValue(value: unknown, fallback: boolean): boolean {
@@ -81,6 +88,7 @@ function normalizeSettings(value: unknown): PhoneSettings {
     chatTextColor: enumValue(data.chatTextColor, ['white', 'green', 'amber', 'cyan'] as const, DEFAULT_PHONE_SETTINGS.chatTextColor),
     chatIndicatorStyle: enumValue(data.chatIndicatorStyle, ['dot', 'pulse', 'line', 'text'] as const, DEFAULT_PHONE_SETTINGS.chatIndicatorStyle),
     interfaceStyle: resolveInterfaceStyle(data.interfaceStyle, data.chatLayout),
+    liveFullscreen: normalizeLiveFullscreenSettings(data.liveFullscreen),
   };
 }
 
@@ -119,9 +127,20 @@ export function usePhoneSettings() {
     setSettingsState((current) => normalizeSettings({ ...current, ...updates }));
   }, []);
 
+  const setLiveFullscreenSettings = useCallback((updates: Partial<LiveFullscreenSettings>) => {
+    setSettingsState((current) => normalizeSettings({
+      ...current,
+      liveFullscreen: {
+        ...current.liveFullscreen,
+        ...updates,
+      },
+    }));
+  }, []);
+
   return {
     loaded,
     settings,
+    setLiveFullscreenSettings,
     setSettings,
   };
 }

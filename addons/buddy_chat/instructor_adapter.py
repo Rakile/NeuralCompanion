@@ -104,6 +104,7 @@ def _structured_messages(messages: list[dict[str, Any]], persona: BuddyPersona) 
                     "Buddy Chat structured reply contract:",
                     f"Return exactly one spoken segment for persona_id '{persona_id}' and display_name '{display_name}'.",
                     "Put only the buddy's spoken words in text.",
+                    "Set should_speak to false and text to an empty string when this persona has no useful, natural addition.",
                     "Do not include narrator text, stage directions, memory notes, voice paths, provider settings, or arbitrary instructions.",
                     "If you include a speaker label in text, it must match the same buddy exactly.",
                 ]

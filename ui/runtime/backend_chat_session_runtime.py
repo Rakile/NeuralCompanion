@@ -1,10 +1,12 @@
 import threading
 import sys
+from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
-from core import long_term_memory
+from core import long_term_memory, long_term_memory_archive_rebuild
+from core.addons.qt_host_services import QtDialogService
 from ui.runtime import chat_transcript_window
 from ui.runtime.engine_access import engine_module as _engine
 
@@ -13,6 +15,29 @@ def _update_runtime_config(key, value):
     from ui.runtime.engine_access import update_runtime_config
 
     return update_runtime_config(key, value)
+
+
+def _format_long_term_memory_archive_progress(
+    *,
+    archived_through,
+    total_turns,
+    archive_interval,
+    auto_archive_enabled,
+):
+    total = max(0, int(total_turns or 0))
+    archived = max(0, min(int(archived_through or 0), total))
+    pending = max(0, total - archived)
+    interval = max(1, int(archive_interval or 1))
+    if not bool(auto_archive_enabled):
+        progress = "Messages until next archive: Long-Term Memory archiving is off."
+    elif pending >= interval:
+        progress = "Messages until next archive: 0 (eligible on the next completed reply)."
+    else:
+        progress = f"Messages until next archive: {interval - pending}"
+    return (
+        f"Archived messages: {archived}/{total}. "
+        f"Unarchived messages: {pending}. {progress}"
+    )
 
 
 class _ContinuityMemoryWorkerBridge(QtCore.QObject):
@@ -106,6 +131,7 @@ class BackendChatSessionRuntimeMixin:
             "btn_search_long_term_memory_archive",
             "btn_review_long_term_memory_archive",
             "btn_export_session_memory",
+            "btn_rebuild_long_term_memory_archive_candidate",
             "btn_rebuild_long_term_memory_embeddings",
         )
         widgets = []
@@ -142,6 +168,7 @@ class BackendChatSessionRuntimeMixin:
             "btn_search_long_term_memory_archive",
             "btn_review_long_term_memory_archive",
             "btn_export_session_memory",
+            "btn_rebuild_long_term_memory_archive_candidate",
             "btn_rebuild_long_term_memory_embeddings",
         )
         widgets = []
@@ -313,7 +340,7 @@ class BackendChatSessionRuntimeMixin:
             config = getattr(engine, "RUNTIME_CONFIG", {}) or {}
             if bool(config.get("quick_chat_context_active", False)):
                 self.long_term_memory_hint.setText(
-                    "Continuity Memory is disabled while using Quick Load scratch chat."
+                    "Continuity Memory is disabled while using a scratch chat."
                 )
                 return
             payload = engine.continuity_memory_snapshot()
@@ -382,12 +409,13 @@ class BackendChatSessionRuntimeMixin:
     def _refresh_long_term_memory_archive_hint(self):
         if not hasattr(self, "long_term_memory_archive_hint"):
             return
+        self._long_term_memory_archive_hint_snapshot = None
         try:
             engine = _engine()
             config = getattr(engine, "RUNTIME_CONFIG", {}) or {}
             if bool(config.get("quick_chat_context_active", False)):
                 self.long_term_memory_archive_hint.setText(
-                    "Long-Term Memory archive is disabled while using Quick Load scratch chat."
+                    "Long-Term Memory archive is disabled while using a scratch chat."
                 )
                 return
             retrieval_enabled = bool(config.get("long_term_memory_retrieval_enabled", False))
@@ -413,24 +441,23 @@ class BackendChatSessionRuntimeMixin:
         except Exception as exc:
             self.long_term_memory_archive_hint.setText(f"Long-Term Memory archive is unavailable: {exc}")
             return
-        total_turns = len(list(getattr(engine, "conversation_history", []) or []))
+        source_chat_id = long_term_memory.normalize_memory_id(
+            config.get("active_chat_context_name") or config.get("continuity_memory_id"),
+            fallback="unsaved_chat",
+        )
         archived_through = 0
         for chunk in list(active_chunks or []):
+            chunk_source = long_term_memory.normalize_memory_id((chunk or {}).get("source_chat_id"))
+            if chunk_source != source_chat_id:
+                continue
             try:
                 archived_through = max(archived_through, int((chunk or {}).get("source_message_end") or 0))
             except Exception:
                 continue
-        pending_turns = max(0, total_turns - archived_through)
         try:
-            archive_interval = max(1, min(10000, int(config.get("long_term_memory_archive_batch_turns", 120) or 120)))
+            archive_interval = max(1, min(10000, int(config.get("long_term_memory_archive_batch_turns", long_term_memory.DEFAULT_EXTRACTION_TURNS) or long_term_memory.DEFAULT_EXTRACTION_TURNS)))
         except Exception:
-            archive_interval = 120
-        if not auto_archive_enabled:
-            archive_progress = "Messages until next archive: Long-Term Memory archiving is off."
-        elif pending_turns >= archive_interval:
-            archive_progress = "Messages until next archive: 0 (eligible on the next completed reply)."
-        else:
-            archive_progress = f"Messages until next archive: {archive_interval - pending_turns}"
+            archive_interval = long_term_memory.DEFAULT_EXTRACTION_TURNS
         archive_flush = (
             "Save Chat Context archives pending messages only when Long-Term Memory archiving is enabled."
             if auto_archive_enabled
@@ -456,17 +483,42 @@ class BackendChatSessionRuntimeMixin:
                 )
             if warning:
                 embedding_text += f"\nEmbedding warning: {warning}"
-        self.long_term_memory_archive_hint.setText(
-            "Long-Term Memory archive: "
-            f"{len(active_records)} active record(s), {len(active_chunks)} raw chunk(s). "
-            f"Deleted: {len(deleted_records)} record(s), {len(deleted_chunks)} chunk(s).\n"
-            f"Archived messages: {min(archived_through, total_turns)}/{total_turns}. "
-            f"Unarchived messages: {pending_turns}. {archive_progress}\n"
-            f"{archive_flush}\n"
-            f"{embedding_text}\n"
-            f"Storage: {path}"
-        )
+        self._long_term_memory_archive_hint_snapshot = {
+            "archived_through": archived_through,
+            "archive_interval": archive_interval,
+            "auto_archive_enabled": auto_archive_enabled,
+            "inventory_text": (
+                "Long-Term Memory archive: "
+                f"{len(active_records)} active record(s), {len(active_chunks)} raw chunk(s). "
+                f"Deleted: {len(deleted_records)} record(s), {len(deleted_chunks)} chunk(s)."
+            ),
+            "archive_flush": archive_flush,
+            "embedding_text": embedding_text,
+            "path": path,
+        }
+        self._refresh_long_term_memory_archive_progress_hint()
         self._maybe_show_long_term_memory_embedding_blocked_event()
+
+    def _refresh_long_term_memory_archive_progress_hint(self):
+        if not hasattr(self, "long_term_memory_archive_hint"):
+            return
+        snapshot = getattr(self, "_long_term_memory_archive_hint_snapshot", None)
+        if not isinstance(snapshot, dict):
+            return
+        total_turns = len(getattr(_engine(), "conversation_history", []) or [])
+        progress_text = _format_long_term_memory_archive_progress(
+            archived_through=snapshot.get("archived_through", 0),
+            total_turns=total_turns,
+            archive_interval=snapshot.get("archive_interval", long_term_memory.DEFAULT_EXTRACTION_TURNS),
+            auto_archive_enabled=snapshot.get("auto_archive_enabled", False),
+        )
+        self.long_term_memory_archive_hint.setText(
+            f"{snapshot.get('inventory_text', '')}\n"
+            f"{progress_text}\n"
+            f"{snapshot.get('archive_flush', '')}\n"
+            f"{snapshot.get('embedding_text', '')}\n"
+            f"Storage: {snapshot.get('path', '')}"
+        )
 
     def _continuity_memory_text(self):
         try:
@@ -764,6 +816,13 @@ class BackendChatSessionRuntimeMixin:
         _update_runtime_config("long_term_memory_recall_image_limit", long_term_memory.normalize_image_recall_limit(value, default=1))
         self.save_session()
 
+    def on_long_term_memory_image_context_max_output_tokens_changed(self, value):
+        _update_runtime_config(
+            "long_term_memory_image_context_max_output_tokens",
+            long_term_memory.normalize_image_context_max_output_tokens(value),
+        )
+        self.save_session()
+
     def on_long_term_memory_auto_archive_enabled_changed(self, checked):
         _update_runtime_config("long_term_memory_auto_archive_enabled", bool(checked))
         self._refresh_long_term_memory_archive_hint()
@@ -918,6 +977,95 @@ class BackendChatSessionRuntimeMixin:
             bridge.finished.emit(result, error)
 
         threading.Thread(target=worker, name="nc-long-term-memory-embeddings", daemon=True).start()
+
+    def rebuild_long_term_memory_archive_candidate_now(self):
+        if bool(getattr(self, "_long_term_memory_archive_candidate_running", False)):
+            return
+        default_path = str(getattr(self, "_last_chat_context_path", "") or "").strip()
+        if not default_path:
+            default_path = str(Path("runtime") / "chat_contexts")
+        path, _ = QtDialogService(self).open_file(
+            "Choose Complete Chat Context",
+            default_path,
+            "Chat Context (*.json);;JSON (*.json);;All Files (*.*)",
+        )
+        if not path:
+            return
+        chunk_size = long_term_memory.DEFAULT_EXTRACTION_TURNS
+        if hasattr(self, "long_term_memory_archive_batch_turns_spin"):
+            chunk_size = max(1, min(10000, int(self.long_term_memory_archive_batch_turns_spin.value())))
+        decision = QtWidgets.QMessageBox.question(
+            self,
+            "Build Long-Term Memory Archive Candidate",
+            (
+                "Create a separate inactive candidate from this saved chat context?\n\n"
+                f"Archive interval: {chunk_size} messages\n"
+                f"Context: {path}\n\n"
+                "This test operation never replaces or modifies the active Long-Term Memory database. "
+                "Chunk embeddings are intentionally left for the separate Rebuild Embeddings operation."
+            ),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if decision != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._long_term_memory_archive_candidate_running = True
+        self._set_long_term_memory_archive_controls_locked(True)
+        if hasattr(self, "long_term_memory_archive_hint"):
+            self.long_term_memory_archive_hint.setText(
+                f"{self.long_term_memory_archive_hint.text()}\nBuilding inactive archive candidate..."
+            )
+
+        bridge = _ContinuityMemoryWorkerBridge()
+        bridge.finished.connect(self._on_long_term_memory_archive_candidate_finished)
+        self._long_term_memory_archive_candidate_bridge = bridge
+
+        def worker():
+            result = None
+            error = None
+            try:
+                result = long_term_memory_archive_rebuild.rebuild_archive_candidate(
+                    path,
+                    chunk_size=chunk_size,
+                )
+            except Exception as exc:
+                error = exc
+            bridge.finished.emit(result, error)
+
+        threading.Thread(target=worker, name="nc-long-term-memory-archive-candidate", daemon=True).start()
+
+    def _on_long_term_memory_archive_candidate_finished(self, result, error):
+        self._long_term_memory_archive_candidate_running = False
+        self._set_long_term_memory_archive_controls_locked(False)
+        self._long_term_memory_archive_candidate_bridge = None
+        self._refresh_long_term_memory_archive_hint()
+        if error is not None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Long-Term Memory Archive Candidate",
+                f"Could not build the inactive archive candidate:\n{error}",
+            )
+            return
+        result = dict(result or {})
+        QtWidgets.QMessageBox.information(
+            self,
+            "Long-Term Memory Archive Candidate",
+            (
+                "Inactive candidate created. The active memory database was not changed.\n\n"
+                f"Messages archived: {int(result.get('messages_archived', 0) or 0)}\n"
+                f"Old chunks: {int(result.get('old_chunks', 0) or 0)}\n"
+                f"Candidate chunks: {int(result.get('chunks_created', 0) or 0)}\n"
+                f"Context image references: {int(result.get('context_asset_references', 0) or 0)}\n"
+                f"Legacy image links recovered: {int(result.get('legacy_asset_links_recovered', 0) or 0)}\n"
+                f"Candidate image links: {int(result.get('asset_links_relinked', 0) or 0)}\n"
+                f"Missing context image files: {int(result.get('missing_context_asset_references', 0) or 0)}\n"
+                f"Unresolved legacy image links: {int(result.get('unresolved_asset_links', 0) or 0)}\n"
+                f"Durable records preserved: {int(result.get('records_preserved', 0) or 0)}\n\n"
+                f"Candidate database:\n{result.get('candidate_db', '')}\n\n"
+                f"Validation report:\n{result.get('report_path', '')}"
+            ),
+        )
 
     def _on_long_term_memory_embeddings_rebuild_finished(self, result, error):
         self._long_term_memory_embedding_rebuild_running = False

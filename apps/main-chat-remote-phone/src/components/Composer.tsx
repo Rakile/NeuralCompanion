@@ -10,17 +10,25 @@ type Props = {
   recording: boolean;
   busy: boolean;
   recordingError: string;
+  liveEnabled: boolean;
+  liveStatus: string;
+  fullscreenAvailable: boolean;
   transcript?: string;
   onTranscriptConsumed?: () => void;
   onSend: (text: string) => Promise<void>;
   onRecordPress: () => Promise<void>;
+  onLivePress: () => Promise<void>;
+  onFullscreenPress: () => void;
+  onInputFocus?: () => void;
+  onInputBlur?: () => void;
   onPhotoPress: () => void;
 };
 
-export function Composer({ disabled, photoAvailable, voiceAvailable, recording, busy, recordingError, transcript = '', onTranscriptConsumed, onSend, onRecordPress, onPhotoPress }: Props) {
+export function Composer({ disabled, photoAvailable, voiceAvailable, recording, busy, recordingError, liveEnabled, liveStatus, fullscreenAvailable, transcript = '', onTranscriptConsumed, onSend, onRecordPress, onLivePress, onFullscreenPress, onInputFocus, onInputBlur, onPhotoPress }: Props) {
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState('');
-  const recordDisabled = busy || ((disabled || !voiceAvailable) && !recording);
+  const recordDisabled = liveEnabled || busy || ((disabled || !voiceAvailable) && !recording);
+  const liveDisabled = !liveEnabled && (busy || disabled || !voiceAvailable || recording);
   useEffect(() => {
     if (disabled) {
       setSendError('');
@@ -52,6 +60,28 @@ export function Composer({ disabled, photoAvailable, voiceAvailable, recording, 
     <View style={styles.wrap}>
       {sendError || recordingError ? <Text style={styles.error}>{sendError || recordingError}</Text> : null}
       {!voiceAvailable ? <Text style={styles.hint}>Phone voice needs a desktop STT backend with file transcription.</Text> : null}
+      <View style={[styles.liveRow, liveEnabled && styles.liveRowActive]}>
+        <View style={styles.liveText}>
+          <Text style={styles.liveTitle}>Live Mic</Text>
+          <Text style={styles.liveStatus}>Status: {liveStatus} Detected speech sends automatically.</Text>
+        </View>
+        <View style={styles.liveActions}>
+          <Pressable
+            disabled={liveDisabled}
+            style={[styles.liveButton, liveEnabled && styles.liveButtonActive, liveDisabled && styles.disabled]}
+            onPress={onLivePress}
+          >
+            <Text style={styles.buttonText}>{liveEnabled ? 'Stop' : 'Start'}</Text>
+          </Pressable>
+          <Pressable
+            disabled={!fullscreenAvailable}
+            style={[styles.liveButton, !fullscreenAvailable && styles.disabled]}
+            onPress={onFullscreenPress}
+          >
+            <Text style={styles.buttonText}>Fullscreen</Text>
+          </Pressable>
+        </View>
+      </View>
       <View style={styles.composer}>
         <TextInput
           value={text}
@@ -61,6 +91,8 @@ export function Composer({ disabled, photoAvailable, voiceAvailable, recording, 
           placeholderTextColor={colors.muted}
           style={styles.input}
           multiline
+          onFocus={onInputFocus}
+          onBlur={onInputBlur}
         />
         <Pressable
           disabled={disabled || busy || !photoAvailable}
@@ -102,6 +134,53 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     lineHeight: 16,
+  },
+  liveRow: {
+    alignItems: 'center',
+    backgroundColor: colors.panelAlt,
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  liveRowActive: {
+    borderColor: colors.accent,
+  },
+  liveText: {
+    flex: 1,
+  },
+  liveActions: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  liveTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  liveStatus: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  liveButton: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: 'center',
+    minWidth: 58,
+    paddingHorizontal: spacing.sm,
+  },
+  liveButtonActive: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
   },
   input: {
     backgroundColor: colors.panelAlt,

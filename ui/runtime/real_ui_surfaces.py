@@ -251,11 +251,29 @@ class MainUiRealSurfacesMixin:
                 recall_image_limit.setValue(long_term_memory.normalize_image_recall_limit(_backend_archive_value("long_term_memory_recall_image_limit_spin", 1), default=1))
                 recall_image_limit.setMinimumWidth(112)
                 recall_image_limit.setMaximumWidth(132)
+                image_context_output_limit = QtWidgets.QSpinBox(archive_box)
+                image_context_output_limit.setObjectName("long_term_memory_image_context_max_output_tokens_spin")
+                image_context_output_limit.setRange(256, 131072)
+                image_context_output_limit.setSingleStep(256)
+                image_context_output_limit.setValue(
+                    long_term_memory.normalize_image_context_max_output_tokens(
+                        _backend_archive_value(
+                            "long_term_memory_image_context_max_output_tokens_spin",
+                            long_term_memory.DEFAULT_IMAGE_CONTEXT_MAX_OUTPUT_TOKENS,
+                        )
+                    )
+                )
+                image_context_output_limit.setMinimumWidth(112)
+                image_context_output_limit.setMaximumWidth(132)
+                image_context_output_limit.setToolTip(
+                    "Maximum output-token budget for the internal image-context judge. "
+                    "This is a ceiling, not a requested response length."
+                )
                 archive_batch_turns = QtWidgets.QSpinBox(archive_box)
                 archive_batch_turns.setObjectName("long_term_memory_archive_batch_turns_spin")
                 archive_batch_turns.setRange(1, 10000)
-                archive_batch_turns.setSingleStep(10)
-                archive_batch_turns.setValue(max(1, min(10000, _backend_archive_value("long_term_memory_archive_batch_turns_spin", 120))))
+                archive_batch_turns.setSingleStep(1)
+                archive_batch_turns.setValue(max(1, min(10000, _backend_archive_value("long_term_memory_archive_batch_turns_spin", long_term_memory.DEFAULT_EXTRACTION_TURNS))))
                 archive_batch_turns.setMinimumWidth(112)
                 archive_batch_turns.setMaximumWidth(132)
                 retrieval_form = QtWidgets.QFormLayout()
@@ -266,6 +284,7 @@ class MainUiRealSurfacesMixin:
                 retrieval_form.addRow("Archive notes to use", retrieval_max_items)
                 retrieval_form.addRow("Recall text budget (chars, -1 = no cap)", recall_text_budget)
                 retrieval_form.addRow("Long-Term Memory recalled images to attach", recall_image_limit)
+                retrieval_form.addRow("Image-context judge max output tokens (advanced)", image_context_output_limit)
                 embedding_model = QtWidgets.QComboBox(archive_box)
                 embedding_model.setObjectName("long_term_memory_embedding_model_edit")
                 embedding_model.setEditable(True)
@@ -305,11 +324,14 @@ class MainUiRealSurfacesMixin:
                 review_archive.setObjectName("btn_review_long_term_memory_archive")
                 export_memory = QtWidgets.QPushButton("Export Session Memory...", archive_box)
                 export_memory.setObjectName("btn_export_session_memory")
+                rebuild_archive_candidate = QtWidgets.QPushButton("Rebuild Archive Candidate...", archive_box)
+                rebuild_archive_candidate.setObjectName("btn_rebuild_long_term_memory_archive_candidate")
                 rebuild_embeddings = QtWidgets.QPushButton("Rebuild Embeddings", archive_box)
                 rebuild_embeddings.setObjectName("btn_rebuild_long_term_memory_embeddings")
                 archive_button_row.addWidget(search_archive)
                 archive_button_row.addWidget(review_archive)
                 archive_button_row.addWidget(export_memory)
+                archive_button_row.addWidget(rebuild_archive_candidate)
                 archive_button_row.addWidget(rebuild_embeddings)
                 archive_button_row.addStretch(1)
                 archive_layout.addLayout(archive_button_row)
@@ -572,6 +594,7 @@ class MainUiRealSurfacesMixin:
                 "btn_search_long_term_memory_archive": self._ui_object("btn_search_long_term_memory_archive"),
                 "btn_review_long_term_memory_archive": self._ui_object("btn_review_long_term_memory_archive"),
                 "btn_export_session_memory": self._ui_object("btn_export_session_memory"),
+                "btn_rebuild_long_term_memory_archive_candidate": self._ui_object("btn_rebuild_long_term_memory_archive_candidate"),
                 "btn_rebuild_long_term_memory_embeddings": self._ui_object("btn_rebuild_long_term_memory_embeddings"),
                 "long_term_memory_retrieval_enabled_checkbox": self._ui_object("long_term_memory_retrieval_enabled_checkbox"),
                 "long_term_memory_image_review_enabled_checkbox": self._ui_object("long_term_memory_image_review_enabled_checkbox"),
@@ -579,6 +602,7 @@ class MainUiRealSurfacesMixin:
                 "long_term_memory_retrieval_max_items_spin": self._ui_object("long_term_memory_retrieval_max_items_spin"),
                 "long_term_memory_recall_text_budget_spin": self._ui_object("long_term_memory_recall_text_budget_spin"),
                 "long_term_memory_recall_image_limit_spin": self._ui_object("long_term_memory_recall_image_limit_spin"),
+                "long_term_memory_image_context_max_output_tokens_spin": self._ui_object("long_term_memory_image_context_max_output_tokens_spin"),
                 "long_term_memory_archive_batch_turns_spin": self._ui_object("long_term_memory_archive_batch_turns_spin"),
                 "long_term_memory_embedding_enabled_checkbox": self._ui_object("long_term_memory_embedding_enabled_checkbox"),
                 "long_term_memory_embedding_model_edit": self._ui_object("long_term_memory_embedding_model_edit"),
@@ -684,6 +708,7 @@ class MainUiRealSurfacesMixin:
             _copy_value(backend_widgets.get("long_term_memory_retrieval_max_items_spin"), frontend_widgets.get("long_term_memory_retrieval_max_items_spin"))
             _copy_value(backend_widgets.get("long_term_memory_recall_text_budget_spin"), frontend_widgets.get("long_term_memory_recall_text_budget_spin"))
             _copy_value(backend_widgets.get("long_term_memory_recall_image_limit_spin"), frontend_widgets.get("long_term_memory_recall_image_limit_spin"))
+            _copy_value(backend_widgets.get("long_term_memory_image_context_max_output_tokens_spin"), frontend_widgets.get("long_term_memory_image_context_max_output_tokens_spin"))
             _copy_value(backend_widgets.get("long_term_memory_archive_batch_turns_spin"), frontend_widgets.get("long_term_memory_archive_batch_turns_spin"))
             _copy_checked(backend_widgets.get("long_term_memory_embedding_enabled_checkbox"), frontend_widgets.get("long_term_memory_embedding_enabled_checkbox"))
             _copy_text(backend_widgets.get("long_term_memory_embedding_model_edit"), frontend_widgets.get("long_term_memory_embedding_model_edit"))
@@ -1078,6 +1103,11 @@ class MainUiRealSurfacesMixin:
             note.setWordWrap(True)
             note.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             layout.addWidget(note)
+
+            diagnostics_group = getattr(self.backend, "tts_latency_diagnostics_group", None)
+            if diagnostics_group is None:
+                diagnostics_group = self.backend._build_tts_latency_diagnostics_controls()
+            layout.addWidget(diagnostics_group)
 
             scroll = QtWidgets.QScrollArea()
             scroll.setObjectName("addons_management_scroll")

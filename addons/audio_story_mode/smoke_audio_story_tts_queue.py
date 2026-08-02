@@ -46,6 +46,32 @@ def test_plan_groups_windows_near_twenty_five_seconds() -> None:
     assert [segment.window_indices for segment in plan.segments] == [(0, 1, 2), (3, 4)]
 
 
+def test_selected_novel_chapter_chunks_build_an_isolated_tts_plan() -> None:
+    chunks = [
+        {
+            "chapter_id": "chapter-2",
+            "scene_id": f"scene-{index}",
+            "start_seconds": index * 8.0,
+            "end_seconds": (index + 1) * 8.0,
+            "text": f"Chapter two prose {index}.",
+        }
+        for index in range(4)
+    ]
+
+    plan = build_tts_queue_plan(
+        chunks, {"voice": "narrator"}, Path("cache"), "novel-project"
+    )
+
+    assert plan.segments
+    assert set(index for segment in plan.segments for index in segment.window_indices) == {
+        0,
+        1,
+        2,
+        3,
+    }
+    assert all("Chapter two prose" in segment.text for segment in plan.segments)
+
+
 def test_project_cache_tokens_are_safe_contained_and_stable() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         cache_root = Path(temporary).resolve()
@@ -1347,6 +1373,7 @@ def test_worker_rejects_wav_mutation_during_committed_hash_validation() -> None:
 def main() -> int:
     tests = [
         test_plan_groups_windows_near_twenty_five_seconds,
+        test_selected_novel_chapter_chunks_build_an_isolated_tts_plan,
         test_project_cache_tokens_are_safe_contained_and_stable,
         test_buffer_preferences_do_not_change_segment_signatures,
         test_voice_or_text_change_invalidates_only_affected_segments,

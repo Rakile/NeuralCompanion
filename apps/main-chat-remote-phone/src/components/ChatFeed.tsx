@@ -6,6 +6,7 @@ import type { ChatMessage } from '../api/types';
 import type { ChatIndicatorStyle, ChatTextColor } from '../hooks/usePhoneSettings';
 import { useInterfaceMode } from '../context/InterfaceModeContext';
 import { colors, spacing } from '../styles/theme';
+import { useAuthorizedMediaUrl } from '../hooks/useAuthorizedMediaUrl';
 
 type Props = {
   messages: ChatMessage[];
@@ -21,6 +22,11 @@ const cleanTextColors: Record<ChatTextColor, string> = {
   amber: '#ffd27a',
   cyan: '#83e6f5',
 };
+
+function AuthorizedChatImage({ client, path }: { client: RemoteClient; path: string }) {
+  const media = useAuthorizedMediaUrl(client, path);
+  return media.url ? <Image source={{ uri: media.url }} style={styles.attachment} resizeMode="cover" /> : null;
+}
 
 function ActivityIndicator({ activity, styleName }: { activity: NonNullable<Props['activity']>; styleName: ChatIndicatorStyle }) {
   return (
@@ -66,11 +72,7 @@ export function ChatFeed({ messages, client, textColor = 'white', indicatorStyle
         >
           <Text style={[styles.role, !classicMode && styles.cleanRole]}>{message.role || 'message'}</Text>
           {message.image_url_path ? (
-            <Image
-              source={{ uri: client.authorizedUrl(message.image_url_path) }}
-              style={styles.attachment}
-              resizeMode="cover"
-            />
+            <AuthorizedChatImage client={client} path={message.image_url_path} />
           ) : null}
           <Text selectable={!classicMode} style={[styles.message, !classicMode && { color: cleanTextColors[textColor] }]}>{message.content}</Text>
         </View>

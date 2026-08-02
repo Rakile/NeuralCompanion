@@ -42,6 +42,18 @@ export type AudioChunk = {
   duration_seconds?: number;
   content_type?: string;
   created_at?: number;
+  spectrum_url_path?: string;
+  spectrum_status?: 'pending' | 'ready' | 'unavailable' | string;
+  spectrum_version?: number;
+};
+
+export type AudioSpectrumTimelinePayload = {
+  version: 1;
+  fps: 24;
+  bars: 48;
+  frame_count: number;
+  encoding: 'uint8-base64';
+  data: string;
 };
 
 export type AudioState = {
@@ -255,6 +267,7 @@ export type PublicRemoteStatus = {
 };
 
 export type RemoteHealth = {
+  gateway_id?: string;
   service?: string;
   status?: string;
   bridge?: {

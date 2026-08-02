@@ -13,9 +13,10 @@ type Props = {
   visible: boolean;
   onCancel: () => void;
   onSend: (imageBase64: string, format: 'jpg', prompt: string) => Promise<void>;
+  onSent?: () => void;
 };
 
-export function ChatPhotoCapture({ visible, onCancel, onSend }: Props) {
+export function ChatPhotoCapture({ visible, onCancel, onSend, onSent }: Props) {
   const cameraRef = useRef<CameraView | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [photo, setPhoto] = useState<CapturedPhoto | null>(null);
@@ -59,6 +60,7 @@ export function ChatPhotoCapture({ visible, onCancel, onSend }: Props) {
     setError('');
     try {
       await onSend(photo.base64, 'jpg', prompt.trim() || 'Please respond to this photo.');
+      onSent?.();
       onCancel();
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : 'Could not send photo.');

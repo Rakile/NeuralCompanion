@@ -102,11 +102,28 @@ def public_bridge_health_snapshot(payload: dict[str, Any] | None) -> dict[str, A
     return public
 
 
-def audio_snapshot_signature(payload: dict[str, Any]) -> tuple[int, int, str]:
+def audio_snapshot_signature(
+    payload: dict[str, Any],
+) -> tuple[int, int, str, str, int, tuple[tuple[str, str, int], ...]]:
     audio = dict(payload or {})
     items = list(audio.get("items") or [])
-    latest_id = str(dict(items[-1]).get("id") or "") if items else ""
-    return int(audio.get("generation") or 0), len(items), latest_id
+    latest = dict(items[-1]) if items else {}
+    spectrum_states = tuple(
+        (
+            str(dict(item).get("id") or ""),
+            str(dict(item).get("spectrum_status") or ""),
+            int(dict(item).get("spectrum_version") or 0),
+        )
+        for item in items
+    )
+    return (
+        int(audio.get("generation") or 0),
+        len(items),
+        str(latest.get("id") or ""),
+        str(latest.get("spectrum_status") or ""),
+        int(latest.get("spectrum_version") or 0),
+        spectrum_states,
+    )
 
 
 def lan_ip_address() -> str:
@@ -658,7 +675,7 @@ class MainChatRemoteBackend:
                 audio_bridge = backend.bridge.with_timeout(WEBSOCKET_AUDIO_BRIDGE_TIMEOUT_SECONDS)
                 next_state_at = 0.0
                 next_audio_at = 0.0
-                last_audio_signature: tuple[int, int, str] | None = None
+                last_audio_signature: tuple[int, int, str, str, int] | None = None
                 bridge_executor = concurrent.futures.ThreadPoolExecutor(
                     max_workers=2,
                     thread_name_prefix="nc-main-chat-remote-ws-bridge",

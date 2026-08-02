@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import addons.main_chat_remote.remote_backend as remote_backend_module
+import addons.main_chat_remote.media_bridge as media_bridge_module
 from addons.main_chat_remote.backend_process import (
     BackendProcessSupervisor,
     generate_pairing_code,
@@ -34,6 +35,7 @@ from addons.main_chat_remote.controller import (
     redact_sensitive_query_values as redact_bridge_sensitive_query_values,
 )
 from addons.main_chat_remote.media_bridge import MainChatMediaBridge
+from addons.main_chat_remote.spectrum_analyzer import SpectrumAnalyzer
 from addons.main_chat_remote.remote_backend import (
     BridgeClient,
     MainChatRemoteBackend,
@@ -53,6 +55,36 @@ class _Logger:
 
     def debug(self, *_args):
         return None
+
+
+class _DeferredSpectrumAnalyzer:
+    def __init__(self):
+        self.jobs = {}
+        self.cancelled = []
+        self.shutdown_count = 0
+
+    def submit(self, audio_id, audio_path, sidecar_path, callback):
+        self.jobs[str(audio_id)] = (Path(audio_path), Path(sidecar_path), callback)
+        return True
+
+    def complete(self, audio_id):
+        _audio_path, sidecar_path, callback = self.jobs[str(audio_id)]
+        payload = {
+            "version": 1,
+            "fps": 24,
+            "bars": 48,
+            "frame_count": 1,
+            "encoding": "uint8-base64",
+            "data": base64.b64encode(bytes(48)).decode("ascii"),
+        }
+        sidecar_path.write_text(json.dumps(payload), encoding="utf-8")
+        callback(str(audio_id), payload, "")
+
+    def cancel(self, audio_id):
+        self.cancelled.append(str(audio_id))
+
+    def shutdown(self):
+        self.shutdown_count += 1
 
 
 class _Snapshot:
@@ -76,7 +108,10 @@ class _RuntimeControls:
         self.last_action = ""
 
     def snapshot(self):
-        return {"actions": ["pause_speech", "skip_speech", "replay_last_assistant"], "last_action": self.last_action}
+        return {
+            "actions": ["interrupt_response", "pause_speech", "skip_speech", "replay_last_assistant"],
+            "last_action": self.last_action,
+        }
 
     def trigger(self, action):
         self.last_action = str(action or "")
@@ -725,6 +760,73 @@ def _bridge_info_lifecycle_smoke(root: Path) -> None:
         controller.shutdown()
 
 
+def _bridge_client_disconnect_smoke(root: Path) -> None:
+    class _RecordingLogger:
+        def __init__(self):
+            self.warnings: list[str] = []
+
+        def info(self, *_args):
+            return None
+
+        def warning(self, message, *args):
+            self.warnings.append(str(message) % args if args else str(message))
+
+        def debug(self, *_args):
+            return None
+
+    context = _Context(root / "bridge_client_disconnect_app")
+    logger = _RecordingLogger()
+    context.logger = logger
+    controller = MainChatRemoteController(context)
+    state_started = threading.Event()
+    state_returned = threading.Event()
+    release_state = threading.Event()
+
+    def slow_state_snapshot():
+        state_started.set()
+        release_state.wait(2.0)
+        state_returned.set()
+        return {"ready": True}
+
+    controller.remote_state_snapshot = slow_state_snapshot
+    bridge = MainChatBridgeServer(
+        controller,
+        BridgeSettings(
+            enabled=True,
+            host="127.0.0.1",
+            port=free_local_port(),
+            token="disconnect-smoke-token",
+        ),
+    )
+    client = None
+    captured_stderr = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(captured_stderr):
+            bridge.start()
+            client = socket.create_connection(("127.0.0.1", bridge.settings.port), timeout=2.0)
+            client.sendall(
+                b"GET /api/state HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"X-NC-Bridge-Token: disconnect-smoke-token\r\n"
+                b"Connection: close\r\n\r\n"
+            )
+            assert state_started.wait(2.0)
+            client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("hh", 1, 0))
+            client.close()
+            client = None
+            release_state.set()
+            assert state_returned.wait(2.0)
+            time.sleep(0.15)
+    finally:
+        release_state.set()
+        if client is not None:
+            client.close()
+        bridge.stop()
+        controller.shutdown()
+    assert not any("Bridge request failed" in message for message in logger.warnings)
+    assert "Exception occurred during processing" not in captured_stderr.getvalue()
+
+
 def _controller_shutdown_timer_smoke(root: Path) -> None:
     class _Signal:
         def __init__(self):
@@ -839,6 +941,44 @@ def _media_bridge_retention_smoke(root: Path) -> None:
     assert not list(cache_dir.glob("*.wav"))
 
 
+def _media_bridge_spectrum_smoke(root: Path) -> None:
+    cache_dir = root / "media_bridge_spectrum"
+    source = root / "media_bridge_spectrum_source.wav"
+    _write_wav(source)
+    analyzer = _DeferredSpectrumAnalyzer()
+    bridge = MainChatMediaBridge(cache_dir, spectrum_analyzer=analyzer)
+    bridge.begin_tts_capture("spectrum smoke")
+    started_at = time.perf_counter()
+    result = bridge.handle_tts_audio_chunk_ready(
+        {
+            "audio_path": str(source),
+            "text": "spectrum reply",
+            "duration_seconds": 0.1,
+        }
+    )
+    assert time.perf_counter() - started_at < 0.25
+    assert result["captured"] is True
+    pending = bridge.snapshot()["items"][0]
+    assert pending["spectrum_status"] == "pending"
+    assert "spectrum_url_path" not in pending
+    analyzer.complete(pending["id"])
+    ready = bridge.snapshot()["items"][0]
+    assert ready["spectrum_status"] == "ready"
+    assert ready["spectrum_version"] == 1
+    assert ready["spectrum_url_path"] == f"/api/audio/spectrum/{ready['id']}"
+    assert bridge.spectrum_file_path(ready["id"]).is_file()
+    try:
+        bridge.spectrum_file_path("../outside")
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("invalid spectrum id should be rejected")
+    bridge.cleanup()
+    assert analyzer.shutdown_count == 1
+    assert ready["id"] in analyzer.cancelled
+    assert not list(cache_dir.glob("*.spectrum.json"))
+
+
 def _media_bridge_auto_capture_smoke(root: Path) -> None:
     cache_dir = root / "media_bridge_auto_capture"
     source = root / "media_bridge_auto_source.wav"
@@ -901,6 +1041,272 @@ def _media_bridge_phone_only_capture_smoke(root: Path) -> None:
     bridge.cleanup()
 
 
+def _media_bridge_queued_phone_capture_smoke(root: Path) -> None:
+    cache_dir = root / "media_bridge_queued_phone"
+    source = root / "media_bridge_queued_phone_source.wav"
+    _write_wav(source)
+    bridge = MainChatMediaBridge(cache_dir, allow_auto_capture=False)
+    bridge.begin_tts_capture(
+        "first phone text",
+        suppress_backend_playback=True,
+        capture_id="phone-turn-1",
+    )
+    bridge.begin_tts_capture(
+        "second phone text",
+        suppress_backend_playback=False,
+        capture_id="phone-turn-2",
+    )
+
+    first = bridge.handle_tts_audio_chunk_ready(
+        {
+            "audio_path": str(source),
+            "text": "reply to first phone text",
+            "duration_seconds": 0.25,
+            "source_meta": {"remote_capture_id": "phone-turn-1"},
+        }
+    )
+    second = bridge.handle_tts_audio_chunk_ready(
+        {
+            "audio_path": str(source),
+            "text": "reply to second phone text",
+            "duration_seconds": 0.25,
+            "source_meta": {"remote_capture_id": "phone-turn-2"},
+        }
+    )
+
+    assert first == {"captured": True, "skip_local_playback": True}
+    assert second == {"captured": True, "skip_local_playback": False}
+    assert [item["text"] for item in bridge.snapshot()["items"]] == [
+        "reply to first phone text",
+        "reply to second phone text",
+    ]
+    bridge.cleanup()
+
+
+def _media_bridge_capture_survives_new_generation_during_copy_smoke(root: Path) -> None:
+    cache_dir = root / "media_bridge_copy_overlap"
+    source = root / "media_bridge_copy_overlap_source.wav"
+    _write_wav(source)
+    bridge = MainChatMediaBridge(cache_dir, allow_auto_capture=False)
+    bridge.begin_tts_capture(
+        "first phone text",
+        suppress_backend_playback=True,
+        capture_id="phone-turn-1",
+    )
+    original_copy = media_bridge_module.shutil.copy2
+
+    def copy_after_new_phone_turn(source_path, target_path):
+        bridge.begin_tts_capture(
+            "second phone text",
+            suppress_backend_playback=True,
+            capture_id="phone-turn-2",
+        )
+        return original_copy(source_path, target_path)
+
+    media_bridge_module.shutil.copy2 = copy_after_new_phone_turn
+    try:
+        captured = bridge.handle_tts_audio_chunk_ready(
+            {
+                "audio_path": str(source),
+                "text": "reply to first phone text",
+                "duration_seconds": 0.25,
+                "source_meta": {"remote_capture_id": "phone-turn-1"},
+            }
+        )
+    finally:
+        media_bridge_module.shutil.copy2 = original_copy
+
+    assert captured == {"captured": True, "skip_local_playback": True}
+    assert bridge.snapshot()["items"][0]["text"] == "reply to first phone text"
+    bridge.cleanup()
+
+
+def _media_bridge_copy_failure_keeps_phone_only_suppression_smoke(root: Path) -> None:
+    cache_dir = root / "media_bridge_copy_failure"
+    source = root / "media_bridge_copy_failure_source.wav"
+    _write_wav(source)
+    bridge = MainChatMediaBridge(cache_dir, allow_auto_capture=False)
+    bridge.begin_tts_capture(
+        "phone text",
+        suppress_backend_playback=True,
+        capture_id="phone-turn-copy-failure",
+    )
+    original_copy = media_bridge_module.shutil.copy2
+
+    def fail_copy(_source_path, _target_path):
+        raise OSError("simulated phone cache failure")
+
+    media_bridge_module.shutil.copy2 = fail_copy
+    try:
+        captured = bridge.handle_tts_audio_chunk_ready(
+            {
+                "audio_path": str(source),
+                "text": "reply to phone text",
+                "duration_seconds": 0.25,
+                "source_meta": {"remote_capture_id": "phone-turn-copy-failure"},
+            }
+        )
+    finally:
+        media_bridge_module.shutil.copy2 = original_copy
+
+    assert captured == {"captured": False, "skip_local_playback": True}
+    assert bridge.snapshot()["items"] == []
+    bridge.cleanup()
+
+
+def _new_phone_capture_keeps_unfetched_audio_smoke(root: Path) -> None:
+    cache_dir = root / "media_bridge_unfetched_audio"
+    source = root / "media_bridge_unfetched_audio_source.wav"
+    _write_wav(source)
+    bridge = MainChatMediaBridge(cache_dir, allow_auto_capture=False)
+    bridge.begin_tts_capture(
+        "first phone text",
+        suppress_backend_playback=True,
+        capture_id="phone-turn-1",
+    )
+    first = bridge.handle_tts_audio_chunk_ready(
+        {
+            "audio_path": str(source),
+            "text": "reply to first phone text",
+            "duration_seconds": 0.25,
+            "source_meta": {"remote_capture_id": "phone-turn-1"},
+        }
+    )
+    first_item = bridge.snapshot()["items"][0]
+    first_audio_path = bridge.audio_file_path(first_item["id"])
+    assert first == {"captured": True, "skip_local_playback": True}
+
+    bridge.begin_tts_capture(
+        "second phone text",
+        suppress_backend_playback=True,
+        capture_id="phone-turn-2",
+    )
+
+    assert bridge.snapshot()["items"][0]["id"] == first_item["id"]
+    assert first_audio_path.is_file()
+    bridge.cleanup()
+
+
+def _failed_later_phone_send_preserves_earlier_capture_smoke(root: Path) -> None:
+    class _RejectSecondShell(_Shell):
+        def send_typed_chat_message(self, text=None, metadata=None):
+            super().send_typed_chat_message(text=text, metadata=metadata)
+            return len(self.sent) == 1
+
+    context = _Context(root / "failed_later_phone_send")
+    shell = _RejectSecondShell()
+    context._services["qt.shell"] = shell
+    controller = MainChatRemoteController(context)
+    source = root / "failed_later_phone_send_source.wav"
+    _write_wav(source)
+    try:
+        first = controller.remote_send_text(
+            "accepted phone text",
+            {"play_on_backend": False, "capture_phone_audio": True},
+        )
+        second = controller.remote_send_text(
+            "rejected phone text",
+            {"play_on_backend": False, "capture_phone_audio": True},
+        )
+        first_capture_id = shell.sent_metadata[0]["remote_capture_id"]
+        assert first["accepted"] is True
+        assert second["accepted"] is False
+
+        captured = controller.media_bridge.handle_tts_audio_chunk_ready(
+            {
+                "audio_path": str(source),
+                "text": "reply to accepted phone text",
+                "duration_seconds": 0.25,
+                "source_meta": {"remote_capture_id": first_capture_id},
+            }
+        )
+        assert captured == {"captured": True, "skip_local_playback": True}
+    finally:
+        controller.shutdown()
+
+
+def _failed_remote_control_preserves_phone_capture_smoke(root: Path) -> None:
+    class _RejectRuntimeControls(_RuntimeControls):
+        def trigger(self, action):
+            self.last_action = str(action or "")
+            return {"accepted": False, "action": self.last_action}
+
+    context = _Context(root / "failed_remote_control")
+    context._services["qt.runtime_controls"] = _RejectRuntimeControls()
+    controller = MainChatRemoteController(context)
+    source = root / "failed_remote_control_source.wav"
+    _write_wav(source)
+    try:
+        first = controller.remote_send_text(
+            "accepted phone text",
+            {"play_on_backend": False, "capture_phone_audio": True},
+        )
+        shell = context._services["qt.shell"]
+        first_capture_id = shell.sent_metadata[0]["remote_capture_id"]
+        control = controller.remote_control(
+            "replay_last_assistant",
+            {"play_on_backend": False, "capture_phone_audio": True},
+        )
+        assert first["accepted"] is True
+        assert control["accepted"] is False
+
+        captured = controller.media_bridge.handle_tts_audio_chunk_ready(
+            {
+                "audio_path": str(source),
+                "text": "reply to accepted phone text",
+                "duration_seconds": 0.25,
+                "source_meta": {"remote_capture_id": first_capture_id},
+            }
+        )
+        assert captured == {"captured": True, "skip_local_playback": True}
+    finally:
+        controller.shutdown()
+
+
+def _failed_remote_control_does_not_cancel_newer_phone_capture_smoke(root: Path) -> None:
+    class _InterleavingRuntimeControls(_RuntimeControls):
+        def __init__(self):
+            super().__init__()
+            self.on_trigger = None
+
+        def trigger(self, action):
+            self.last_action = str(action or "")
+            if callable(self.on_trigger):
+                self.on_trigger()
+            return {"accepted": False, "action": self.last_action}
+
+    context = _Context(root / "failed_remote_control_interleaving")
+    controls = _InterleavingRuntimeControls()
+    context._services["qt.runtime_controls"] = controls
+    controller = MainChatRemoteController(context)
+    source = root / "failed_remote_control_interleaving_source.wav"
+    _write_wav(source)
+    controls.on_trigger = lambda: controller.remote_send_text(
+        "newer accepted phone text",
+        {"play_on_backend": False, "capture_phone_audio": True},
+    )
+    try:
+        control = controller.remote_control(
+            "replay_last_assistant",
+            {"play_on_backend": False, "capture_phone_audio": True},
+        )
+        shell = context._services["qt.shell"]
+        newer_capture_id = shell.sent_metadata[-1]["remote_capture_id"]
+        assert control["accepted"] is False
+
+        captured = controller.media_bridge.handle_tts_audio_chunk_ready(
+            {
+                "audio_path": str(source),
+                "text": "reply to newer accepted phone text",
+                "duration_seconds": 0.25,
+                "source_meta": {"remote_capture_id": newer_capture_id},
+            }
+        )
+        assert captured == {"captured": True, "skip_local_playback": True}
+    finally:
+        controller.shutdown()
+
+
 def _phone_image_upload_smoke(root: Path) -> None:
     context = _Context(root / "phone_image_app")
     controller = MainChatRemoteController(context)
@@ -961,7 +1367,7 @@ def _phone_image_upload_smoke(root: Path) -> None:
         )
         assert failed["accepted"] is False
         assert "image queue failed" in failed["error"]
-        assert controller.media_bridge.snapshot()["capture_active"] is False
+        assert controller.media_bridge.snapshot()["capture_active"] is True
         assert len(list(controller.image_upload_dir.glob("*"))) == 1
     finally:
         controller.shutdown()
@@ -1055,7 +1461,6 @@ def _engine_hidden_proactive_marker_smoke() -> None:
     assert 'hidden_proactive=is_proactive' in engine_source
     assert 'turn["hidden_proactive"] = True' in engine_source
     assert 'input_turn["hidden_proactive"] = True' in engine_source
-    assert '"remote_capture_id": response_capture_id' in engine_source
 
 
 def _media_bridge_audio_format_smoke(root: Path) -> None:
@@ -1268,6 +1673,63 @@ def _remote_control_fallback_allowlist_smoke(root: Path) -> None:
         controller.shutdown()
 
 
+def _interrupt_response_control_smoke(root: Path) -> None:
+    from core import engine_access
+    from core.addons.qt_host_services import QtRuntimeControlService
+
+    class _Window:
+        def __init__(self):
+            self.triggered = []
+            self.thread = None
+
+        def trigger_control_action(self, action):
+            self.triggered.append(str(action or ""))
+
+    context = _Context(root / "interrupt_response_control_app")
+    controls = context.get_service("qt.runtime_controls")
+    controller = MainChatRemoteController(context)
+    source = root / "interrupt_response_control.wav"
+    _write_wav(source)
+    had_local_interrupt = "interrupt_tts_playback" in vars(engine_access)
+    original_interrupt = vars(engine_access).get("interrupt_tts_playback")
+    interrupt_calls = []
+    try:
+        controller.media_bridge.begin_tts_capture("response being interrupted")
+        captured = controller.media_bridge.handle_tts_audio_chunk_ready(
+            {
+                "audio_path": str(source),
+                "text": "old response",
+                "duration_seconds": 0.25,
+            }
+        )
+        assert captured and captured["captured"] is True
+        assert controller.media_snapshot()["items"]
+
+        result = controller.remote_control("interrupt_response")
+        assert result["accepted"] is True
+        assert controls.last_action == "interrupt_response"
+        assert controller.media_snapshot()["items"] == []
+
+        engine_access.interrupt_tts_playback = lambda **kwargs: interrupt_calls.append(dict(kwargs)) or {
+            "cancelled_controllers": 1,
+            "cancelled_streams": 1,
+            "reason": str(kwargs.get("reason") or ""),
+        }
+        window = _Window()
+        service = QtRuntimeControlService(window)
+        assert "interrupt_response" in service.SUPPORTED_ACTIONS
+        host_result = service.trigger("interrupt_response")
+        assert host_result["accepted"] is True
+        assert interrupt_calls == [{"reason": "phone_live_mic", "cancel_llm_streams": True}]
+        assert window.triggered == []
+    finally:
+        if had_local_interrupt:
+            engine_access.interrupt_tts_playback = original_interrupt
+        elif "interrupt_tts_playback" in vars(engine_access):
+            delattr(engine_access, "interrupt_tts_playback")
+        controller.shutdown()
+
+
 def _wait_for_visual_request_status(controller: MainChatRemoteController, request_id: str, statuses: set[str], *, timeout_seconds: float = 2.0) -> dict:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -1476,15 +1938,65 @@ def _backend_venv_helper_smoke(root: Path) -> None:
 
 
 def _backend_pairing_output_smoke() -> None:
+    automatic_code = MainChatRemoteController._pairing_code_for_start("")
+    assert automatic_code.isdigit()
+    assert len(automatic_code) == 6
+    assert MainChatRemoteController._pairing_code_for_start("65-43 21") == "654321"
+    try:
+        MainChatRemoteController._pairing_code_for_start("123")
+    except ValueError as exc:
+        assert "4 to 9 digits" in str(exc)
+    else:
+        raise AssertionError("Short pairing code was accepted.")
+
+    class _RunningBridge:
+        running = True
+
+    class _PairingCodeEdit:
+        value = "654321"
+
+        @staticmethod
+        def text() -> str:
+            return "654321"
+
+        def setText(self, value: str) -> None:
+            self.value = value
+
+    class _RecordingBackend:
+        requested_code = ""
+
+        def start(self, *, pairing_code: str = "") -> dict:
+            self.requested_code = pairing_code
+            return {"accepted": True}
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        controller = MainChatRemoteController(_Context(Path(temp_dir)))
+        recording_backend = _RecordingBackend()
+        controller._bridge = _RunningBridge()
+        controller._pairing_code_edit = _PairingCodeEdit()
+        controller.backend_process = recording_backend
+        controller._run_backend_task = lambda _label, operation: operation()
+        controller.start_remote_backend()
+        assert recording_backend.requested_code == "654321"
+
     assert MainChatRemoteController._pairing_setup_uri(
         "http://192.168.1.20:8777",
         "123456",
     ) == "ncchatremote://pair?url=http%3A%2F%2F192.168.1.20%3A8777&code=123456"
     assert MainChatRemoteController._pairing_setup_uri("", "123456") == ""
     assert MainChatRemoteController._pairing_setup_uri("http://192.168.1.20:8777", "") == ""
-    qr_png = MainChatRemoteController._pairing_qr_png("ncchatremote://pair?url=test&code=123456")
-    assert isinstance(qr_png, bytes)
-    assert not qr_png or qr_png.startswith(b"\x89PNG\r\n\x1a\n")
+    pairing_uri = "ncchatremote://pair?url=test&code=123456"
+    qr_png = MainChatRemoteController._pairing_qr_png(pairing_uri)
+    assert qr_png.startswith(b"\x89PNG\r\n\x1a\n")
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        pass
+    else:
+        qr_image = cv2.imdecode(np.frombuffer(qr_png, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        decoded_uri, _points, _straight = cv2.QRCodeDetector().detectAndDecode(qr_image)
+        assert decoded_uri == pairing_uri
     assert normalize_remote_pairing_code("65-43 21") == "654321"
     assert normalize_remote_pairing_code("abc") == ""
     assert remote_backend_module.local_network_client("127.0.0.1") is True
@@ -1984,9 +2496,69 @@ def _websocket_state_bridge_timeout_smoke() -> None:
 
 def _audio_snapshot_signature_smoke() -> None:
     signature = remote_backend_module.audio_snapshot_signature
-    assert signature({"generation": 2, "items": [{"id": "a"}]}) == (2, 1, "a")
-    assert signature({"generation": 2, "status": "ready", "items": [{"id": "a"}]}) == (2, 1, "a")
-    assert signature({"generation": 2, "items": [{"id": "a"}, {"id": "b"}]}) == (2, 2, "b")
+    assert signature({"generation": 2, "items": [{"id": "a"}]}) == (
+        2, 1, "a", "", 0, (("a", "", 0),)
+    )
+    assert signature(
+        {"generation": 2, "items": [{"id": "a", "spectrum_status": "pending", "spectrum_version": 1}]}
+    ) == (2, 1, "a", "pending", 1, (("a", "pending", 1),))
+    assert signature(
+        {"generation": 2, "items": [{"id": "a", "spectrum_status": "ready", "spectrum_version": 1}]}
+    ) == (2, 1, "a", "ready", 1, (("a", "ready", 1),))
+    assert signature({"generation": 2, "items": [{"id": "a"}, {"id": "b"}]}) == (
+        2, 2, "b", "", 0, (("a", "", 0), ("b", "", 0))
+    )
+    earlier_pending = signature(
+        {
+            "generation": 3,
+            "items": [
+                {"id": "a", "spectrum_status": "pending", "spectrum_version": 1},
+                {"id": "b", "spectrum_status": "pending", "spectrum_version": 1},
+            ],
+        }
+    )
+    earlier_ready = signature(
+        {
+            "generation": 3,
+            "items": [
+                {"id": "a", "spectrum_status": "ready", "spectrum_version": 1},
+                {"id": "b", "spectrum_status": "pending", "spectrum_version": 1},
+            ],
+        }
+    )
+    assert earlier_ready != earlier_pending
+
+
+def _spectrum_analyzer_smoke(root: Path) -> None:
+    source = root / "spectrum_source.wav"
+    sidecar = root / "spectrum_source.spectrum.json"
+    _write_wav(source)
+    completed = threading.Event()
+    results: list[tuple[str, dict | None, str]] = []
+    analyzer = SpectrumAnalyzer(max_pending=8)
+    try:
+        accepted = analyzer.submit(
+            "chunk-1",
+            source,
+            sidecar,
+            lambda audio_id, payload, error: (
+                results.append((audio_id, payload, error)),
+                completed.set(),
+            ),
+        )
+        assert accepted is True
+        assert completed.wait(10.0)
+        assert results[0][0] == "chunk-1"
+        assert results[0][2] == ""
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        assert payload["version"] == 1
+        assert payload["fps"] == 24
+        assert payload["bars"] == 48
+        assert payload["encoding"] == "uint8-base64"
+        assert payload["frame_count"] > 0
+        assert len(base64.b64decode(payload["data"])) == payload["frame_count"] * 48
+    finally:
+        analyzer.shutdown()
 
 
 def _write_wav(path: Path) -> None:
@@ -2441,6 +3013,21 @@ def main() -> int:
                 32,
             )
             assert phone_audio.startswith(b"RIFF")
+            spectrum_item = {}
+            spectrum_deadline = time.time() + 10.0
+            while time.time() < spectrum_deadline:
+                spectrum_item = dict(controller.media_snapshot()["items"][0])
+                if spectrum_item.get("spectrum_status") != "pending":
+                    break
+                time.sleep(0.05)
+            assert spectrum_item["spectrum_status"] == "ready"
+            spectrum_payload = _read_phone_json(
+                f"http://127.0.0.1:{backend_port}{spectrum_item['spectrum_url_path']}",
+                pairing_code,
+            )
+            assert spectrum_payload["version"] == 1
+            assert spectrum_payload["fps"] == 24
+            assert spectrum_payload["bars"] == 48
             rejected_audio_status, rejected_audio_payload = _read_http_json(
                 f"http://127.0.0.1:{backend_port}/api/audio/file/{audio_id}?code=0000"
             )
@@ -2638,12 +3225,21 @@ def main() -> int:
         _backend_process_smoke(root)
         _controller_backend_task_smoke(root)
         _bridge_info_lifecycle_smoke(root)
+        _bridge_client_disconnect_smoke(root)
         _controller_shutdown_timer_smoke(root)
         _stt_upload_retention_smoke(root)
         _stt_upload_unavailable_no_cache_smoke(root)
         _media_bridge_retention_smoke(root)
+        _media_bridge_spectrum_smoke(root)
         _media_bridge_auto_capture_smoke(root)
         _media_bridge_phone_only_capture_smoke(root)
+        _media_bridge_queued_phone_capture_smoke(root)
+        _media_bridge_capture_survives_new_generation_during_copy_smoke(root)
+        _media_bridge_copy_failure_keeps_phone_only_suppression_smoke(root)
+        _new_phone_capture_keeps_unfetched_audio_smoke(root)
+        _failed_later_phone_send_preserves_earlier_capture_smoke(root)
+        _failed_remote_control_preserves_phone_capture_smoke(root)
+        _failed_remote_control_does_not_cancel_newer_phone_capture_smoke(root)
         _media_bridge_audio_format_smoke(root)
         _phone_image_upload_smoke(root)
         _visual_reply_chat_image_smoke(root)
@@ -2654,6 +3250,7 @@ def main() -> int:
         _phone_status_redaction_smoke(root)
         _phone_safe_payload_smoke(root)
         _remote_control_fallback_allowlist_smoke(root)
+        _interrupt_response_control_smoke(root)
         _visual_request_tracking_smoke(root)
         _remote_state_phone_safe_smoke(root)
         _engine_tts_audio_chunk_ready_fanout_smoke()
@@ -2665,6 +3262,7 @@ def main() -> int:
         _backend_auth_throttle_smoke()
         _exclusive_backend_bind_smoke()
         _websocket_handshake_validation_smoke()
+        _spectrum_analyzer_smoke(root)
         _audio_snapshot_signature_smoke()
         _websocket_state_bridge_timeout_smoke()
     print("main_chat_remote smoke passed")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import os
 import sys
+import threading
 import types
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -187,6 +188,66 @@ def test_engine_lmstudio_coalesces_system_messages_for_complete_and_stream():
         engine.prepare_lmstudio_chat_model_for_runtime = original_prepare
 
 
+def test_frozen_lmstudio_request_reuses_strict_role_normalization():
+    engine = _load_engine()
+    captured = []
+    original_params = {
+        "model": "strict-model",
+        "messages": [
+            {"role": "system", "content": "base persona"},
+            {"role": "user", "content": "image context"},
+            {"role": "system", "content": "visual guidance"},
+            {"role": "user", "content": "current turn"},
+        ],
+    }
+    original_snapshot = copy.deepcopy(original_params)
+    provider_context = types.SimpleNamespace(provider_name="lmstudio")
+    transaction = {
+        "lock": threading.Lock(),
+        "prepare_started": False,
+        "prepared_provider_request": None,
+        "provider_context": provider_context,
+        "relay_snapshot": None,
+    }
+    original_runtime = engine._chat_runtime
+    original_builder = engine.build_llm_request
+    original_assert_current = engine._assert_normal_chat_transaction_current
+    try:
+        class FakeChatRuntime:
+            def frozen_execution_available(self, context, *, stream=False):
+                return context is provider_context
+
+            def prepare_frozen_request(self, context, params, additional_params):
+                assert context is provider_context
+                captured.append((params, additional_params))
+                return object()
+
+        engine._chat_runtime = FakeChatRuntime()
+        engine.build_llm_request = lambda request_context: (original_params, {})
+        engine._assert_normal_chat_transaction_current = lambda *args, **kwargs: None
+
+        engine._prepare_normal_chat_reply_request(transaction, {})
+
+        assert len(captured) == 1
+        sent_params, sent_additional = captured[0]
+        assert [message["role"] for message in sent_params["messages"]] == [
+            "system",
+            "user",
+        ]
+        assert sent_params["messages"][0]["content"] == (
+            "base persona\n\nvisual guidance"
+        )
+        assert sent_params["messages"][1]["content"] == (
+            "image context\n\ncurrent turn"
+        )
+        assert sent_additional == {}
+        assert original_params == original_snapshot
+    finally:
+        engine._chat_runtime = original_runtime
+        engine.build_llm_request = original_builder
+        engine._assert_normal_chat_transaction_current = original_assert_current
+
+
 def test_engine_lmstudio_merges_consecutive_main_chat_roles_and_preserves_multimodal_order():
     engine = _load_engine()
     captured = []
@@ -347,6 +408,7 @@ if __name__ == "__main__":
     test_non_lmstudio_provider_skips_lifecycle_actions()
     test_engine_chat_completion_prepares_lmstudio_model_before_request()
     test_engine_lmstudio_coalesces_system_messages_for_complete_and_stream()
+    test_frozen_lmstudio_request_reuses_strict_role_normalization()
     test_engine_lmstudio_merges_consecutive_main_chat_roles_and_preserves_multimodal_order()
     test_engine_lmstudio_reuses_normal_chat_leading_assistant_repair()
     test_engine_non_lmstudio_preserves_system_message_payload()

@@ -4,9 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  audioHistoryAfterBoundary,
   mergeAudioSnapshot,
+  mergeRemoteSnapshot,
   nextUnseenAudioChunk,
 } from '../src/utils/audioFastStart.ts';
+import * as audioFastStart from '../src/utils/audioFastStart.ts';
 
 const originalState = {
   status_line: 'Speaking',
@@ -45,6 +48,85 @@ assert.equal(mergeAudioSnapshot(null, nextAudio), null);
 assert.equal(nextUnseenAudioChunk(nextAudio.items, new Set(['one']))?.id, 'two');
 assert.equal(nextUnseenAudioChunk(nextAudio.items, new Set(), 'one')?.id, 'two');
 assert.equal(nextUnseenAudioChunk(nextAudio.items, new Set(['one', 'two'])), undefined);
+
+const generationFive = {
+  ...originalState,
+  media: {
+    available: false,
+    generation: 5,
+    items: [],
+  },
+};
+const staleGenerationFour = {
+  ...originalState,
+  media: {
+    available: true,
+    generation: 4,
+    items: [{ id: 'old', url_path: '/api/audio/file/old', index: 1 }],
+  },
+};
+assert.equal(
+  mergeRemoteSnapshot(generationFive, staleGenerationFour).media.generation,
+  5,
+);
+assert.equal(
+  mergeAudioSnapshot(generationFive, staleGenerationFour.media)?.media?.generation,
+  5,
+);
+
+const playedBeforeEmptySnapshot = new Set(['already-played']);
+assert.deepEqual(
+  [...audioHistoryAfterBoundary(playedBeforeEmptySnapshot, 'empty_snapshot')],
+  ['already-played'],
+);
+assert.equal(
+  audioHistoryAfterBoundary(playedBeforeEmptySnapshot, 'connection_changed').size,
+  0,
+);
+assert.equal(
+  audioHistoryAfterBoundary(playedBeforeEmptySnapshot, 'explicit_reset').size,
+  0,
+);
+
+assert.equal(typeof audioFastStart.refreshAudioChunkMetadata, 'function');
+const pendingSpectrumChunk = {
+  id: 'pending-spectrum',
+  url_path: '/api/audio/file/pending-spectrum',
+  spectrum_status: 'pending',
+};
+const readySpectrumChunk = {
+  ...pendingSpectrumChunk,
+  spectrum_status: 'ready',
+  spectrum_url_path: '/api/audio/spectrum/pending-spectrum',
+};
+assert.deepEqual(
+  audioFastStart.refreshAudioChunkMetadata(
+    pendingSpectrumChunk,
+    [readySpectrumChunk],
+  ),
+  readySpectrumChunk,
+);
+assert.equal(
+  audioFastStart.refreshAudioChunkMetadata(
+    pendingSpectrumChunk,
+    [{ id: 'different', url_path: '/api/audio/file/different' }],
+  ),
+  pendingSpectrumChunk,
+);
+assert.equal(typeof audioFastStart.shouldInterruptForPhoneText, 'function');
+assert.equal(audioFastStart.shouldInterruptForPhoneText('idle', ''), false);
+assert.equal(audioFastStart.shouldInterruptForPhoneText('listening', ''), false);
+assert.equal(audioFastStart.shouldInterruptForPhoneText('thinking', ''), true);
+assert.equal(audioFastStart.shouldInterruptForPhoneText('speaking', ''), true);
+assert.equal(audioFastStart.shouldInterruptForPhoneText('idle', 'chunk-1'), true);
+assert.equal(typeof audioFastStart.createLatestAudioSampleBuffer, 'function');
+const latestSample = audioFastStart.createLatestAudioSampleBuffer();
+assert.equal(latestSample.get(), null);
+const liveSample = [0.1, 0.4, 0.8];
+latestSample.set(liveSample);
+assert.equal(latestSample.get(), liveSample);
+latestSample.set(null);
+assert.equal(latestSample.get(), null);
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const connectionSource = fs.readFileSync(

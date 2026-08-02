@@ -8,6 +8,7 @@ from typing import Any
 PROVIDER_IDS = ("inherit", "main", "lmstudio", "ollama", "openai", "xai", "deepseek", "claude")
 LLM_MODES = ("main", "buddy", "per_persona")
 REPLY_MODES = ("context_only", "main_answer")
+BEHAVIOR_REPLY_LENGTHS = ("short", "balanced", "detailed")
 DEFAULT_AVATAR_PROMPT_PRESET = "Cinematic Buddy Portrait"
 AVATAR_PROMPT_PRESETS = {
     "Cinematic Buddy Portrait": (
@@ -52,6 +53,15 @@ Avoid theatrical stage directions, long inner monologues, and repeated sensory b
 Keep non-buddy narration in the main assistant voice. Do not force all buddies to speak every turn.
 Use hidden sensory, music, visual, and memory context as quiet background awareness; do not repeat track-change or screen-observation boilerplate.
 If the user asks for a normal direct answer, answer directly and let a buddy add at most one short natural aside."""
+DEFAULT_NORMAL_INTIMACY_PROMPT = (
+    "Warmth, romance, sensuality, and flirtation may be expressed naturally, "
+    "but keep sexual content non-explicit."
+)
+DEFAULT_ADULT_NSFW_PROMPT = (
+    "All personas and participants in this mode are adults. The Buddy Chat addon "
+    "does not require fade-to-black or euphemistic language for consensual adult "
+    "conversation or roleplay requested by the user."
+)
 
 
 def normalize_persona_id(value: Any) -> str:
@@ -193,6 +203,39 @@ def default_avatar_prompt(display_name: str, role: str = "", speaking_style: str
 
 
 @dataclass
+class BuddyBehaviorProfile:
+    helpfulness: int = 50
+    warmth: int = 50
+    humor: int = 35
+    expressiveness: int = 50
+    initiative: int = 50
+    directness: int = 50
+    disagreement: int = 40
+    flirtation: int = 0
+    reply_length: str = "balanced"
+    participation_weight: int = 50
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "BuddyBehaviorProfile":
+        data = dict(payload or {})
+        return cls(
+            helpfulness=_int(data.get("helpfulness"), 50, 0, 100),
+            warmth=_int(data.get("warmth"), 50, 0, 100),
+            humor=_int(data.get("humor"), 35, 0, 100),
+            expressiveness=_int(data.get("expressiveness"), 50, 0, 100),
+            initiative=_int(data.get("initiative"), 50, 0, 100),
+            directness=_int(data.get("directness"), 50, 0, 100),
+            disagreement=_int(data.get("disagreement"), 40, 0, 100),
+            flirtation=_int(data.get("flirtation"), 0, 0, 100),
+            reply_length=_choice(data.get("reply_length"), BEHAVIOR_REPLY_LENGTHS, "balanced"),
+            participation_weight=_int(data.get("participation_weight"), 50, 0, 100),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class BuddyPersona:
     id: str = "buddy"
     enabled: bool = True
@@ -204,6 +247,7 @@ class BuddyPersona:
     provider: ProviderOverride = field(default_factory=ProviderOverride)
     voice: VoiceProfile = field(default_factory=VoiceProfile)
     avatar: AvatarProfile = field(default_factory=AvatarProfile)
+    behavior: BuddyBehaviorProfile | None = None
     source: str = "buddy_chat"
 
     @classmethod
@@ -222,6 +266,7 @@ class BuddyPersona:
             provider=ProviderOverride.from_dict(data.get("provider") if isinstance(data.get("provider"), dict) else {}),
             voice=VoiceProfile.from_dict(data.get("voice") if isinstance(data.get("voice"), dict) else {}),
             avatar=AvatarProfile.from_dict(data.get("avatar") if isinstance(data.get("avatar"), dict) else data),
+            behavior=BuddyBehaviorProfile.from_dict(data.get("behavior")) if isinstance(data.get("behavior"), dict) else None,
             source=_text(data.get("source"), "buddy_chat") or "buddy_chat",
         )
 
@@ -231,6 +276,10 @@ class BuddyPersona:
         payload["provider"] = self.provider.to_dict()
         payload["voice"] = self.voice.to_dict()
         payload["avatar"] = self.avatar.to_dict()
+        if self.behavior is None:
+            payload.pop("behavior", None)
+        else:
+            payload["behavior"] = self.behavior.to_dict()
         return payload
 
 
@@ -239,11 +288,16 @@ class BuddySettings:
     version: int = 1
     settings_epoch: int = 0
     enabled: bool = False
+    active_setup_id: str = ""
     reply_mode: str = "context_only"
     llm_mode: str = "main"
     instructor_structured_outputs_enabled: bool = False
     system_override_enabled: bool = True
     system_override_prompt: str = DEFAULT_SYSTEM_OVERRIDE_PROMPT
+    adult_nsfw_enabled: bool = False
+    adult_nsfw_acknowledged: bool = False
+    normal_intimacy_prompt: str = DEFAULT_NORMAL_INTIMACY_PROMPT
+    adult_nsfw_prompt: str = DEFAULT_ADULT_NSFW_PROMPT
     active_persona_window_enabled: bool = False
     active_persona_window_on_top: bool = True
     allow_buddy_to_buddy: bool = True
@@ -294,6 +348,7 @@ class BuddySettings:
             version=_int(data.get("version"), 1, 1, 100),
             settings_epoch=_int(data.get("settings_epoch"), 0, 0, 100),
             enabled=_bool(data.get("enabled"), False),
+            active_setup_id=_text(data.get("active_setup_id")),
             reply_mode=_choice(data.get("reply_mode"), REPLY_MODES, "context_only"),
             llm_mode=_choice(data.get("llm_mode"), LLM_MODES, "main"),
             instructor_structured_outputs_enabled=_bool(
@@ -304,6 +359,12 @@ class BuddySettings:
             ),
             system_override_enabled=_bool(data.get("system_override_enabled"), True),
             system_override_prompt=_text(data.get("system_override_prompt"), DEFAULT_SYSTEM_OVERRIDE_PROMPT) or DEFAULT_SYSTEM_OVERRIDE_PROMPT,
+            adult_nsfw_enabled=_bool(data.get("adult_nsfw_enabled"), False),
+            adult_nsfw_acknowledged=_bool(data.get("adult_nsfw_acknowledged"), False),
+            normal_intimacy_prompt=_text(data.get("normal_intimacy_prompt"), DEFAULT_NORMAL_INTIMACY_PROMPT)
+            or DEFAULT_NORMAL_INTIMACY_PROMPT,
+            adult_nsfw_prompt=_text(data.get("adult_nsfw_prompt"), DEFAULT_ADULT_NSFW_PROMPT)
+            or DEFAULT_ADULT_NSFW_PROMPT,
             active_persona_window_enabled=_bool(data.get("active_persona_window_enabled"), False),
             active_persona_window_on_top=_bool(data.get("active_persona_window_on_top"), True),
             allow_buddy_to_buddy=_bool(data.get("allow_buddy_to_buddy"), True),
@@ -324,11 +385,18 @@ class BuddySettings:
             "version": int(self.version),
             "settings_epoch": max(0, int(self.settings_epoch or 0)),
             "enabled": bool(self.enabled),
+            "active_setup_id": _text(self.active_setup_id),
             "reply_mode": _choice(self.reply_mode, REPLY_MODES, "context_only"),
             "llm_mode": _choice(self.llm_mode, LLM_MODES, "main"),
             "buddy_chat_instructor_structured_outputs_enabled": bool(self.instructor_structured_outputs_enabled),
             "system_override_enabled": bool(self.system_override_enabled),
             "system_override_prompt": _text(self.system_override_prompt, DEFAULT_SYSTEM_OVERRIDE_PROMPT) or DEFAULT_SYSTEM_OVERRIDE_PROMPT,
+            "adult_nsfw_enabled": bool(self.adult_nsfw_enabled),
+            "adult_nsfw_acknowledged": bool(self.adult_nsfw_acknowledged),
+            "normal_intimacy_prompt": _text(self.normal_intimacy_prompt, DEFAULT_NORMAL_INTIMACY_PROMPT)
+            or DEFAULT_NORMAL_INTIMACY_PROMPT,
+            "adult_nsfw_prompt": _text(self.adult_nsfw_prompt, DEFAULT_ADULT_NSFW_PROMPT)
+            or DEFAULT_ADULT_NSFW_PROMPT,
             "active_persona_window_enabled": bool(self.active_persona_window_enabled),
             "active_persona_window_on_top": bool(self.active_persona_window_on_top),
             "allow_buddy_to_buddy": bool(self.allow_buddy_to_buddy),

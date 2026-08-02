@@ -4,6 +4,7 @@ import { Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
 import { RemoteClient } from '../api/client';
 import type { MuseTalkState } from '../api/types';
 import type { MuseTalkQuality } from '../hooks/usePhoneSettings';
+import { useAuthorizedMediaUrl } from '../hooks/useAuthorizedMediaUrl';
 import { colors, spacing } from '../styles/theme';
 import { useInterfaceMode } from '../context/InterfaceModeContext';
 
@@ -107,10 +108,7 @@ export function MuseTalkPanel({ client, musetalk, disabled, available, quality =
   const streamFps = streamFpsForQuality(fps, quality);
   const usingStream = Boolean(!mediaDisabled && streamPath && !streamFailed);
   const activePath = mediaDisabled ? '' : usingStream ? streamPath : framePath;
-  const frameUrl = useMemo(() => {
-    if (!activePath) {
-      return '';
-    }
+  const mediaParams = useMemo(() => {
     const params: Record<string, string> = {};
     if (usingStream) {
       params.fps = String(streamFps);
@@ -118,8 +116,10 @@ export function MuseTalkPanel({ client, musetalk, disabled, available, quality =
     } else if (activePath === framePath && frameVersion) {
       params.v = String(frameVersion);
     }
-    return client.authorizedUrl(activePath, params);
-  }, [activePath, client, framePath, frameVersion, streamFps, usingStream]);
+    return params;
+  }, [activePath, framePath, frameVersion, streamFps, usingStream]);
+  const authorizedFrame = useAuthorizedMediaUrl(client, activePath || '', mediaParams);
+  const frameUrl = authorizedFrame.url;
   const streamMode = disabled ? 'offline' : !available ? 'unavailable' : usingStream ? 'stream' : framePath ? 'frame' : 'idle';
   const statusText = disabled ? 'offline' : available ? musetalk?.state?.status || 'idle' : 'unavailable';
   const caption = mediaDisabled ? 'No frame' : musetalk?.state?.text || musetalk?.state?.chunk_id || 'No frame';

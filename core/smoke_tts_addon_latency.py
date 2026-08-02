@@ -469,6 +469,7 @@ def test_addon_manager_writes_bounded_tts_latency_trace() -> None:
             tts_snapshot_getter=lambda: {},
             avatar_snapshot_getter=lambda: {},
         )
+        manager.set_latency_diagnostics_enabled(True)
         manager._records = [
             LoadedAddon(
                 manifest=manifest,
@@ -511,6 +512,7 @@ def test_addon_manager_unload_closes_latency_writer() -> None:
             tts_snapshot_getter=lambda: {},
             avatar_snapshot_getter=lambda: {},
         )
+        manager.set_latency_diagnostics_enabled(True)
         diagnostics = manager._latency_diagnostics
         assert diagnostics._thread.is_alive()
 
@@ -519,6 +521,37 @@ def test_addon_manager_unload_closes_latency_writer() -> None:
         diagnostics._thread.join(timeout=1.0)
         assert diagnostics._closed is True
         assert not diagnostics._thread.is_alive()
+
+
+def test_addon_manager_latency_diagnostics_are_opt_in_and_session_persisted() -> None:
+    from core.addons.manager import AddonManager
+
+    with tempfile.TemporaryDirectory(prefix="nc-tts-latency-opt-in-") as temp_dir:
+        root = Path(temp_dir)
+        manager = AddonManager(
+            app_root=root,
+            llm_snapshot_getter=lambda: {},
+            tts_snapshot_getter=lambda: {},
+            avatar_snapshot_getter=lambda: {},
+        )
+        trace_path = root / "runtime" / "logs" / "tts_addon_latency.jsonl"
+
+        assert manager.latency_diagnostics_enabled() is False
+        assert manager._latency_diagnostics is None
+        manager.record_latency_event("disabled_probe", trace_id="off")
+        assert manager.flush_latency_diagnostics(timeout=1.0)
+        assert not trace_path.exists()
+
+        manager.import_session_state({"tts_latency_diagnostics_enabled": True})
+        assert manager.latency_diagnostics_enabled() is True
+        manager.record_latency_event("enabled_probe", trace_id="on")
+        assert manager.flush_latency_diagnostics(timeout=1.0)
+        assert trace_path.exists()
+        assert manager.export_session_state()["tts_latency_diagnostics_enabled"] is True
+
+        manager.set_latency_diagnostics_enabled(False)
+        assert manager.latency_diagnostics_enabled() is False
+        assert manager._latency_diagnostics is None
 
 
 def main() -> None:
@@ -534,6 +567,7 @@ def main() -> None:
     test_buddy_completed_reply_does_not_wait_for_settings_disk()
     test_addon_manager_writes_bounded_tts_latency_trace()
     test_addon_manager_unload_closes_latency_writer()
+    test_addon_manager_latency_diagnostics_are_opt_in_and_session_persisted()
     print("TTS addon latency regression probes passed.")
 
 

@@ -9,16 +9,26 @@ import wave
 from pathlib import Path
 from typing import Any
 
+from addons.main_chat_remote.spectrum_analyzer import SPECTRUM_VERSION, SpectrumAnalyzer
+
 
 DEFAULT_CAPTURE_SECONDS = 900.0
 CAPTURE_CHUNK_IDLE_SECONDS = 45.0
+MAX_PENDING_CAPTURE_POLICIES = 64
 SUPPORTED_AUDIO_EXTENSIONS = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".wav", ".webm"}
 
 
 class MainChatMediaBridge:
     """Copies runtime TTS chunks into an addon-local cache for phone playback."""
 
-    def __init__(self, cache_dir: Path, logger=None, *, allow_auto_capture: bool = True):
+    def __init__(
+        self,
+        cache_dir: Path,
+        logger=None,
+        *,
+        allow_auto_capture: bool = True,
+        spectrum_analyzer=None,
+    ):
         self._cache_dir = Path(cache_dir)
         self._logger = logger
         self._lock = threading.RLock()
@@ -30,9 +40,12 @@ class MainChatMediaBridge:
         self._suppress_backend_playback_generation = 0
         self._phone_audio_capture_generation = 0
         self._capture_id = ""
+        self._capture_policies: dict[str, tuple[float, bool, bool]] = {}
         self._source_excerpt = ""
         self._next_index = 1
         self._allow_auto_capture = bool(allow_auto_capture)
+        self._spectrum_analyzer = spectrum_analyzer or SpectrumAnalyzer(logger=logger)
+        self._spectrum_shutdown = False
 
     def begin_tts_capture(
         self,
@@ -42,7 +55,7 @@ class MainChatMediaBridge:
         suppress_backend_playback: bool = False,
         capture_phone_audio: bool = True,
         capture_id: str = "",
-    ) -> None:
+    ) -> int:
         with self._lock:
             old_items = self._begin_capture_locked(
                 source_text,
@@ -52,8 +65,10 @@ class MainChatMediaBridge:
                 capture_phone_audio=bool(capture_phone_audio),
                 capture_id=str(capture_id or ""),
             )
+            capture_generation = int(self._generation or 0)
         for item in old_items:
             self._unlink_cached_item(item)
+        return capture_generation
 
     def stop_capture(self) -> None:
         with self._lock:
@@ -62,8 +77,45 @@ class MainChatMediaBridge:
             self._suppress_backend_playback_generation = 0
             self._phone_audio_capture_generation = 0
             self._capture_id = ""
+            self._capture_policies.clear()
             if not self._items:
                 self._status = "idle"
+
+    def cancel_tts_capture(self, capture_id: str) -> None:
+        wanted_capture_id = str(capture_id or "").strip()
+        if not wanted_capture_id:
+            return
+        with self._lock:
+            self._capture_policies.pop(wanted_capture_id, None)
+            if wanted_capture_id != self._capture_id:
+                return
+            self._capture_until = 0.0
+            self._suppress_backend_playback_until = 0.0
+            self._suppress_backend_playback_generation = 0
+            self._phone_audio_capture_generation = 0
+            self._capture_id = ""
+            if not self._items and not self._capture_policies:
+                self._status = "idle"
+
+    def cancel_current_tts_capture(self, capture_generation: int) -> bool:
+        try:
+            expected_generation = int(capture_generation)
+        except (TypeError, ValueError):
+            return False
+        with self._lock:
+            if expected_generation != int(self._generation or 0):
+                return False
+            current_capture_id = str(self._capture_id or "")
+            if current_capture_id:
+                self._capture_policies.pop(current_capture_id, None)
+            self._capture_until = 0.0
+            self._suppress_backend_playback_until = 0.0
+            self._suppress_backend_playback_generation = 0
+            self._phone_audio_capture_generation = 0
+            self._capture_id = ""
+            if not self._items and not self._capture_policies:
+                self._status = "idle"
+            return True
 
     def handle_tts_audio_chunk_ready(self, payload: dict[str, Any] | None = None):
         data = dict(payload or {})
@@ -76,7 +128,9 @@ class MainChatMediaBridge:
         incoming_capture_id = str(meta.get("remote_capture_id") or "").strip()
         old_items: list[dict[str, Any]] = []
         with self._lock:
-            if now > float(self._capture_until or 0.0):
+            self._prune_capture_policies_locked(now)
+            capture_policy = self._capture_policies.get(incoming_capture_id)
+            if now > float(self._capture_until or 0.0) and capture_policy is None:
                 if not self._allow_auto_capture:
                     return {
                         "captured": False,
@@ -92,22 +146,41 @@ class MainChatMediaBridge:
                 )
             expected_capture_id = str(self._capture_id or "")
             if bool(meta.get("hidden_proactive", False)) or (
-                expected_capture_id and incoming_capture_id != expected_capture_id
+                incoming_capture_id
+                and capture_policy is None
+            ) or (
+                expected_capture_id
+                and not incoming_capture_id
             ):
                 return {
                     "captured": False,
                     "skip_local_playback": False,
                 }
             generation = int(self._generation or 0)
-            skip_backend_playback = bool(
-                self._suppress_backend_playback_generation == generation
-                and now <= float(self._suppress_backend_playback_until or 0.0)
-            )
-            capture_phone_audio = bool(self._phone_audio_capture_generation == generation)
+            if capture_policy is not None:
+                _policy_until, skip_backend_playback, capture_phone_audio = capture_policy
+            else:
+                skip_backend_playback = bool(
+                    self._suppress_backend_playback_generation == generation
+                    and now <= float(self._suppress_backend_playback_until or 0.0)
+                )
+                capture_phone_audio = bool(self._phone_audio_capture_generation == generation)
             if capture_phone_audio:
-                self._capture_until = now + CAPTURE_CHUNK_IDLE_SECONDS
-                if self._suppress_backend_playback_generation == generation:
-                    self._suppress_backend_playback_until = float(self._capture_until)
+                refreshed_until = now + CAPTURE_CHUNK_IDLE_SECONDS
+                if capture_policy is not None:
+                    self._capture_policies[incoming_capture_id] = (
+                        refreshed_until,
+                        bool(skip_backend_playback),
+                        True,
+                    )
+                    if incoming_capture_id == expected_capture_id:
+                        self._capture_until = refreshed_until
+                        if self._suppress_backend_playback_generation == generation:
+                            self._suppress_backend_playback_until = refreshed_until
+                else:
+                    self._capture_until = refreshed_until
+                    if self._suppress_backend_playback_generation == generation:
+                        self._suppress_backend_playback_until = float(self._capture_until)
             index = max(1, int(self._next_index or 1))
             self._next_index = index + 1
         for item in old_items:
@@ -124,10 +197,14 @@ class MainChatMediaBridge:
             shutil.copy2(source_path, target_path)
         except Exception as exc:
             self._log("warning", "Could not copy TTS chunk for phone audio: %s", exc)
-            return None
+            return {
+                "captured": False,
+                "skip_local_playback": skip_backend_playback,
+            }
         item = {
             "id": target_id,
             "_file_path": str(target_path),
+            "_spectrum_path": str(self._cache_dir / f"{target_id}.spectrum.json"),
             "url_path": f"/api/audio/file/{target_id}",
             "index": index,
             "sequence_index": self._int_value(data.get("sequence_index"), default=max(0, index - 1)),
@@ -139,15 +216,29 @@ class MainChatMediaBridge:
             "sample_rate": int(data.get("sample_rate") or 0),
             "tts_backend": str(data.get("tts_backend") or "").strip(),
             "created_at": float(data.get("created_at") or now),
+            "spectrum_status": "pending",
+            "spectrum_version": SPECTRUM_VERSION,
         }
         dropped_items: list[dict[str, Any]] = []
         with self._lock:
-            if generation != int(self._generation or 0):
-                try:
-                    target_path.unlink()
-                except Exception:
-                    pass
-                return None
+            current_generation = int(self._generation or 0)
+            if generation != current_generation:
+                capture_still_registered = bool(
+                    incoming_capture_id
+                    and incoming_capture_id in self._capture_policies
+                )
+                if not capture_still_registered:
+                    try:
+                        target_path.unlink()
+                    except Exception:
+                        pass
+                    return {
+                        "captured": False,
+                        "skip_local_playback": skip_backend_playback,
+                    }
+                current_index = max(1, int(self._next_index or 1))
+                self._next_index = current_index + 1
+                item["index"] = current_index
             next_items = [dict(existing) for existing in self._items]
             next_items.append(item)
             if len(next_items) > 64:
@@ -157,6 +248,7 @@ class MainChatMediaBridge:
             self._status = "ready"
         for dropped in dropped_items:
             self._unlink_cached_item(dropped)
+        self._schedule_spectrum_analysis(item)
         return {
             "captured": True,
             "skip_local_playback": skip_backend_playback,
@@ -164,16 +256,25 @@ class MainChatMediaBridge:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
+            now = time.time()
+            self._prune_capture_policies_locked(now)
             items = [
                 {key: value for key, value in dict(item).items() if not str(key).startswith("_")}
                 for item in list(self._items)
             ]
             status = str(self._status or "idle")
-            capture_active = time.time() <= float(self._capture_until or 0.0)
+            capture_active = bool(
+                now <= float(self._capture_until or 0.0)
+                or self._capture_policies
+            )
             generation = int(self._generation or 0)
             backend_playback_suppressed = bool(
                 self._suppress_backend_playback_generation == generation
-                and time.time() <= float(self._suppress_backend_playback_until or 0.0)
+                and now <= float(self._suppress_backend_playback_until or 0.0)
+            ) or any(
+                suppress_backend_playback
+                for _expires_at, suppress_backend_playback, _capture_phone_audio
+                in self._capture_policies.values()
             )
             source_excerpt = str(self._source_excerpt or "")
         if not items and not capture_active:
@@ -200,13 +301,39 @@ class MainChatMediaBridge:
                         return path
         raise FileNotFoundError("audio chunk not found")
 
-    def cleanup(self) -> None:
+    def spectrum_file_path(self, audio_id: str) -> Path:
+        raw_id = str(audio_id or "")
+        wanted = re.sub(r"[^A-Za-z0-9_.-]+", "", raw_id)
+        if not wanted or wanted != raw_id:
+            raise FileNotFoundError("spectrum id is invalid")
+        with self._lock:
+            for item in list(self._items):
+                if (
+                    str(item.get("id") or "") == wanted
+                    and str(item.get("spectrum_status") or "") == "ready"
+                ):
+                    path = Path(str(item.get("_spectrum_path") or ""))
+                    if path.exists() and path.is_file():
+                        return path
+        raise FileNotFoundError("audio spectrum not found")
+
+    def clear(self) -> None:
         self.stop_capture()
         with self._lock:
             items = list(self._items)
             self._items = []
         for item in items:
             self._unlink_cached_item(item)
+
+    def cleanup(self) -> None:
+        self.clear()
+        if self._spectrum_shutdown:
+            return
+        self._spectrum_shutdown = True
+        try:
+            self._spectrum_analyzer.shutdown()
+        except Exception:
+            pass
 
     def _begin_capture_locked(
         self,
@@ -218,12 +345,16 @@ class MainChatMediaBridge:
         capture_phone_audio: bool = True,
         capture_id: str = "",
     ) -> list[dict[str, Any]]:
+        capture_started_at = float(now if now is not None else time.time())
+        self._prune_capture_policies_locked(capture_started_at)
+        retain_existing_items = bool(self._capture_policies)
         self._generation += 1
-        old_items = list(self._items)
-        self._items = []
-        self._next_index = 1
+        old_items = [] if retain_existing_items else list(self._items)
+        if not retain_existing_items:
+            self._items = []
+            self._next_index = 1
         self._status = "rendering"
-        self._capture_until = float(now if now is not None else time.time()) + max(5.0, float(capture_seconds or DEFAULT_CAPTURE_SECONDS))
+        self._capture_until = capture_started_at + max(5.0, float(capture_seconds or DEFAULT_CAPTURE_SECONDS))
         if suppress_backend_playback:
             self._suppress_backend_playback_generation = int(self._generation or 0)
             self._suppress_backend_playback_until = float(self._capture_until or 0.0)
@@ -232,8 +363,28 @@ class MainChatMediaBridge:
             self._suppress_backend_playback_until = 0.0
         self._phone_audio_capture_generation = int(self._generation or 0) if capture_phone_audio else 0
         self._capture_id = str(capture_id or "").strip()
+        if self._capture_id:
+            self._capture_policies.pop(self._capture_id, None)
+            self._capture_policies[self._capture_id] = (
+                float(self._capture_until),
+                bool(suppress_backend_playback),
+                bool(capture_phone_audio),
+            )
+            while len(self._capture_policies) > MAX_PENDING_CAPTURE_POLICIES:
+                oldest_capture_id = next(iter(self._capture_policies))
+                self._capture_policies.pop(oldest_capture_id, None)
         self._source_excerpt = self._compact(source_text, 240)
         return old_items
+
+    def _prune_capture_policies_locked(self, now: float) -> None:
+        expired_capture_ids = [
+            capture_id
+            for capture_id, (expires_at, _suppress_backend_playback, _capture_phone_audio)
+            in self._capture_policies.items()
+            if float(expires_at) < float(now)
+        ]
+        for capture_id in expired_capture_ids:
+            self._capture_policies.pop(capture_id, None)
 
     @classmethod
     def _auto_capture_excerpt(cls, payload: dict[str, Any]) -> str:
@@ -287,12 +438,74 @@ class MainChatMediaBridge:
         except (TypeError, ValueError):
             return int(default)
 
-    @staticmethod
-    def _unlink_cached_item(item: dict[str, Any]) -> None:
-        path = Path(str(dict(item or {}).get("_file_path") or ""))
-        if path.exists():
+    def _schedule_spectrum_analysis(self, item: dict[str, Any]) -> None:
+        audio_id = str(item.get("id") or "")
+        audio_path = Path(str(item.get("_file_path") or ""))
+        spectrum_path = Path(str(item.get("_spectrum_path") or ""))
+        try:
+            accepted = bool(
+                self._spectrum_analyzer.submit(
+                    audio_id,
+                    audio_path,
+                    spectrum_path,
+                    self._spectrum_analysis_finished,
+                )
+            )
+        except Exception:
+            accepted = False
+        if accepted:
+            return
+        with self._lock:
+            for existing in self._items:
+                if str(existing.get("id") or "") == audio_id:
+                    existing["spectrum_status"] = "unavailable"
+                    existing.pop("spectrum_url_path", None)
+                    break
+
+    def _spectrum_analysis_finished(
+        self,
+        audio_id: str,
+        payload: dict[str, Any] | None,
+        error: str,
+    ) -> None:
+        with self._lock:
+            for item in self._items:
+                if str(item.get("id") or "") != str(audio_id or ""):
+                    continue
+                spectrum_path = Path(str(item.get("_spectrum_path") or ""))
+                ready = (
+                    not str(error or "")
+                    and isinstance(payload, dict)
+                    and int(payload.get("version") or 0) == SPECTRUM_VERSION
+                    and spectrum_path.is_file()
+                )
+                item["spectrum_status"] = "ready" if ready else "unavailable"
+                item["spectrum_version"] = SPECTRUM_VERSION
+                if ready:
+                    item["spectrum_url_path"] = f"/api/audio/spectrum/{audio_id}"
+                else:
+                    item.pop("spectrum_url_path", None)
+                break
+
+    def _unlink_cached_item(self, item: dict[str, Any]) -> None:
+        data = dict(item or {})
+        audio_id = str(data.get("id") or "")
+        try:
+            self._spectrum_analyzer.cancel(audio_id)
+        except Exception:
+            pass
+        for key in ("_file_path", "_spectrum_path"):
+            path = Path(str(data.get(key) or ""))
+            if path.exists():
+                try:
+                    path.unlink()
+                except Exception:
+                    pass
+        spectrum_path = Path(str(data.get("_spectrum_path") or ""))
+        temporary_path = spectrum_path.with_suffix(spectrum_path.suffix + ".tmp")
+        if temporary_path.exists():
             try:
-                path.unlink()
+                temporary_path.unlink()
             except Exception:
                 pass
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import importlib
 import importlib.util
 import hashlib
@@ -14,6 +15,7 @@ import time
 import types
 import wave
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from pathlib import Path
 
 
@@ -45,6 +47,404 @@ def _write_silent_test_wav(path: Path) -> Path:
         handle.setframerate(8000)
         handle.writeframes(b"\0\0" * 800)
     return path
+
+
+def test_story_analysis_batches_are_bounded() -> None:
+    analysis_batches = _require_module(
+        "addons.audio_story_mode.analysis_batches"
+    )
+    chunks = [
+        {
+            "chunk_index": index,
+            "start_seconds": float(index * 12),
+            "end_seconds": float((index + 1) * 12),
+            "text": f"Chapter image chunk {index} " + ("detail " * 40),
+        }
+        for index in range(19)
+    ]
+    original = copy.deepcopy(chunks)
+
+    batches = analysis_batches.partition_analysis_chunks(chunks)
+
+    assert [len(batch.chunks) for batch in batches] == [8, 8, 3]
+    assert [
+        int(chunk["chunk_index"])
+        for batch in batches
+        for chunk in batch.chunks
+    ] == list(range(19))
+    assert all(
+        batch.serialized_input_characters <= 12_000 for batch in batches
+    )
+    assert chunks == original
+
+
+def test_compact_continuity_context_is_relevant_and_capped() -> None:
+    analysis_batches = _require_module(
+        "addons.audio_story_mode.analysis_batches"
+    )
+    characters = {
+        f"character_{index:03d}": {
+            "display_name": f"Person {index}",
+            "aliases": [f"Alias {index}"],
+            "last_seen_chunk": index,
+            "confidence": round(index / 100.0, 2),
+        }
+        for index in range(30)
+    }
+    characters["character_eric"] = {
+        "display_name": "Eric",
+        "aliases": ["Captain Eric"],
+        "last_seen_chunk": 1,
+        "confidence": 0.2,
+    }
+    characters["character_recent"] = {
+        "display_name": "Recent Witness",
+        "aliases": [],
+        "last_seen_chunk": -10,
+        "confidence": 0.0,
+    }
+    memory = {
+        "characters": characters,
+        "locations": {
+            f"location_{index:03d}": {
+                "display_name": f"Place {index}",
+                "last_seen_chunk": index,
+                "confidence": index / 20.0,
+            }
+            for index in range(20)
+        },
+        "props": {
+            f"prop_{index:03d}": {
+                "display_name": f"Object {index}",
+                "last_seen_chunk": index,
+                "confidence": index / 20.0,
+            }
+            for index in range(20)
+        },
+        "style": {
+            "global_visual_style": "cinematic realism",
+            "negative_style_rules": ["no text overlays"],
+        },
+        "recent_scenes": [
+            {
+                "scene_id": f"scene_{index}",
+                "summary": f"Scene {index}",
+                "active_character_ids": (
+                    ["character_recent"] if index == 9 else []
+                ),
+            }
+            for index in range(10)
+        ],
+    }
+    original = copy.deepcopy(memory)
+    chunks = (
+        {
+            "chunk_index": 100,
+            "text": "Captain Eric enters Place 2 carrying Object 3.",
+        },
+    )
+
+    context = analysis_batches.compact_continuity_context(memory, chunks)
+
+    assert len(context["characters"]) == 12
+    assert len(context["locations"]) == 8
+    assert len(context["props"]) == 8
+    assert len(context["recent_scenes"]) == 4
+    assert "character_eric" in context["characters"]
+    assert "character_recent" in context["characters"]
+    assert "location_002" in context["locations"]
+    assert "prop_003" in context["props"]
+    fallback_ids = [
+        entity_id
+        for entity_id in context["characters"]
+        if entity_id not in {"character_eric", "character_recent"}
+    ]
+    assert fallback_ids[:3] == [
+        "character_029",
+        "character_028",
+        "character_027",
+    ]
+    assert memory == original
+
+
+def test_story_analysis_prompt_payload_is_below_limit() -> None:
+    analysis_batches = _require_module(
+        "addons.audio_story_mode.analysis_batches"
+    )
+    chunks = [
+        {
+            "chunk_index": index,
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": (f"Visual event {index}. " + ("description " * 500)),
+        }
+        for index in range(8)
+    ]
+    batch = analysis_batches.partition_analysis_chunks(chunks)[0]
+    continuity_context = {
+        "characters": {
+            f"character_{index}": {
+                "display_name": f"Character {index}",
+                "appearance_anchor": "specific recurring visual anchor " * 30,
+            }
+            for index in range(12)
+        },
+        "locations": {},
+        "props": {},
+        "style": {"global_visual_style": "cinematic " * 300},
+        "recent_scenes": [],
+    }
+
+    payload = analysis_batches.bounded_story_prompt_payload(
+        batch=batch,
+        continuity_context=continuity_context,
+        story_style_guide="photorealistic audiobook still " * 300,
+        continuity_strength=0.8,
+    )
+
+    assert (
+        len(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+        <= 12_000
+    )
+    assert payload["chunks"]
+    assert payload["committed_story_bible"]["characters"]
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    controller._prepare_story_analysis_chat_request = lambda **_kwargs: None
+    original_complete = controller_module.chat_providers.complete_chat
+    captured_user_prompts = []
+
+    def capture_prompt(_provider, params, _additional):
+        captured_user_prompts.append(params["messages"][1]["content"])
+        return "{}"
+
+    controller_module.chat_providers.complete_chat = capture_prompt
+    try:
+        controller._call_llm_story_analysis(
+            provider="lmstudio",
+            model="test",
+            prompt_payload=payload,
+        )
+        controller._repair_llm_story_analysis_json(
+            "{" + ("malformed " * 10_000),
+            provider="lmstudio",
+            model="test",
+        )
+    finally:
+        controller_module.chat_providers.complete_chat = original_complete
+        controller.shutdown()
+    assert len(captured_user_prompts) == 2
+    assert all(len(prompt) < 24_000 for prompt in captured_user_prompts)
+
+
+def test_batched_llm_story_analysis_is_sequential_and_bounded() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+
+    class Harness:
+        pass
+
+    harness = Harness()
+    harness._build_batched_llm_story_analysis = types.MethodType(
+        controller_module.AudioStoryModeController._build_batched_llm_story_analysis,
+        harness,
+    )
+    calls = []
+    progress_messages = []
+    active_calls = 0
+
+    def analyze_batch(**kwargs):
+        nonlocal active_calls
+        active_calls += 1
+        assert active_calls == 1
+        chunks = list(kwargs["image_chunks"])
+        prompt_payload = kwargs["prompt_payload_override"]
+        assert (
+            len(
+                json.dumps(
+                    prompt_payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+            <= 12_000
+        )
+        calls.append([int(item["chunk_index"]) for item in chunks])
+        active_calls -= 1
+        return {
+            "story_bible": copy.deepcopy(kwargs["fallback_story_bible"]),
+            "scenes": [
+                {
+                    "chunk_index": int(item["chunk_index"]),
+                    "scene_id": f"scene_{item['chunk_index']}",
+                }
+                for item in chunks
+            ],
+        }
+
+    harness._build_llm_story_analysis = analyze_batch
+    chunks = [
+        {
+            "chunk_index": index,
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": f"Visible event {index}",
+        }
+        for index in range(19)
+    ]
+
+    result = harness._build_batched_llm_story_analysis(
+        full_text=" ".join(str(item["text"]) for item in chunks),
+        image_chunks=chunks,
+        story_style_guide="cinematic",
+        continuity_strength=0.8,
+        fallback_story_bible={
+            "characters": {},
+            "locations": {},
+            "props": {},
+            "style": {},
+            "recent_scenes": [],
+        },
+        progress_callback=lambda message: progress_messages.append(message),
+    )
+
+    assert calls == [list(range(8)), list(range(8, 16)), list(range(16, 19))]
+    assert [item["chunk_index"] for item in result["scenes"]] == list(range(19))
+    assert result["batch_stats"] == {"total": 3, "llm": 3, "heuristic": 0}
+    assert any("batch 2 of 3" in message for message in progress_messages)
+
+
+def test_batched_llm_story_analysis_falls_back_per_batch_and_cancels() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    settings_workload = _require_module(
+        "addons.audio_story_mode.settings_workload"
+    )
+
+    class Harness:
+        pass
+
+    harness = Harness()
+    harness._build_batched_llm_story_analysis = types.MethodType(
+        controller_module.AudioStoryModeController._build_batched_llm_story_analysis,
+        harness,
+    )
+    calls = []
+
+    def analyze_batch(**kwargs):
+        chunks = list(kwargs["image_chunks"])
+        calls.append([int(item["chunk_index"]) for item in chunks])
+        if len(calls) == 2:
+            raise TimeoutError("LM Studio batch timed out")
+        return {
+            "story_bible": copy.deepcopy(kwargs["fallback_story_bible"]),
+            "scenes": [
+                {"chunk_index": int(item["chunk_index"])}
+                for item in chunks
+            ],
+        }
+
+    harness._build_llm_story_analysis = analyze_batch
+    chunks = [
+        {"chunk_index": index, "text": f"Visible event {index}"}
+        for index in range(19)
+    ]
+    result = harness._build_batched_llm_story_analysis(
+        full_text="story",
+        image_chunks=chunks,
+        story_style_guide="cinematic",
+        continuity_strength=0.8,
+        fallback_story_bible={
+            "characters": {},
+            "locations": {},
+            "props": {},
+            "style": {},
+            "recent_scenes": [],
+        },
+    )
+
+    assert len(calls) == 3
+    assert result["batch_stats"] == {"total": 3, "llm": 2, "heuristic": 1}
+    assert [item["chunk_index"] for item in result["scenes"]] == [
+        *range(8),
+        *range(16, 19),
+    ]
+
+    class CancelAfterFirst:
+        checks = 0
+
+        def raise_if_cancelled(self):
+            self.checks += 1
+            if self.checks >= 3:
+                raise settings_workload.SettingsApplyCancelled("cancelled")
+
+    calls.clear()
+    _assert_raises(
+        settings_workload.SettingsApplyCancelled,
+        lambda: harness._build_batched_llm_story_analysis(
+            full_text="story",
+            image_chunks=chunks,
+            story_style_guide="cinematic",
+            continuity_strength=0.8,
+            fallback_story_bible={
+                "characters": {},
+                "locations": {},
+                "props": {},
+                "style": {},
+                "recent_scenes": [],
+            },
+            cancel_token=CancelAfterFirst(),
+        ),
+    )
+    assert len(calls) == 1
+    calls.clear()
+    cancel_checks = 0
+
+    def cancel_after_first_provider_call() -> bool:
+        nonlocal cancel_checks
+        cancel_checks += 1
+        return cancel_checks >= 2
+
+    _assert_raises(
+        settings_workload.SettingsApplyCancelled,
+        lambda: harness._build_batched_llm_story_analysis(
+            full_text="story",
+            image_chunks=chunks,
+            story_style_guide="cinematic",
+            continuity_strength=0.8,
+            fallback_story_bible={
+                "characters": {},
+                "locations": {},
+                "props": {},
+                "style": {},
+                "recent_scenes": [],
+            },
+            cancel_check=cancel_after_first_provider_call,
+        ),
+    )
+    assert len(calls) == 1
+
+    real_controller = controller_module.AudioStoryModeController(context=None)
+    try:
+        real_chunks = real_controller._build_image_chunks(
+            [
+                {
+                    "start_seconds": float(index),
+                    "end_seconds": float(index + 1),
+                    "text": f"Visible event {index}",
+                }
+                for index in range(19)
+            ],
+            19.0,
+            1.0,
+        )
+        assert [item["chunk_index"] for item in real_chunks] == list(range(19))
+    finally:
+        real_controller.shutdown()
 
 
 def test_audio_sources_keep_order_deduplicate_and_offset() -> None:
@@ -98,6 +498,395 @@ def test_exact_boundary_resolves_to_next_chapter() -> None:
     source, local_seconds = audio_sources.locate_global_position(sources, 10.0)
     assert source.index == 1
     assert local_seconds == 0.0
+
+
+def test_controller_cached_chapter_boundary_installs_without_pause() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    project = {
+        "project_id": "p1",
+        "manifest_revision": 1,
+        "chapter_order": ["c1", "c2"],
+        "archived_chapter_ids": [],
+        "chapters": {"c1": {}, "c2": {}},
+    }
+    controller.current_story_project_id = "p1"
+    controller._current_story_project = project
+    controller._current_story_chapter_id = "c1"
+    controller._story_chapter_lazy_loading_active = True
+    controller.imported_audio_sources = _sample_sources(10.0, 10.0)
+    key = controller._story_chapter_cache_key(project, "c2")
+    payload = {"key": key, "restoration": {}}
+    controller._story_chapter_working_set.put(
+        key,
+        payload,
+        protected_chapter_id="c1",
+    )
+    installed = []
+    controller._install_prepared_story_chapter = (
+        lambda value: installed.append(value) or True
+    )
+    controller._prefetch_next_story_project_chapter = lambda _chapter_id: None
+    controller._request_story_project_chapter = (
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("cached transition must not start a worker")
+        )
+    )
+    try:
+        assert controller._ensure_story_chapter_ready_for_position(10.0)
+        assert installed == [payload]
+        assert controller._pending_story_chapter_resume is None
+    finally:
+        controller.audio_player = None
+        controller.shutdown()
+
+
+def test_controller_unloaded_chapter_boundary_pauses_and_requests_once() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+
+    class Player:
+        pauses = 0
+
+        def pause(self):
+            self.pauses += 1
+
+        def stop(self):
+            return None
+
+        def setPosition(self, _position):
+            return None
+
+    project = {
+        "project_id": "p1",
+        "manifest_revision": 1,
+        "chapter_order": ["c1", "c2"],
+        "archived_chapter_ids": [],
+        "chapters": {"c1": {}, "c2": {}},
+    }
+    player = Player()
+    requests = []
+    controller.current_story_project_id = "p1"
+    controller._current_story_project = project
+    controller._current_story_chapter_id = "c1"
+    controller._story_chapter_lazy_loading_active = True
+    controller.imported_audio_sources = _sample_sources(10.0, 10.0)
+    controller.audio_player = player
+    controller._is_audio_story_currently_playing = lambda: True
+    controller._request_story_project_chapter = (
+        lambda chapter_id, **kwargs: requests.append((chapter_id, kwargs))
+    )
+    try:
+        assert not controller._ensure_story_chapter_ready_for_position(10.0)
+        assert player.pauses == 1
+        assert requests == [
+            (
+                "c2",
+                {"reason": "playback", "resume_position": 10.0},
+            )
+        ]
+        assert controller._pending_story_chapter_resume == {
+            "project_id": "p1",
+            "chapter_id": "c2",
+            "position_seconds": 10.0,
+            "resume_playback": True,
+            "manifest_revision": 1,
+            "generation": 0,
+        }
+    finally:
+        controller.audio_player = None
+        controller.shutdown()
+
+
+def test_chapter_selection_promotes_an_inflight_prefetch_to_install() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    project = {
+        "project_id": "p1",
+        "manifest_revision": 1,
+        "chapter_order": ["c1", "c2"],
+        "archived_chapter_ids": [],
+        "chapters": {"c1": {}, "c2": {}},
+    }
+    controller.current_story_project_id = "p1"
+    controller._current_story_project = project
+    controller._current_story_chapter_id = "c1"
+    controller._story_chapter_lazy_loading_active = True
+    key = controller._story_chapter_cache_key(project, "c2")
+    controller._story_chapter_load_inflight.add(key)
+    controller._selected_story_project_chapter = lambda: {
+        "chapter_id": "c2",
+        "archived": False,
+    }
+    installed = []
+    controller._install_prepared_story_chapter = (
+        lambda payload: installed.append(payload) or True
+    )
+    controller._prefetch_next_story_project_chapter = lambda _chapter_id: None
+    try:
+        controller._request_story_project_chapter("c2", reason="selection")
+        promoted_generation = controller._story_chapter_load_generation
+        assert controller._story_chapter_load_pending_installs[key] == (
+            promoted_generation
+        )
+        result = {"key": key, "restoration": {}}
+        controller._on_story_chapter_load_finished(
+            {
+                "key": key,
+                "generation": promoted_generation - 1,
+                "install": False,
+                "reason": "prefetch",
+                "result": result,
+            }
+        )
+        assert installed == [result]
+        assert key not in controller._story_chapter_load_pending_installs
+    finally:
+        controller.shutdown()
+
+
+def test_unavailable_playback_chapter_stays_paused_and_clears_resume() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    project = {
+        "project_id": "p1",
+        "manifest_revision": 1,
+        "chapter_order": ["c1", "c2"],
+        "archived_chapter_ids": [],
+        "chapters": {"c1": {}, "c2": {}},
+    }
+    controller.current_story_project_id = "p1"
+    controller._current_story_project = project
+    controller._current_story_chapter_id = "c1"
+    controller._story_chapter_lazy_loading_active = True
+    controller._pending_story_chapter_resume = {
+        "project_id": "p1",
+        "chapter_id": "c2",
+        "position_seconds": 10.0,
+        "resume_playback": True,
+    }
+    controller._selected_story_project_chapter = lambda: {
+        "chapter_id": "c2",
+        "archived": False,
+    }
+    controller._clear_audio_story_derived_state = lambda: None
+    controller._install_project_restore_payload = (
+        lambda *_args, **_kwargs: False
+    )
+    controller._restore_project_image_cache = lambda *_args, **_kwargs: None
+    controller._refresh_controls = lambda: None
+    resumed = []
+    controller._resume_pending_story_chapter_playback = resumed.append
+    key = controller._story_chapter_cache_key(project, "c2")
+    try:
+        controller._on_story_chapter_load_finished(
+            {
+                "key": key,
+                "generation": controller._story_chapter_load_generation,
+                "install": True,
+                "reason": "playback",
+                "result": {"key": key, "restoration": {}},
+            }
+        )
+        assert controller._current_story_chapter_id == "c1"
+        assert controller._pending_story_chapter_resume is None
+        assert resumed == []
+    finally:
+        controller.shutdown()
+
+
+def test_closing_project_releases_chapter_working_set() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    project = {
+        "project_id": "p1",
+        "manifest_revision": 1,
+        "chapter_order": ["c1"],
+        "archived_chapter_ids": [],
+        "chapters": {"c1": {}},
+    }
+    controller.current_story_project_id = "p1"
+    controller._current_story_project = project
+    controller._current_story_chapter_id = "c1"
+    controller._story_chapter_lazy_loading_active = True
+    key = controller._story_chapter_cache_key(project, "c1")
+    controller._story_chapter_working_set.put(key, {"owned": True})
+    try:
+        controller._apply_open_story_project(None)
+        assert len(controller._story_chapter_working_set) == 0
+        assert controller._current_story_chapter_id == ""
+        assert not controller._story_chapter_lazy_loading_active
+    finally:
+        controller.shutdown()
+
+
+def test_tts_chapter_end_uses_cached_or_async_next_chapter() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    project = {
+        "project_id": "p1",
+        "manifest_revision": 1,
+        "chapter_order": ["c1", "c2"],
+        "archived_chapter_ids": [],
+        "chapters": {"c1": {}, "c2": {}},
+    }
+
+    cached_controller = controller_module.AudioStoryModeController(context=None)
+    cached_controller.current_story_project_id = "p1"
+    cached_controller._current_story_project = project
+    cached_controller._current_story_chapter_id = "c1"
+    cached_controller._story_chapter_lazy_loading_active = True
+    cached_key = cached_controller._story_chapter_cache_key(project, "c2")
+    cached_payload = {"key": cached_key, "restoration": {}}
+    cached_controller._story_chapter_working_set.put(
+        cached_key,
+        cached_payload,
+        protected_chapter_id="c1",
+    )
+    installed = []
+    started = []
+    cached_controller._install_prepared_story_chapter = (
+        lambda payload: installed.append(payload) or True
+    )
+    cached_controller._prefetch_next_story_project_chapter = lambda _value: None
+    cached_controller._start_tts_chapter_playback = (
+        lambda position, *, resume_playback: started.append(
+            (position, resume_playback)
+        )
+    )
+    try:
+        assert cached_controller._continue_tts_with_next_story_chapter()
+        assert installed == [cached_payload]
+        assert started == [(0.0, True)]
+    finally:
+        cached_controller.shutdown()
+
+    unloaded_controller = controller_module.AudioStoryModeController(context=None)
+    unloaded_controller.current_story_project_id = "p1"
+    unloaded_controller._current_story_project = project
+    unloaded_controller._current_story_chapter_id = "c1"
+    unloaded_controller._story_chapter_lazy_loading_active = True
+    requests = []
+    unloaded_controller._request_story_project_chapter = (
+        lambda chapter_id, **kwargs: requests.append((chapter_id, kwargs))
+    )
+    try:
+        assert unloaded_controller._continue_tts_with_next_story_chapter()
+        assert requests == [
+            (
+                "c2",
+                {"reason": "tts-playback", "resume_position": 0.0},
+            )
+        ]
+        assert unloaded_controller._pending_story_chapter_resume == {
+            "project_id": "p1",
+            "chapter_id": "c2",
+            "position_seconds": 0.0,
+            "resume_playback": True,
+            "manifest_revision": 1,
+            "generation": 0,
+        }
+    finally:
+        unloaded_controller.shutdown()
+
+
+def test_manual_selection_clears_stale_playback_resume() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    controller.current_story_project_id = "p1"
+    controller._current_story_project = {
+        "project_id": "p1",
+        "manifest_revision": 1,
+        "chapter_order": ["c1", "c2", "c3"],
+        "archived_chapter_ids": [],
+        "chapters": {"c1": {}, "c2": {}, "c3": {}},
+    }
+    controller._story_chapter_lazy_loading_active = True
+    controller._pending_story_chapter_resume = {
+        "project_id": "p1",
+        "chapter_id": "c2",
+        "position_seconds": 10.0,
+        "resume_playback": True,
+        "manifest_revision": 1,
+        "generation": 1,
+    }
+    controller._refresh_story_project_ui = lambda: None
+    controller._selected_story_project_chapter = lambda: {
+        "chapter_id": "c3",
+        "archived": False,
+    }
+    requests = []
+    controller._request_story_project_chapter = (
+        lambda chapter_id, **kwargs: requests.append((chapter_id, kwargs))
+    )
+    try:
+        controller._on_story_project_chapter_selection_changed()
+        assert controller._pending_story_chapter_resume is None
+        assert requests == [("c3", {"reason": "selection"})]
+    finally:
+        controller.shutdown()
+
+
+def test_late_chapter_result_cannot_repopulate_cache_after_shutdown() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    project = {
+        "project_id": "p1",
+        "manifest_revision": 1,
+        "chapter_order": ["c1"],
+        "archived_chapter_ids": [],
+        "chapters": {"c1": {}},
+    }
+    controller.current_story_project_id = "p1"
+    controller._current_story_project = project
+    key = controller._story_chapter_cache_key(project, "c1")
+    controller._story_project_shutdown = True
+    controller._story_chapter_load_inflight.add(key)
+    controller._on_story_chapter_load_finished(
+        {
+            "key": key,
+            "generation": 0,
+            "install": False,
+            "result": {"key": key, "restoration": {}},
+        }
+    )
+    assert len(controller._story_chapter_working_set) == 0
+    assert key not in controller._story_chapter_load_inflight
+    controller.shutdown()
+
+
+def test_same_project_audio_change_invalidates_and_reloads_selected_chapter() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    with tempfile.TemporaryDirectory() as directory:
+        store, project = _project_analysis_fixture(Path(directory))
+        controller = controller_module.AudioStoryModeController(context=None)
+        controller._story_project_store = store
+        controller.current_story_project_id = project["project_id"]
+        controller._current_story_project = copy.deepcopy(project)
+        controller._current_story_chapter_id = "c1"
+        controller._story_chapter_lazy_loading_active = True
+        old_key = controller._story_chapter_cache_key(project, "c1")
+        controller._story_chapter_working_set.put(old_key, {"old": True})
+        updated = copy.deepcopy(project)
+        updated["manifest_revision"] += 1
+        updated["chapters"]["c1"]["audio_reference"]["fingerprint"][
+            "digest"
+        ] = "changed-audio"
+        controller._refresh_story_project_ui = lambda: None
+        controller._selected_story_project_chapter = lambda: {
+            "chapter_id": "c1",
+            "archived": False,
+        }
+        requests = []
+        controller._request_story_project_chapter = (
+            lambda chapter_id, **kwargs: requests.append((chapter_id, kwargs))
+        )
+        try:
+            controller._apply_open_story_project(updated)
+            assert controller._current_story_chapter_id == ""
+            assert len(controller._story_chapter_working_set) == 0
+            assert requests == [("c1", {"reason": "project-update"})]
+        finally:
+            controller.shutdown()
 
 
 class _FakeSegment:
@@ -1662,6 +2451,7 @@ def test_project_analysis_runs_in_project_order_and_seeds_following_chapter() ->
                     "chunk_seconds": 8,
                     "image_frequency_seconds": 12,
                     "continuity_strength": 0.8,
+                    "_selected_chapter_id": "c2",
                 },
             )
             committed = store.load_story_bible(project["project_id"])
@@ -1682,8 +2472,9 @@ def test_project_analysis_runs_in_project_order_and_seeds_following_chapter() ->
 
     assert calls == ["c1", "c2"]
     assert committed["characters"]["hero"]["aliases"] == ["Hero", "the traveler"]
+    assert payload["selected_chapter_id"] == "c2"
+    assert payload["chapter_ids"] == ["c1", "c2"]
     assert [chunk["start_seconds"] for chunk in payload["transcript_chunks"]] == [
-        1.0,
         11.0,
     ]
     assert stored_c2["transcript_chunks"][0]["start_seconds"] == 1.0
@@ -4790,6 +5581,59 @@ def test_structured_story_beats_convert_to_existing_scene_shape() -> None:
     assert "cold blue lightning" in converted["scenes"][0]["image_prompt"]
 
 
+def test_planner_guidance_reports_instructor_fallback_without_implying_failure() -> None:
+    guidance = _require_module("addons.audio_story_mode.planner_guidance")
+    unavailable = types.SimpleNamespace(
+        available=False,
+        reason="Instructor is unavailable: No module named 'instructor'",
+        module_version="",
+    )
+    available = types.SimpleNamespace(
+        available=True,
+        reason="",
+        module_version="1.15.4",
+    )
+
+    fallback_text = guidance.instructor_status_text(unavailable)
+    assert fallback_text == (
+        "Normal LLM scene analysis is active. "
+        "Instructor validation is unavailable."
+    )
+    assert "No module named" not in fallback_text
+    assert guidance.instructor_status_text(available) == (
+        "Instructor 1.15.4 validation is available. "
+        "The selected LLM performs the story reasoning."
+    )
+
+
+def test_planner_guidance_explains_image_provider_continuity_capability() -> None:
+    guidance = _require_module("addons.audio_story_mode.planner_guidance")
+
+    assert guidance.image_provider_continuity_text(
+        {
+            "provider": "openai",
+            "generation_available": True,
+        }
+    ) == (
+        "Active image provider: OpenAI. Reference-image continuity is available "
+        "for recurring characters and locations."
+    )
+    assert guidance.image_provider_continuity_text(
+        {
+            "provider": "runware",
+            "generation_available": True,
+        }
+    ) == (
+        "Active image provider: Runware. Audio Story generates each image fresh "
+        "with this provider. Story Bible and the master prompt improve consistency, "
+        "but exact identity reuse is unavailable."
+    )
+    assert guidance.image_provider_continuity_text({}) == (
+        "No active image provider detected. Configure Visual Reply before "
+        "generating story images."
+    )
+
+
 def test_instructor_adapter_wraps_isolated_client_and_strips_incompatible_params() -> None:
     models = _require_module("addons.audio_story_mode.structured_models")
     calls: dict[str, object] = {}
@@ -4863,6 +5707,3659 @@ def test_designer_ui_exposes_instructor_controls() -> None:
     names = {str(node.attrib.get("name") or "") for node in root.iter("widget")}
     assert "audio_story_instructor_beats_checkbox" in names
     assert "audio_story_instructor_status_label" in names
+    assert "audio_story_recommended_continuity_button" in names
+
+
+def test_scene_planner_help_labels_reserve_wrapped_text_height() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools, QtWidgets
+
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    assert root is not None, "Designer UI did not load"
+    expected_heights = {
+        "audio_story_instructor_status_label": 50,
+        "audio_story_xai_image_settings_hint": 72,
+    }
+    for object_name, minimum_height in expected_heights.items():
+        label = root.findChild(QtWidgets.QLabel, object_name)
+        assert label is not None
+        assert label.wordWrap()
+        assert label.minimumHeight() >= minimum_height
+        assert bool(label.alignment() & QtCore.Qt.AlignTop)
+    root.close()
+    root.deleteLater()
+    app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+    app.processEvents()
+
+
+def test_bound_planner_guidance_reflects_active_image_provider() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    try:
+        controller._visual_reply_generation_info = lambda: {
+            "provider": "runware",
+            "generation_available": True,
+        }
+        controller._sync_image_provider_guidance()
+
+        text = controller.audio_story_xai_image_settings_hint.text()
+        assert text.startswith("Active image provider: Runware.")
+        assert "generates each image fresh" in text
+        assert "exact identity reuse is unavailable" in text
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_designer_ui_exposes_staged_apply_controls() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools, QtWidgets
+
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    required = {
+        "audio_story_planner_apply_button",
+        "audio_story_planner_cancel_button",
+        "audio_story_planner_apply_status_label",
+        "audio_story_style_apply_button",
+        "audio_story_style_cancel_button",
+        "audio_story_style_apply_status_label",
+    }
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    assert root is not None, "Designer UI did not load"
+    widgets = {name: root.findChild(QtCore.QObject, name) for name in required}
+    assert all(widgets.values()), sorted(
+        name for name, widget in widgets.items() if widget is None
+    )
+    assert widgets["audio_story_planner_apply_button"].text() == "Apply Planner Changes"
+    assert widgets["audio_story_style_apply_button"].text() == "Apply Style Changes"
+    for prefix in ("planner", "style"):
+        cancel = widgets[f"audio_story_{prefix}_cancel_button"]
+        status = widgets[f"audio_story_{prefix}_apply_status_label"]
+        assert isinstance(cancel, QtWidgets.QPushButton)
+        assert cancel.text() == "Cancel"
+        assert not cancel.isEnabled()
+        assert status.text() == "Saved"
+    root.close()
+    root.deleteLater()
+    app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+    app.processEvents()
+
+
+def test_recommended_continuity_settings_are_staged_without_overwriting_choices() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    try:
+        controller._stored_story_analysis_provider_mode = "lmstudio"
+        controller._stored_story_analysis_model = "local-story-model"
+        controller._stored_style_enabled = ["watercolor"]
+        controller._stored_style_prompts["watercolor"] = "hand-painted wash"
+        original_style_prompts = copy.deepcopy(controller._stored_style_prompts)
+
+        button = controller.audio_story_recommended_continuity_button
+        assert button.text() == "Recommended continuity"
+        button.click()
+
+        assert controller._stored_audio_story_analysis_mode == "story_bible"
+        assert controller._stored_use_llm_story_analysis is True
+        assert controller._stored_instructor_beats_enabled is True
+        assert controller._stored_image_timing_mode == "scene_changes"
+        assert controller._stored_continuity_strength == 0.9
+        assert controller._stored_story_master_prompt_enabled is True
+        assert controller._stored_story_master_prompt_mode == "strong"
+        assert controller._stored_story_analysis_provider_mode == "lmstudio"
+        assert controller._stored_story_analysis_model == "local-story-model"
+        assert controller._stored_style_enabled == ["watercolor"]
+        assert controller._stored_style_prompts == original_style_prompts
+        assert controller.audio_story_planner_apply_status_label.text() == (
+            "Changes not applied"
+        )
+        assert controller.audio_story_style_apply_status_label.text() == (
+            "Changes not applied"
+        )
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_planner_and_style_controls_only_mark_drafts_before_apply() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    assert root is not None, "Designer UI did not load"
+    controller = controller_module.AudioStoryModeController(context=None)
+    assert controller._bind_designer_runtime_widget(root) is root
+    controller._raw_transcript_segments = [
+        {"start_seconds": 0.0, "end_seconds": 1.0, "text": "Draft-only controls"}
+    ]
+    controller.transcript_chunks = [
+        {"start_seconds": 0.0, "end_seconds": 1.0, "text": "Draft-only controls"}
+    ]
+    side_effects: list[str] = []
+
+    def sentinel(name: str, result=None):
+        def record(*_args, **_kwargs):
+            side_effects.append(name)
+            return result
+
+        return record
+
+    for name, result in (
+        ("_start_story_payload_rebuild_job", None),
+        ("_schedule_visual_refresh", False),
+        ("_apply_live_prompt_changes", None),
+        ("_sync_story_generated_master_prompt", False),
+        ("_apply_scene_prompts", None),
+        ("_reconcile_cached_images_for_current_prompts", None),
+        ("_call_llm_story_analysis", {}),
+        ("_call_instructor_story_analysis", {}),
+        ("_generate_visual_image", {}),
+        ("_restart_visual_generation_from_position", None),
+        ("_prepare_source_media", None),
+        ("_stop_story", None),
+        ("_play_story", None),
+        ("_start_playback_with_visual_sync", None),
+    ):
+        setattr(controller, name, sentinel(name, result))
+    controller._request_story_analysis_model_catalog = lambda: None
+
+    try:
+        controller.audio_story_llm_analysis_checkbox.setChecked(
+            not controller.audio_story_llm_analysis_checkbox.isChecked()
+        )
+        controller.audio_story_instructor_beats_checkbox.setChecked(
+            not controller.audio_story_instructor_beats_checkbox.isChecked()
+        )
+        controller.audio_story_analysis_mode_combo.setCurrentIndex(
+            1 - controller.audio_story_analysis_mode_combo.currentIndex()
+        )
+        controller.audio_story_analysis_provider_combo.setCurrentIndex(
+            1 if controller.audio_story_analysis_provider_combo.currentIndex() != 1 else 2
+        )
+        controller.audio_story_analysis_model_combo.addItem("draft-model", "draft-model")
+        controller.audio_story_analysis_model_combo.setCurrentIndex(
+            controller.audio_story_analysis_model_combo.count() - 1
+        )
+        model_edit = controller.audio_story_analysis_model_combo.lineEdit()
+        assert model_edit is not None
+        model_edit.setText("draft-model-edit-finished")
+        model_edit.editingFinished.emit()
+
+        for style_id, button in controller.audio_story_style_buttons.items():
+            button.setChecked(not button.isChecked())
+            edit = controller.audio_story_style_edits[style_id]
+            edit.setText(f"draft {style_id}")
+            edit.editingFinished.emit()
+        controller.audio_story_style_live_checkbox.setChecked(
+            not controller.audio_story_style_live_checkbox.isChecked()
+        )
+        controller.audio_story_master_prompt_button.setChecked(
+            not controller.audio_story_master_prompt_button.isChecked()
+        )
+        controller.audio_story_master_prompt_mode_combo.setCurrentIndex(
+            (controller.audio_story_master_prompt_mode_combo.currentIndex() + 1)
+            % controller.audio_story_master_prompt_mode_combo.count()
+        )
+        for spin in controller.audio_story_prompt_limit_spins.values():
+            spin.setValue(spin.value() + spin.singleStep())
+        controller.audio_story_prompt_safety_cap_spin.setValue(
+            controller.audio_story_prompt_safety_cap_spin.value()
+            + controller.audio_story_prompt_safety_cap_spin.singleStep()
+        )
+
+        quality_combo = controller.audio_story_cost_profile_combo
+        target_quality = 0 if quality_combo.currentIndex() != 0 else 1
+        quality_combo.setCurrentIndex(target_quality)
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller._preset_root = Path(directory)
+            preset_name = "review-staged-setup"
+            preset_payload = controller._audio_story_settings_preset_payload()
+            current_playback_mode = str(
+                controller.audio_story_playback_mode_combo.currentText() or ""
+            )
+            staged_playback_mode = (
+                "Use TTS Narration"
+                if current_playback_mode != "Use TTS Narration"
+                else "Play Imported Audio"
+            )
+            preset_payload.update(
+                {
+                    "audio_story_analysis_mode": "story_bible",
+                    "use_llm_story_analysis": True,
+                    "instructor_beats_enabled": True,
+                    "story_analysis_provider_mode": "deepseek",
+                    "story_analysis_model": "saved-setup-model",
+                    "style_change_live": True,
+                    "story_master_prompt_enabled": True,
+                    "story_master_prompt_mode": "strongest",
+                    "playback_mode": staged_playback_mode,
+                }
+            )
+            controller._audio_story_settings_preset_path(preset_name).write_text(
+                json.dumps(preset_payload), encoding="utf-8"
+            )
+            controller._refresh_audio_story_settings_presets()
+            controller.audio_story_settings_preset_combo.setCurrentText(preset_name)
+            controller.audio_story_settings_preset_load_button.click()
+
+        assert side_effects == [], side_effects
+        assert controller.audio_story_planner_apply_status_label.text() == "Changes not applied"
+        assert controller.audio_story_style_apply_status_label.text() == "Changes not applied"
+    finally:
+        controller.shutdown()
+        root.close()
+        root.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def _planner_apply_test_fixture():
+    temporary_directory = tempfile.TemporaryDirectory()
+    app, root, controller = _load_bound_audio_story_controller()
+    store, project = _project_analysis_fixture(Path(temporary_directory.name))
+    controller._story_project_store = store
+    controller.current_story_project_id = str(project["project_id"])
+    controller._current_story_project = copy.deepcopy(project)
+    controller._story_project_generation = 11
+    controller._story_project_input_fingerprint = "planner-apply-input"
+    controller._raw_transcript_segments = [
+        {
+            "start_seconds": 1.0,
+            "end_seconds": 2.0,
+            "text": "Restored planner transcript",
+        }
+    ]
+    controller.transcript_chunks = [
+        {
+            "index": 0,
+            "start_seconds": 1.0,
+            "end_seconds": 2.0,
+            "text": "Previously applied analysis",
+            "prompt": "previous prompt",
+        }
+    ]
+    controller.story_bible = {"summary": "Previously applied"}
+    controller.scene_plan = [{"chunk_index": 0, "scene_id": "previous-scene"}]
+    controller._applied_planner_settings = controller._planner_draft_snapshot()
+    controller.audio_story_analysis_mode_combo.setCurrentIndex(
+        1 - controller.audio_story_analysis_mode_combo.currentIndex()
+    )
+    controller._sync_planner_apply_state()
+    assert controller.audio_story_planner_apply_button.isEnabled()
+    return temporary_directory, app, root, controller
+
+
+def _planner_apply_test_result(
+    controller,
+    request,
+    *,
+    summary: str,
+    transcript_chunks: list[dict] | None = None,
+    scene_plan: list[dict] | None = None,
+) -> dict:
+    final_project = controller._story_project_store.load_project(request.project_id)
+    final_revision = int(final_project.get("manifest_revision", 0) or 0)
+    installed_chunks = transcript_chunks or [
+        {
+            "index": 0,
+            "start_seconds": 1.0,
+            "end_seconds": 2.0,
+            "text": "Reanalyzed transcript window",
+            "prompt": "reanalyzed prompt",
+        }
+    ]
+    installed_scenes = scene_plan or [
+        {"chunk_index": 0, "scene_id": "reanalyzed-scene"}
+    ]
+    return {
+        "request": request,
+        "pipeline_token": controller._story_settings_apply_pipeline_owner,
+        "original_project_id": request.project_id,
+        "original_manifest_revision": request.manifest_revision,
+        "final_project_id": request.project_id,
+        "final_manifest_revision": final_revision,
+        "store_head_project_id": request.project_id,
+        "store_head_manifest_revision": final_revision,
+        "project": final_project,
+        "install_payload": {
+            "transcript_chunks": installed_chunks,
+            "story_style_guide": "immutable style guide",
+            "story_bible": {"summary": summary},
+            "scene_plan": installed_scenes,
+            "character_anchors": {"hero": {"label": "Hero"}},
+            "location_anchors": {"hall": {"label": "Hall"}},
+            "image_cache": {},
+            "prompt_image_cache": {},
+        },
+    }
+
+
+def _style_apply_test_fixture(*, chunk_count: int = 2048):
+    checkpointing = _require_module("addons.audio_story_mode.checkpointing")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    project = controller._story_project_store.load_project(
+        controller.current_story_project_id
+    )
+    committed_memory = {"summary": "Committed style-apply memory"}
+    for chapter_index, chapter_id in enumerate(project["chapter_order"], start=1):
+        analysis = _analysis_result(
+            {
+                "job_id": 0,
+                "path": f"chapter_{chapter_index}.wav",
+                "audio_duration": 10.0,
+                "chunk_seconds": 8,
+                "image_frequency_seconds": 12,
+                "continuity_strength": 0.8,
+                "raw_segments": [
+                    {
+                        "start_seconds": 1.0,
+                        "end_seconds": 2.0,
+                        "text": f"Saved chapter {chapter_index} analysis",
+                    }
+                ],
+            },
+            chapter_id=chapter_id,
+            story_update=committed_memory,
+        )
+        analysis["transcript_chunks"][0]["prompt"] = (
+            f"saved chapter {chapter_index} prompt"
+        )
+        analysis_fingerprint = checkpointing.settings_fingerprint(analysis)
+        story_stage = project["chapters"][chapter_id]["stages"]["story_analysis"]
+        story_stage.update(
+            {
+                "status": "completed",
+                "input_fingerprint": f"style-analysis-{chapter_index}",
+                "expected_input_fingerprint": f"style-analysis-{chapter_index}",
+                "output_fingerprint": analysis_fingerprint,
+            }
+        )
+        scene_stage = project["chapters"][chapter_id]["stages"]["scene_planning"]
+        scene_stage.update(
+            {
+                "status": "completed",
+                "input_fingerprint": analysis_fingerprint,
+                "expected_input_fingerprint": analysis_fingerprint,
+                "output_fingerprint": checkpointing.settings_fingerprint(
+                    {"scene_plan": analysis["scene_plan"]}
+                ),
+            }
+        )
+        project = controller._story_project_store.commit_analysis_transaction(
+            project,
+            chapter_id,
+            analysis,
+            committed_memory,
+        )
+
+    count = max(2000, int(chunk_count))
+    controller._current_story_project = copy.deepcopy(project)
+    controller.transcript_chunks = [
+        {
+            "index": index,
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": f"Synthetic style scene {index}",
+            "prompt": f"original prompt {index}",
+            "scene_id": f"style-scene-{index}",
+            "scene_index": index,
+        }
+        for index in range(count)
+    ]
+    controller.scene_plan = [
+        {
+            "chunk_index": index,
+            "scene_id": f"style-scene-{index}",
+            "scene_index": index,
+            "key_action": f"Synthetic style scene {index}",
+            "camera": "cinematic medium shot",
+        }
+        for index in range(count)
+    ]
+    controller.story_bible = {
+        "summary": "Saved synthetic style story",
+        "global_style": {"story_style_guide": "consistent film language"},
+    }
+    controller.continuity_memory = copy.deepcopy(committed_memory)
+    controller.full_transcript_text = "Synthetic transcript must stay unchanged"
+    controller.audio_story_transcript_edit.setPlainText(
+        "SENTINEL TRANSCRIPT WIDGET\nMust not be repainted by Style Apply."
+    )
+    controller._applied_style_settings = controller._style_draft_snapshot()
+    style_id = next(iter(controller.audio_story_style_buttons))
+    controller.audio_story_style_buttons[style_id].setChecked(True)
+    controller.audio_story_style_edits[style_id].setText(
+        "frozen watercolor and graphite storybook style"
+    )
+    controller.audio_story_style_edits[style_id].editingFinished.emit()
+    controller._sync_style_apply_state()
+    assert controller.audio_story_style_apply_button.isEnabled()
+    return temporary_directory, app, root, controller
+
+
+def _wait_for_style_apply(app, controller) -> None:
+    _wait_for_qt_condition(
+        app,
+        lambda: controller._story_settings_apply_request is None,
+        "style settings worker did not finish",
+    )
+
+
+def test_style_controls_do_no_work_before_apply() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    calls: list[str] = []
+
+    def forbidden(name: str):
+        def record(*_args, **_kwargs):
+            calls.append(name)
+            raise AssertionError(f"{name} must not run before Style Apply")
+
+        return record
+
+    try:
+        for name in (
+            "_build_style_reprompt_result",
+            "_apply_scene_prompts",
+            "_apply_live_prompt_changes",
+            "_reconcile_cached_images_for_current_prompts",
+            "_call_llm_story_analysis",
+            "_call_instructor_story_analysis",
+            "_generate_visual_image",
+            "_schedule_visual_refresh",
+            "_restart_visual_generation_from_position",
+        ):
+            setattr(controller, name, forbidden(name))
+        style_id = next(iter(controller.audio_story_style_buttons))
+        controller.audio_story_style_buttons[style_id].setChecked(False)
+        controller.audio_story_style_edits[style_id].setText("new staged style")
+        controller.audio_story_style_edits[style_id].editingFinished.emit()
+        controller.audio_story_style_live_checkbox.setChecked(
+            not controller.audio_story_style_live_checkbox.isChecked()
+        )
+        assert calls == []
+        assert len(controller.transcript_chunks) >= 2000
+        assert controller.audio_story_style_apply_status_label.text() == (
+            "Changes not applied"
+        )
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_runs_off_gui_thread() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    from PySide6 import QtCore
+
+    entered = threading.Event()
+    release = threading.Event()
+    worker_threads: list[threading.Thread] = []
+    ticks: list[int] = []
+    original = controller._build_style_reprompt_result
+    expected_planner = controller._applied_planner_settings
+    expected_style = controller._style_draft_snapshot()
+
+    def blocked_builder(**kwargs):
+        worker_threads.append(threading.current_thread())
+        entered.set()
+        assert release.wait(5.0), "blocked style prompt builder was not released"
+        return original(**kwargs)
+
+    try:
+        controller._build_style_reprompt_result = blocked_builder
+        controller.audio_story_style_apply_button.click()
+        assert entered.wait(5.0), "style prompt builder did not start"
+        request = controller._story_settings_apply_request
+        assert request is not None
+        assert request.operation == "style"
+        assert request.planner == expected_planner
+        assert request.style == expected_style
+        QtCore.QTimer.singleShot(0, lambda: (ticks.append(1), release.set()))
+        _wait_for_style_apply(app, controller)
+        assert ticks == [1]
+        assert worker_threads
+        assert len({thread.ident for thread in worker_threads}) == 1
+        assert all(thread is not threading.main_thread() for thread in worker_threads)
+        assert controller.audio_story_style_apply_status_label.text() == "Applied"
+    finally:
+        release.set()
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_never_calls_llm_transcription_tts_or_full_visuals() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    forbidden_calls: list[str] = []
+
+    def forbidden(name: str):
+        def fail(*_args, **_kwargs):
+            forbidden_calls.append(name)
+            raise AssertionError(f"Style Apply must not call {name}")
+
+        return fail
+
+    try:
+        expected_style = controller._style_draft_snapshot()
+        for name in (
+            "_request_story_analysis_model_catalog",
+            "_build_project_story_payload",
+            "_analyze_project_chapter_with_settings",
+            "_call_llm_story_analysis",
+            "_call_instructor_story_analysis",
+            "_start_transcription",
+            "_start_tts_render",
+            "_prepare_tts_media",
+            "_play_story",
+            "_generate_visual_image",
+            "_schedule_visual_refresh",
+            "_restart_visual_generation_from_position",
+            "_restart_missing_visual_generation_from_position",
+        ):
+            setattr(controller, name, forbidden(name))
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+        assert forbidden_calls == []
+        assert controller.audio_story_style_apply_status_label.text() == "Applied"
+        for chapter_id in controller._current_story_project["chapter_order"]:
+            saved = controller._story_project_store.load_chapter_document(
+                controller.current_story_project_id, chapter_id, "analysis"
+            )
+            assert saved["applied_settings"]["style"] == (
+                expected_style.to_payload()
+            )
+            assert saved["transcript_chunks"][0]["text"].startswith(
+                "Saved chapter"
+            )
+            assert saved["scene_plan"][0]["scene_id"] == (
+                f"scene-{chapter_id}"
+            )
+            assert "watercolor" in saved["transcript_chunks"][0][
+                "prompt"
+            ]
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_keeps_transcript_widget_unchanged() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    original_widget_text = controller.audio_story_transcript_edit.toPlainText()
+    original_full_text = controller.full_transcript_text
+    try:
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+        assert controller.audio_story_transcript_edit.toPlainText() == (
+            original_widget_text
+        )
+        assert controller.full_transcript_text == original_full_text
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_live_off_keeps_current_image() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    visual_calls: list[str] = []
+    try:
+        controller.audio_story_style_live_checkbox.setChecked(False)
+        controller._is_audio_story_currently_playing = lambda: True
+        controller._refresh_current_scene_after_style_apply = (
+            lambda _style: visual_calls.append("targeted")
+        )
+        controller._visual_reply_set_state = (
+            lambda *_args, **_kwargs: visual_calls.append("display")
+        )
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+        assert visual_calls == []
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_live_on_targets_only_current_scene() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    refreshes: list[str] = []
+
+    def forbidden(name: str):
+        def fail(*_args, **_kwargs):
+            raise AssertionError(f"Style Apply must not call {name}")
+
+        return fail
+
+    try:
+        controller.audio_story_style_live_checkbox.setChecked(True)
+        controller._is_audio_story_currently_playing = lambda: True
+        controller._refresh_current_scene_after_style_apply = (
+            lambda _style: refreshes.append("current")
+        )
+        controller._schedule_visual_refresh = forbidden("full visual refresh")
+        controller._restart_visual_generation_from_position = forbidden(
+            "full visual generation"
+        )
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+        assert refreshes == ["current"]
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_preserves_existing_image_cache() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    root_path = Path(temporary_directory.name)
+    image_paths = []
+    for index in (0, 1, 1024):
+        image_path = root_path / f"cached-style-{index}.png"
+        image_path.write_bytes(b"cached-image")
+        image_paths.append(image_path)
+        controller._image_cache[index] = {
+            "image_path": str(image_path),
+            "prompt_text": f"original prompt {index}",
+            "prompt_signature": f"old-signature-{index}",
+        }
+        controller._prompt_image_cache[f"old-signature-{index}"] = dict(
+            controller._image_cache[index]
+        )
+    generated: list[str] = []
+    try:
+        controller.audio_story_style_live_checkbox.setChecked(False)
+        controller._generate_visual_image = (
+            lambda *_args, **_kwargs: generated.append("generate")
+        )
+        controller._restart_visual_generation_from_position = (
+            lambda *_args, **_kwargs: generated.append("restart")
+        )
+        controller._schedule_visual_refresh = (
+            lambda *_args, **_kwargs: generated.append("schedule")
+        )
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+        assert generated == []
+        assert set(controller._image_cache) == {0, 1, 1024}
+        assert set(controller._prompt_image_cache) == {
+            "old-signature-0",
+            "old-signature-1",
+            "old-signature-1024",
+        }
+        assert {
+            Path(entry["image_path"])
+            for entry in controller._image_cache.values()
+        } == set(image_paths)
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_requires_saved_analysis_without_llm() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    calls: list[str] = []
+    project = copy.deepcopy(controller._current_story_project)
+    for chapter_id in project["chapter_order"]:
+        project["chapters"][chapter_id]["stages"]["story_analysis"][
+            "output_ref"
+        ] = ""
+    controller._current_story_project = project
+    try:
+        controller._call_llm_story_analysis = (
+            lambda *_args, **_kwargs: calls.append("llm")
+        )
+        controller._call_instructor_story_analysis = (
+            lambda *_args, **_kwargs: calls.append("instructor")
+        )
+        controller._start_style_settings_apply()
+        assert controller._story_settings_apply_request is None
+        assert controller._story_settings_apply_pipeline_owner is None
+        assert calls == []
+        assert controller.audio_story_status_label.text() == (
+            "Apply Planner Changes before applying project styles."
+        )
+        assert controller.audio_story_style_apply_status_label.text() == (
+            "Changes not applied"
+        )
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_reprompt_checks_cancellation_while_copying_chunks() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    controller = controller_module.AudioStoryModeController(context=None)
+    reads: list[int] = []
+    cancellation_checks: list[int] = []
+
+    class CountedMapping(Mapping):
+        def __init__(self, index: int):
+            self.index = index
+
+        def __getitem__(self, key):
+            reads.append(self.index)
+            if key == "text":
+                return f"chunk {self.index}"
+            raise KeyError(key)
+
+        def __iter__(self):
+            return iter(("text",))
+
+        def __len__(self):
+            return 1
+
+    def cancelled() -> bool:
+        cancellation_checks.append(len(reads))
+        return len(cancellation_checks) >= 2
+
+    try:
+        try:
+            controller._build_style_reprompt_result(
+                transcript_chunks=[CountedMapping(index) for index in range(2048)],
+                scene_plan=[],
+                story_bible={},
+                story_memory={},
+                scene_overrides={},
+                planner=workload.PlannerSettingsSnapshot.from_mapping({}),
+                style=workload.StyleSettingsSnapshot.from_mapping({}),
+                cancelled=cancelled,
+            )
+        except controller_module.TranscriptionFailure:
+            pass
+        else:
+            raise AssertionError("style reprompt did not honor cancellation")
+        assert len(reads) <= 32
+    finally:
+        controller.shutdown()
+
+
+def test_style_apply_uses_committed_story_memory_snapshot() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    captured_memory: list[dict] = []
+    project = controller._story_project_store.load_project(
+        controller.current_story_project_id
+    )
+    project = controller._story_project_store.commit_story_bible_rebuild(
+        project,
+        {
+            "characters": {"global-hero": {"display_name": "Global Hero"}},
+            "style": {"global_visual_style": "merged project style"},
+        },
+    )
+    controller._current_story_project = copy.deepcopy(project)
+    expected_memory = controller._load_committed_project_story_memory(
+        controller.current_story_project_id
+    )
+    controller._applied_planner_settings = (
+        workload.PlannerSettingsSnapshot.from_mapping(
+            {"analysis_mode": "story_bible"}
+        )
+    )
+    original = controller._build_style_reprompt_result
+
+    def capture_memory(**kwargs):
+        captured_memory.append(copy.deepcopy(dict(kwargs["story_memory"])))
+        return original(**kwargs)
+
+    try:
+        controller._build_style_reprompt_result = capture_memory
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+        assert captured_memory
+        assert captured_memory[0] == expected_memory
+        assert captured_memory[0] != {
+            "summary": "Saved synthetic style story",
+            "global_style": {"story_style_guide": "consistent film language"},
+        }
+        final_memory = controller._load_committed_project_story_memory(
+            controller.current_story_project_id
+        )
+        assert "global-hero" in final_memory["characters"]
+        assert final_memory["style"]["global_visual_style"] == (
+            "merged project style"
+        )
+        raw_final_memory = controller._story_project_store.load_story_bible(
+            controller.current_story_project_id
+        )
+        assert raw_final_memory["global_style"] == (
+            controller._applied_style_settings.to_payload()
+        )
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_defers_project_size_copies_to_worker() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    original_deepcopy = controller_module.copy.deepcopy
+    large_copy_threads: list[threading.Thread] = []
+
+    def tracked_deepcopy(value, memo=None):
+        if isinstance(value, list) and len(value) >= 2000:
+            large_copy_threads.append(threading.current_thread())
+        if memo is None:
+            return original_deepcopy(value)
+        return original_deepcopy(value, memo)
+
+    try:
+        controller_module.copy.deepcopy = tracked_deepcopy
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+        assert threading.main_thread() not in large_copy_threads
+    finally:
+        controller_module.copy.deepcopy = original_deepcopy
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_reprompt_rebuilds_master_prompt_from_frozen_request() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    controller = controller_module.AudioStoryModeController(context=None)
+    planner = workload.PlannerSettingsSnapshot.from_mapping({})
+    base = {
+        "style_enabled": ["ink"],
+        "style_prompts": {"ink": "NEW INK STYLE"},
+        "master_prompt_enabled": False,
+        "master_prompt_mode": "simple",
+    }
+    story_bible = {
+        "global_style": {
+            "story_style_guide": "frozen guide",
+            "master_prompt": "STALE MASTER SENTINEL",
+        }
+    }
+
+    def rebuild(style_payload):
+        return controller._build_style_reprompt_result(
+            transcript_chunks=[{"text": "A lantern crosses the frozen harbor."}],
+            scene_plan=[
+                {
+                    "chunk_index": 0,
+                    "scene_id": "harbor",
+                    "key_action": "A lantern crosses the frozen harbor.",
+                }
+            ],
+            story_bible=story_bible,
+            story_memory={},
+            scene_overrides={},
+            planner=planner,
+            style=workload.StyleSettingsSnapshot.from_mapping(style_payload),
+            cancelled=lambda: False,
+        )
+
+    try:
+        disabled = rebuild(base)
+        disabled_global = disabled["story_bible"]["global_style"]
+        assert disabled_global["master_prompt"] == ""
+        assert "STALE MASTER SENTINEL" not in json.dumps(disabled)
+
+        enabled = rebuild({**base, "master_prompt_enabled": True})
+        enabled_master = enabled["story_bible"]["global_style"][
+            "master_prompt"
+        ]
+        assert "NEW INK STYLE" in enabled_master
+        assert "STALE MASTER SENTINEL" not in enabled_master
+
+        changed = rebuild(
+            {
+                **base,
+                "style_prompts": {"ink": "NEW CHARCOAL STYLE"},
+                "master_prompt_enabled": True,
+                "master_prompt_mode": "strongest",
+            }
+        )
+        changed_master = changed["story_bible"]["global_style"][
+            "master_prompt"
+        ]
+        assert "NEW CHARCOAL STYLE" in changed_master
+        assert "NEW INK STYLE" not in changed_master
+        assert changed_master != enabled_master
+    finally:
+        controller.shutdown()
+
+
+def test_style_snapshot_prompt_cap_covers_every_adapter_branch() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    controller = controller_module.AudioStoryModeController(context=None)
+    long_text = " ".join(["lantern-lit-frozen-harbor"] * 120)
+    bible = {
+        "global_style": {"story_style_guide": long_text},
+        "characters": {
+            "keeper": {
+                "display_name": "The Keeper",
+                "visual_description": long_text,
+            }
+        },
+        "locations": {
+            "harbor": {"display_name": "Harbor", "visual_description": long_text}
+        },
+    }
+    scene = {
+        "chunk_index": 0,
+        "scene_id": "harbor",
+        "key_action": long_text,
+        "story_bible_character_keys": ["keeper"],
+        "story_bible_location_key": "harbor",
+        "active_character_ids": ["keeper"],
+        "location_id": "harbor",
+    }
+
+    def prompt(*, mode: str, with_scene: bool, cap: int) -> str:
+        return controller._build_story_image_prompt_from_snapshot(
+            text=long_text,
+            scene_entry=scene if with_scene else {},
+            previous_scene=None,
+            story_bible=bible,
+            planner=workload.PlannerSettingsSnapshot.from_mapping(
+                {"analysis_mode": mode}
+            ),
+            style=workload.StyleSettingsSnapshot.from_mapping(
+                {
+                    "style_enabled": ["ink"],
+                    "style_prompts": {"ink": long_text},
+                    "prompt_safety_cap": cap,
+                }
+            ),
+            story_memory=bible,
+            scene_overrides={},
+        )
+
+    try:
+        for mode, with_scene in (
+            ("scene_only", True),
+            ("scene_only", False),
+            ("story_bible", True),
+        ):
+            expanded = prompt(mode=mode, with_scene=with_scene, cap=6000)
+            compact = prompt(mode=mode, with_scene=with_scene, cap=400)
+            assert len(expanded) > 400
+            assert len(compact) <= 400
+            assert compact == expanded[:400].rstrip(" \t\r\n,;:.-")
+    finally:
+        controller.shutdown()
+
+
+def test_style_applied_settings_update_is_strictly_additive() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    controller = controller_module.AudioStoryModeController(context=None)
+    style = workload.StyleSettingsSnapshot.from_mapping(
+        {"style_enabled": ["ink"], "style_prompts": {"ink": "new ink"}}
+    )
+    known_planner = {
+        "analysis_mode": "story_bible",
+        "provider_id": "legacy-provider",
+        "nested": {"keep": [1, 2, 3]},
+    }
+    existing = {
+        "schema_version": 27,
+        "planner": known_planner,
+        "style": {"style_enabled": ["old"]},
+        "future_extension": {"opaque": ["a", {"b": True}]},
+    }
+    try:
+        updated = controller._updated_style_applied_settings(existing, style)
+        assert updated["schema_version"] == 27
+        assert updated["planner"] == known_planner
+        assert updated["future_extension"] == existing["future_extension"]
+        assert updated["style"] == style.to_payload()
+        assert updated is not existing
+        assert updated["planner"] is not known_planner
+
+        unknown_legacy = {
+            "schema_version": "future",
+            "planner": {"unrecognized": {"exact": "value"}},
+            "vendor": {"keep": 9},
+        }
+        legacy_updated = controller._updated_style_applied_settings(
+            unknown_legacy, style
+        )
+        assert legacy_updated["planner"] == unknown_legacy["planner"]
+        assert legacy_updated["vendor"] == unknown_legacy["vendor"]
+        assert legacy_updated["schema_version"] == "future"
+
+        metadata_free = controller._updated_style_applied_settings(None, style)
+        assert metadata_free == {
+            "schema_version": 1,
+            "style": style.to_payload(),
+        }
+        assert "planner" not in metadata_free
+    finally:
+        controller.shutdown()
+
+
+def test_style_apply_preflights_all_exact_analysis_checkpoints() -> None:
+    checkpointing = _require_module("addons.audio_story_mode.checkpointing")
+    cases = ("missing_ref", "empty_fingerprint", "mismatch", "non_mapping")
+    for corruption in cases:
+        temporary_directory, app, root, controller = _style_apply_test_fixture()
+        controller.transcript_chunks = controller.transcript_chunks[:2]
+        controller.scene_plan = controller.scene_plan[:2]
+        store = controller._story_project_store
+        commits: list[str] = []
+        original_commit = store.commit_analysis_transaction
+
+        def counted_commit(project, chapter_id, analysis, story_bible):
+            commits.append(str(chapter_id))
+            return original_commit(project, chapter_id, analysis, story_bible)
+
+        try:
+            project = store.load_project(controller.current_story_project_id)
+            chapter_id = project["chapter_order"][-1]
+            stage = project["chapters"][chapter_id]["stages"]["story_analysis"]
+            if corruption == "missing_ref":
+                stage["output_ref"] = ""
+            elif corruption == "empty_fingerprint":
+                stage["output_fingerprint"] = ""
+            elif corruption == "mismatch":
+                stage["output_fingerprint"] = "not-the-analysis-fingerprint"
+            else:
+                bad_revision = 999
+                stage["output_ref"] = store.save_chapter_document(
+                    controller.current_story_project_id,
+                    chapter_id,
+                    "analysis",
+                    bad_revision,
+                    [],
+                )
+                stage["output_fingerprint"] = "non-mapping-checkpoint"
+            project = store.save_project(project)
+            controller._current_story_project = copy.deepcopy(project)
+            controller._replace_story_project_summary(project, take_ownership=True)
+            store.commit_analysis_transaction = counted_commit
+
+            controller._start_style_settings_apply()
+            _wait_for_style_apply(app, controller)
+            assert commits == [], (
+                f"{corruption} checkpoint allowed a partial chapter commit: {commits}"
+            )
+            assert controller.audio_story_style_apply_status_label.text() == "Failed"
+            assert controller.audio_story_style_apply_button.isEnabled()
+            assert chapter_id in controller.audio_story_status_label.text()
+        finally:
+            store.commit_analysis_transaction = original_commit
+            _close_bound_audio_story_controller(app, root, controller)
+            temporary_directory.cleanup()
+
+
+def test_style_cancel_waits_for_ack_and_retries_from_partial_head() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    controller.transcript_chunks = controller.transcript_chunks[:2]
+    controller.scene_plan = controller.scene_plan[:2]
+    entered_second = threading.Event()
+    release_second = threading.Event()
+    builder_calls = 0
+    commits: list[str] = []
+    original_builder = controller._build_style_reprompt_result
+    store = controller._story_project_store
+    original_commit = store.commit_analysis_transaction
+
+    def blocked_builder(**kwargs):
+        nonlocal builder_calls
+        builder_calls += 1
+        if builder_calls == 3:
+            entered_second.set()
+            assert release_second.wait(5.0), "second chapter builder was not released"
+        return original_builder(**kwargs)
+
+    def counted_commit(project, chapter_id, analysis, story_bible):
+        commits.append(str(chapter_id))
+        return original_commit(project, chapter_id, analysis, story_bible)
+
+    try:
+        controller._build_style_reprompt_result = blocked_builder
+        store.commit_analysis_transaction = counted_commit
+        original_prompts = [chunk["prompt"] for chunk in controller.transcript_chunks]
+        controller._start_style_settings_apply()
+        assert entered_second.wait(5.0), "style worker did not reach chapter two"
+        request = controller._story_settings_apply_request
+        pipeline_owner = controller._story_settings_apply_pipeline_owner
+        assert request is not None and pipeline_owner
+        assert len(commits) == 1
+
+        controller._cancel_story_settings_apply()
+        assert controller._story_settings_apply_request is request
+        assert controller._story_settings_apply_pipeline_owner == pipeline_owner
+        controller._start_style_settings_apply()
+        assert controller._story_settings_apply_request is request
+        assert len(commits) == 1
+
+        release_second.set()
+        _wait_for_style_apply(app, controller)
+        assert len(commits) == 1
+        assert controller.audio_story_style_apply_status_label.text() == "Cancelled"
+        assert controller.audio_story_style_apply_button.isEnabled()
+        store_head = store.load_project(controller.current_story_project_id)
+        assert controller._current_story_project["manifest_revision"] == (
+            store_head["manifest_revision"]
+        )
+        assert [chunk["prompt"] for chunk in controller.transcript_chunks] == (
+            original_prompts
+        )
+
+        controller._build_style_reprompt_result = original_builder
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+        assert controller.audio_story_style_apply_status_label.text() == "Applied"
+        assert len(commits) == 3
+    finally:
+        release_second.set()
+        controller._build_style_reprompt_result = original_builder
+        store.commit_analysis_transaction = original_commit
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_failure_after_first_commit_reconciles_head_and_retries() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    controller.transcript_chunks = controller.transcript_chunks[:2]
+    controller.scene_plan = controller.scene_plan[:2]
+    store = controller._story_project_store
+    original_commit = store.commit_analysis_transaction
+    commit_calls = 0
+    original_prompts = [chunk["prompt"] for chunk in controller.transcript_chunks]
+    original_applied_style = controller._applied_style_settings
+    controller._image_cache = {0: {"sentinel": "unchanged"}}
+
+    def fail_second_commit(project, chapter_id, analysis, story_bible):
+        nonlocal commit_calls
+        commit_calls += 1
+        if commit_calls == 2:
+            raise controller_module.project_store.ProjectConflictError(
+                "forced chapter two commit failure"
+            )
+        return original_commit(project, chapter_id, analysis, story_bible)
+
+    try:
+        store.commit_analysis_transaction = fail_second_commit
+        launch_revision = controller._current_story_project[
+            "manifest_revision"
+        ]
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+
+        store_head = store.load_project(controller.current_story_project_id)
+        assert store_head["manifest_revision"] > launch_revision
+        assert controller._current_story_project["manifest_revision"] == (
+            store_head["manifest_revision"]
+        )
+        assert controller.audio_story_style_apply_status_label.text() == "Failed"
+        assert controller.audio_story_style_apply_button.isEnabled()
+        assert [chunk["prompt"] for chunk in controller.transcript_chunks] == (
+            original_prompts
+        )
+        assert controller._image_cache == {0: {"sentinel": "unchanged"}}
+        assert controller._applied_style_settings == original_applied_style
+
+        store.commit_analysis_transaction = original_commit
+        controller._start_style_settings_apply()
+        assert controller._story_settings_apply_request is not None
+        _wait_for_style_apply(app, controller)
+        assert controller.audio_story_style_apply_status_label.text() == "Applied"
+    finally:
+        store.commit_analysis_transaction = original_commit
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_completed_install_rejection_reconciles_head_and_retries() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    controller.transcript_chunks = controller.transcript_chunks[:2]
+    controller.scene_plan = controller.scene_plan[:2]
+    store = controller._story_project_store
+    original_token_builder = controller._style_cache_install_token
+    original_prompts = [chunk["prompt"] for chunk in controller.transcript_chunks]
+    original_applied_style = controller._applied_style_settings
+    controller._image_cache = {0: {"sentinel": "unchanged"}}
+
+    def corrupt_worker_token(
+        request,
+        *,
+        final_manifest_revision,
+        cache_metadata_fingerprint,
+    ):
+        if threading.current_thread() is not threading.main_thread():
+            return "corrupted-cache-install-token"
+        return original_token_builder(
+            request,
+            final_manifest_revision=final_manifest_revision,
+            cache_metadata_fingerprint=cache_metadata_fingerprint,
+        )
+
+    try:
+        controller._style_cache_install_token = corrupt_worker_token
+        launch_revision = controller._current_story_project[
+            "manifest_revision"
+        ]
+        controller._start_style_settings_apply()
+        _wait_for_style_apply(app, controller)
+
+        store_head = store.load_project(controller.current_story_project_id)
+        assert store_head["manifest_revision"] > launch_revision
+        assert controller._current_story_project["manifest_revision"] == (
+            store_head["manifest_revision"]
+        )
+        assert controller.audio_story_style_apply_status_label.text() == "Failed"
+        assert controller.audio_story_style_apply_button.isEnabled()
+        assert [chunk["prompt"] for chunk in controller.transcript_chunks] == (
+            original_prompts
+        )
+        assert controller._image_cache == {0: {"sentinel": "unchanged"}}
+        assert controller._applied_style_settings == original_applied_style
+
+        controller._style_cache_install_token = original_token_builder
+        controller._start_style_settings_apply()
+        assert controller._story_settings_apply_request is not None
+        _wait_for_style_apply(app, controller)
+        assert controller.audio_story_style_apply_status_label.text() == "Applied"
+    finally:
+        controller._style_cache_install_token = original_token_builder
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_terminal_rejects_every_stale_owner_before_side_effects() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(
+        controller_module
+    )
+    original_prompts = [chunk["prompt"] for chunk in controller.transcript_chunks]
+    original_applied_style = controller._applied_style_settings
+    try:
+        controller._start_style_settings_apply()
+        assert len(created) == 1 and created[0].started
+    finally:
+        controller_module.threading.Thread = original_thread
+
+    request = controller._story_settings_apply_request
+    pipeline_token = controller._story_settings_apply_pipeline_owner
+    central_owner = copy.deepcopy(
+        controller._story_project_mutating_pipeline_owner
+    )
+    assert request is not None and request.operation == "style"
+    assert pipeline_token
+    assert central_owner["token"] == pipeline_token
+    original_revision = controller._current_story_project[
+        "manifest_revision"
+    ]
+    final_project = copy.deepcopy(controller._current_story_project)
+    final_project["manifest_revision"] = original_revision + 1
+    terminal_payload = {
+        "request": request,
+        "pipeline_token": pipeline_token,
+        "original_project_id": request.project_id,
+        "original_manifest_revision": request.manifest_revision,
+        "final_project_id": request.project_id,
+        "final_manifest_revision": original_revision + 1,
+        "store_head_project_id": request.project_id,
+        "store_head_manifest_revision": original_revision + 1,
+        "project": final_project,
+        "cache_metadata_fingerprint": "representative-cache-metadata",
+        "cache_install_token": "deliberately-invalid-install-token",
+        "install_payload": {
+            "transcript_chunks": [{"prompt": "MUST NOT INSTALL"}],
+            "story_bible": {"summary": "MUST NOT INSTALL"},
+            "scene_plan": [],
+            "image_cache": {999: {"sentinel": "MUST NOT INSTALL"}},
+            "prompt_image_cache": {},
+        },
+    }
+
+    def assert_terminal_was_ignored(expected_central_token: str) -> None:
+        assert controller._story_settings_apply_request is request
+        assert controller._story_settings_apply_pipeline_owner == pipeline_token
+        assert controller._story_project_mutating_pipeline_owner["token"] == (
+            expected_central_token
+        )
+        assert controller._current_story_project["manifest_revision"] == (
+            original_revision
+        )
+        assert [chunk["prompt"] for chunk in controller.transcript_chunks] == (
+            original_prompts
+        )
+        assert controller._applied_style_settings == original_applied_style
+
+    try:
+        original_project_id = controller.current_story_project_id
+        controller.current_story_project_id = "stale-project-id"
+        controller._on_story_settings_apply_finished(terminal_payload)
+        assert_terminal_was_ignored(pipeline_token)
+        controller.current_story_project_id = original_project_id
+
+        controller._story_project_generation += 1
+        controller._on_story_settings_apply_finished(terminal_payload)
+        assert_terminal_was_ignored(pipeline_token)
+        controller._story_project_generation -= 1
+
+        original_input_fingerprint = controller._story_project_input_fingerprint
+        controller._story_project_input_fingerprint = "stale-input-fingerprint"
+        controller._on_story_settings_apply_finished(terminal_payload)
+        assert_terminal_was_ignored(pipeline_token)
+        controller._story_project_input_fingerprint = original_input_fingerprint
+
+        wrong_central_token = "wrong-central-pipeline-token"
+        controller._story_project_mutating_pipeline_owner = {
+            **central_owner,
+            "token": wrong_central_token,
+        }
+        controller._on_story_settings_apply_finished(terminal_payload)
+        assert_terminal_was_ignored(wrong_central_token)
+        controller._story_project_mutating_pipeline_owner = copy.deepcopy(
+            central_owner
+        )
+
+        controller._on_story_settings_apply_finished(terminal_payload)
+        assert controller._story_settings_apply_request is None
+        assert controller._story_settings_apply_pipeline_owner is None
+        assert controller._story_project_mutating_pipeline_owner is None
+        assert controller._current_story_project["manifest_revision"] == (
+            original_revision + 1
+        )
+        assert [chunk["prompt"] for chunk in controller.transcript_chunks] == (
+            original_prompts
+        )
+        assert controller._applied_style_settings == original_applied_style
+        assert controller.audio_story_style_apply_status_label.text() == "Failed"
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_apply_copies_nested_project_mappings_on_worker_with_bounded_cancel() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    access_threads: list[threading.Thread] = []
+    worker_copy_complete = threading.Event()
+    release_worker = threading.Event()
+    original_builder = controller._build_style_reprompt_result
+
+    class TrackedMapping(Mapping):
+        def __init__(self, values):
+            self.values = dict(values)
+
+        def __getitem__(self, key):
+            access_threads.append(threading.current_thread())
+            return self.values[key]
+
+        def __iter__(self):
+            access_threads.append(threading.current_thread())
+            return iter(self.values)
+
+        def __len__(self):
+            return len(self.values)
+
+    try:
+        controller.story_bible = TrackedMapping(
+            {
+                "global_style": TrackedMapping(
+                    {"story_style_guide": "tracked worker guide"}
+                ),
+                "nested": TrackedMapping({str(i): {"value": i} for i in range(64)}),
+            }
+        )
+        controller.scene_overrides = TrackedMapping(
+            {"nested": TrackedMapping({str(i): [i, i + 1] for i in range(64)})}
+        )
+
+        def blocked_builder(**kwargs):
+            worker_copy_complete.set()
+            assert release_worker.wait(5.0), "tracked worker was not released"
+            return original_builder(**kwargs)
+
+        controller._build_style_reprompt_result = blocked_builder
+        controller._start_style_settings_apply()
+        assert worker_copy_complete.wait(5.0), "worker did not copy tracked mappings"
+        assert access_threads
+        assert threading.main_thread() not in access_threads
+        release_worker.set()
+        _wait_for_style_apply(app, controller)
+
+        reads: list[int] = []
+        checks = 0
+
+        class ManyValues(Mapping):
+            def __getitem__(self, key):
+                reads.append(int(key))
+                return {"nested": [int(key)] * 4}
+
+            def __iter__(self):
+                return (str(index) for index in range(2048))
+
+            def __len__(self):
+                return 2048
+
+        def cancelled() -> bool:
+            nonlocal checks
+            checks += 1
+            return checks >= 2
+
+        try:
+            controller._build_style_reprompt_result(
+                transcript_chunks=[],
+                scene_plan=[],
+                story_bible={"nested": ManyValues()},
+                story_memory={},
+                scene_overrides={},
+                planner=workload.PlannerSettingsSnapshot.from_mapping({}),
+                style=workload.StyleSettingsSnapshot.from_mapping({}),
+                cancelled=cancelled,
+            )
+        except controller_module.TranscriptionFailure:
+            pass
+        else:
+            raise AssertionError("nested project mapping copy ignored cancellation")
+        assert len(reads) <= 32
+    finally:
+        release_worker.set()
+        controller._build_style_reprompt_result = original_builder
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_launch_defers_mapping_and_cache_copies_to_worker() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    access_threads: list[threading.Thread] = []
+
+    class TrackedMapping(Mapping):
+        def __init__(self, values):
+            self.values = dict(values)
+
+        def __getitem__(self, key):
+            access_threads.append(threading.current_thread())
+            return self.values[key]
+
+        def __iter__(self):
+            access_threads.append(threading.current_thread())
+            return iter(self.values)
+
+        def __len__(self):
+            return len(self.values)
+
+    try:
+        controller.scene_overrides = TrackedMapping(
+            {"scene_anchor_overrides": {str(i): str(i) for i in range(3241)}}
+        )
+        controller.continuity_memory = TrackedMapping(
+            {"scenes": {str(i): {"value": i} for i in range(3241)}}
+        )
+        controller.character_anchors = TrackedMapping(
+            {str(i): {"label": str(i)} for i in range(3241)}
+        )
+        controller.location_anchors = TrackedMapping(
+            {str(i): {"label": str(i)} for i in range(3241)}
+        )
+        controller._image_cache = TrackedMapping(
+            {i: {"prompt_text": str(i)} for i in range(3241)}
+        )
+        controller._prompt_image_cache = TrackedMapping(
+            {str(i): {"prompt_text": str(i)} for i in range(3241)}
+        )
+
+        controller._start_planner_settings_apply()
+
+        assert len(created) == 1 and created[0].started
+        assert threading.main_thread() not in access_threads
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_scene_override_edit_during_capture_rejects_snapshot_safely() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture(
+        chunk_count=64
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    original_copy = controller._copy_style_apply_value
+    original_overrides = controller.scene_overrides
+    original_applied = controller._applied_style_settings
+
+    def blocked_copy(value, *, cancelled):
+        if value is original_overrides:
+            entered.set()
+            assert release.wait(5.0), "scene override snapshot was not released"
+        return original_copy(value, cancelled=cancelled)
+
+    try:
+        controller._copy_style_apply_value = blocked_copy
+        controller._scene_override_refresh_after_change = lambda **_kwargs: None
+        controller._start_style_settings_apply()
+        assert entered.wait(5.0), "Style worker did not begin override capture"
+
+        controller._toggle_pinned_character("concurrent-hero", True)
+        release.set()
+        _wait_for_style_apply(app, controller)
+
+        assert controller._applied_style_settings == original_applied
+        assert controller.audio_story_style_apply_button.isEnabled()
+        assert controller.audio_story_style_apply_status_label.text() in {
+            "Cancelled",
+            "Changes not applied",
+        }
+        assert "dictionary changed size" not in (
+            controller.audio_story_status_label.text().lower()
+        )
+    finally:
+        release.set()
+        controller._copy_style_apply_value = original_copy
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_cache_capture_holds_existing_cache_lock_until_copy_finishes() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture(
+        chunk_count=64
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    mutation_acquired = threading.Event()
+    original_copy = controller._copy_style_apply_value
+    cache_ref = controller._image_cache
+
+    def blocked_copy(value, *, cancelled):
+        if value is cache_ref:
+            entered.set()
+            assert release.wait(5.0), "cache snapshot was not released"
+        return original_copy(value, cancelled=cancelled)
+
+    def mutate_cache():
+        with controller._lock:
+            mutation_acquired.set()
+            controller._image_cache[9999] = {"prompt_text": "newer cache entry"}
+
+    try:
+        controller._copy_style_apply_value = blocked_copy
+        controller._start_style_settings_apply()
+        assert entered.wait(5.0), "Style worker did not begin cache capture"
+        mutation = threading.Thread(target=mutate_cache, daemon=True)
+        mutation.start()
+        assert not mutation_acquired.wait(0.1), (
+            "cache mutation was not serialized behind the worker snapshot"
+        )
+        release.set()
+        assert mutation_acquired.wait(5.0), "cache mutation stayed blocked"
+        mutation.join(timeout=5.0)
+        _wait_for_style_apply(app, controller)
+        assert "dictionary changed size" not in (
+            controller.audio_story_status_label.text().lower()
+        )
+    finally:
+        release.set()
+        controller._copy_style_apply_value = original_copy
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_live_refresh_uses_only_accepted_request_snapshot() -> None:
+    temporary_directory, app, root, controller = _style_apply_test_fixture()
+    entered = threading.Event()
+    release = threading.Event()
+    refreshed_styles = []
+    original_builder = controller._build_style_reprompt_result
+
+    def blocked_builder(**kwargs):
+        entered.set()
+        assert release.wait(5.0), "blocked style worker was not released"
+        return original_builder(**kwargs)
+
+    try:
+        controller.audio_story_style_live_checkbox.setChecked(True)
+        accepted_style = controller._style_draft_snapshot()
+        controller._is_audio_story_currently_playing = lambda: True
+        controller._refresh_current_scene_after_style_apply = (
+            lambda style: refreshed_styles.append(style)
+        )
+        controller._build_style_reprompt_result = blocked_builder
+        controller._start_style_settings_apply()
+        assert entered.wait(5.0), "style worker did not start"
+
+        controller.audio_story_style_live_checkbox.setChecked(False)
+        style_id = next(iter(controller.audio_story_style_edits))
+        controller.audio_story_style_edits[style_id].setText(
+            "newer draft that must not control accepted refresh"
+        )
+        controller.audio_story_style_edits[style_id].editingFinished.emit()
+        release.set()
+        _wait_for_style_apply(app, controller)
+        assert refreshed_styles == [accepted_style]
+        assert controller.audio_story_style_apply_status_label.text() == (
+            "Changes not applied"
+        )
+    finally:
+        release.set()
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_style_targeted_refresh_requests_exact_current_scene_once() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    controller = controller_module.AudioStoryModeController(context=None)
+    style = workload.StyleSettingsSnapshot.from_mapping(
+        {"style_change_live": True}
+    )
+    temporary_directory = tempfile.TemporaryDirectory()
+    publish_calls: list[tuple] = []
+    restart_calls: list[tuple] = []
+    try:
+        controller.transcript_chunks = [
+            {"start_seconds": 0.0, "end_seconds": 5.0, "prompt": "zero"},
+            {"start_seconds": 5.0, "end_seconds": 10.0, "prompt": "one"},
+        ]
+        controller._is_audio_story_currently_playing = lambda: True
+        controller._player_position_seconds = lambda: 6.0
+        controller._publish_visual_for_index = lambda index, **kwargs: (
+            publish_calls.append((index, kwargs))
+        )
+        controller._restart_missing_visual_generation_from_position = (
+            lambda position, **kwargs: restart_calls.append((position, kwargs))
+        )
+        controller._refresh_current_scene_after_style_apply(style)
+        assert publish_calls == [
+            (1, {"keep_current_image": True, "style_change_live": True})
+        ]
+        assert restart_calls == [
+            (
+                6.0,
+                {
+                    "max_ahead_frames": 0,
+                    "force": True,
+                    "allow_when_stopped": False,
+                    "style_change_live": True,
+                },
+            )
+        ]
+
+        stale_image = Path(temporary_directory.name) / "stale-current.png"
+        stale_image.write_bytes(b"cached")
+        controller._stored_style_change_live = False
+        controller._image_cache[1] = {
+            "image_path": str(stale_image),
+            "prompt_text": "older accepted prompt",
+            "prompt_signature": "older-signature",
+        }
+        retained = controller._matching_cached_image_entry(
+            1,
+            "new accepted prompt",
+            scene_entry=controller.transcript_chunks[1],
+            style_change_live=False,
+        )
+        replaced = controller._matching_cached_image_entry(
+            1,
+            "new accepted prompt",
+            scene_entry=controller.transcript_chunks[1],
+            style_change_live=True,
+        )
+        assert retained["image_path"] == str(stale_image)
+        assert replaced == {}
+    finally:
+        controller.shutdown()
+        temporary_directory.cleanup()
+
+
+def _capture_planner_apply_threads(controller_module):
+    created = []
+    original_thread = controller_module.threading.Thread
+
+    class CapturedThread:
+        def __init__(self, *, target, args=(), kwargs=None, name=None, daemon=None):
+            self.target = target
+            self.args = tuple(args or ())
+            self.kwargs = dict(kwargs or {})
+            self.name = name
+            self.daemon = daemon
+            self.started = False
+            created.append(self)
+
+        def start(self):
+            self.started = True
+
+    controller_module.threading.Thread = CapturedThread
+    return created, original_thread
+
+
+def _configure_planner_apply_llm(
+    controller,
+    *,
+    model: str,
+    instructor_enabled: bool,
+) -> None:
+    controller._request_story_analysis_model_catalog = lambda: None
+    provider_combo = controller.audio_story_analysis_provider_combo
+    provider_index = provider_combo.findData("lmstudio")
+    assert provider_index >= 0
+    provider_combo.setCurrentIndex(provider_index)
+    model_combo = controller.audio_story_analysis_model_combo
+    model_combo.addItem(model, model)
+    model_combo.setCurrentIndex(model_combo.findData(model))
+    controller.audio_story_llm_analysis_checkbox.setChecked(True)
+    controller.audio_story_instructor_beats_checkbox.setChecked(
+        instructor_enabled
+    )
+    story_bible_index = controller.audio_story_analysis_mode_combo.findData(
+        "story_bible"
+    )
+    assert story_bible_index >= 0
+    controller.audio_story_analysis_mode_combo.setCurrentIndex(story_bible_index)
+
+
+def _valid_planner_llm_response() -> str:
+    return json.dumps(
+        {
+            "story_bible": {},
+            "scenes": [
+                {
+                    "chunk_index": 0,
+                    "scene_id": "provider-scene",
+                    "is_new_scene": True,
+                    "active_character_ids": [],
+                    "key_action": "The narrator crosses the moonlit hall.",
+                    "image_prompt": "A moonlit hall and a solitary traveler.",
+                }
+            ],
+        }
+    )
+
+
+def test_planner_controls_do_not_start_analysis_before_apply() -> None:
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    calls: list[str] = []
+    controller._build_project_story_payload = (
+        lambda *_args, **_kwargs: calls.append("analyzer") or {}
+    )
+    try:
+        controller.audio_story_llm_analysis_checkbox.setChecked(
+            not controller.audio_story_llm_analysis_checkbox.isChecked()
+        )
+        controller.audio_story_instructor_beats_checkbox.setChecked(
+            not controller.audio_story_instructor_beats_checkbox.isChecked()
+        )
+        controller.audio_story_analysis_mode_combo.setCurrentIndex(
+            1 - controller.audio_story_analysis_mode_combo.currentIndex()
+        )
+        assert calls == []
+        assert controller.audio_story_planner_apply_status_label.text() == (
+            "Changes not applied"
+        )
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_apply_starts_one_owned_worker() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    expected_planner = controller._planner_draft_snapshot()
+    expected_style = controller._style_draft_snapshot()
+    transcription_job_id = controller._transcription_job_id
+    try:
+        controller.audio_story_planner_apply_button.click()
+        assert len(created) == 1
+        assert created[0].started
+        request = controller._story_settings_apply_request
+        assert request.planner == expected_planner
+        assert request.style == expected_style
+        assert request.project_id == controller.current_story_project_id
+        assert request.project_generation == controller._story_project_generation
+        assert request.manifest_revision == int(
+            controller._current_story_project.get("manifest_revision", 0) or 0
+        )
+        assert request.input_fingerprint == controller._story_project_input_fingerprint
+        assert controller._story_settings_apply_pipeline_owner
+        assert controller._transcription_job_id == transcription_job_id
+        assert controller.audio_story_planner_apply_status_label.text() == "Applying..."
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_apply_rejects_concurrent_start() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    try:
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        pipeline_owner = controller._story_settings_apply_pipeline_owner
+        controller._start_planner_settings_apply()
+        assert len(created) == 1
+        assert controller._story_settings_apply_request is request
+        assert controller._story_settings_apply_pipeline_owner == pipeline_owner
+        assert controller._story_project_mutating_pipeline_owner["token"] == pipeline_owner
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_apply_uses_dedicated_completion_without_visuals() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    forbidden: list[str] = []
+    transcription_signal_count = [0]
+    provider_module = controller_module.chat_providers._resolve()
+    original_list_models = provider_module.list_models
+
+    def forbid(name: str):
+        def record(*_args, **_kwargs):
+            forbidden.append(name)
+
+        return record
+
+    for name in (
+        "_apply_story_payload",
+        "_on_transcription_finished",
+        "_restart_visual_generation_from_position",
+        "_prepare_source_media",
+        "_play_story",
+        "_start_playback_with_visual_sync",
+    ):
+        setattr(controller, name, forbid(name))
+    controller.transcriptionFinished.connect(
+        lambda _payload: transcription_signal_count.__setitem__(
+            0, transcription_signal_count[0] + 1
+        )
+    )
+    provider_module.list_models = forbid("list_models")
+    try:
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        created[0].target(*created[0].args, **created[0].kwargs)
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "dedicated planner completion did not reach its queued slot",
+        )
+        assert transcription_signal_count == [0]
+        assert forbidden == []
+        assert controller.story_bible
+        assert controller.transcript_chunks[0]["text"] == "Chapter 1 text"
+        applied = controller._story_project_store.load_chapter_document(
+            request.project_id, "c1", "analysis"
+        )["applied_settings"]
+        assert applied == {
+            "schema_version": 1,
+            "planner": request.planner.to_payload(),
+            "style": request.style.to_payload(),
+        }
+        assert controller._story_project_mutating_pipeline_owner is None
+        assert controller.audio_story_planner_apply_status_label.text() == "Applied"
+    finally:
+        provider_module.list_models = original_list_models
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_apply_cancel_and_project_switch_reject_late_result() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    previous_story_bible = copy.deepcopy(controller.story_bible)
+    try:
+        controller._start_planner_settings_apply()
+        cancelled_request = controller._story_settings_apply_request
+        cancelled_result = _planner_apply_test_result(
+            controller, cancelled_request, summary="Cancelled late result"
+        )
+        controller._cancel_story_settings_apply()
+        assert controller._story_settings_apply_request is cancelled_request
+        assert controller._story_project_mutating_pipeline_owner is not None
+        controller.storySettingsApplyFinished.emit(cancelled_result)
+        app.processEvents()
+        assert controller.story_bible == previous_story_bible
+        assert controller._story_settings_apply_request is None
+        assert controller.audio_story_planner_apply_status_label.text() == (
+            "Cancelled"
+        )
+
+        controller._start_planner_settings_apply()
+        switched_request = controller._story_settings_apply_request
+        switched_result = _planner_apply_test_result(
+            controller, switched_request, summary="Switched late result"
+        )
+        controller._invalidate_story_project_work()
+        controller.current_story_project_id = "replacement-project"
+        controller.storySettingsApplyFinished.emit(switched_result)
+        app.processEvents()
+        assert controller.story_bible == previous_story_bible
+        assert controller._story_settings_apply_request is None
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_apply_preserves_newer_draft_as_pending() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    try:
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        result = _planner_apply_test_result(
+            controller, request, summary="Older successful result"
+        )
+        controller.audio_story_instructor_beats_checkbox.setChecked(
+            not controller.audio_story_instructor_beats_checkbox.isChecked()
+        )
+        assert controller._planner_draft_snapshot() != request.planner
+        controller.storySettingsApplyFinished.emit(result)
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "older planner completion did not finish",
+        )
+        assert controller.story_bible["summary"] == "Older successful result"
+        assert controller._applied_planner_settings == request.planner
+        assert controller.audio_story_planner_apply_status_label.text() == (
+            "Changes not applied"
+        )
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_apply_rejects_changed_manifest_revision_without_installing() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    try:
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        assert request is not None
+        assert request.manifest_revision > 0
+        assert request.manifest_revision == int(
+            controller._story_project_store.load_project(request.project_id).get(
+                "manifest_revision", 0
+            )
+            or 0
+        )
+        result = _planner_apply_test_result(
+            controller, request, summary="Stale result must not install"
+        )
+        previous_chunks = controller.transcript_chunks
+        previous_bible = controller.story_bible
+        changed_manifest = dict(controller._current_story_project)
+        changed_manifest["manifest_revision"] = request.manifest_revision + 1
+        controller._current_story_project = changed_manifest
+
+        controller._on_story_settings_apply_finished(result)
+
+        assert controller.transcript_chunks is previous_chunks
+        assert controller.story_bible is previous_bible
+        assert controller._current_story_project is changed_manifest
+        assert controller._story_settings_apply_request is request
+        assert controller._story_project_mutating_pipeline_owner is not None
+        assert controller.audio_story_planner_apply_status_label.text() == (
+            "Applying..."
+        )
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_apply_releases_only_exact_request_and_pipeline_token() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    try:
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        token = controller._story_settings_apply_pipeline_owner
+        assert request is not None and token
+        previous_bible = controller.story_bible
+
+        wrong_request = dataclasses.replace(
+            request, generation_id=request.generation_id + 1
+        )
+        wrong_request_result = _planner_apply_test_result(
+            controller, request, summary="Wrong request"
+        )
+        wrong_request_result["request"] = wrong_request
+        controller._on_story_settings_apply_finished(wrong_request_result)
+        assert controller._story_settings_apply_request is request
+        assert controller._story_settings_apply_pipeline_owner == token
+        assert controller._story_project_mutating_pipeline_owner["token"] == token
+        assert controller.story_bible is previous_bible
+
+        wrong_token_result = _planner_apply_test_result(
+            controller, request, summary="Wrong token"
+        )
+        wrong_token_result["pipeline_token"] = "malformed-token"
+        controller._on_story_settings_apply_finished(wrong_token_result)
+        assert controller._story_settings_apply_request is request
+        assert controller._story_settings_apply_pipeline_owner == token
+        assert controller._story_project_mutating_pipeline_owner["token"] == token
+        assert controller.story_bible is previous_bible
+
+        correct_result = _planner_apply_test_result(
+            controller, request, summary="Correct owned result"
+        )
+        controller._on_story_settings_apply_finished(correct_result)
+        assert controller._story_settings_apply_request is None
+        assert controller._story_settings_apply_pipeline_owner is None
+        assert controller._story_project_mutating_pipeline_owner is None
+        assert controller.story_bible["summary"] == "Correct owned result"
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_apply_gui_slot_swaps_large_owned_collections_without_copying() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    original_deepcopy = controller_module.copy.deepcopy
+    forbidden_calls: list[str] = []
+    original_methods: dict[str, object] = {}
+    try:
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        assert request is not None
+        chunks = [
+            {
+                "index": index,
+                "start_seconds": float(index),
+                "end_seconds": float(index + 1),
+                "text": f"chunk-{index}",
+                "prompt": f"prompt-{index}",
+            }
+            for index in range(3241)
+        ]
+        scenes = [
+            {"chunk_index": index, "scene_id": f"scene-{index}"}
+            for index in range(3241)
+        ]
+        result = _planner_apply_test_result(
+            controller,
+            request,
+            summary="Large owned result",
+            transcript_chunks=chunks,
+            scene_plan=scenes,
+        )
+        install = result["install_payload"]
+        final_project = result["project"]
+
+        def forbid(name: str):
+            def record(*_args, **_kwargs):
+                forbidden_calls.append(name)
+                raise AssertionError(f"{name} must not run in the apply GUI slot")
+
+            return record
+
+        refresh_calls: list[str] = []
+        controller._refresh_scene_override_controls = (
+            lambda: refresh_calls.append("current-scene")
+        )
+        for name in (
+            "_apply_story_payload",
+            "_on_transcription_finished",
+            "_refresh_story_project_ui",
+            "_restart_visual_generation_from_position",
+            "_start_transcript_display_batches",
+            "_sync_visual_to_position",
+            "_generate_visual_image",
+            "_prepare_source_media",
+            "_play_story",
+            "_start_playback_with_visual_sync",
+        ):
+            original_methods[name] = getattr(controller, name)
+            setattr(controller, name, forbid(name))
+        controller_module.copy.deepcopy = forbid("copy.deepcopy")
+
+        controller._on_story_settings_apply_finished(result)
+
+        assert forbidden_calls == []
+        assert refresh_calls == ["current-scene"]
+        assert controller.transcript_chunks is chunks
+        assert controller.scene_plan is scenes
+        assert controller.story_bible is install["story_bible"]
+        assert controller.character_anchors is install["character_anchors"]
+        assert controller.location_anchors is install["location_anchors"]
+        assert controller._image_cache is install["image_cache"]
+        assert controller._prompt_image_cache is install["prompt_image_cache"]
+        assert controller._current_story_project is final_project
+    finally:
+        controller_module.copy.deepcopy = original_deepcopy
+        controller_module.threading.Thread = original_thread
+        for name, method in original_methods.items():
+            setattr(controller, name, method)
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_failure_after_first_commit_reconciles_head_and_retries() -> None:
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    original_analyzer = controller._default_project_story_analyzer
+    calls = 0
+    visible_chunks = controller.transcript_chunks
+    visible_bible = controller.story_bible
+
+    def fail_second(request):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("forced second chapter planner failure")
+        return original_analyzer(request)
+
+    try:
+        controller._default_project_story_analyzer = fail_second
+        launch_revision = controller._current_story_project["manifest_revision"]
+        controller._start_planner_settings_apply()
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "failed Planner worker did not acknowledge its terminal",
+        )
+
+        store_head = controller._story_project_store.load_project(
+            controller.current_story_project_id
+        )
+        assert store_head["manifest_revision"] > launch_revision
+        assert controller._current_story_project["manifest_revision"] == (
+            store_head["manifest_revision"]
+        )
+        assert controller.transcript_chunks is visible_chunks
+        assert controller.story_bible is visible_bible
+        assert controller.audio_story_planner_apply_status_label.text() == "Failed"
+
+        controller._default_project_story_analyzer = original_analyzer
+        controller._start_planner_settings_apply()
+        retry = controller._story_settings_apply_request
+        assert retry is not None
+        assert retry.manifest_revision == store_head["manifest_revision"]
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "Planner retry did not finish",
+        )
+        assert controller.audio_story_planner_apply_status_label.text() == "Applied"
+    finally:
+        controller._default_project_story_analyzer = original_analyzer
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_cancel_waits_for_checkpoint_ack_and_retries_from_head() -> None:
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    entered_provider = threading.Event()
+    release_provider = threading.Event()
+    original_analyzer = controller._default_project_story_analyzer
+    calls = 0
+    visible_chunks = controller.transcript_chunks
+    visible_bible = controller.story_bible
+
+    def blocked_provider(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered_provider.set()
+            assert release_provider.wait(5.0), "Planner provider was not released"
+        return original_analyzer(request)
+
+    try:
+        controller._default_project_story_analyzer = blocked_provider
+        controller._start_planner_settings_apply()
+        assert entered_provider.wait(5.0), "Planner did not reach provider after checkpoint"
+        request = controller._story_settings_apply_request
+        token = controller._story_settings_apply_pipeline_owner
+        assert request is not None and token
+
+        controller._cancel_story_settings_apply()
+        assert controller._story_settings_apply_request is request
+        assert controller._story_settings_apply_pipeline_owner == token
+        assert controller._story_project_mutating_pipeline_owner["token"] == token
+        controller._start_planner_settings_apply()
+        assert controller._story_settings_apply_request is request
+
+        release_provider.set()
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "cancelled Planner worker did not acknowledge",
+        )
+        store_head = controller._story_project_store.load_project(
+            controller.current_story_project_id
+        )
+        assert controller._current_story_project["manifest_revision"] == (
+            store_head["manifest_revision"]
+        )
+        assert controller.transcript_chunks is visible_chunks
+        assert controller.story_bible is visible_bible
+        assert controller.audio_story_planner_apply_status_label.text() == "Cancelled"
+
+        controller._default_project_story_analyzer = original_analyzer
+        controller._start_planner_settings_apply()
+        retry = controller._story_settings_apply_request
+        assert retry is not None
+        assert retry.manifest_revision == store_head["manifest_revision"]
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "Planner retry after cancellation did not finish",
+        )
+        assert controller.audio_story_planner_apply_status_label.text() == "Applied"
+    finally:
+        release_provider.set()
+        controller._default_project_story_analyzer = original_analyzer
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_completed_install_rejection_reconciles_head_and_retries() -> None:
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    original_cache_builder = controller._compatible_story_image_caches
+    visible_chunks = controller.transcript_chunks
+    visible_bible = controller.story_bible
+
+    def malformed_cache_result(*_args, **_kwargs):
+        return {"image_cache": [], "prompt_image_cache": {}}
+
+    try:
+        controller._compatible_story_image_caches = malformed_cache_result
+        launch_revision = controller._current_story_project["manifest_revision"]
+        controller._start_planner_settings_apply()
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "rejected Planner install did not finish",
+        )
+        store_head = controller._story_project_store.load_project(
+            controller.current_story_project_id
+        )
+        assert store_head["manifest_revision"] > launch_revision
+        assert controller._current_story_project["manifest_revision"] == (
+            store_head["manifest_revision"]
+        )
+        assert controller.transcript_chunks is visible_chunks
+        assert controller.story_bible is visible_bible
+        assert controller.audio_story_planner_apply_status_label.text() == "Failed"
+
+        controller._compatible_story_image_caches = original_cache_builder
+        controller._start_planner_settings_apply()
+        retry = controller._story_settings_apply_request
+        assert retry is not None
+        assert retry.manifest_revision == store_head["manifest_revision"]
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "Planner retry after install rejection did not finish",
+        )
+        assert controller.audio_story_planner_apply_status_label.text() == "Applied"
+    finally:
+        controller._compatible_story_image_caches = original_cache_builder
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_terminal_requires_current_context_and_authoritative_head() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    created, original_thread = _capture_planner_apply_threads(controller_module)
+    try:
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        token = controller._story_settings_apply_pipeline_owner
+        central = copy.deepcopy(controller._story_project_mutating_pipeline_owner)
+        assert request is not None and token and central["token"] == token
+        head = copy.deepcopy(controller._current_story_project)
+        head["manifest_revision"] = request.manifest_revision + 1
+        terminal = {
+            "request": request,
+            "pipeline_token": token,
+            "cancelled": True,
+            "error": "cancelled",
+            "original_project_id": request.project_id,
+            "original_manifest_revision": request.manifest_revision,
+            "final_project_id": request.project_id,
+            "final_manifest_revision": head["manifest_revision"],
+            "store_head_project_id": request.project_id,
+            "store_head_manifest_revision": head["manifest_revision"],
+            "project": head,
+        }
+
+        original_generation = controller._story_project_generation
+        controller._story_project_generation += 1
+        controller._on_story_settings_apply_finished(terminal)
+        assert controller._story_settings_apply_request is request
+        controller._story_project_generation = original_generation
+
+        original_fingerprint = controller._story_project_input_fingerprint
+        controller._story_project_input_fingerprint = "stale-input"
+        controller._on_story_settings_apply_finished(terminal)
+        assert controller._story_settings_apply_request is request
+        controller._story_project_input_fingerprint = original_fingerprint
+
+        controller._story_project_mutating_pipeline_owner = {
+            **central,
+            "token": "wrong-central-token",
+        }
+        controller._on_story_settings_apply_finished(terminal)
+        assert controller._story_settings_apply_request is request
+        controller._story_project_mutating_pipeline_owner = central
+
+        malformed = dict(terminal)
+        malformed.pop("store_head_manifest_revision")
+        controller._on_story_settings_apply_finished(malformed)
+        assert controller._story_settings_apply_request is request
+        assert controller._story_settings_apply_pipeline_owner == token
+        assert controller._story_project_mutating_pipeline_owner["token"] == token
+
+        controller._on_story_settings_apply_finished(terminal)
+        assert controller._story_settings_apply_request is None
+        assert controller._story_settings_apply_pipeline_owner is None
+        assert controller._story_project_mutating_pipeline_owner is None
+        assert controller._current_story_project is head
+    finally:
+        controller_module.threading.Thread = original_thread
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_launch_uses_applied_baseline_or_neutral_style_not_draft() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    scenarios = (
+        ("applied", workload.StyleSettingsSnapshot.from_mapping({"style_enabled": ["cinematic"]})),
+        ("unknown", workload.StyleSettingsSnapshot.from_mapping({"style_enabled": ["noir"]})),
+        ("neutral", workload.StyleSettingsSnapshot.from_mapping({})),
+    )
+    for name, expected in scenarios:
+        temporary_directory, app, root, controller = _planner_apply_test_fixture()
+        created, original_thread = _capture_planner_apply_threads(controller_module)
+        try:
+            draft_style = workload.StyleSettingsSnapshot.from_mapping(
+                {"style_enabled": ["watercolor"], "style_prompts": {"watercolor": name}}
+            )
+            controller._stored_style_enabled = list(draft_style.style_enabled)
+            controller._stored_style_prompts.update(dict(draft_style.style_prompts))
+            if name == "applied":
+                controller._applied_style_settings = expected
+                controller._unknown_applied_style_baseline = None
+            elif name == "unknown":
+                controller._applied_style_settings = None
+                controller._unknown_applied_style_baseline = expected
+            else:
+                controller._applied_style_settings = None
+                controller._unknown_applied_style_baseline = None
+
+            controller._start_planner_settings_apply()
+
+            request = controller._story_settings_apply_request
+            assert request is not None
+            assert request.style == expected
+            assert request.style != controller._style_draft_snapshot()
+        finally:
+            controller_module.threading.Thread = original_thread
+            _close_bound_audio_story_controller(app, root, controller)
+            temporary_directory.cleanup()
+
+
+def test_planner_success_keeps_newer_style_draft_pending_after_restore() -> None:
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    project_restore_module = _require_module("addons.audio_story_mode.project_restore")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    applied_style = workload.StyleSettingsSnapshot.from_mapping(
+        {
+            "style_enabled": ["cinematic"],
+            "style_prompts": {"cinematic": "the applied cinematic style"},
+        }
+    )
+    controller._applied_style_settings = applied_style
+    controller._unknown_applied_style_baseline = None
+    entered = threading.Event()
+    release = threading.Event()
+    original_analyzer = controller._default_project_story_analyzer
+
+    def blocked_analyzer(request):
+        entered.set()
+        assert release.wait(5.0), "Planner analyzer was not released"
+        return original_analyzer(request)
+
+    try:
+        controller._default_project_story_analyzer = blocked_analyzer
+        controller._start_planner_settings_apply()
+        assert entered.wait(5.0), "Planner worker did not start"
+        request = controller._story_settings_apply_request
+        assert request is not None and request.style == applied_style
+
+        controller._stored_style_enabled = ["watercolor"]
+        controller._stored_style_prompts["watercolor"] = "newer pending watercolor"
+        controller._sync_style_apply_state()
+        newer_draft = controller._style_draft_snapshot()
+        assert newer_draft != applied_style
+
+        release.set()
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "Planner worker did not finish",
+        )
+        assert controller._applied_style_settings == applied_style
+        assert controller._style_draft_snapshot() == newer_draft
+        assert controller.audio_story_style_apply_status_label.text() == (
+            "Changes not applied"
+        )
+        for chapter_id in ("c1", "c2"):
+            stored = controller._story_project_store.load_chapter_document(
+                request.project_id, chapter_id, "analysis"
+            )
+            assert stored["applied_settings"]["style"] == applied_style.to_payload()
+
+        head = controller._story_project_store.load_project(request.project_id)
+        artifacts = project_restore_module.load_project_artifacts(
+            controller._story_project_store, head
+        )
+        restoration = controller._assemble_project_restore_payload(head, artifacts)
+        controller._applied_style_settings = None
+        assert controller._install_project_restore_payload(restoration)
+        assert controller._applied_style_settings == applied_style
+        assert controller._style_draft_snapshot() == newer_draft
+        assert controller.audio_story_style_apply_status_label.text() == (
+            "Changes not applied"
+        )
+    finally:
+        release.set()
+        controller._default_project_story_analyzer = original_analyzer
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_continuity_strength_has_explicit_planner_apply_path() -> None:
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    forbidden: list[str] = []
+    original_methods: dict[str, object] = {}
+
+    def forbid(name):
+        def record(*_args, **_kwargs):
+            forbidden.append(name)
+            raise AssertionError(f"{name} must not run while continuity is staged")
+
+        return record
+
+    try:
+        for name in (
+            "_schedule_visual_refresh",
+            "_schedule_story_payload_rebuild",
+            "_start_story_payload_rebuild_job",
+            "_restart_visual_generation_from_position",
+            "_generate_visual_image",
+        ):
+            if not hasattr(controller, name):
+                continue
+            original_methods[name] = getattr(controller, name)
+            setattr(controller, name, forbid(name))
+        before = controller._planner_draft_snapshot()
+        slider = controller.audio_story_continuity_slider
+        target = 35 if slider.value() != 35 else 65
+        slider.setValue(target)
+        staged = controller._planner_draft_snapshot()
+        assert staged != before
+        assert staged.continuity_strength == controller._normalize_continuity_strength(
+            target
+        )
+        assert controller.audio_story_planner_apply_status_label.text() == (
+            "Changes not applied"
+        )
+        assert forbidden == []
+        for name, method in original_methods.items():
+            setattr(controller, name, method)
+        original_methods.clear()
+
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        assert request is not None
+        assert request.planner.continuity_strength == staged.continuity_strength
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "continuity Planner apply did not finish",
+        )
+        stored = controller._story_project_store.load_chapter_document(
+            request.project_id, "c1", "analysis"
+        )
+        assert stored["applied_settings"]["planner"]["continuity_strength"] == (
+            staged.continuity_strength
+        )
+    finally:
+        for name, method in original_methods.items():
+            setattr(controller, name, method)
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_xai_controls_keep_bounded_runtime_only_apply_path() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    app, root, controller = _load_bound_audio_story_controller()
+    runtime_updates: list[tuple[str, object]] = []
+    forbidden: list[str] = []
+    original_update = controller_module.audio_story_runtime.update_runtime_config
+    original_methods: dict[str, object] = {}
+
+    def forbid(name):
+        def record(*_args, **_kwargs):
+            forbidden.append(name)
+            raise AssertionError(f"{name} is not a bounded xAI runtime effect")
+
+        return record
+
+    try:
+        controller_module.audio_story_runtime.update_runtime_config = (
+            lambda key, value: runtime_updates.append((str(key), value))
+        )
+        for name in (
+            "_reconcile_cached_images_for_current_prompts",
+            "_schedule_visual_refresh",
+            "_schedule_story_payload_rebuild",
+            "_restart_visual_generation_from_position",
+            "_generate_visual_image",
+        ):
+            if not hasattr(controller, name):
+                continue
+            original_methods[name] = getattr(controller, name)
+            setattr(controller, name, forbid(name))
+
+        combo = controller.audio_story_xai_resolution_combo
+        combo.setCurrentIndex((combo.currentIndex() + 1) % combo.count())
+
+        assert {key for key, _value in runtime_updates} == {
+            "xai_image_aspect_ratio",
+            "xai_image_resolution",
+            "xai_image_response_format",
+            "xai_image_n",
+        }
+        assert forbidden == []
+    finally:
+        controller_module.audio_story_runtime.update_runtime_config = original_update
+        for name, method in original_methods.items():
+            setattr(controller, name, method)
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_auto_and_explicit_same_resolved_model_do_not_share_analysis_checkpoint() -> None:
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    calls: list[str] = []
+    original_analyze = controller._analyze_project_chapter_with_settings
+    try:
+        project = controller._story_project_store.load_project(
+            controller.current_story_project_id
+        )
+        chapter = project["chapters"]["c1"]
+        common = {
+            "chunk_seconds": 8,
+            "image_frequency_seconds": 12,
+            "continuity_strength": 0.8,
+            "analysis_mode": "scene_only",
+            "use_llm_story_analysis": True,
+            "instructor_beats_enabled": False,
+            "provider_mode": "lmstudio",
+            "provider_id": "lmstudio",
+            "provider_label": "Local LM Studio",
+            "resolved_model": "same-model",
+        }
+        auto_fingerprint = controller._project_story_analysis_input_fingerprint(
+            chapter, {**common, "model_override": ""}
+        )
+        explicit_fingerprint = controller._project_story_analysis_input_fingerprint(
+            chapter, {**common, "model_override": "same-model"}
+        )
+        assert auto_fingerprint != explicit_fingerprint
+
+        style = controller._style_draft_snapshot()
+
+        def request_for(generation_id: int, model_override: str):
+            return workload.SettingsApplyRequest(
+                generation_id=generation_id,
+                operation="planner",
+                project_id=controller.current_story_project_id,
+                project_generation=controller._story_project_generation,
+                manifest_revision=int(
+                    controller._current_story_project.get(
+                        "manifest_revision", 0
+                    )
+                    or 0
+                ),
+                input_fingerprint=controller._story_project_input_fingerprint,
+                planner=workload.PlannerSettingsSnapshot.from_mapping(
+                    {
+                        **common,
+                        "model_override": model_override,
+                    }
+                ),
+                style=style,
+            )
+
+        def settings_for(request):
+            return {
+                **common,
+                "model_override": request.planner.model_override,
+                "style_settings": request.style.to_payload(),
+                "_settings_apply_request": request,
+                "_ownership_kind": "settings_apply",
+                "_ownership_apply_generation": request.generation_id,
+                "_ownership_operation": request.operation,
+                "_ownership_manifest_revision": request.manifest_revision,
+                "_ownership_job_id": request.generation_id,
+                "_ownership_project_id": request.project_id,
+                "_ownership_project_generation": request.project_generation,
+                "_ownership_input_fingerprint": request.input_fingerprint,
+            }
+
+        def analyze_with_fixture(
+            project_id: str,
+            chapter_id: str,
+            *,
+            settings,
+            job_id: int | None = None,
+        ):
+            calls.append(chapter_id)
+            return original_analyze(
+                project_id,
+                chapter_id,
+                settings=settings,
+                job_id=job_id,
+                analyzer=lambda request: _analysis_result(
+                    request, chapter_id=chapter_id, story_update={}
+                ),
+            )
+
+        controller._analyze_project_chapter_with_settings = analyze_with_fixture
+        auto_request = request_for(1, "")
+        controller._story_settings_apply_request = auto_request
+        controller._story_settings_apply_cancel_token = threading.Event()
+        controller._build_project_story_payload(
+            auto_request.generation_id, ["c1"], settings_for(auto_request)
+        )
+
+        controller._current_story_project = controller._story_project_store.load_project(
+            controller.current_story_project_id
+        )
+        explicit_request = request_for(2, "same-model")
+        controller._story_settings_apply_request = explicit_request
+        controller._story_settings_apply_cancel_token = threading.Event()
+        controller._build_project_story_payload(
+            explicit_request.generation_id,
+            ["c1"],
+            settings_for(explicit_request),
+        )
+
+        assert calls == ["c1", "c1"]
+        saved_analysis = controller._story_project_store.load_chapter_document(
+            explicit_request.project_id, "c1", "analysis"
+        )
+        assert saved_analysis["applied_settings"]["planner"] == (
+            explicit_request.planner.to_payload()
+        )
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_planner_cancel_after_blocked_provider_stops_downstream_and_publication() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    provider_module = controller_module.chat_providers._resolve()
+    original_provider = provider_module.get_provider("lmstudio")
+    provider_entered = threading.Event()
+    provider_release = threading.Event()
+    finished = threading.Event()
+    provider_calls: list[tuple[str, str]] = []
+    downstream_calls: list[str] = []
+    original_commit = controller._story_project_store.commit_analysis_transaction
+    try:
+        if original_provider is None:
+            provider_module.register_provider(
+                provider_id="lmstudio", label="Local LM Studio"
+            )
+        _configure_planner_apply_llm(
+            controller, model="blocked-launch-model", instructor_enabled=False
+        )
+        previous_chunks = controller.transcript_chunks
+        previous_bible = controller.story_bible
+
+        def blocked_provider(**kwargs):
+            provider_calls.append((kwargs["provider"], kwargs["model"]))
+            provider_entered.set()
+            assert provider_release.wait(5.0), "blocked provider was not released"
+            return _valid_planner_llm_response()
+
+        def downstream(name: str):
+            def record(*_args, **_kwargs):
+                downstream_calls.append(name)
+                return "unexpected prompt"
+
+            return record
+
+        controller._call_llm_story_analysis = blocked_provider
+        controller._build_story_bible_image_prompt = downstream(
+            "story_bible_prompt"
+        )
+        controller._build_story_image_prompt = downstream("scene_prompt")
+
+        def counted_commit(*args, **kwargs):
+            downstream_calls.append("commit")
+            return original_commit(*args, **kwargs)
+
+        controller._story_project_store.commit_analysis_transaction = counted_commit
+        controller.storySettingsApplyFinished.connect(lambda _result: finished.set())
+
+        controller._start_planner_settings_apply()
+        assert provider_entered.wait(5.0), "planner provider did not start"
+        controller._cancel_story_settings_apply()
+        assert controller._story_project_mutating_pipeline_owner is not None
+        provider_release.set()
+        _wait_for_qt_condition(
+            app,
+            lambda: finished.is_set()
+            and controller._story_settings_apply_request is None,
+            "cancelled blocked planner worker did not finish",
+        )
+
+        assert provider_calls == [("lmstudio", "blocked-launch-model")]
+        assert downstream_calls == []
+        assert controller.transcript_chunks is previous_chunks
+        assert controller.story_bible is previous_bible
+        assert controller._story_settings_apply_request is None
+        assert controller._story_settings_apply_pipeline_owner is None
+        assert controller.audio_story_planner_apply_status_label.text() == (
+            "Cancelled"
+        )
+    finally:
+        provider_release.set()
+        controller._story_project_store.commit_analysis_transaction = original_commit
+        if original_provider is None:
+            provider_module.unregister_provider("lmstudio")
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_blocked_planner_provider_uses_launch_snapshot_and_keeps_newer_draft() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    provider_module = controller_module.chat_providers._resolve()
+    original_provider = provider_module.get_provider("lmstudio")
+    original_list_models = provider_module.list_models
+    provider_entered = threading.Event()
+    provider_release = threading.Event()
+    provider_calls: list[tuple[str, str]] = []
+    instructor_calls: list[tuple[str, str]] = []
+    forbidden: list[str] = []
+    try:
+        if original_provider is None:
+            provider_module.register_provider(
+                provider_id="lmstudio", label="Local LM Studio"
+            )
+        provider_module.list_models = lambda *_args, **_kwargs: (
+            forbidden.append("list_models")
+            or (_ for _ in ()).throw(AssertionError("list_models must not run"))
+        )
+        _configure_planner_apply_llm(
+            controller, model="immutable-launch-model", instructor_enabled=True
+        )
+        style_id = next(iter(controller.audio_story_style_buttons))
+        controller.audio_story_style_buttons[style_id].setChecked(True)
+        controller.audio_story_style_edits[style_id].setText(
+            "immutable launch style"
+        )
+        controller.audio_story_style_edits[style_id].editingFinished.emit()
+        controller.audio_story_master_prompt_button.setChecked(True)
+        strong_index = controller.audio_story_master_prompt_mode_combo.findData(
+            "strong"
+        )
+        controller.audio_story_master_prompt_mode_combo.setCurrentIndex(strong_index)
+        controller._applied_style_settings = controller._style_draft_snapshot()
+        controller._unknown_applied_style_baseline = None
+
+        def failing_instructor(**kwargs):
+            instructor_calls.append((kwargs["provider"], kwargs["model"]))
+            raise RuntimeError("force normal LLM fallback")
+
+        def blocked_provider(**kwargs):
+            provider_calls.append((kwargs["provider"], kwargs["model"]))
+            if len(provider_calls) == 1:
+                provider_entered.set()
+                assert provider_release.wait(5.0), "blocked provider was not released"
+            return _valid_planner_llm_response()
+
+        controller._call_instructor_story_analysis = failing_instructor
+        controller._call_llm_story_analysis = blocked_provider
+        controller._start_planner_settings_apply()
+        request = controller._story_settings_apply_request
+        assert request is not None
+        assert provider_entered.wait(5.0), "planner provider did not start"
+
+        controller.audio_story_instructor_beats_checkbox.setChecked(False)
+        deepseek_index = controller.audio_story_analysis_provider_combo.findData(
+            "deepseek"
+        )
+        controller.audio_story_analysis_provider_combo.setCurrentIndex(
+            deepseek_index
+        )
+        model_combo = controller.audio_story_analysis_model_combo
+        model_combo.addItem("newer-draft-model", "newer-draft-model")
+        model_combo.setCurrentIndex(model_combo.findData("newer-draft-model"))
+        controller.audio_story_style_edits[style_id].setText("newer draft style")
+        controller.audio_story_style_edits[style_id].editingFinished.emit()
+        controller.audio_story_master_prompt_button.setChecked(False)
+        provider_release.set()
+
+        _wait_for_qt_condition(
+            app,
+            lambda: controller._story_settings_apply_request is None,
+            "blocked immutable planner apply did not finish",
+        )
+
+        assert forbidden == []
+        assert provider_calls == [
+            ("lmstudio", "immutable-launch-model"),
+            ("lmstudio", "immutable-launch-model"),
+        ]
+        assert instructor_calls == provider_calls
+        assert controller.story_bible["analysis_provider_mode"] == "lmstudio"
+        assert controller.story_bible["analysis_model"] == "immutable-launch-model"
+        assert controller.story_bible["global_style"]["style_prompts"] == dict(
+            request.style.style_prompts
+        )
+        assert controller.story_bible["global_style"]["master_prompt_enabled"]
+        assert controller.story_bible["global_style"]["master_prompt_mode"] == (
+            "strong"
+        )
+        saved_analysis = controller._story_project_store.load_chapter_document(
+            request.project_id, "c2", "analysis"
+        )
+        assert saved_analysis["applied_settings"] == {
+            "schema_version": 1,
+            "planner": request.planner.to_payload(),
+            "style": request.style.to_payload(),
+        }
+        assert controller._planner_draft_snapshot() != request.planner
+        assert controller._style_draft_snapshot() != request.style
+        assert controller.audio_story_planner_apply_status_label.text() == (
+            "Changes not applied"
+        )
+    finally:
+        provider_release.set()
+        provider_module.list_models = original_list_models
+        if original_provider is None:
+            provider_module.unregister_provider("lmstudio")
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_project_owned_legacy_fallback_resets_applied_ownership() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    project_models = _require_module("addons.audio_story_mode.project_models")
+    try:
+        controller.current_story_project_id = "previous-project"
+        controller._current_story_project = project_models.new_project_manifest(
+            "Previous", project_id="previous-project", now=1.0
+        )
+        controller._applied_planner_settings = workload.PlannerSettingsSnapshot.from_mapping(
+            {"analysis_mode": "story_bible", "use_llm_story_analysis": True}
+        )
+        controller._applied_style_settings = workload.StyleSettingsSnapshot.from_mapping(
+            {"style_change_live": True, "master_prompt_enabled": True}
+        )
+        controller._unknown_applied_planner_baseline = None
+        controller._unknown_applied_style_baseline = None
+        controller._planner_apply_state = "Applied"
+        controller._style_apply_state = "Applied"
+        controller._prepare_source_media = lambda: None
+        controller._sync_story_generated_master_prompt = lambda **_kwargs: None
+
+        replacement = project_models.new_project_manifest(
+            "Legacy Fallback", project_id="legacy-fallback-project", now=2.0
+        )
+        replacement["legacy_session_payload"] = {
+            "audio_story_mode_story_bible": {"summary": "Legacy analysis"},
+            "audio_story_mode_transcript_chunks": [
+                {
+                    "index": 0,
+                    "start_seconds": 0.0,
+                    "end_seconds": 1.0,
+                    "text": "Legacy transcript",
+                }
+            ],
+            "audio_story_mode_full_transcript_text": "Legacy transcript",
+            "audio_story_mode_raw_transcript_segments": [
+                {"start_seconds": 0.0, "end_seconds": 1.0, "text": "Legacy transcript"}
+            ],
+            "audio_story_mode_audio_duration_seconds": 1.0,
+        }
+        controller._apply_open_story_project(
+            replacement,
+            replace_derived_state=True,
+            restoration=None,
+        )
+
+        assert controller.current_story_project_id == "legacy-fallback-project"
+        assert controller.full_transcript_text == "Legacy transcript"
+        assert controller._applied_planner_settings is None
+        assert controller._applied_style_settings is None
+        assert (
+            controller._unknown_applied_planner_baseline
+            == controller._planner_draft_snapshot()
+        )
+        assert (
+            controller._unknown_applied_style_baseline
+            == controller._style_draft_snapshot()
+        )
+        assert controller.audio_story_planner_apply_status_label.text() == "Saved"
+        assert controller.audio_story_style_apply_status_label.text() == "Saved"
+
+        controller.audio_story_llm_analysis_checkbox.setChecked(
+            not controller.audio_story_llm_analysis_checkbox.isChecked()
+        )
+        assert (
+            controller.audio_story_planner_apply_status_label.text()
+            == "Changes not applied"
+        )
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def _minimal_project_restoration(*, analysis_count: int, applied_settings) -> dict:
+    return {
+        "modern_artifacts_installed": True,
+        "raw_segments": [
+            {"start_seconds": 0.0, "end_seconds": 1.0, "text": "Restored transcript"}
+        ],
+        "transcript_chunks": [
+            {"start_seconds": 0.0, "end_seconds": 1.0, "text": "Restored transcript"}
+        ],
+        "full_text": "Restored transcript",
+        "story_bible": {},
+        "scene_plan": [],
+        "character_anchors": {},
+        "location_anchors": {},
+        "story_style_guide": "",
+        "audio_duration_seconds": 1.0,
+        "transcript_paragraphs": [],
+        "analysis_count": analysis_count,
+        "applied_settings": applied_settings,
+    }
+
+
+def _load_bound_audio_story_controller():
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    assert root is not None, "Designer UI did not load"
+    controller = controller_module.AudioStoryModeController(context=None)
+    assert controller._bind_designer_runtime_widget(root) is root
+    return app, root, controller
+
+
+def _close_bound_audio_story_controller(app, root, controller) -> None:
+    from PySide6 import QtCore
+
+    controller.shutdown()
+    root.close()
+    root.deleteLater()
+    app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+    app.processEvents()
+
+
+def _wait_for_qt_condition(app, predicate, message: str, timeout: float = 2.0) -> None:
+    from PySide6 import QtCore
+
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        app.processEvents(QtCore.QEventLoop.AllEvents, 20)
+        time.sleep(0.002)
+    assert predicate(), message
+
+
+def test_story_model_catalog_runs_off_gui_thread() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    from PySide6 import QtCore
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    provider_module = controller_module.chat_providers._resolve()
+    previous_list_models = provider_module.list_models
+    started = threading.Event()
+    release = threading.Event()
+    timed_out = threading.Event()
+    calls: list[tuple[str, bool, int]] = []
+    ticks = [0]
+
+    def blocking_list_models(provider, quiet=False):
+        calls.append((str(provider or ""), bool(quiet), threading.get_ident()))
+        started.set()
+        if not release.wait(timeout=0.75):
+            timed_out.set()
+        return [
+            {"id": "catalog-dict-model"},
+            "catalog-string-model",
+            {"key": "catalog-key-model"},
+        ]
+
+    timer = QtCore.QTimer()
+
+    def tick() -> None:
+        ticks[0] += 1
+        if started.is_set() and ticks[0] >= 3:
+            release.set()
+
+    timer.timeout.connect(tick)
+    timer.start(0)
+    provider_module.list_models = blocking_list_models
+    try:
+        provider_combo = controller.audio_story_analysis_provider_combo
+        lmstudio_index = provider_combo.findData("lmstudio")
+        assert lmstudio_index >= 0
+        provider_combo.setCurrentIndex(lmstudio_index)
+
+        deadline = time.monotonic() + 2.0
+        while not release.is_set() and time.monotonic() < deadline:
+            app.processEvents(QtCore.QEventLoop.AllEvents, 20)
+            time.sleep(0.002)
+        assert started.is_set(), "model catalog worker did not start"
+        assert ticks[0] >= 3, "Qt event loop did not advance during model discovery"
+        assert release.is_set(), "Qt timer could not release the blocked model catalog"
+        assert not timed_out.is_set(), "model discovery blocked the Qt GUI thread"
+
+        deadline = time.monotonic() + 2.0
+        while (
+            controller.audio_story_analysis_model_combo.findData(
+                "catalog-key-model"
+            )
+            < 0
+            and time.monotonic() < deadline
+        ):
+            app.processEvents(QtCore.QEventLoop.AllEvents, 20)
+            time.sleep(0.002)
+        combo = controller.audio_story_analysis_model_combo
+        assert combo.findData("catalog-dict-model") >= 0
+        assert combo.findData("catalog-string-model") >= 0
+        assert combo.findData("catalog-key-model") >= 0
+        controller._stored_story_analysis_provider_mode = "current"
+        assert "catalog-key-model" in controller._story_analysis_model_candidates(
+            "lmstudio"
+        )
+        assert calls == [("lmstudio", True, calls[0][2])]
+        assert calls[0][2] != threading.get_ident()
+    finally:
+        release.set()
+        timer.stop()
+        provider_module.list_models = previous_list_models
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_story_model_catalog_discards_stale_results_and_coalesces_requests() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    from PySide6 import QtCore
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    provider_module = controller_module.chat_providers._resolve()
+    previous_list_models = provider_module.list_models
+    lmstudio_started = threading.Event()
+    lmstudio_release = threading.Event()
+    deepseek_started = threading.Event()
+    deepseek_release = threading.Event()
+    calls: list[str] = []
+
+    def controlled_list_models(provider, quiet=False):
+        provider_id = str(provider or "")
+        assert quiet is True
+        calls.append(provider_id)
+        if provider_id == "lmstudio":
+            lmstudio_started.set()
+            lmstudio_release.wait(timeout=2.0)
+            return [{"id": "stale-lmstudio-model"}]
+        deepseek_started.set()
+        deepseek_release.wait(timeout=2.0)
+        return [{"id": "current-deepseek-model"}]
+
+    def wait_until(predicate, message: str, timeout: float = 2.0) -> None:
+        deadline = time.monotonic() + timeout
+        while not predicate() and time.monotonic() < deadline:
+            app.processEvents(QtCore.QEventLoop.AllEvents, 20)
+            time.sleep(0.002)
+        assert predicate(), message
+
+    provider_module.list_models = controlled_list_models
+    try:
+        provider_combo = controller.audio_story_analysis_provider_combo
+        lmstudio_index = provider_combo.findData("lmstudio")
+        deepseek_index = provider_combo.findData("deepseek")
+        assert lmstudio_index >= 0 and deepseek_index >= 0
+
+        provider_combo.setCurrentIndex(lmstudio_index)
+        wait_until(lmstudio_started.is_set, "LM Studio catalog did not start")
+        first_request_id = controller._story_model_catalog_request_id
+        controller._request_story_analysis_model_catalog()
+        app.processEvents()
+        assert calls.count("lmstudio") == 1, calls
+
+        provider_combo.setCurrentIndex(deepseek_index)
+        wait_until(deepseek_started.is_set, "DeepSeek catalog did not start")
+        model_combo = controller.audio_story_analysis_model_combo
+        model_combo.setEditText("manual-deepseek-model")
+        line_edit = model_combo.lineEdit()
+        assert line_edit is not None
+        line_edit.editingFinished.emit()
+        assert controller._stored_story_analysis_model == "manual-deepseek-model"
+        deepseek_release.set()
+        wait_until(
+            lambda: controller.audio_story_analysis_model_combo.findData(
+                "current-deepseek-model"
+            )
+            >= 0,
+            "current provider catalog did not populate",
+        )
+        assert controller._story_model_catalog_request_id > first_request_id
+        assert calls.count("deepseek") == 1, calls
+        assert controller._stored_story_analysis_model == "manual-deepseek-model"
+        assert model_combo.currentText() == "manual-deepseek-model"
+
+        lmstudio_release.set()
+        wait_until(
+            lambda: "lmstudio" not in controller._story_model_catalog_inflight,
+            "stale LM Studio catalog did not finish",
+        )
+        assert controller._story_analysis_provider_mode() == "deepseek"
+        assert controller._stored_story_analysis_model == "manual-deepseek-model"
+        assert model_combo.currentText() == "manual-deepseek-model"
+        assert model_combo.findData("current-deepseek-model") >= 0
+        assert model_combo.findData("stale-lmstudio-model") < 0
+        assert calls == ["lmstudio", "deepseek"], calls
+    finally:
+        lmstudio_release.set()
+        deepseek_release.set()
+        provider_module.list_models = previous_list_models
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_story_model_catalog_accepts_inflight_provider_after_provider_round_trip() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    provider_module = controller_module.chat_providers._resolve()
+    previous_list_models = provider_module.list_models
+    lmstudio_started = threading.Event()
+    lmstudio_release = threading.Event()
+    deepseek_started = threading.Event()
+    deepseek_release = threading.Event()
+    calls: list[str] = []
+
+    def controlled_list_models(provider, quiet=False):
+        provider_id = str(provider or "")
+        assert quiet is True
+        calls.append(provider_id)
+        if provider_id == "lmstudio":
+            lmstudio_started.set()
+            lmstudio_release.wait(timeout=2.0)
+            return ["round-trip-lmstudio-model"]
+        deepseek_started.set()
+        deepseek_release.wait(timeout=2.0)
+        return ["late-deepseek-model"]
+
+    provider_module.list_models = controlled_list_models
+    try:
+        provider_combo = controller.audio_story_analysis_provider_combo
+        lmstudio_index = provider_combo.findData("lmstudio")
+        deepseek_index = provider_combo.findData("deepseek")
+        provider_combo.setCurrentIndex(lmstudio_index)
+        _wait_for_qt_condition(
+            app, lmstudio_started.is_set, "LM Studio catalog did not start"
+        )
+        original_lmstudio_request = controller._story_model_catalog_request_id
+        provider_combo.setCurrentIndex(deepseek_index)
+        _wait_for_qt_condition(
+            app, deepseek_started.is_set, "DeepSeek catalog did not start"
+        )
+        provider_combo.setCurrentIndex(lmstudio_index)
+        assert calls.count("lmstudio") == 1, calls
+        assert controller._story_model_catalog_request_id > original_lmstudio_request
+
+        lmstudio_release.set()
+        combo = controller.audio_story_analysis_model_combo
+        _wait_for_qt_condition(
+            app,
+            lambda: combo.findData("round-trip-lmstudio-model") >= 0,
+            "original LM Studio result was not accepted after provider round-trip",
+        )
+        assert controller._story_model_catalog_cache.get("lmstudio") == (
+            "round-trip-lmstudio-model",
+        )
+
+        deepseek_release.set()
+        _wait_for_qt_condition(
+            app,
+            lambda: "deepseek" not in controller._story_model_catalog_inflight,
+            "late DeepSeek result did not finish",
+        )
+        assert "deepseek" not in controller._story_model_catalog_cache
+        assert combo.findData("late-deepseek-model") < 0
+        assert combo.findData("round-trip-lmstudio-model") >= 0
+    finally:
+        lmstudio_release.set()
+        deepseek_release.set()
+        provider_module.list_models = previous_list_models
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_story_model_catalog_accepts_inflight_provider_after_current_round_trip() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    provider_module = controller_module.chat_providers._resolve()
+    previous_list_models = provider_module.list_models
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+
+    def blocking_list_models(provider, quiet=False):
+        assert quiet is True
+        calls.append(str(provider or ""))
+        started.set()
+        release.wait(timeout=2.0)
+        return ["current-round-trip-model"]
+
+    provider_module.list_models = blocking_list_models
+    try:
+        provider_combo = controller.audio_story_analysis_provider_combo
+        lmstudio_index = provider_combo.findData("lmstudio")
+        current_index = provider_combo.findData("current")
+        provider_combo.setCurrentIndex(lmstudio_index)
+        _wait_for_qt_condition(
+            app, started.is_set, "LM Studio catalog did not start"
+        )
+        original_request = controller._story_model_catalog_request_id
+        provider_combo.setCurrentIndex(current_index)
+        assert controller._story_model_catalog_request_id > original_request
+        provider_combo.setCurrentIndex(lmstudio_index)
+        assert calls == ["lmstudio"], calls
+
+        release.set()
+        combo = controller.audio_story_analysis_model_combo
+        _wait_for_qt_condition(
+            app,
+            lambda: combo.findData("current-round-trip-model") >= 0,
+            "original LM Studio result was not accepted after current round-trip",
+        )
+        assert controller._story_model_catalog_cache.get("lmstudio") == (
+            "current-round-trip-model",
+        )
+    finally:
+        release.set()
+        provider_module.list_models = previous_list_models
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_story_model_catalog_preserves_uncommitted_edit_text() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    provider_module = controller_module.chat_providers._resolve()
+    previous_list_models = provider_module.list_models
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_list_models(_provider, quiet=False):
+        assert quiet is True
+        started.set()
+        release.wait(timeout=2.0)
+        return ["catalog-result-model"]
+
+    provider_module.list_models = blocking_list_models
+    try:
+        provider_combo = controller.audio_story_analysis_provider_combo
+        provider_combo.setCurrentIndex(provider_combo.findData("lmstudio"))
+        _wait_for_qt_condition(app, started.is_set, "catalog did not start")
+        combo = controller.audio_story_analysis_model_combo
+        assert controller._stored_story_analysis_model == ""
+        combo.setEditText("uncommitted typed model")
+        assert combo.currentText() == "uncommitted typed model"
+        assert controller._stored_story_analysis_model == ""
+
+        release.set()
+        _wait_for_qt_condition(
+            app,
+            lambda: combo.findData("catalog-result-model") >= 0,
+            "catalog result did not populate",
+        )
+        assert combo.currentText() == "uncommitted typed model"
+        assert controller._stored_story_analysis_model == ""
+    finally:
+        release.set()
+        provider_module.list_models = previous_list_models
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_story_model_catalog_ignores_malformed_worker_entries() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    provider_module = controller_module.chat_providers._resolve()
+    previous_list_models = provider_module.list_models
+
+    def malformed_list_models(_provider, quiet=False):
+        assert quiet is True
+        return [
+            7,
+            ["nested-list-model"],
+            {"nested": "unsupported-key-model"},
+            {"id": 8},
+            {"id": ["nested-id-model"]},
+            {"id": {"nested": "nested-dict-model"}},
+            {"id": "valid-model"},
+        ]
+
+    provider_module.list_models = malformed_list_models
+    try:
+        provider_combo = controller.audio_story_analysis_provider_combo
+        provider_combo.setCurrentIndex(provider_combo.findData("lmstudio"))
+        _wait_for_qt_condition(
+            app,
+            lambda: "lmstudio" not in controller._story_model_catalog_inflight,
+            "malformed catalog worker did not finish",
+        )
+        assert controller._story_model_catalog_cache.get("lmstudio") == (
+            "valid-model",
+        )
+        combo = controller.audio_story_analysis_model_combo
+        assert combo.findData("valid-model") >= 0
+        for malformed in (
+            "7",
+            "['nested-list-model']",
+            "8",
+            "['nested-id-model']",
+            "{'nested': 'nested-dict-model'}",
+        ):
+            assert combo.findData(malformed) < 0, malformed
+    finally:
+        provider_module.list_models = previous_list_models
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_story_model_catalog_empty_exception_uses_fallback_status() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    provider_module = controller_module.chat_providers._resolve()
+    previous_list_models = provider_module.list_models
+    controller._story_model_catalog_cache["lmstudio"] = ("existing-model",)
+
+    def failing_list_models(_provider, quiet=False):
+        assert quiet is True
+        raise RuntimeError()
+
+    provider_module.list_models = failing_list_models
+    try:
+        provider_combo = controller.audio_story_analysis_provider_combo
+        provider_combo.setCurrentIndex(provider_combo.findData("lmstudio"))
+        _wait_for_qt_condition(
+            app,
+            lambda: "Model catalog discovery failed."
+            in controller.audio_story_status_label.text(),
+            "empty provider exception did not use fallback status",
+        )
+        assert controller._story_model_catalog_cache.get("lmstudio") == (
+            "existing-model",
+        )
+        assert controller.audio_story_analysis_model_combo.findData(
+            "existing-model"
+        ) >= 0
+    finally:
+        provider_module.list_models = previous_list_models
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_story_model_catalog_shutdown_discards_blocked_result() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    from PySide6 import QtCore
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    provider_module = controller_module.chat_providers._resolve()
+    previous_list_models = provider_module.list_models
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_list_models(_provider, quiet=False):
+        assert quiet is True
+        started.set()
+        release.wait(timeout=2.0)
+        return ["late-shutdown-model"]
+
+    provider_module.list_models = blocking_list_models
+    try:
+        provider_combo = controller.audio_story_analysis_provider_combo
+        provider_combo.setCurrentIndex(provider_combo.findData("lmstudio"))
+        _wait_for_qt_condition(app, started.is_set, "catalog did not start")
+        combo = controller.audio_story_analysis_model_combo
+        combo.setEditText("shutdown typed model")
+        controller._set_status("shutdown baseline status")
+        controller.shutdown()
+        cache_before = copy.deepcopy(controller._story_model_catalog_cache)
+        combo_before = combo.currentText()
+        status_before = controller.audio_story_status_label.text()
+
+        release.set()
+        _wait_for_qt_condition(
+            app,
+            lambda: "lmstudio" not in controller._story_model_catalog_inflight,
+            "late shutdown catalog result did not drain",
+        )
+        app.processEvents(QtCore.QEventLoop.AllEvents, 20)
+        assert controller._story_model_catalog_cache == cache_before
+        assert combo.currentText() == combo_before
+        assert controller.audio_story_status_label.text() == status_before
+        assert combo.findData("late-shutdown-model") < 0
+    finally:
+        release.set()
+        provider_module.list_models = previous_list_models
+        root.close()
+        root.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def test_metadata_free_restore_marks_only_later_draft_edits_pending() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    try:
+        assert controller._install_project_restore_payload(
+            _minimal_project_restoration(analysis_count=1, applied_settings=None)
+        )
+        assert controller._applied_planner_settings is None
+        assert controller._applied_style_settings is None
+        assert controller.audio_story_planner_apply_status_label.text() == "Saved"
+        assert controller.audio_story_style_apply_status_label.text() == "Saved"
+
+        controller.audio_story_llm_analysis_checkbox.setChecked(
+            not controller.audio_story_llm_analysis_checkbox.isChecked()
+        )
+        assert controller.audio_story_planner_apply_status_label.text() == "Changes not applied"
+        controller.audio_story_llm_analysis_checkbox.setChecked(
+            not controller.audio_story_llm_analysis_checkbox.isChecked()
+        )
+        assert controller.audio_story_planner_apply_status_label.text() == "Saved"
+
+        controller.audio_story_style_live_checkbox.setChecked(
+            not controller.audio_story_style_live_checkbox.isChecked()
+        )
+        assert controller.audio_story_style_apply_status_label.text() == "Changes not applied"
+        controller.audio_story_style_live_checkbox.setChecked(
+            not controller.audio_story_style_live_checkbox.isChecked()
+        )
+        assert controller.audio_story_style_apply_status_label.text() == "Saved"
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_transcript_only_restore_clears_stale_applied_planner_ownership() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    project_models = _require_module("addons.audio_story_mode.project_models")
+    try:
+        controller.current_story_project_id = "previous-project"
+        controller._current_story_project = project_models.new_project_manifest(
+            "Previous", project_id="previous-project", now=1.0
+        )
+        controller._applied_planner_settings = workload.PlannerSettingsSnapshot.from_mapping(
+            {"analysis_mode": "story_bible", "use_llm_story_analysis": True}
+        )
+        controller._planner_apply_state = "Applied"
+        replacement = project_models.new_project_manifest(
+            "Transcript Only", project_id="transcript-only-project", now=2.0
+        )
+        controller._apply_open_story_project(
+            replacement,
+            replace_derived_state=True,
+            restoration=_minimal_project_restoration(
+                analysis_count=0, applied_settings=None
+            ),
+        )
+        assert controller.current_story_project_id == "transcript-only-project"
+        assert controller._applied_planner_settings is None
+        assert controller.audio_story_planner_apply_status_label.text() == "Changes not applied"
+        assert controller.audio_story_planner_apply_button.isEnabled()
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_malformed_restored_applied_settings_falls_back_to_unknown() -> None:
+    app, root, controller = _load_bound_audio_story_controller()
+    try:
+        malformed = {
+            "schema_version": 1,
+            "planner": {"analysis_mode": "scene_only"},
+            "style": {"style_prompts": [["missing-value"]]},
+        }
+        assert controller._install_project_restore_payload(
+            _minimal_project_restoration(
+                analysis_count=1, applied_settings=malformed
+            )
+        )
+        assert controller._applied_planner_settings is None
+        assert controller._applied_style_settings is None
+        assert controller.audio_story_planner_apply_status_label.text() == "Saved"
+        assert controller.audio_story_style_apply_status_label.text() == "Saved"
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+
+
+def test_no_project_session_import_synchronizes_applied_drafts() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    try:
+        controller.import_session_state(
+            {
+                "audio_story_mode": {
+                    "analysis": {
+                        "analysis_mode": "story_bible",
+                        "use_llm_story_analysis": True,
+                        "story_analysis_provider_mode": "deepseek",
+                        "story_analysis_model": "session-model",
+                    },
+                    "visuals": {
+                        "style_change_live": True,
+                        "story_master_prompt_enabled": True,
+                        "story_master_prompt_mode": "strong",
+                    },
+                }
+            }
+        )
+        assert controller._applied_planner_settings == controller._planner_draft_snapshot()
+        assert controller._applied_style_settings == controller._style_draft_snapshot()
+        assert controller._planner_apply_state == "Saved"
+        assert controller._style_apply_state == "Saved"
+    finally:
+        controller.shutdown()
+
+
+def test_project_restore_selects_only_consistent_applied_metadata() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    restore_module = _require_module("addons.audio_story_mode.project_restore")
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    controller = controller_module.AudioStoryModeController(context=None)
+    planner = workload.PlannerSettingsSnapshot.from_mapping(
+        {"analysis_mode": "story_bible"}
+    )
+    style = workload.StyleSettingsSnapshot.from_mapping(
+        {"style_change_live": True}
+    )
+    metadata = {
+        "schema_version": 1,
+        "planner": planner.to_payload(),
+        "style": style.to_payload(),
+    }
+
+    def assembled(metadata_values):
+        chapter_ids = [f"c{index + 1}" for index in range(len(metadata_values))]
+        project = {
+            "project_id": "restore-metadata",
+            "chapter_order": chapter_ids,
+            "chapters": {chapter_id: {} for chapter_id in chapter_ids},
+        }
+        chapters = []
+        for index, (chapter_id, applied) in enumerate(
+            zip(chapter_ids, metadata_values)
+        ):
+            analysis = {
+                "scene_plan": [
+                    {"scene_id": f"scene-{chapter_id}", "scene_index": 1, "chunk_index": 0}
+                ],
+                "project_story_memory": {},
+            }
+            if applied is not None:
+                analysis["applied_settings"] = copy.deepcopy(applied)
+            chapters.append(
+                restore_module.RestoredChapterArtifacts(
+                    chapter_id=chapter_id,
+                    global_offset_seconds=float(index),
+                    transcript=None,
+                    analysis=analysis,
+                )
+            )
+        artifacts = restore_module.ProjectArtifactRestore(
+            "restore-metadata", tuple(chapters), ()
+        )
+        return controller._assemble_project_restore_payload(project, artifacts)
+
+    try:
+        assert assembled([metadata, metadata])["applied_settings"] == metadata
+        assert assembled([metadata, None])["applied_settings"] is None
+        different = copy.deepcopy(metadata)
+        different["planner"]["analysis_mode"] = "scene_only"
+        assert assembled([metadata, different])["applied_settings"] is None
+    finally:
+        controller.shutdown()
 
 
 def test_designer_ui_exposes_transcription_console() -> None:
@@ -5176,6 +9673,701 @@ def test_controller_rejects_stale_project_results_and_invalidates_pipeline_token
         controller.shutdown()
 
 
+def _run_modern_project_reopen(
+    *,
+    missing_second_analysis: bool,
+    corrupt_all_artifacts: bool = False,
+    select_second: bool = False,
+) -> dict:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools
+
+    checkpointing = _require_module("addons.audio_story_mode.checkpointing")
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    project_models = _require_module("addons.audio_story_mode.project_models")
+
+    class Storage:
+        def __init__(self, root: Path):
+            self.root = root
+
+        def resolve(self, relative_path: str = "") -> Path:
+            return self.root / str(relative_path or "")
+
+    class Context:
+        def __init__(self, root: Path):
+            self.storage = Storage(root)
+
+        @staticmethod
+        def get_service(_name: str):
+            return None
+
+    def wait_until(predicate, timeout: float = 3.0) -> None:
+        deadline = time.monotonic() + timeout
+        while not predicate() and time.monotonic() < deadline:
+            app.processEvents(QtCore.QEventLoop.AllEvents, 20)
+            time.sleep(0.005)
+        assert predicate(), "timed out waiting for modern project reopen"
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root_path = Path(temporary)
+        context = Context(root_path)
+        controller = controller_module.AudioStoryModeController(context=context)
+        project = project_models.new_project_manifest(
+            "Restored Project", project_id="restore-project", now=1.0
+        )
+        artifact_refs = []
+        for index, chapter_id in enumerate(("c1", "c2"), start=1):
+            audio_path = _write_silent_test_wav(root_path / f"chapter_{index}.wav")
+            chapter = project_models.new_chapter_manifest(
+                f"Chapter {index}",
+                {
+                    "path": str(audio_path),
+                    "fingerprint": {
+                        "algorithm": "sha256-sampled-v1",
+                        "digest": f"restore-{index}",
+                        "size_bytes": audio_path.stat().st_size,
+                        "duration_ms": 10000,
+                    },
+                },
+                chapter_id=chapter_id,
+                now=float(index),
+            )
+            project["chapters"][chapter_id] = chapter
+            project["chapter_order"].append(chapter_id)
+            transcript = {
+                "schema_version": 1,
+                "project_id": project["project_id"],
+                "chapter_id": chapter_id,
+                "segments": [
+                    {
+                        "start_seconds": 1.0,
+                        "end_seconds": 2.0,
+                        "text": f"Chapter {'one' if index == 1 else 'two'}",
+                        "source_path": str(audio_path),
+                    }
+                ],
+            }
+            transcript_ref = controller._story_project_store.save_chapter_document(
+                project["project_id"], chapter_id, "transcript", 1, transcript
+            )
+            artifact_refs.append(transcript_ref)
+            chapter["stages"]["transcription"].update(
+                {
+                    "status": "completed",
+                    "output_ref": transcript_ref,
+                    "output_fingerprint": checkpointing.settings_fingerprint(transcript),
+                }
+            )
+            if missing_second_analysis and chapter_id == "c2":
+                continue
+            analysis = {
+                "transcript_chunks": [
+                    {
+                        "index": 0,
+                        "start_seconds": 1.0,
+                        "end_seconds": 2.0,
+                        "text": transcript["segments"][0]["text"],
+                    }
+                ],
+                "transcript_windows": [
+                    {
+                        "start_seconds": 1.0,
+                        "end_seconds": 2.0,
+                        "text": transcript["segments"][0]["text"],
+                    }
+                ],
+                "full_text": transcript["segments"][0]["text"],
+                "story_bible": {"characters": {f"hero-{index}": {"name": "Hero"}}},
+                "project_story_memory": {
+                    "characters": {f"hero-{index}": {"display_name": "Hero"}}
+                },
+                "scene_plan": [
+                    {
+                        "chunk_index": 0,
+                        "scene_index": 1,
+                        "scene_id": f"scene-{chapter_id}",
+                        "start_seconds": 1.0,
+                        "end_seconds": 2.0,
+                    }
+                ],
+                "character_anchors": {f"hero-{index}": f"anchor-{index}"},
+                "location_anchors": {f"place-{index}": f"place-anchor-{index}"},
+                "story_style_guide": f"style-{index}",
+            }
+            analysis_ref = controller._story_project_store.save_chapter_document(
+                project["project_id"], chapter_id, "analysis", 1, analysis
+            )
+            artifact_refs.append(analysis_ref)
+            chapter["stages"]["story_analysis"].update(
+                {
+                    "status": "completed",
+                    "output_ref": analysis_ref,
+                    "output_fingerprint": checkpointing.settings_fingerprint(analysis),
+                }
+            )
+        controller._story_project_store.save_project(project)
+        if corrupt_all_artifacts:
+            project_root = controller._story_project_store.project_path(
+                project["project_id"]
+            ).parent
+            for reference in artifact_refs:
+                (project_root / reference).unlink()
+        loaded_documents = []
+        original_document_loader = (
+            controller._story_project_store.load_chapter_document
+        )
+
+        def tracked_document_loader(project_id, chapter_id, kind, revision=None):
+            loaded_documents.append((str(chapter_id), str(kind)))
+            return original_document_loader(
+                project_id,
+                chapter_id,
+                kind,
+                revision=revision,
+            )
+
+        controller._story_project_store.load_chapter_document = (
+            tracked_document_loader
+        )
+
+        ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+        ui_file = QtCore.QFile(str(ui_path))
+        assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+        try:
+            root = QtUiTools.QUiLoader().load(ui_file)
+        finally:
+            ui_file.close()
+        assert root is not None
+
+        provider_calls = []
+        media_prepares: list[str] = []
+
+        def provider_sentinel(name):
+            return lambda *_args, **_kwargs: provider_calls.append(name)
+
+        runtime_boundaries = (
+            "ensure_stt_ready",
+            "transcribe_audio",
+            "ensure_chat_provider_model_ready",
+            "init_tts",
+            "generate_tts",
+        )
+        previous_runtime = {
+            name: getattr(controller_module.audio_story_runtime, name)
+            for name in runtime_boundaries
+            if hasattr(controller_module.audio_story_runtime, name)
+        }
+        for name in previous_runtime:
+            setattr(
+                controller_module.audio_story_runtime,
+                name,
+                provider_sentinel(name),
+            )
+        chat_provider_module = controller_module.chat_providers._resolve()
+        chat_boundaries = (
+            "list_models",
+            "create_client",
+            "complete_chat",
+            "stream_chat",
+            "check_connection",
+        )
+        previous_chat = {
+            name: getattr(chat_provider_module, name) for name in chat_boundaries
+        }
+        for name in chat_boundaries:
+            setattr(chat_provider_module, name, provider_sentinel(f"chat_{name}"))
+        instance_boundaries = (
+            "_apply_story_payload",
+            "_start_transcription",
+            "_start_tts_render",
+            "_prepare_tts_queue",
+            "_play_tts",
+            "_restart_visual_generation_from_position",
+            "_restart_missing_visual_generation_from_position",
+            "_start_playback_with_visual_sync",
+            "_get_visual_client",
+        )
+        previous_instance = {
+            name: getattr(controller, name)
+            for name in instance_boundaries
+            if hasattr(controller, name)
+        }
+        for name in previous_instance:
+            setattr(controller, name, provider_sentinel(name))
+        previous_prepare_source_media = controller._prepare_source_media
+        controller._prepare_source_media = lambda: (
+            media_prepares.append("_prepare_source_media") or True
+        )
+        previous_visual_capability = controller._visual_reply_capability
+        controller._visual_reply_capability = provider_sentinel(
+            "visual_reply_capability"
+        )
+        try:
+            assert controller._bind_designer_runtime_widget(root) is root
+            wait_until(
+                lambda: any(
+                    controller.audio_story_project_list.item(row).data(
+                        QtCore.Qt.UserRole
+                    )
+                    == project["project_id"]
+                    for row in range(controller.audio_story_project_list.count())
+                )
+            )
+            project_list = controller.audio_story_project_list
+            matching_row = next(
+                row
+                for row in range(project_list.count())
+                if project_list.item(row).data(QtCore.Qt.UserRole)
+                == project["project_id"]
+            )
+            project_list.setCurrentRow(matching_row)
+            provider_calls.clear()
+            worker_results = []
+            controller.storyProjectJobFinished.connect(
+                lambda payload: worker_results.append(copy.deepcopy(dict(payload or {})))
+            )
+            controller._open_story_project()
+            expected_chunks = 0 if corrupt_all_artifacts else 1
+            wait_until(
+                lambda: controller.current_story_project_id == project["project_id"]
+                and not controller._story_project_busy
+                and len(controller.transcript_chunks) == expected_chunks
+                and bool(worker_results)
+            )
+            if not corrupt_all_artifacts:
+                wait_until(
+                    lambda: "Chapter one"
+                    in controller.audio_story_transcript_edit.toPlainText()
+                )
+            wait_until(
+                lambda: len(
+                    getattr(controller, "_story_chapter_working_set").keys()
+                )
+                == 2
+            )
+            loaded_before_selection = len(loaded_documents)
+            if select_second:
+                controller.audio_story_project_chapter_list.setCurrentRow(1)
+                wait_until(
+                    lambda: controller._current_story_chapter_id == "c2"
+                    and (
+                        corrupt_all_artifacts
+                        or "Chapter two"
+                        in controller.audio_story_transcript_edit.toPlainText()
+                    )
+                )
+            open_result = next(
+                item
+                for item in worker_results
+                if item.get("operation") == "open"
+                and item.get("project_id") == project["project_id"]
+            )
+            return {
+                "full_text": controller.full_transcript_text,
+                "chapter_ids": [
+                    str(item.get("chapter_id") or "")
+                    for item in controller.transcript_chunks
+                ],
+                "scene_plan": copy.deepcopy(controller.scene_plan),
+                "raw_segments": copy.deepcopy(controller._raw_transcript_segments),
+                "provider_calls": list(provider_calls),
+                "media_prepares": list(media_prepares),
+                "image_worker_running": controller._image_generation_worker_running,
+                "status": controller.audio_story_status_label.text(),
+                "display": controller.audio_story_transcript_edit.toPlainText(),
+                "worker_result": copy.deepcopy(dict(open_result.get("result") or {})),
+                "cache_chapter_ids": [
+                    key.chapter_id
+                    for key in controller._story_chapter_working_set.keys()
+                ],
+                "loaded_documents": list(loaded_documents),
+                "loaded_before_selection": loaded_before_selection,
+            }
+        finally:
+            controller._visual_reply_capability = previous_visual_capability
+            controller._prepare_source_media = previous_prepare_source_media
+            for name, boundary in previous_instance.items():
+                setattr(controller, name, boundary)
+            for name, boundary in previous_chat.items():
+                setattr(chat_provider_module, name, boundary)
+            for name, boundary in previous_runtime.items():
+                setattr(controller_module.audio_story_runtime, name, boundary)
+            controller.shutdown()
+            root.close()
+            root.deleteLater()
+            app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+            app.processEvents()
+
+
+def test_controller_open_restores_modern_project_artifacts_without_provider_work() -> None:
+    restored = _run_modern_project_reopen(missing_second_analysis=False)
+    assert restored["full_text"] == "Chapter one"
+    assert restored["chapter_ids"] == ["c1"]
+    assert len(restored["scene_plan"]) == 1
+    assert restored["raw_segments"]
+    assert "Chapter one" in restored["display"]
+    assert "Chapter two" not in restored["display"]
+    assert restored["cache_chapter_ids"] == ["c1", "c2"]
+    assert set(restored["loaded_documents"]) == {
+        ("c1", "transcript"),
+        ("c1", "analysis"),
+        ("c2", "transcript"),
+        ("c2", "analysis"),
+    }
+    assert restored["provider_calls"] == []
+    assert restored["media_prepares"] == ["_prepare_source_media"]
+    assert restored["image_worker_running"] is False
+
+
+def test_controller_open_keeps_valid_transcripts_when_one_analysis_is_missing() -> None:
+    restored = _run_modern_project_reopen(missing_second_analysis=True)
+    assert restored["full_text"] == "Chapter one"
+    assert restored["chapter_ids"] == ["c1"]
+    assert "Chapter one" in restored["display"]
+    assert "Chapter two" not in restored["display"]
+    assert [item["chapter_id"] for item in restored["scene_plan"]] == ["c1"]
+    assert restored["cache_chapter_ids"] == ["c1", "c2"]
+    assert restored["provider_calls"] == []
+    assert restored["media_prepares"] == ["_prepare_source_media"]
+
+
+def test_controller_chapter_selection_installs_prefetch_without_disk_reload() -> None:
+    restored = _run_modern_project_reopen(
+        missing_second_analysis=False,
+        select_second=True,
+    )
+    assert restored["full_text"] == "Chapter two"
+    assert restored["chapter_ids"] == ["c2"]
+    assert "Chapter one" not in restored["display"]
+    assert "Chapter two" in restored["display"]
+    assert len(restored["loaded_documents"]) == restored["loaded_before_selection"]
+
+
+def test_controller_open_reports_all_failed_modern_artifact_pointers() -> None:
+    restored = _run_modern_project_reopen(
+        missing_second_analysis=False,
+        corrupt_all_artifacts=True,
+    )
+    worker_result = restored["worker_result"]
+    assert "prepared_open" in worker_result
+    assert restored["cache_chapter_ids"] == ["c1", "c2"]
+    assert restored["full_text"] == ""
+    assert restored["chapter_ids"] == []
+    assert "unavailable" in restored["status"].lower()
+    assert restored["provider_calls"] == []
+    assert restored["media_prepares"] == ["_prepare_source_media"]
+
+
+def _prepare_large_open_state_in_worker(controller, project, artifacts, interrupted):
+    completed = threading.Event()
+    outcome: dict[str, object] = {}
+
+    def worker():
+        try:
+            outcome["value"] = controller._prepare_story_project_open_state(
+                project,
+                artifacts,
+                interrupted_issues=interrupted,
+            )
+        except BaseException as exc:
+            outcome["error"] = exc
+        finally:
+            completed.set()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    assert completed.wait(10.0), "project-open preparation did not finish"
+    thread.join(timeout=1.0)
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
+
+
+def test_project_open_gui_installs_large_prepared_state_without_heavy_work() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    restore_module = _require_module("addons.audio_story_mode.project_restore")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    project = controller_module.project_models.new_project_manifest(
+        "Large prepared open", project_id="large-open-project"
+    )
+    audio_path = Path(temporary_directory.name) / "chapter.wav"
+    audio_path.write_bytes(b"prepared-audio")
+    chapter = controller_module.project_models.new_chapter_manifest(
+        "Large chapter",
+        {
+            "path": str(audio_path),
+            "fingerprint": {
+                "algorithm": "sha256-sampled-v1",
+                "digest": "prepared-audio",
+                "size_bytes": audio_path.stat().st_size,
+                "duration_ms": 10319000,
+            },
+        },
+        chapter_id="c1",
+    )
+    project["chapters"]["c1"] = chapter
+    project["chapter_order"] = ["c1"]
+    image_path = (
+        controller._story_project_store.project_path("large-open-project").parent
+        / "chapters"
+        / "c1"
+        / "images"
+        / "shared.png"
+    )
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    image_path.write_bytes(b"prepared-image")
+    project["chapters"]["c1"].setdefault("scene_checkpoints", {})
+    for index in range(3241):
+        project["chapters"]["c1"]["scene_checkpoints"][f"scene-{index}"] = {
+            "status": "completed",
+            "input_fingerprint": f"input-{index}",
+            "expected_input_fingerprint": f"input-{index}",
+            "output_fingerprint": f"output-{index}",
+            "output_ref": "chapters/c1/images/shared.png",
+            "chunk_index": index,
+            "scene_index": index,
+            "scene_id": f"scene-{index}",
+            "prompt_text": f"prompt-{index}",
+            "prompt_signature": f"signature-{index}",
+        }
+    transcript = {
+        "segments": [
+            {
+                "start_seconds": float(index),
+                "end_seconds": float(index + 1),
+                "text": f"segment-{index}",
+            }
+            for index in range(10319)
+        ]
+    }
+    analysis = {
+        "transcript_chunks": [
+            {
+                "start_seconds": float(index),
+                "end_seconds": float(index + 1),
+                "text": f"scene text {index}",
+                "prompt": f"prompt-{index}",
+            }
+            for index in range(3241)
+        ],
+        "scene_plan": [
+            {"chunk_index": index, "scene_index": index, "scene_id": f"scene-{index}"}
+            for index in range(3241)
+        ],
+        "story_bible": {},
+        "project_story_memory": {},
+        "character_anchors": {},
+        "location_anchors": {},
+    }
+    artifacts = restore_module.ProjectArtifactRestore(
+        "large-open-project",
+        (
+            restore_module.RestoredChapterArtifacts(
+                "c1", 0.0, transcript, analysis
+            ),
+        ),
+        (
+            restore_module.RestoreIssue(
+                "c1", "transcription", "token=secret source artifact unavailable"
+            ),
+        ),
+    )
+    prepared = _prepare_large_open_state_in_worker(
+        controller,
+        project,
+        artifacts,
+        ({"chapter_id": "c1", "stage": "story_analysis", "message": "interrupted work"},),
+    )
+    restoration = prepared["restoration"]
+    prepared_chunks = restoration["transcript_chunks"]
+    prepared_scenes = restoration["scene_plan"]
+    prepared_images = prepared["image_cache"]
+    prepared_prompts = prepared["prompt_image_cache"]
+    media_prepares: list[str] = []
+    warnings: list[str] = []
+    original_deepcopy = controller_module.copy.deepcopy
+    original_is_file = controller_module.Path.is_file
+    original_exists = controller_module.Path.exists
+    original_hash = controller_module.checkpointing.settings_fingerprint
+    original_recover = controller_module.checkpointing.recover_interrupted
+
+    def forbid_gui(name, original):
+        def checked(*args, **kwargs):
+            if threading.current_thread() is threading.main_thread():
+                raise AssertionError(f"{name} must not run during prepared GUI acceptance")
+            return original(*args, **kwargs)
+
+        return checked
+
+    try:
+        controller._prepare_source_media = lambda: media_prepares.append("prepare")
+        controller._show_warning = lambda _title, message: warnings.append(str(message))
+        controller_module.copy.deepcopy = forbid_gui("copy.deepcopy", original_deepcopy)
+        controller_module.Path.is_file = forbid_gui("Path.is_file", original_is_file)
+        controller_module.Path.exists = forbid_gui("Path.exists", original_exists)
+        controller_module.checkpointing.settings_fingerprint = forbid_gui(
+            "settings_fingerprint", original_hash
+        )
+        controller_module.checkpointing.recover_interrupted = forbid_gui(
+            "recover_interrupted", original_recover
+        )
+
+        controller._apply_open_story_project(
+            project,
+            replace_derived_state=True,
+            restoration=restoration,
+            prepared_open=prepared,
+        )
+
+        assert controller.transcript_chunks is prepared_chunks
+        assert controller.scene_plan is prepared_scenes
+        assert controller._image_cache is prepared_images
+        assert controller._prompt_image_cache is prepared_prompts
+        assert media_prepares == ["prepare"]
+        assert warnings == []
+        console = controller.audio_story_transcription_console.toPlainText().lower()
+        assert "chapter c1" in console
+        assert "transcription" in console
+        assert "story_analysis" in console
+        assert "[redacted]" in console
+    finally:
+        controller_module.copy.deepcopy = original_deepcopy
+        controller_module.Path.is_file = original_is_file
+        controller_module.Path.exists = original_exists
+        controller_module.checkpointing.settings_fingerprint = original_hash
+        controller_module.checkpointing.recover_interrupted = original_recover
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_project_open_missing_prepared_sources_skips_media_prepare_without_warning() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    restore_module = _require_module("addons.audio_story_mode.project_restore")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    project = controller_module.project_models.new_project_manifest(
+        "Missing source", project_id="missing-source-project"
+    )
+    chapter = controller_module.project_models.new_chapter_manifest(
+        "Missing",
+        {
+            "path": str(Path(temporary_directory.name) / "missing.wav"),
+            "fingerprint": {
+                "algorithm": "sha256-sampled-v1",
+                "digest": "missing",
+                "size_bytes": 10,
+                "duration_ms": 10000,
+            },
+        },
+        chapter_id="c1",
+    )
+    project["chapters"]["c1"] = chapter
+    project["chapter_order"] = ["c1"]
+    artifacts = restore_module.ProjectArtifactRestore(
+        "missing-source-project",
+        (restore_module.RestoredChapterArtifacts("c1", 0.0, None, None),),
+        (),
+    )
+    prepared = _prepare_large_open_state_in_worker(
+        controller, project, artifacts, ()
+    )
+    media_prepares: list[str] = []
+    warnings: list[str] = []
+    try:
+        controller._prepare_source_media = lambda: media_prepares.append("prepare")
+        controller._show_warning = lambda _title, message: warnings.append(str(message))
+        controller._apply_open_story_project(
+            project,
+            replace_derived_state=True,
+            restoration=prepared["restoration"],
+            prepared_open=prepared,
+        )
+        assert media_prepares == []
+        assert warnings == []
+    finally:
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
+def test_prepared_recovery_autosave_queues_without_gui_copy_or_hash() -> None:
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    temporary_directory, app, root, controller = _planner_apply_test_fixture()
+    project = copy.deepcopy(controller._current_story_project)
+    completed = threading.Event()
+    outcome: dict[str, object] = {}
+
+    def worker():
+        try:
+            outcome["value"] = (
+                controller._prepare_story_project_recovery_autosave(project)
+            )
+        except BaseException as exc:
+            outcome["error"] = exc
+        finally:
+            completed.set()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    assert completed.wait(5.0), "recovery autosave preparation did not finish"
+    thread.join(timeout=1.0)
+    if "error" in outcome:
+        raise outcome["error"]
+    prepared = outcome["value"]
+    requests = []
+
+    class Queue:
+        @staticmethod
+        def request(request):
+            requests.append(request)
+
+    original_deepcopy = controller_module.copy.deepcopy
+    original_sha256 = controller_module.hashlib.sha256
+    original_refresh_project = controller._refresh_story_project_ui
+    original_refresh_controls = controller._refresh_controls
+
+    def forbid_gui(name, original):
+        def checked(*args, **kwargs):
+            if threading.current_thread() is threading.main_thread():
+                raise AssertionError(f"{name} must not run while queuing prepared recovery")
+            return original(*args, **kwargs)
+
+        return checked
+
+    try:
+        controller._story_project_autosave_queue = Queue()
+        controller._refresh_story_project_ui = lambda: None
+        controller._refresh_controls = lambda: None
+        controller_module.copy.deepcopy = forbid_gui(
+            "copy.deepcopy", original_deepcopy
+        )
+        controller_module.hashlib.sha256 = forbid_gui("sha256", original_sha256)
+
+        ownership = controller._queue_prepared_story_project_recovery_autosave(
+            prepared
+        )
+
+        assert ownership == (prepared["project_id"], prepared["revision"])
+        assert len(requests) == 1
+        assert requests[0].snapshot is prepared["snapshot"]
+        assert controller._story_project_dirty_autosave["snapshot"] is (
+            prepared["snapshot"]
+        )
+        assert controller._story_project_pending_autosave[:2] == ownership
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Saving recovery state..."
+        )
+        assert controller._story_project_status_timer.isActive()
+    finally:
+        controller_module.copy.deepcopy = original_deepcopy
+        controller_module.hashlib.sha256 = original_sha256
+        controller._refresh_story_project_ui = original_refresh_project
+        controller._refresh_controls = original_refresh_controls
+        controller._story_project_autosave_queue = None
+        controller._story_project_pending_autosave = None
+        controller._story_project_dirty_autosave = None
+        _close_bound_audio_story_controller(app, root, controller)
+        temporary_directory.cleanup()
+
+
 def test_controller_project_lifecycle_runs_after_ui_binding() -> None:
     app = _qt_application()
     from PySide6 import QtCore, QtUiTools, QtWidgets
@@ -5302,6 +10494,88 @@ def test_controller_project_lifecycle_runs_after_ui_binding() -> None:
             app.processEvents()
 
 
+def test_project_header_status_cycles_colors_only_while_active() -> None:
+    _app = _qt_application()
+    from PySide6 import QtWidgets
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    try:
+        controller._set_story_project_autosave_text(
+            "Importing 3 audio files...",
+            state="active",
+        )
+        first_style = controller.audio_story_project_autosave_label.styleSheet()
+        assert controller._story_project_status_timer.isActive()
+
+        controller._advance_story_project_status_color()
+
+        second_style = controller.audio_story_project_autosave_label.styleSheet()
+        assert first_style != second_style
+        assert "#ff5964" in second_style
+    finally:
+        controller.shutdown()
+
+
+def test_project_header_terminal_states_stop_color_cycle() -> None:
+    _app = _qt_application()
+    from PySide6 import QtWidgets
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    try:
+        controller._set_story_project_autosave_text(
+            "Importing 3 audio files...",
+            state="active",
+        )
+        controller._set_story_project_autosave_text(
+            "Imported 3 audio files",
+            state="success",
+            reset_after_ms=3000,
+        )
+        assert not controller._story_project_status_timer.isActive()
+        assert "#28d17c" in controller.audio_story_project_autosave_label.styleSheet()
+
+        controller._set_story_project_autosave_text(
+            "Project error: disk full",
+            state="error",
+        )
+        assert not controller._story_project_status_timer.isActive()
+        assert "#ff5964" in controller.audio_story_project_autosave_label.styleSheet()
+    finally:
+        controller.shutdown()
+
+
+def test_project_header_stale_success_reset_cannot_replace_new_work() -> None:
+    _app = _qt_application()
+    from PySide6 import QtWidgets
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    controller = controller_module.AudioStoryModeController(context=None)
+    controller.audio_story_project_autosave_label = QtWidgets.QLabel()
+    try:
+        old_generation = controller._set_story_project_autosave_text(
+            "Imported 2 audio files",
+            state="success",
+            reset_after_ms=3000,
+        )
+        controller._set_story_project_autosave_text(
+            "Opening project...",
+            state="active",
+        )
+
+        controller._reset_story_project_status_if_current(old_generation)
+
+        assert controller.audio_story_project_autosave_label.text() == (
+            "Opening project..."
+        )
+        assert controller._story_project_status_timer.isActive()
+    finally:
+        controller.shutdown()
+
+
 def test_designer_ui_exposes_story_project_controls() -> None:
     ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
     root = ET.parse(ui_path).getroot()
@@ -5323,6 +10597,38 @@ def test_designer_ui_exposes_story_project_controls() -> None:
         "audio_story_project_retry_button",
     }
     assert required <= names, sorted(required - names)
+
+
+def test_designer_project_header_is_compact_and_left_aligned() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools, QtWidgets
+
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    assert root is not None, "Designer UI did not load"
+    try:
+        header = root.findChild(
+            QtWidgets.QFrame,
+            "audio_story_project_header_frame",
+        )
+        assert header is not None
+        root.resize(1200, 900)
+        root.show()
+        app.processEvents()
+
+        assert header.maximumWidth() == 420
+        assert header.width() <= 420
+        assert header.x() < (root.width() - header.width()) // 2
+    finally:
+        root.close()
+        root.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        app.processEvents()
 
 
 def test_designer_ui_exposes_range_and_tts_buffer_controls() -> None:
@@ -5466,7 +10772,7 @@ def test_controller_normalizes_and_round_trips_range_and_buffer_settings() -> No
         controller.shutdown()
 
 
-def test_designer_runtime_assembles_six_audio_story_categories() -> None:
+def test_designer_runtime_assembles_seven_audio_story_categories() -> None:
     app = _qt_application()
     from PySide6 import QtCore, QtUiTools
 
@@ -5509,7 +10815,15 @@ def test_designer_runtime_assembles_six_audio_story_categories() -> None:
     assert controller._tts_render_in_progress is render_in_progress
     assert controller._tts_bundle is tts_bundle
     navigation = controller.audio_story_inner_tabs
-    assert navigation.page_keys() == ["project", "audio", "story", "images", "review", "play"], navigation.page_keys()
+    assert navigation.page_keys() == [
+        "project",
+        "audio",
+        "novel",
+        "story",
+        "images",
+        "review",
+        "play",
+    ], navigation.page_keys()
     assert navigation.current_key() == "project", navigation.current_key()
     assert not controller.audio_story_import_button.isEnabled()
     assert not controller.audio_story_transcribe_button.isEnabled()
@@ -5566,16 +10880,22 @@ def test_designer_runtime_assembles_six_audio_story_categories() -> None:
     assert controller.audio_story_project_autosave_label.text() == (
         "Saving recovery state..."
     )
+    assert controller._story_project_status_timer.isActive()
     assert not controller.audio_story_import_button.isEnabled()
     assert not controller.audio_story_transcribe_button.isEnabled()
     pending = controller._story_project_pending_autosave
+    saved_project = dict(request.snapshot)
+    saved_project["manifest_revision"] = 1
     stale = {
         "project_id": pending[0],
         "revision": pending[1] + 1,
         "generation_id": pending[2],
         "input_fingerprint": pending[3],
-        "project": dict(request.snapshot),
+        "project": saved_project,
     }
+    stale["open_summary"] = controller._prepare_story_project_open_summary(
+        stale["project"]
+    )
     controller._on_story_project_autosave_saved(stale)
     assert controller.audio_story_project_autosave_label.text() == (
         "Saving recovery state..."
@@ -5599,6 +10919,7 @@ def test_designer_runtime_assembles_six_audio_story_categories() -> None:
     assert controller.audio_story_project_autosave_label.text() == (
         "Autosave failed: disk full"
     )
+    assert "#ff5964" in controller.audio_story_project_autosave_label.styleSheet()
     for button in navigation.buttons:
         title_style = button.title_label.styleSheet().lower()
         assert f"color: {button._color}" in title_style, title_style
@@ -5635,13 +10956,431 @@ def test_designer_runtime_assembles_six_audio_story_categories() -> None:
     app.processEvents()
 
 
+def test_novel_workshop_widget_exposes_staged_controls() -> None:
+    _app = _qt_application()
+    novel_widgets = _require_module("addons.audio_story_mode.novel_widgets")
+    novel_models = _require_module("addons.audio_story_mode.novel_models")
+    panel = novel_widgets.NovelWorkshopPanel()
+    try:
+        assert panel.objectName() == "audio_story_novel_workshop"
+        assert panel.adaptation_style_combo.count() == 3
+        assert not panel.import_button.isEnabled()
+        preview = novel_models.SourcePreview(
+            source_kind="chatlog_json",
+            source_path="chat.json",
+            fingerprint="fingerprint",
+            parser_id="json_lines",
+            field_map=novel_models.ChatlogFieldMap(
+                speaker_field="author", text_field="content"
+            ),
+            record_count=42,
+            participant_count=2,
+            participants=("Ada", "Nova"),
+            estimated_chunks=2,
+        )
+        panel.set_project("project-1", "Novel", "chatlog_json")
+        panel.set_preview(preview)
+        assert panel.import_button.isEnabled()
+        assert "42 messages" in panel.preview_label.text()
+        panel.set_outline(
+            {
+                "revision": 1,
+                "approval_status": "draft",
+                "title": "Novel",
+                "chapters": [
+                    {
+                        "chapter_id": "c1",
+                        "title": "Chapter",
+                        "scenes": [
+                            {
+                                "scene_id": "s1",
+                                "title": "Scene",
+                                "summary": "Summary",
+                                "pov": "Ada",
+                                "tense": "past",
+                                "enabled": True,
+                            },
+                            {
+                                "scene_id": "s2",
+                                "title": "Second Scene",
+                                "summary": "Second summary",
+                                "enabled": True,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        assert panel.outline_mapping()["chapters"][0]["scenes"][0]["scene_id"] == "s1"
+        first_scene_item = panel.outline_tree.topLevelItem(0).child(0)
+        first_scene_item.setText(2, "Nova")
+        first_scene_item.setText(3, "present")
+        panel.outline_tree.setCurrentItem(first_scene_item)
+        panel._move_selected(1)
+        reordered = panel.outline_mapping()["chapters"][0]["scenes"]
+        assert [scene["scene_id"] for scene in reordered] == ["s2", "s1"]
+        assert reordered[1]["pov"] == "Nova"
+        assert reordered[1]["tense"] == "present"
+        panel._split_selected()
+        split_scenes = panel.outline_mapping()["chapters"][0]["scenes"]
+        assert len(split_scenes) == 3
+        assert len({scene["scene_id"] for scene in split_scenes}) == 3
+    finally:
+        panel.close()
+        panel.deleteLater()
+
+
+def test_controller_rejects_stale_novel_job_result() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    controller = controller_module.AudioStoryModeController(context=None)
+    try:
+        assert controller._bind_designer_runtime_widget(root) is root
+        controller.current_story_project_id = "current-project"
+        controller._novel_job_generation = 4
+        controller._novel_job_active = True
+        controller.audio_story_novel_panel.set_status("Current work", state="working")
+
+        controller._apply_novel_job_result(
+            {
+                "operation": "build_story_map",
+                "project_id": "old-project",
+                "generation_id": 3,
+                "source_revision": 1,
+                "result": {"status": "complete"},
+            }
+        )
+
+        assert controller._novel_job_active is True
+        assert controller.audio_story_novel_panel.status_label.text() == "Current work"
+    finally:
+        controller.shutdown()
+        root.close()
+        root.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def test_switching_projects_cancels_and_releases_owned_novel_job() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    controller = controller_module.AudioStoryModeController(context=None)
+    try:
+        assert controller._bind_designer_runtime_widget(root) is root
+        cancel_event = threading.Event()
+        controller.current_story_project_id = "old-project"
+        controller._current_story_project = {
+            "project_id": "old-project",
+            "name": "Old",
+            "source_kind": "chatlog_json",
+        }
+        controller._novel_job_generation = 4
+        controller._novel_job_active = True
+        controller._novel_cancel_event = cancel_event
+        controller._novel_job_owner = {
+            "operation": "generate",
+            "project_id": "old-project",
+            "generation_id": 4,
+            "source_revision": 1,
+            "settings_signature": "settings",
+        }
+
+        controller._apply_open_story_project(
+            {
+                "project_id": "new-project",
+                "name": "New",
+                "source_kind": "audio",
+                "chapters": {},
+                "chapter_order": [],
+                "archived_chapter_ids": [],
+                "manifest_revision": 0,
+            }
+        )
+
+        assert cancel_event.is_set()
+        assert controller._novel_job_generation == 5
+        assert controller._novel_job_active is False
+        assert controller._novel_job_owner is None
+        assert controller._novel_cancel_event is None
+    finally:
+        controller.shutdown()
+        root.close()
+        root.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def test_controller_keeps_only_selected_and_next_novel_chapter_in_memory() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    controller = controller_module.AudioStoryModeController(context=None)
+    try:
+        assert controller._bind_designer_runtime_widget(root) is root
+        controller.current_story_project_id = "novel-project"
+        controller._current_story_project = {
+            "project_id": "novel-project",
+            "name": "Novel",
+            "source_kind": "chatlog_json",
+        }
+        selected = (
+            {
+                "chapter_id": "chapter-1",
+                "scene_id": "scene-1",
+                "text": "Selected chapter.",
+                "start_seconds": 0.0,
+                "end_seconds": 1.0,
+            },
+        )
+        following = (
+            {
+                "chapter_id": "chapter-2",
+                "scene_id": "scene-2",
+                "text": "Preloaded chapter.",
+                "start_seconds": 0.0,
+                "end_seconds": 1.0,
+            },
+        )
+
+        controller._apply_novel_narration_payload(
+            "chapter-1", selected, "chapter-2", following
+        )
+
+        assert {item["chapter_id"] for item in controller.transcript_chunks} == {
+            "chapter-1"
+        }
+        assert tuple(controller._novel_narration_cache) == (
+            "chapter-1",
+            "chapter-2",
+        )
+        assert controller._playback_mode_value() == "tts"
+        assert controller.audio_story_inner_tabs.current_key() == "play"
+    finally:
+        controller.shutdown()
+        root.close()
+        root.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def test_novel_story_handoff_does_not_start_media_or_visual_generation() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    controller = controller_module.AudioStoryModeController(context=None)
+    captured = {}
+    try:
+        assert controller._bind_designer_runtime_widget(root) is root
+
+        def capture(payload, **options):
+            captured["payload"] = payload
+            captured["options"] = options
+
+        controller._apply_story_payload = capture
+        controller._apply_novel_story_handoff(
+            {
+                "audio_duration_seconds": 2.0,
+                "transcript_chunks": [
+                    {
+                        "chapter_id": "c1",
+                        "scene_id": "s1",
+                        "text": "Scene prose.",
+                        "start_seconds": 0.0,
+                        "end_seconds": 2.0,
+                    }
+                ],
+                "scene_plan": [{"scene_id": "s1"}],
+                "story_bible": {},
+                "full_text": "Scene prose.",
+            }
+        )
+
+        assert captured["options"] == {
+            "start_visual_generation": False,
+            "prepare_media": False,
+        }
+        assert controller.audio_story_inner_tabs.current_key() == "story"
+    finally:
+        controller.shutdown()
+        root.close()
+        root.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def test_novel_background_job_keeps_qt_heartbeat_responsive() -> None:
+    app = _qt_application()
+    from PySide6 import QtCore, QtUiTools
+
+    controller_module = _require_module("addons.audio_story_mode.controller")
+    ui_path = Path(__file__).resolve().parent / "ui" / "audio_story_mode.ui"
+    ui_file = QtCore.QFile(str(ui_path))
+    assert ui_file.open(QtCore.QIODevice.ReadOnly), ui_file.errorString()
+    try:
+        root = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    controller = controller_module.AudioStoryModeController(context=None)
+    heartbeat = {"count": 0}
+    timer = QtCore.QTimer()
+    timer.setInterval(5)
+    timer.timeout.connect(
+        lambda: heartbeat.__setitem__("count", heartbeat["count"] + 1)
+    )
+    try:
+        assert controller._bind_designer_runtime_widget(root) is root
+        controller.current_story_project_id = "novel-project"
+        controller._current_story_project = {
+            "project_id": "novel-project",
+            "name": "Novel",
+            "source_kind": "chatlog_json",
+        }
+
+        def work(progress, cancel_check):
+            del cancel_check
+            progress(25, "Background work")
+            time.sleep(0.08)
+            return {}
+
+        timer.start()
+        controller._launch_novel_job(
+            "heartbeat",
+            work,
+            project_id="novel-project",
+            source_revision=0,
+            status_text="Background work",
+        )
+        deadline = time.monotonic() + 2.0
+        while controller._novel_job_active and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.002)
+        app.processEvents()
+
+        assert not controller._novel_job_active
+        assert heartbeat["count"] >= 3
+    finally:
+        timer.stop()
+        controller.shutdown()
+        root.close()
+        root.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def test_settings_workload_snapshots_are_normalized_immutable_and_deterministic() -> None:
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    planner = workload.PlannerSettingsSnapshot.from_mapping(
+        {
+            "analysis_mode": "STORY_BIBLE",
+            "use_llm_story_analysis": 1,
+            "instructor_beats_enabled": 0,
+            "provider_mode": "LMSTUDIO",
+            "provider_id": "lmstudio",
+            "provider_label": "Local LM Studio",
+            "model_override": "  local-model  ",
+        }
+    )
+    style = workload.StyleSettingsSnapshot.from_mapping(
+        {
+            "style_enabled": ["cinematic", "cinematic", "noir"],
+            "style_prompts": {"noir": "  dark contrast ", "cinematic": "wide lens"},
+            "style_change_live": True,
+            "master_prompt_enabled": True,
+            "master_prompt_mode": "MEDIUM",
+            "prompt_block_limits": {"style": 300, "characters": 420},
+            "prompt_safety_cap": 1800,
+        }
+    )
+    assert planner.analysis_mode == "story_bible"
+    assert planner.provider_mode == "lmstudio"
+    assert planner.model_override == "local-model"
+    assert style.style_enabled == ("cinematic", "noir")
+    assert style.style_prompts == (("cinematic", "wide lens"), ("noir", "dark contrast"))
+    assert workload.PlannerSettingsSnapshot.from_mapping(planner.to_payload()) == planner
+    assert workload.StyleSettingsSnapshot.from_mapping(style.to_payload()) == style
+
+
+def test_settings_apply_request_carries_exact_project_ownership() -> None:
+    workload = _require_module("addons.audio_story_mode.settings_workload")
+    planner = workload.PlannerSettingsSnapshot.from_mapping({"analysis_mode": "scene_only"})
+    style = workload.StyleSettingsSnapshot.from_mapping({})
+    request = workload.SettingsApplyRequest(
+        generation_id=7,
+        operation="planner",
+        project_id="project-1",
+        project_generation=4,
+        manifest_revision=9,
+        input_fingerprint="fingerprint-1",
+        planner=planner,
+        style=style,
+    )
+    assert request.ownership_payload() == {
+        "generation_id": 7,
+        "operation": "planner",
+        "project_id": "project-1",
+        "project_generation": 4,
+        "manifest_revision": 9,
+        "input_fingerprint": "fingerprint-1",
+    }
+
+
 def main() -> int:
     _qt_application()
     tests = [
+        test_settings_workload_snapshots_are_normalized_immutable_and_deterministic,
+        test_settings_apply_request_carries_exact_project_ownership,
+        test_story_analysis_batches_are_bounded,
+        test_compact_continuity_context_is_relevant_and_capped,
+        test_story_analysis_prompt_payload_is_below_limit,
+        test_batched_llm_story_analysis_is_sequential_and_bounded,
+        test_batched_llm_story_analysis_falls_back_per_batch_and_cancels,
         test_audio_sources_keep_order_deduplicate_and_offset,
         test_audio_sources_retain_invalid_entries_without_advancing_offset,
         test_range_and_seek_cross_chapter_boundary,
         test_exact_boundary_resolves_to_next_chapter,
+        test_controller_cached_chapter_boundary_installs_without_pause,
+        test_controller_unloaded_chapter_boundary_pauses_and_requests_once,
+        test_chapter_selection_promotes_an_inflight_prefetch_to_install,
+        test_unavailable_playback_chapter_stays_paused_and_clears_resume,
+        test_closing_project_releases_chapter_working_set,
+        test_tts_chapter_end_uses_cached_or_async_next_chapter,
+        test_manual_selection_clears_stale_playback_resume,
+        test_late_chapter_result_cannot_repopulate_cache_after_shutdown,
+        test_same_project_audio_change_invalidates_and_reloads_selected_chapter,
         test_normalize_segmented_stt_offsets_to_global_timeline,
         test_normalize_transcript_only_stt_preserves_valid_text,
         test_unavailable_and_empty_stt_are_failures,
@@ -5714,10 +11453,80 @@ def main() -> int:
         test_controller_tts_ready_offsets_require_current_owned_segments,
         test_controller_disables_stale_sources_while_queue_is_reprobed,
         test_structured_story_beats_convert_to_existing_scene_shape,
+        test_planner_guidance_reports_instructor_fallback_without_implying_failure,
+        test_planner_guidance_explains_image_provider_continuity_capability,
         test_instructor_adapter_wraps_isolated_client_and_strips_incompatible_params,
         test_designer_ui_exposes_instructor_controls,
+        test_scene_planner_help_labels_reserve_wrapped_text_height,
+        test_bound_planner_guidance_reflects_active_image_provider,
+        test_designer_ui_exposes_staged_apply_controls,
+        test_recommended_continuity_settings_are_staged_without_overwriting_choices,
+        test_planner_and_style_controls_only_mark_drafts_before_apply,
+        test_style_controls_do_no_work_before_apply,
+        test_style_apply_runs_off_gui_thread,
+        test_style_apply_never_calls_llm_transcription_tts_or_full_visuals,
+        test_style_apply_keeps_transcript_widget_unchanged,
+        test_style_apply_live_off_keeps_current_image,
+        test_style_apply_live_on_targets_only_current_scene,
+        test_style_apply_preserves_existing_image_cache,
+        test_style_apply_requires_saved_analysis_without_llm,
+        test_style_reprompt_checks_cancellation_while_copying_chunks,
+        test_style_apply_uses_committed_story_memory_snapshot,
+        test_style_apply_defers_project_size_copies_to_worker,
+        test_style_reprompt_rebuilds_master_prompt_from_frozen_request,
+        test_style_snapshot_prompt_cap_covers_every_adapter_branch,
+        test_style_applied_settings_update_is_strictly_additive,
+        test_style_apply_preflights_all_exact_analysis_checkpoints,
+        test_style_cancel_waits_for_ack_and_retries_from_partial_head,
+        test_style_failure_after_first_commit_reconciles_head_and_retries,
+        test_style_completed_install_rejection_reconciles_head_and_retries,
+        test_style_terminal_rejects_every_stale_owner_before_side_effects,
+        test_style_apply_copies_nested_project_mappings_on_worker_with_bounded_cancel,
+        test_planner_launch_defers_mapping_and_cache_copies_to_worker,
+        test_style_scene_override_edit_during_capture_rejects_snapshot_safely,
+        test_style_cache_capture_holds_existing_cache_lock_until_copy_finishes,
+        test_style_live_refresh_uses_only_accepted_request_snapshot,
+        test_style_targeted_refresh_requests_exact_current_scene_once,
+        test_planner_controls_do_not_start_analysis_before_apply,
+        test_planner_apply_starts_one_owned_worker,
+        test_planner_apply_rejects_concurrent_start,
+        test_planner_apply_uses_dedicated_completion_without_visuals,
+        test_planner_apply_cancel_and_project_switch_reject_late_result,
+        test_planner_apply_preserves_newer_draft_as_pending,
+        test_planner_apply_rejects_changed_manifest_revision_without_installing,
+        test_planner_apply_releases_only_exact_request_and_pipeline_token,
+        test_planner_apply_gui_slot_swaps_large_owned_collections_without_copying,
+        test_planner_failure_after_first_commit_reconciles_head_and_retries,
+        test_planner_cancel_waits_for_checkpoint_ack_and_retries_from_head,
+        test_planner_completed_install_rejection_reconciles_head_and_retries,
+        test_planner_terminal_requires_current_context_and_authoritative_head,
+        test_planner_launch_uses_applied_baseline_or_neutral_style_not_draft,
+        test_planner_success_keeps_newer_style_draft_pending_after_restore,
+        test_continuity_strength_has_explicit_planner_apply_path,
+        test_xai_controls_keep_bounded_runtime_only_apply_path,
+        test_auto_and_explicit_same_resolved_model_do_not_share_analysis_checkpoint,
+        test_planner_cancel_after_blocked_provider_stops_downstream_and_publication,
+        test_blocked_planner_provider_uses_launch_snapshot_and_keeps_newer_draft,
+        test_story_model_catalog_runs_off_gui_thread,
+        test_story_model_catalog_discards_stale_results_and_coalesces_requests,
+        test_story_model_catalog_accepts_inflight_provider_after_provider_round_trip,
+        test_story_model_catalog_accepts_inflight_provider_after_current_round_trip,
+        test_story_model_catalog_preserves_uncommitted_edit_text,
+        test_story_model_catalog_ignores_malformed_worker_entries,
+        test_story_model_catalog_empty_exception_uses_fallback_status,
+        test_story_model_catalog_shutdown_discards_blocked_result,
+        test_project_owned_legacy_fallback_resets_applied_ownership,
+        test_metadata_free_restore_marks_only_later_draft_edits_pending,
+        test_transcript_only_restore_clears_stale_applied_planner_ownership,
+        test_malformed_restored_applied_settings_falls_back_to_unknown,
+        test_no_project_session_import_synchronizes_applied_drafts,
+        test_project_restore_selects_only_consistent_applied_metadata,
         test_designer_ui_exposes_transcription_console,
+        test_project_header_status_cycles_colors_only_while_active,
+        test_project_header_terminal_states_stop_color_cycle,
+        test_project_header_stale_success_reset_cannot_replace_new_work,
         test_designer_ui_exposes_story_project_controls,
+        test_designer_project_header_is_compact_and_left_aligned,
         test_designer_ui_exposes_range_and_tts_buffer_controls,
         test_controller_normalizes_and_round_trips_range_and_buffer_settings,
         test_mprc_style_tab_navigation_has_expected_geometry_and_order,
@@ -5726,8 +11535,21 @@ def main() -> int:
         test_controller_requires_project_before_audio_chooser,
         test_controller_applies_owned_project_list_worker_result,
         test_controller_rejects_stale_project_results_and_invalidates_pipeline_tokens,
+        test_controller_open_restores_modern_project_artifacts_without_provider_work,
+        test_controller_open_keeps_valid_transcripts_when_one_analysis_is_missing,
+        test_controller_chapter_selection_installs_prefetch_without_disk_reload,
+        test_controller_open_reports_all_failed_modern_artifact_pointers,
+        test_project_open_gui_installs_large_prepared_state_without_heavy_work,
+        test_project_open_missing_prepared_sources_skips_media_prepare_without_warning,
+        test_prepared_recovery_autosave_queues_without_gui_copy_or_hash,
         test_controller_project_lifecycle_runs_after_ui_binding,
-        test_designer_runtime_assembles_six_audio_story_categories,
+        test_designer_runtime_assembles_seven_audio_story_categories,
+        test_novel_workshop_widget_exposes_staged_controls,
+        test_controller_rejects_stale_novel_job_result,
+        test_switching_projects_cancels_and_releases_owned_novel_job,
+        test_controller_keeps_only_selected_and_next_novel_chapter_in_memory,
+        test_novel_story_handoff_does_not_start_media_or_visual_generation,
+        test_novel_background_job_keeps_qt_heartbeat_responsive,
     ]
     failures = 0
     for test in tests:

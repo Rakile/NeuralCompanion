@@ -10,6 +10,7 @@ import { remoteActionError } from '../api/envelope';
 import type { VisualState } from '../api/types';
 import { useInterfaceMode } from '../context/InterfaceModeContext';
 import { colors, spacing } from '../styles/theme';
+import { useAuthorizedMediaUrl } from '../hooks/useAuthorizedMediaUrl';
 
 type Props = {
   client: RemoteClient;
@@ -74,7 +75,8 @@ export function VisualPanel({ client, visual, disabled, controlsAvailable, contr
   const controlsDisabled = disabled || controlsBlocked || !controlsAvailable;
   const imagePath = disabled ? '' : String(visual?.state?.image_url_path || '');
   const imageVersion = visual?.state?.image_cache_key || visual?.state?.updated_at || '';
-  const imageUrl = imagePath ? client.authorizedUrl(imagePath, imageVersion ? { v: String(imageVersion) } : {}) : '';
+  const authorizedImage = useAuthorizedMediaUrl(client, imagePath, imageVersion ? { v: String(imageVersion) } : {});
+  const imageUrl = authorizedImage.url;
   const latestRequest = visual?.latest_request;
   const requestStatus = latestRequest?.status ? String(latestRequest.status) : '';
   const statusText = disabled

@@ -61,6 +61,22 @@ def _atomic_write_json(
         temporary.unlink(missing_ok=True)
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="") as stream:
+            stream.write(str(text))
+            stream.flush()
+            os.fsync(stream.fileno())
+        backup = _backup_path(path)
+        if path.is_file():
+            shutil.copy2(path, backup)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class StoryProjectStore:
     """Filesystem-backed storage for normalized Audio Story project manifests."""
 
@@ -70,8 +86,20 @@ class StoryProjectStore:
         self.index_rebuild_pending: bool = False
         self.last_index_error: str = ""
 
-    def create_project(self, name: str) -> dict:
-        return self.save_project(project_models.new_project_manifest(name))
+    def create_project(
+        self,
+        name: str,
+        *,
+        source_kind: str = "audio",
+        source_reference: Mapping | None = None,
+    ) -> dict:
+        return self.save_project(
+            project_models.new_project_manifest(
+                name,
+                source_kind=source_kind,
+                source_reference=source_reference,
+            )
+        )
 
     def list_projects(self) -> list[dict]:
         index = self.rebuild_index()
@@ -324,6 +352,106 @@ class StoryProjectStore:
             backup_validator=_is_valid_document_payload,
         )
         return _chapter_document_reference(chapter_id, normalized_kind, selected_revision)
+
+    def resolve_project_artifact(self, project_id: str, reference: str) -> Path:
+        project_path = self.project_path(project_id)
+        if not project_path.is_file():
+            raise ProjectNotFoundError(f"Audio Story project does not exist: {project_id}")
+        return _project_artifact_path(project_path.parent, reference)
+
+    def save_project_json_artifact(
+        self,
+        project_id: str,
+        reference: str,
+        payload: Mapping | Sequence,
+    ) -> str:
+        if isinstance(payload, (str, bytes, bytearray)) or not isinstance(
+            payload, (Mapping, Sequence)
+        ):
+            raise TypeError("Project JSON artifact must be a mapping or sequence")
+        path = self.resolve_project_artifact(project_id, reference)
+        if path.suffix.casefold() != ".json":
+            raise ProjectStoreError("Project JSON artifacts must use a .json suffix")
+        with _project_lock(self._project_directory(project_id)):
+            _atomic_write_json(path, payload, backup_validator=_is_valid_document_payload)
+        return str(reference)
+
+    def load_project_json_artifact(
+        self,
+        project_id: str,
+        reference: str,
+    ) -> dict | list:
+        path = self.resolve_project_artifact(project_id, reference)
+        if path.suffix.casefold() != ".json":
+            raise ProjectStoreError("Project JSON artifacts must use a .json suffix")
+        try:
+            payload = _load_json_with_backup(path)
+        except ValueError as exc:
+            raise ProjectCorruptError(f"Project artifact is unavailable: {reference}") from exc
+        if not isinstance(payload, (Mapping, list)):
+            raise ProjectCorruptError(f"Project artifact is invalid: {reference}")
+        return copy.deepcopy(dict(payload) if isinstance(payload, Mapping) else payload)
+
+    def save_project_text_artifact(
+        self,
+        project_id: str,
+        reference: str,
+        text: str,
+    ) -> str:
+        path = self.resolve_project_artifact(project_id, reference)
+        if path.suffix.casefold() != ".md":
+            raise ProjectStoreError("Project text artifacts must use a .md suffix")
+        with _project_lock(self._project_directory(project_id)):
+            _atomic_write_text(path, str(text))
+        return str(reference)
+
+    def load_project_text_artifact(self, project_id: str, reference: str) -> str:
+        path = self.resolve_project_artifact(project_id, reference)
+        if path.suffix.casefold() != ".md":
+            raise ProjectStoreError("Project text artifacts must use a .md suffix")
+        for candidate in (path, _backup_path(path)):
+            try:
+                return candidate.read_text(encoding="utf-8")
+            except (FileNotFoundError, OSError, UnicodeError):
+                continue
+        raise ProjectCorruptError(f"Project text artifact is unavailable: {reference}")
+
+    def copy_project_artifact_from_path(
+        self,
+        project_id: str,
+        reference: str,
+        source_path: str | Path,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> str:
+        destination = self.resolve_project_artifact(project_id, reference)
+        if destination.suffix.casefold() != ".md":
+            raise ProjectStoreError("Copied project artifacts must use a .md suffix")
+        source = Path(source_path)
+        if not source.is_file():
+            raise FileNotFoundError(str(source))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(
+            f".{destination.name}.{uuid.uuid4().hex}.tmp"
+        )
+        with _project_lock(self._project_directory(project_id)):
+            try:
+                with source.open("rb") as input_stream, temporary.open("wb") as output_stream:
+                    while True:
+                        if callable(cancel_check) and bool(cancel_check()):
+                            raise ProjectStoreError("Project artifact copy was cancelled")
+                        block = input_stream.read(1024 * 1024)
+                        if not block:
+                            break
+                        output_stream.write(block)
+                    output_stream.flush()
+                    os.fsync(output_stream.fileno())
+                backup = _backup_path(destination)
+                if destination.is_file():
+                    shutil.copy2(destination, backup)
+                os.replace(temporary, destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+        return str(reference)
 
     def commit_analysis_transaction(
         self,
@@ -622,6 +750,27 @@ def _validated_reference_path(project_directory: Path, reference: str, expected:
     resolved = (project_directory / relative).resolve()
     if not resolved.is_relative_to(root):
         raise ProjectCorruptError("Project document reference escapes its project")
+    return resolved
+
+
+def _project_artifact_path(project_directory: Path, reference: str) -> Path:
+    if not isinstance(reference, str) or not reference or "\\" in reference:
+        raise ProjectStoreError("Invalid project artifact reference")
+    relative = Path(reference)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise ProjectStoreError("Invalid project artifact reference")
+    parts = relative.parts
+    allowed = reference == "source_manifest.json"
+    if len(parts) == 2 and parts[0] == "source_chunks":
+        allowed = relative.suffix.casefold() == ".json"
+    if len(parts) >= 2 and parts[0] == "novel":
+        allowed = relative.suffix.casefold() in {".json", ".md"}
+    if not allowed:
+        raise ProjectStoreError("Project artifact location is not owned by Novel Workshop")
+    root = project_directory.resolve()
+    resolved = (project_directory / relative).resolve()
+    if not resolved.is_relative_to(root):
+        raise ProjectStoreError("Project artifact reference escapes its project")
     return resolved
 
 

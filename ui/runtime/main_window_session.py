@@ -720,8 +720,9 @@ class MainWindowSessionMixin:
             "long_term_memory_retrieval_max_items": int(self.long_term_memory_retrieval_max_items_spin.value()) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
             "long_term_memory_recall_text_budget": long_term_memory.normalize_recall_text_budget(self.long_term_memory_recall_text_budget_spin.value(), default=-1) if hasattr(self, "long_term_memory_recall_text_budget_spin") else long_term_memory.normalize_recall_text_budget(RUNTIME_CONFIG.get("long_term_memory_recall_text_budget", -1), default=-1),
             "long_term_memory_recall_image_limit": long_term_memory.normalize_image_recall_limit(self.long_term_memory_recall_image_limit_spin.value(), default=1) if hasattr(self, "long_term_memory_recall_image_limit_spin") else long_term_memory.normalize_image_recall_limit(RUNTIME_CONFIG.get("long_term_memory_recall_image_limit", 1), default=1),
+            "long_term_memory_image_context_max_output_tokens": long_term_memory.normalize_image_context_max_output_tokens(self.long_term_memory_image_context_max_output_tokens_spin.value()) if hasattr(self, "long_term_memory_image_context_max_output_tokens_spin") else long_term_memory.normalize_image_context_max_output_tokens(RUNTIME_CONFIG.get("long_term_memory_image_context_max_output_tokens", long_term_memory.DEFAULT_IMAGE_CONTEXT_MAX_OUTPUT_TOKENS)),
             "long_term_memory_auto_archive_enabled": bool(self.long_term_memory_auto_archive_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_auto_archive_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_auto_archive_enabled", False)),
-            "long_term_memory_archive_batch_turns": int(self.long_term_memory_archive_batch_turns_spin.value()) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", 120) or 120),
+            "long_term_memory_archive_batch_turns": int(self.long_term_memory_archive_batch_turns_spin.value()) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", long_term_memory.DEFAULT_EXTRACTION_TURNS) or long_term_memory.DEFAULT_EXTRACTION_TURNS),
             "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
             "long_term_memory_embedding_model": (
                 str(self.long_term_memory_embedding_model_edit.currentText() or "").strip()
@@ -1210,6 +1211,11 @@ class MainWindowSessionMixin:
                 image_limit = long_term_memory.normalize_image_recall_limit(recall_image_limit, default=1)
                 self.long_term_memory_recall_image_limit_spin.setValue(image_limit)
                 self.on_long_term_memory_recall_image_limit_changed(image_limit)
+            image_context_output_limit = session.get("long_term_memory_image_context_max_output_tokens")
+            if image_context_output_limit is not None and hasattr(self, "long_term_memory_image_context_max_output_tokens_spin"):
+                output_limit = long_term_memory.normalize_image_context_max_output_tokens(image_context_output_limit)
+                self.long_term_memory_image_context_max_output_tokens_spin.setValue(output_limit)
+                self.on_long_term_memory_image_context_max_output_tokens_changed(output_limit)
             auto_archive_enabled = session.get("long_term_memory_auto_archive_enabled")
             if auto_archive_enabled is not None and hasattr(self, "long_term_memory_auto_archive_enabled_checkbox"):
                 self.long_term_memory_auto_archive_enabled_checkbox.setChecked(bool(auto_archive_enabled))
@@ -1367,6 +1373,7 @@ class MainWindowSessionMixin:
                     self.load_body_config_from_combo()
             if self._addon_manager is not None:
                 self._addon_manager.import_session_state(session)
+                self._refresh_tts_latency_diagnostics_controls()
                 self._refresh_addon_group_tabs()
             live_sync_checkbox = self._live_widget_attr("live_sync_checkbox")
             if live_sync_checkbox is not None:

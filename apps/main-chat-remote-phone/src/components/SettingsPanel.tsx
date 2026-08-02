@@ -4,13 +4,16 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { RemoteConnectionStatus, RemoteEnvelope, RemoteHealth, RemoteState, RemoteTransport } from '../api/types';
 import type { ChatIndicatorStyle, ChatTextColor, MicBehavior, MuseTalkQuality, PhoneSettings, SendMode } from '../hooks/usePhoneSettings';
 import { AppearanceSelector } from './AppearanceSelector';
+import { LiveFullscreenSettings } from './live-fullscreen/LiveFullscreenSettings';
 import { ModeSection } from './ModeSurface';
 import { colors, spacing } from '../styles/theme';
 import { phoneDebugFileName } from '../utils/phoneDebug';
+import type { LiveFullscreenSettings as LiveFullscreenSettingsValue } from '../utils/liveFullscreenSettings';
 
 type Props = {
   settings: PhoneSettings;
   onChange: (updates: Partial<PhoneSettings>) => void;
+  onLiveFullscreenChange: (updates: Partial<LiveFullscreenSettingsValue>) => void;
   state: RemoteState | null;
   health: RemoteEnvelope<RemoteHealth> | null;
   status: RemoteConnectionStatus;
@@ -157,14 +160,46 @@ function RuntimeSummary({ state }: { state: RemoteState | null }) {
   );
 }
 
-export function SettingsPanel({ settings, onChange, state, health, status, transport, error, onSendDebug }: Props) {
+export function SettingsPanel({
+  settings,
+  onChange,
+  onLiveFullscreenChange,
+  state,
+  health,
+  status,
+  transport,
+  error,
+  onSendDebug,
+}: Props) {
   const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false);
   const [debugStatus, setDebugStatus] = React.useState('');
+  const [settingsTab, setSettingsTab] = React.useState<'general' | 'live_fullscreen'>('general');
   const volumePercent = Math.round(settings.phoneTtsVolume * 100);
   const pollSeconds = Math.round(settings.pollingIntervalMs / 100) / 10;
   const showDiagnostics = Boolean(error || state?.buddy_chat?.last_provider_error) || diagnosticsOpen;
   return (
-    <ScrollView style={styles.panel} contentContainerStyle={styles.content}>
+    <View style={styles.panel}>
+      <View style={styles.settingsTabs}>
+        <Pressable
+          style={[styles.settingsTab, settingsTab === 'general' && styles.settingsTabActive]}
+          onPress={() => setSettingsTab('general')}
+        >
+          <Text style={[styles.settingsTabText, settingsTab === 'general' && styles.settingsTabTextActive]}>General</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.settingsTab, settingsTab === 'live_fullscreen' && styles.settingsTabActive]}
+          onPress={() => setSettingsTab('live_fullscreen')}
+        >
+          <Text style={[styles.settingsTabText, settingsTab === 'live_fullscreen' && styles.settingsTabTextActive]}>Live Fullscreen</Text>
+        </Pressable>
+      </View>
+      {settingsTab === 'live_fullscreen' ? (
+        <LiveFullscreenSettings
+          settings={settings.liveFullscreen}
+          onChange={onLiveFullscreenChange}
+        />
+      ) : (
+      <ScrollView style={styles.generalPanel} contentContainerStyle={styles.content}>
       <ModeSection title="Appearance">
         <AppearanceSelector value={settings.interfaceStyle} onChange={(interfaceStyle) => onChange({ interfaceStyle })} />
         <Segmented label="Chat text color" value={settings.chatTextColor} options={textColorOptions} onChange={(chatTextColor) => onChange({ chatTextColor })} />
@@ -241,13 +276,42 @@ export function SettingsPanel({ settings, onChange, state, health, status, trans
         )}
       </ModeSection>
       <RuntimeSummary state={state} />
-    </ScrollView>
+      </ScrollView>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   panel: {
     flex: 1,
+  },
+  generalPanel: {
+    flex: 1,
+  },
+  settingsTabs: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  settingsTab: {
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  settingsTabActive: {
+    backgroundColor: '#004c66',
+    borderColor: '#00eaff',
+  },
+  settingsTabText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  settingsTabTextActive: {
+    color: '#ffffff',
   },
   content: {
     gap: spacing.sm,

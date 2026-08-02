@@ -73,12 +73,14 @@ CHAT_TAB_TOOLTIPS = {
     "btn_search_long_term_memory_archive": "Search extracted memory records and raw archived chat chunks without injecting them into chat.",
     "btn_review_long_term_memory_archive": "Review the currently stored Long-Term Memory archive records.",
     "btn_export_session_memory": "Export a readable full dump of the loaded Conversation Memory and Long-Term Memory archive without embedding image blobs.",
+    "btn_rebuild_long_term_memory_archive_candidate": "Build a separate inactive Long-Term Memory archive candidate from a saved chat context. The active archive is never replaced or modified.",
     "btn_rebuild_long_term_memory_embeddings": "Rebuild semantic archive embeddings for the selected model and context. Use this after intentionally changing semantic model.",
     "long_term_memory_archive_hint": "Shows Long-Term Memory archive record counts and storage location.",
     "long_term_memory_retrieval_enabled_checkbox": "Allow NC to retrieve relevant Long-Term Memory archive items and inject a compact recall block into chat requests.",
     "long_term_memory_retrieval_max_items_spin": "Maximum number of Long-Term Memory archive matches injected into a chat request.",
     "long_term_memory_recall_text_budget_spin": "Total character budget for recalled Long-Term Memory text. Use -1 for no cap and 0 to omit recalled text bodies.",
     "long_term_memory_recall_image_limit_spin": "Maximum number of recalled Long-Term Memory images attached to a chat request. Use -1 for no cap and 0 for text-only recall.",
+    "long_term_memory_image_context_max_output_tokens_spin": "Maximum output-token budget for the internal image-context judge. This is a ceiling, not a requested response length.",
     "long_term_memory_auto_archive_enabled_checkbox": "Allow Long-Term Memory archive writes. Off by default; manual Save Chat Context only writes Long-Term Memory when this is enabled.",
     "long_term_memory_archive_batch_turns_spin": "Number of new chat messages required before automatic Long-Term Memory archive storage runs when archiving is enabled.",
     "long_term_memory_embedding_enabled_checkbox": "Use LM Studio embeddings for semantic Long-Term Memory archive retrieval. Keyword search remains available as fallback.",
@@ -1015,6 +1017,7 @@ class BackendSystemShapingBuilderMixin:
         retrieval_form.addRow("Max recall items", self.long_term_memory_retrieval_max_items_spin)
         retrieval_form.addRow("Recall text budget (chars, -1 = no cap)", self.long_term_memory_recall_text_budget_spin)
         retrieval_form.addRow("Long-Term Memory recalled images to attach", self.long_term_memory_recall_image_limit_spin)
+        retrieval_form.addRow("Image-context judge max output tokens (advanced)", self.long_term_memory_image_context_max_output_tokens_spin)
         embedding_model_row = QtWidgets.QHBoxLayout()
         embedding_model_row.setSpacing(8)
         embedding_model_row.addWidget(self.long_term_memory_embedding_model_edit, 1)
@@ -1029,6 +1032,7 @@ class BackendSystemShapingBuilderMixin:
         archive_button_row.addWidget(self.btn_search_long_term_memory_archive)
         archive_button_row.addWidget(self.btn_review_long_term_memory_archive)
         archive_button_row.addWidget(self.btn_export_session_memory)
+        archive_button_row.addWidget(self.btn_rebuild_long_term_memory_archive_candidate)
         archive_button_row.addWidget(self.btn_rebuild_long_term_memory_embeddings)
         archive_button_row.addStretch(1)
         archive_layout.addLayout(archive_button_row)
@@ -1498,6 +1502,10 @@ class BackendSystemShapingBuilderMixin:
         self.btn_export_session_memory.setObjectName("btn_export_session_memory")
         self.btn_export_session_memory.clicked.connect(self.export_session_memory_report)
 
+        self.btn_rebuild_long_term_memory_archive_candidate = QtWidgets.QPushButton("Rebuild Archive Candidate...")
+        self.btn_rebuild_long_term_memory_archive_candidate.setObjectName("btn_rebuild_long_term_memory_archive_candidate")
+        self.btn_rebuild_long_term_memory_archive_candidate.clicked.connect(self.rebuild_long_term_memory_archive_candidate_now)
+
         self.btn_rebuild_long_term_memory_embeddings = QtWidgets.QPushButton("Rebuild Embeddings")
         self.btn_rebuild_long_term_memory_embeddings.setObjectName("btn_rebuild_long_term_memory_embeddings")
         self.btn_rebuild_long_term_memory_embeddings.clicked.connect(self.rebuild_long_term_memory_embeddings_now)
@@ -1539,6 +1547,24 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_recall_image_limit_spin.setMinimumWidth(112)
         self.long_term_memory_recall_image_limit_spin.setMaximumWidth(132)
 
+        self.long_term_memory_image_context_max_output_tokens_spin = ContextTokenStepper()
+        self.long_term_memory_image_context_max_output_tokens_spin.setObjectName("long_term_memory_image_context_max_output_tokens_spin")
+        self.long_term_memory_image_context_max_output_tokens_spin.setRange(256, 131072)
+        self.long_term_memory_image_context_max_output_tokens_spin.setSingleStep(256)
+        self.long_term_memory_image_context_max_output_tokens_spin.setValue(
+            long_term_memory.normalize_image_context_max_output_tokens(
+                runtime_config.get(
+                    "long_term_memory_image_context_max_output_tokens",
+                    long_term_memory.DEFAULT_IMAGE_CONTEXT_MAX_OUTPUT_TOKENS,
+                )
+            )
+        )
+        self.long_term_memory_image_context_max_output_tokens_spin.valueChanged.connect(
+            self.on_long_term_memory_image_context_max_output_tokens_changed
+        )
+        self.long_term_memory_image_context_max_output_tokens_spin.setMinimumWidth(112)
+        self.long_term_memory_image_context_max_output_tokens_spin.setMaximumWidth(132)
+
         self.long_term_memory_auto_archive_enabled_checkbox = QtWidgets.QCheckBox("Enable long-term memory archiving")
         self.long_term_memory_auto_archive_enabled_checkbox.setObjectName("long_term_memory_auto_archive_enabled_checkbox")
         self.long_term_memory_auto_archive_enabled_checkbox.setChecked(bool(runtime_config.get("long_term_memory_auto_archive_enabled", False)))
@@ -1547,8 +1573,8 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_archive_batch_turns_spin = ContextTokenStepper()
         self.long_term_memory_archive_batch_turns_spin.setObjectName("long_term_memory_archive_batch_turns_spin")
         self.long_term_memory_archive_batch_turns_spin.setRange(1, 10000)
-        self.long_term_memory_archive_batch_turns_spin.setSingleStep(10)
-        self.long_term_memory_archive_batch_turns_spin.setValue(max(1, min(10000, int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120))))
+        self.long_term_memory_archive_batch_turns_spin.setSingleStep(1)
+        self.long_term_memory_archive_batch_turns_spin.setValue(max(1, min(10000, int(runtime_config.get("long_term_memory_archive_batch_turns", long_term_memory.DEFAULT_EXTRACTION_TURNS) or long_term_memory.DEFAULT_EXTRACTION_TURNS))))
         self.long_term_memory_archive_batch_turns_spin.valueChanged.connect(self.on_long_term_memory_archive_batch_turns_changed)
         self.long_term_memory_archive_batch_turns_spin.setMinimumWidth(112)
         self.long_term_memory_archive_batch_turns_spin.setMaximumWidth(132)

@@ -70,6 +70,8 @@ FORBIDDEN_TRACKED_SUFFIXES = (
 )
 
 ALLOWED_TRACKED_ASSET_PATHS = {
+    "apps/main-chat-remote-phone/assets/live_fullscreen_matrix_face.mp4",
+    "apps/main-chat-remote-phone/assets/live_fullscreen_plong.wav",
     "avatar_packs/.gitkeep",
     "avatar_packs/README.md",
     "docs/readme_videos/neuralcompanion-overview.mp4",

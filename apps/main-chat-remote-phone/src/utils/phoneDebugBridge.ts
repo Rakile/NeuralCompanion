@@ -1,7 +1,8 @@
-import type { PhoneDebugLevel } from './phoneDebugTypes';
+import type { PhoneDebugLevel } from './phoneDebugTypes.ts';
 
 type Recorder = (level: PhoneDebugLevel, event: string, details?: unknown) => Promise<void>;
-type Uploader = (baseUrl: string, pairingCode: string, reason?: string, force?: boolean) => Promise<number>;
+export type PhoneDebugUploadClient = { uploadDebugPayload: (payload: Record<string, unknown>) => Promise<{ result?: { accepted?: boolean; events_written?: number } }> };
+type Uploader = (client: PhoneDebugUploadClient, reason?: string, force?: boolean) => Promise<number>;
 
 let recorder: Recorder = async () => undefined;
 let uploader: Uploader = async () => 0;
@@ -15,6 +16,6 @@ export function recordPhoneDebug(level: PhoneDebugLevel, event: string, details:
   return recorder(level, event, details);
 }
 
-export function uploadPhoneDebug(baseUrl: string, pairingCode: string, reason = 'automatic', force = false): Promise<number> {
-  return uploader(baseUrl, pairingCode, reason, force);
+export function uploadPhoneDebug(client: PhoneDebugUploadClient, reason = 'automatic', force = false): Promise<number> {
+  return uploader(client, reason, force);
 }

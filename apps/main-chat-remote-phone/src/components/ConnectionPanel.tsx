@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { RemoteConnectionStatus, RemoteTransport } from '../api/types';
 import { colors, spacing } from '../styles/theme';
 import { normalizeLanUrl } from '../utils/url';
+import type { ConnectionMode, InternetConnectionProfile } from '../utils/connectionProfiles';
 
 const MIN_PAIRING_CODE_DIGITS = 4;
 const MAX_PAIRING_CODE_DIGITS = 9;
@@ -16,6 +17,10 @@ type Props = {
   transport: RemoteTransport;
   error: string;
   demoMode?: boolean;
+  connectionMode: ConnectionMode;
+  activeRoute: string;
+  internetProfile: InternetConnectionProfile;
+  enrollmentStatus: string;
   onBaseUrlChange: (value: string) => void;
   onPairingCodeChange: (value: string) => void;
   onScanQrCode: () => void;
@@ -23,6 +28,8 @@ type Props = {
   onDisconnect: () => void;
   onRefresh: () => void;
   onDemoModeChange?: (enabled: boolean) => void;
+  onConnectionModeChange: (mode: ConnectionMode) => void;
+  onForgetInternet: () => void;
 };
 
 function WizardStep({ number, title, detail, active }: { number: string; title: string; detail: string; active?: boolean }) {
@@ -40,7 +47,8 @@ function WizardStep({ number, title, detail, active }: { number: string; title: 
 }
 
 export function ConnectionPanel(props: Props) {
-  const statusText = props.demoMode ? 'demo mode' : props.transport !== 'none' ? `${props.status} / ${props.transport}` : props.status;
+  const routeText = props.activeRoute ? props.activeRoute.replace(/_/g, ' ') : 'no route';
+  const statusText = props.demoMode ? 'demo mode' : props.transport !== 'none' ? `${props.status} / ${props.transport} / ${routeText}` : `${props.status} / ${routeText}`;
   const connecting = props.status === 'connecting';
   const disconnectMode = !props.demoMode && (props.connected || connecting || props.transport !== 'none');
   const pairingDigits = props.pairingCode.trim().length;
@@ -84,6 +92,24 @@ export function ConnectionPanel(props: Props) {
         <Text style={[styles.status, props.connected || props.demoMode ? styles.ok : styles.warn]}>{statusText}</Text>
       </View>
       {props.error && !props.demoMode ? <Text style={styles.error}>{props.error}</Text> : null}
+      <View style={styles.modeRow}>
+        {(['auto', 'lan', 'internet'] as ConnectionMode[]).map((mode) => (
+          <Pressable key={mode} style={[styles.modeButton, props.connectionMode === mode && styles.modeButtonActive]} onPress={() => props.onConnectionModeChange(mode)}>
+            <Text style={styles.modeButtonText}>{mode.toUpperCase()}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {props.connectionMode !== 'lan' ? (
+        <View style={styles.internetSummary}>
+          <Text style={styles.stepTitle}>Secure Internet profile</Text>
+          <Text style={styles.stepDetail}>{props.internetProfile.deviceId ? `${props.internetProfile.hostnameUrl || 'No hostname'} · certified IP fallback ${props.internetProfile.ipUrl || 'not set'}` : 'Not enrolled. Scan an Internet enrollment QR from the desktop Internet tab.'}</Text>
+          {props.enrollmentStatus ? <Text style={styles.enrollmentStatus}>{props.enrollmentStatus}</Text> : null}
+          <View style={styles.modeRow}>
+            <Pressable style={styles.scanButtonCompact} onPress={props.onScanQrCode}><Text style={styles.scanButtonText}>Scan enrollment QR</Text></Pressable>
+            {props.internetProfile.deviceId ? <Pressable style={styles.modeButton} onPress={props.onForgetInternet}><Text style={styles.modeButtonText}>Forget Internet</Text></Pressable> : null}
+          </View>
+        </View>
+      ) : null}
       <View style={styles.wizard}>
         <WizardStep
           number="1"
@@ -246,6 +272,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
+  modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  modeButton: { borderColor: colors.border, borderRadius: 6, borderWidth: 1, justifyContent: 'center', minHeight: 34, paddingHorizontal: spacing.sm },
+  modeButtonActive: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+  modeButtonText: { color: colors.text, fontSize: 11, fontWeight: '900' },
+  internetSummary: { backgroundColor: colors.panelAlt, borderColor: colors.border, borderRadius: 7, borderWidth: 1, gap: spacing.xs, padding: spacing.sm },
+  enrollmentStatus: { color: colors.warning, fontSize: 12, fontWeight: '800' },
+  scanButtonCompact: { alignItems: 'center', backgroundColor: colors.accent, borderRadius: 6, justifyContent: 'center', minHeight: 34, paddingHorizontal: spacing.sm },
   wizard: {
     gap: spacing.sm,
   },
