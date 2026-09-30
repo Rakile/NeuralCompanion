@@ -1,3 +1,72 @@
+## Coming Soon: A More Approachable NeuralCompanion
+
+> [!IMPORTANT]
+> **In development - not released yet.** The redesigned interface shown here is
+> planned for release soon. We are still refining and testing it; these screenshots
+> preview the upcoming release, not the version currently available to download.
+> Release timing may change while testing continues.
+
+We are actively improving the desktop interface so that getting started,
+finding settings, and spending time with your companion feel more natural.
+The upcoming native Qt Quick interface brings setup, conversation, personas,
+and visual tools into dedicated workspaces, with clearer navigation and
+guidance inside the app.
+
+Development work focuses on:
+
+- **A more helpful first run:** a welcome screen shows setup readiness and
+  offers activities to try, with guided tutorials that open the relevant
+  workspace and highlight its controls.
+- **Settings grouped by purpose:** session setup, language models, speech,
+  visual replies, and avatars have their own sections, with the active
+  provider stack visible alongside them.
+- **A conversation view you can adjust:** give chat the full workspace or
+  keep the system console beside it. Portraits, text size, speech highlighting,
+  and other display controls let you choose how the conversation looks.
+- **Companions that are easier to personalize:** quick personas bring prompts,
+  voices, portraits, and Visual Reply behavior together. The visual identity
+  editor keeps appearance references and mood portraits in one place.
+- **More comfortable everyday navigation:** dedicated workspaces, remembered
+  navigation choices, theme presets, and a custom theme preview reduce the
+  need to hunt through a long settings page.
+
+This work is ongoing. The screenshots below show the development installation
+on **September 30, 2026**; details may differ from your installed version.
+Click any image to see it at full size.
+
+### A Conversation with Nixie
+
+These are real replies from a short demo conversation in the running app,
+using the configured language model and speech pipeline. Here, Nixie helps
+write a tiny story about a robot running a midnight cafe on the Moon.
+
+**Chat with the console split:** follow the conversation, speech activity,
+and runtime output side by side.
+
+<a href="docs/readme_images/ui-refresh-2026-09/07-nixie-chat-console-split.jpg"><img src="docs/readme_images/ui-refresh-2026-09/07-nixie-chat-console-split.jpg" alt="Live Nixie conversation with speech playback and the system console visible beside chat" width="960"></a>
+
+**Chat without the console:** give the conversation the full workspace.
+Toggle the split from the console header or the conversation's **Controls** menu.
+
+<a href="docs/readme_images/ui-refresh-2026-09/08-nixie-chat-full-width.jpg"><img src="docs/readme_images/ui-refresh-2026-09/08-nixie-chat-full-width.jpg" alt="The same Nixie story conversation in the full-width chat layout with the console hidden" width="960"></a>
+
+### Getting Started and Personalizing Your Companion
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/readme_images/ui-refresh-2026-09/01-welcome-and-guided-setup.jpg"><img src="docs/readme_images/ui-refresh-2026-09/01-welcome-and-guided-setup.jpg" alt="Welcome screen with setup readiness and suggested activities" width="480"></a><br><strong>Welcome and guided setup.</strong> See what is ready and choose something useful to try.</td>
+    <td width="50%"><a href="docs/readme_images/ui-refresh-2026-09/02-session-setup.jpg"><img src="docs/readme_images/ui-refresh-2026-09/02-session-setup.jpg" alt="Session setup with input modes, presets, and active provider stack" width="480"></a><br><strong>Session setup.</strong> Input modes, reusable presets, and the active provider stack are grouped together.</td>
+  </tr>
+  <tr>
+    <td><a href="docs/readme_images/ui-refresh-2026-09/03-nixie-quick-personas.jpg"><img src="docs/readme_images/ui-refresh-2026-09/03-nixie-quick-personas.jpg" alt="Quick persona cards with Nixie selected" width="480"></a><br><strong>Quick personas.</strong> Switch companions and manage the prompt and voice that belong to each one.</td>
+    <td><a href="docs/readme_images/ui-refresh-2026-09/04-nixie-visual-identity.jpg"><img src="docs/readme_images/ui-refresh-2026-09/04-nixie-visual-identity.jpg" alt="Nixie visual identity editor with reference portrait and mood portraits" width="480"></a><br><strong>Visual identity.</strong> Keep a companion's reference appearance and mood portraits together.</td>
+  </tr>
+  <tr>
+    <td><a href="docs/readme_images/ui-refresh-2026-09/05-interactive-guides.jpg"><img src="docs/readme_images/ui-refresh-2026-09/05-interactive-guides.jpg" alt="Interactive tutorial browser with the First Run guide and its steps" width="480"></a><br><strong>Interactive guides.</strong> Preview what a guide teaches, then follow it inside the app.</td>
+    <td><a href="docs/readme_images/ui-refresh-2026-09/06-appearance-and-themes.jpg"><img src="docs/readme_images/ui-refresh-2026-09/06-appearance-and-themes.jpg" alt="Appearance settings with theme presets and a live custom color preview" width="480"></a><br><strong>Appearance and themes.</strong> Choose a preset or preview your own colors before saving.</td>
+  </tr>
+</table>
+
 <p align="center">
   <img src="docs/readme_images/git_front.png" alt="NeuralCompanion feature overview" width="100%">
 </p>
@@ -92,6 +161,8 @@ For release history, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Interface Screenshots and Page Guide
 
+The detailed feature tour below shows the earlier interface. For a preview of
+the upcoming redesign, see [Coming Soon](#coming-soon-a-more-approachable-neuralcompanion).
 The screenshots below are clickable thumbnails. Click a thumbnail to open the full-size image.
 
 ### 1. Host Runtime and Visual Reply
