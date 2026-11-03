@@ -1,0 +1,545 @@
+{
+  "guides": [
+    {
+      "id": "overview_multi_persona_roleplay",
+      "title": "Multi Persona Roleplay",
+      "description": "Run AlternativeReality story production with narrator-led AR, personas, voice routing, Visual Reply, AudioFX, memory, validation, repair, recovery, and story bundles.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Status"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Run AlternativeReality story production with narrator-led AR, personas, voice routing, Visual Reply, AudioFX, memory, validation, repair, recovery, and story bundles.",
+        "Find focused guidance for Status, Play, Guide, Story Health, Registry, Editor, Voice, Session, AR, Master, Story Sounds, Story Images, Troubleshooting."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "multi_persona_roleplay",
+        "page_multi_persona_roleplay_status",
+        "page_multi_persona_roleplay_play",
+        "page_multi_persona_roleplay_guide",
+        "page_multi_persona_roleplay_story_health",
+        "page_multi_persona_roleplay_registry",
+        "page_multi_persona_roleplay_editor",
+        "page_multi_persona_roleplay_voice",
+        "page_multi_persona_roleplay_session",
+        "page_multi_persona_roleplay_ar",
+        "page_multi_persona_roleplay_master",
+        "page_multi_persona_roleplay_story_sounds",
+        "page_multi_persona_roleplay_story_images",
+        "page_multi_persona_roleplay_troubleshooting"
+      ],
+      "steps": [
+        {
+          "title": "What Multi Persona Roleplay does",
+          "body": "Run AlternativeReality story production with narrator-led AR, personas, voice routing, Visual Reply, AudioFX, memory, validation, repair, recovery, and story bundles. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "multi_persona_roleplay"
+      ],
+      "display_title": "Start tutorial · Multi Persona Roleplay",
+      "optional_chapters": [
+        "page_multi_persona_roleplay_status",
+        "page_multi_persona_roleplay_play",
+        "page_multi_persona_roleplay_guide",
+        "page_multi_persona_roleplay_story_health",
+        "page_multi_persona_roleplay_registry",
+        "page_multi_persona_roleplay_editor",
+        "page_multi_persona_roleplay_voice",
+        "page_multi_persona_roleplay_session",
+        "page_multi_persona_roleplay_ar",
+        "page_multi_persona_roleplay_master",
+        "page_multi_persona_roleplay_story_sounds",
+        "page_multi_persona_roleplay_story_images",
+        "page_multi_persona_roleplay_troubleshooting"
+      ]
+    },
+    {
+      "id": "page_multi_persona_roleplay_status",
+      "title": "Multi Persona Roleplay · Status",
+      "description": "Use Status in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Status"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 210,
+      "topic": "Status",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the status panel before starting",
+        "Use the workflow as a map, not a finish line",
+        "Choose Read aloud or Hear step"
+      ],
+      "steps": [
+        {
+          "title": "Read the status panel before starting",
+          "body": "In Status, read the current persona and roleplay switches plus the numbered workflow labels. This reflects saved state rather than an exercise. If something looks unexpected, note which step is unfinished or which switch is off before changing anything.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Use the workflow as a map, not a finish line",
+          "body": "The numbered workflow links Create story, Scenes & lore, Apply story, Voices & media, Check setup and Play. On this page, use the labels as a map of what the addon covers. Moving between them does not complete setup. Use the workflow when starting a fresh story; use Registry when you only need a single character.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose Read aloud or Hear step",
+          "body": "Read aloud narrates the whole guide automatically, while Hear step reads only the current instruction. Pick Read aloud for a general pass and Hear step when following one step closely. Changing this only affects narration, not story progress or persona state.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_play",
+      "title": "Multi Persona Roleplay · Play",
+      "description": "Use Play in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Play"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 211,
+      "topic": "Play",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review the cast, then start the session yourself",
+        "Enter one action and check the feed"
+      ],
+      "steps": [
+        {
+          "title": "Review the cast, then start the session yourself",
+          "body": "Open Play and inspect the cast list. Choose Start Play only when the names and roles match what you expect for the applied or loaded story. The story runs in the dedicated MPRC feed, so ordinary Main Chat replies do not advance this story's memory.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Enter one action and check the feed",
+          "body": "Type a modest action such as asking the keeper about the missing ship, or pick an offered response. Read the feed and confirm the expected narrator and characters reply. If the feed seems silent or the wrong persona answers, check the active session mode and applied story before retrying.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_guide",
+      "title": "Multi Persona Roleplay · Guide",
+      "description": "Use Guide in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Guide"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 212,
+      "topic": "Guide",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the in-app guide before a first run"
+      ],
+      "steps": [
+        {
+          "title": "Read the in-app guide before a first run",
+          "body": "The Guide tab collects the walkthrough for the addon. Read it start to finish once, then return to the specific section you need. It explains intent and order of tabs rather than performing setup, so keep it as reference while you work in other tabs.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_story_health",
+      "title": "Multi Persona Roleplay · Story Health",
+      "description": "Use Story Health in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Story Health"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 213,
+      "topic": "Story Health",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Run Check Story Setup before a long story",
+        "Load a demo only when intended"
+      ],
+      "steps": [
+        {
+          "title": "Run Check Story Setup before a long story",
+          "body": "Open Story Health and choose Check Story Setup. This validates narrator setup, voices, images, memory and persona links. Read each specific warning and fix the ones that matter to your story. Do not assume everything is fine just because the panel opened.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Load a demo only when intended",
+          "body": "Load Demo if Needed & Check can load a demo story when none is active. That action changes the current story, so use it deliberately. If you already have a draft in progress, skip the demo option and run Check Story Setup on your own story instead.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_registry",
+      "title": "Multi Persona Roleplay · Registry",
+      "description": "Use Registry in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Registry"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 214,
+      "topic": "Registry",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Add or duplicate a persona",
+        "Review persona fields in the Editor",
+        "Separate regular and AlternativeReality prompts"
+      ],
+      "steps": [
+        {
+          "title": "Add or duplicate a persona",
+          "body": "In Registry, use Add persona to start from scratch or Duplicate persona to copy an existing one, and import a profile if you already have one. Give the new record a clear name so it is easy to find later in casts and voice routing.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Review persona fields in the Editor",
+          "body": "Select a persona to open the Editor and read name, role, description, system prompt, style and memory scope. For example, a lighthouse keeper persona might answer cautiously and know the harbour. Check that the system prompt and style match the voice and role you intend to use.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Separate regular and AlternativeReality prompts",
+          "body": "Persona records can carry a regular prompt and optional AlternativeReality prompt profiles. These serve different modes. Inspect which one the current session mode actually uses before assuming your edits take effect in Play.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_editor",
+      "title": "Multi Persona Roleplay · Editor",
+      "description": "Use Editor in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Editor"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 215,
+      "topic": "Editor",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Edit and confirm a persona record",
+        "Check memory scope against the session"
+      ],
+      "steps": [
+        {
+          "title": "Edit and confirm a persona record",
+          "body": "Use the Editor fields to revise a persona's description, style and prompts. Confirm the change is reflected in the record, then reopen it to verify persistence. If a field looks empty after reopening, you may be viewing a different prompt profile than the one you edited.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check memory scope against the session",
+          "body": "Memory scope controls how much the persona remembers. Before relying on recall in a long story, read the scope on the record and confirm it matches the session you are about to play. Narrower scope is easier to keep predictable for a first test.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_voice",
+      "title": "Multi Persona Roleplay · Voice",
+      "description": "Use Voice in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Voice"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 216,
+      "topic": "Voice",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Confirm which voice you are editing",
+        "Test short narration and dialogue"
+      ],
+      "steps": [
+        {
+          "title": "Confirm which voice you are editing",
+          "body": "In Voice, check Currently editing and Follow active persona before reviewing a sample. Inherit follows the main TTS selection; a backend override needs an available compatible backend. Supported reference routes include Chatterbox and PocketTTS variants, and Gemini preview does not use samples.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Test short narration and dialogue",
+          "body": "Generate a short line and inspect how the routing assigns voice to the narrator versus each character. Distinct voices are not guaranteed by configuration alone. Listen to a few samples and adjust the route if a character is speaking in the wrong voice.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_session",
+      "title": "Multi Persona Roleplay · Session",
+      "description": "Use Session in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Session"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 217,
+      "topic": "Session",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Pick the session mode that matches the task",
+        "Show state vs. verification"
+      ],
+      "steps": [
+        {
+          "title": "Pick the session mode that matches the task",
+          "body": "Session offers Single active persona, Multi-character group chat, Narrator + characters, RPG / Game Master and AlternativeReality. Test a character one-on-one first, then move to a narrator-led mode when building an interactive story. Master's story Mode is separate from Session's mode, so verify both.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Show state vs. verification",
+          "body": "The Session pane shows which mode is selected; it does not by itself prove cast, prompts or voices fit that mode. After changing mode, revisit Story Health and Voice to confirm compatibility before a long session.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_ar",
+      "title": "Multi Persona Roleplay · AR",
+      "description": "Use AR in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "AR"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 218,
+      "topic": "AR",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect the AlternativeReality mode controls"
+      ],
+      "steps": [
+        {
+          "title": "Inspect the AlternativeReality mode controls",
+          "body": "Open AR to review the AlternativeReality story controls before choosing a narrator-led run. Check that a story, cast and narrator are already in place. If the mode looks incomplete, return to Master or apply a draft first, then come back to AR.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_master",
+      "title": "Multi Persona Roleplay · Master",
+      "description": "Use Master in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Master"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 219,
+      "topic": "Master",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Create and review a Master draft",
+        "Refinement is optional and model-dependent"
+      ],
+      "steps": [
+        {
+          "title": "Create and review a Master draft",
+          "body": "In Master, try a premise such as a keeper and a traveller investigating a silent lighthouse. Review the generated cast and the scene, title, location, time and mood fields. Refine & build complete draft prepares premise, cast, scenes and lore without activating a story, so inspect the draft before applying.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Refinement is optional and model-dependent",
+          "body": "Generate Story Setup uses the main chat model, and optional refinement offers another configured provider. Neither is required for a first draft. Inspect the editable draft carefully rather than assuming the model produced a usable story structure.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_story_sounds",
+      "title": "Multi Persona Roleplay · Story Sounds",
+      "description": "Use Story Sounds in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Story Sounds"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 220,
+      "topic": "Story Sounds",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review cue files before enabling playback"
+      ],
+      "steps": [
+        {
+          "title": "Review cue files before enabling playback",
+          "body": "Story Sounds uses structured music, ambience, FX and stinger cues from configured audio resources. Check files and preview sounds first, so you know what will play and where. Matching cue text is removed from spoken narration, so confirm it does not strip useful dialogue.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_story_images",
+      "title": "Multi Persona Roleplay · Story Images",
+      "description": "Use Story Images in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Story Images"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 221,
+      "topic": "Story Images",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Check Visual Reply settings first"
+      ],
+      "steps": [
+        {
+          "title": "Check Visual Reply settings first",
+          "body": "Story Images relies on the separate Visual Reply service and persona visual profiles. Review its provider, limits and automatic-generation settings before enabling optional generation. A missing or misconfigured provider will not produce images even when the story looks correct.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    },
+    {
+      "id": "page_multi_persona_roleplay_troubleshooting",
+      "title": "Multi Persona Roleplay · Troubleshooting",
+      "description": "Use Troubleshooting in Multi Persona Roleplay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.multi_persona_roleplay",
+        "workspace": "addons",
+        "addon": "multi_persona_roleplay_tab",
+        "section": "Troubleshooting"
+      },
+      "category": "Addons / Multi Persona Roleplay",
+      "order": 222,
+      "topic": "Troubleshooting",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read effective prompts and voice routing",
+        "Cross-tab followup when diagnosis points elsewhere"
+      ],
+      "steps": [
+        {
+          "title": "Read effective prompts and voice routing",
+          "body": "Troubleshooting exposes effective prompts and voice routing for diagnosis. Use it when a reply or voice surprises you, and compare the effective values against what you expected. This inspects current state rather than changing it, so corrections happen in Registry, Voice or Editor.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Cross-tab followup when diagnosis points elsewhere",
+          "body": "If the effective prompt or route looks wrong, note which section it belongs to. Compare it against what you expected in Registry, Voice or Editor when you return to those pages later. Treat that return as an optional follow-up, not part of this inspection.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_multi_persona_roleplay"
+    }
+  ]
+}

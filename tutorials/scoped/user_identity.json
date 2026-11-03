@@ -1,0 +1,184 @@
+{
+  "guides": [
+    {
+      "id": "overview_user_identity",
+      "title": "User Identity",
+      "description": "Local user profile, conversation avatar, and request-scoped Visual Reply identity reference.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.user_identity",
+        "workspace": "addons",
+        "addon": "user_identity_tab",
+        "section": "Profile & portrait"
+      },
+      "category": "Addons / User Identity",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Local user profile, conversation avatar, and request-scoped Visual Reply identity reference.",
+        "Find focused guidance for Profile & portrait, Visual Replies, Privacy."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "user_identity",
+        "page_user_identity_profile_portrait",
+        "page_user_identity_visual_replies",
+        "page_user_identity_privacy"
+      ],
+      "steps": [
+        {
+          "title": "What User Identity does",
+          "body": "Local user profile, conversation avatar, and request-scoped Visual Reply identity reference. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "user_identity"
+      ],
+      "display_title": "Start tutorial · User Identity",
+      "optional_chapters": [
+        "page_user_identity_profile_portrait",
+        "page_user_identity_visual_replies",
+        "page_user_identity_privacy"
+      ]
+    },
+    {
+      "id": "page_user_identity_profile_portrait",
+      "title": "User Identity · Profile & portrait",
+      "description": "Use Profile & portrait in User Identity.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.user_identity",
+        "workspace": "addons",
+        "addon": "user_identity_tab",
+        "section": "Profile & portrait"
+      },
+      "category": "Addons / User Identity",
+      "order": 210,
+      "topic": "Profile & portrait",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Start with a nickname and one preference",
+        "Import and check one reusable portrait",
+        "Replace or remove the source reference"
+      ],
+      "steps": [
+        {
+          "title": "Start with a nickname and one preference",
+          "body": "In Profile & portrait, find Name, Preferred form of address, Short bio, and Interaction notes. Enable User Identity is the master switch for profile context, avatar display, and user image references. For a small exercise, use a nickname such as “Sam” and one note like “Explain unfamiliar terms,” then return to check the fields.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Import and check one reusable portrait",
+          "body": "Choose portrait imports an existing image. Select your portrait and check Accepted user portrait and Portrait status. In Stable visual identity prompt, describe lasting traits such as “short curly brown hair and round glasses,” keeping scenes or poses for individual requests. Generate portrait is optional and needs a ready Visual Reply provider; Refine identity prompt calls the active LLM.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Replace or remove the source reference",
+          "body": "Return to Profile & portrait to update stored fields when your details change; asking chat to remember a correction does not edit them. Choose portrait replaces the reference, and Clear portrait removes it from this profile. Earlier generated images and messages remain separate artifacts, so clearing changes only future reference use.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Review Privacy before enabling profile use",
+          "body": "Read the Privacy tab before enabling profile use or sending another chat request. The switch state in Profile & portrait confirms your choice but does not test a generated image. If you have not reviewed Privacy yet, prepare that review first, then return and finish the profile fields.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_user_identity"
+    },
+    {
+      "id": "page_user_identity_visual_replies",
+      "title": "User Identity · Visual Replies",
+      "description": "Use Visual Replies in User Identity.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.user_identity",
+        "workspace": "addons",
+        "addon": "user_identity_tab",
+        "section": "Visual Replies"
+      },
+      "category": "Addons / User Identity",
+      "order": 211,
+      "topic": "Visual Replies",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Allow a shared image only when asked",
+        "Understand User reference strength",
+        "Keep display and generation permissions distinct"
+      ],
+      "steps": [
+        {
+          "title": "Allow a shared image only when asked",
+          "body": "In Visual Replies, Show the user avatar on user messages controls chat display, while Allow Visual Replies to use the user portrait and When the user may appear separately control generated images. For a deliberate first image, choose Include user when asked and allow the portrait if intended. Then confirm the option states before the next request.",
+          "target": "tutorialControl_user_identity_show_avatar",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand User reference strength",
+          "body": "User reference strength tunes how strongly the stored portrait influences generated images. It does not guarantee likeness. If you are absent from a generated image, first check the master switch, portrait permission, and When setting, then adjust strength. Keep changes small so you can judge each result against the same request.",
+          "target": "tutorialControl_user_identity_reference_strength",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Keep display and generation permissions distinct",
+          "body": "Showing the avatar on user messages affects chat display only. Allowing Visual Replies to use the portrait affects generated images separately. You may keep a display-only portrait and skip generation entirely. Check each option's state when behavior differs from what you expected.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_user_identity"
+    },
+    {
+      "id": "page_user_identity_privacy",
+      "title": "User Identity · Privacy",
+      "description": "Use Privacy in User Identity.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.user_identity",
+        "workspace": "addons",
+        "addon": "user_identity_tab",
+        "section": "Privacy"
+      },
+      "category": "Addons / User Identity",
+      "order": 212,
+      "topic": "Privacy",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose what future requests may include",
+        "Separate image permission from profile context"
+      ],
+      "steps": [
+        {
+          "title": "Choose what future requests may include",
+          "body": "In Privacy, inspect Include name and bio in current LLM requests. Turn it off to stop that profile context being added to future requests. This context is temporary; the addon does not append it to canonical chat history, continuity memory, or Long-Term Memory. Check the resulting option states, which show configuration, not past requests.",
+          "target": "tutorialControl_user_identity_include_context",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Separate image permission from profile context",
+          "body": "Image permission is separate: use Never include user in Visual Replies to prevent user inclusion there, or turn off Enable User Identity for all addon identity use. These option states confirm your configuration, not the contents of a past request or anything an outside provider already received.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_user_identity"
+    }
+  ]
+}

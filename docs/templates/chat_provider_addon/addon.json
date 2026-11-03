@@ -1,0 +1,10 @@
+{
+  "id": "nc.my_chat_provider",
+  "name": "My Chat Provider",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Template chat provider addon.",
+  "permissions": [],
+  "enabled": true
+}

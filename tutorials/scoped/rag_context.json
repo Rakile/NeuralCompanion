@@ -1,0 +1,217 @@
+{
+  "guides": [
+    {
+      "id": "overview_rag_context",
+      "title": "Document Memory overview",
+      "description": "Local semantic document knowledge packages with saved snapshots and idle indexing.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.rag_context",
+        "workspace": "runtime",
+        "runtime_section": "memory",
+        "document_section": "Sources"
+      },
+      "category": "Runtime / Document Memory / Document Memory",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Local semantic document knowledge packages with saved snapshots and idle indexing.",
+        "Find focused guidance for Sources, Usage, Retrieval, Index, Test search."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_rag_context_sources",
+        "page_rag_context_usage",
+        "page_rag_context_retrieval",
+        "page_rag_context_index",
+        "page_rag_context_test_search",
+        "rag_context"
+      ],
+      "steps": [
+        {
+          "title": "What Document Memory does",
+          "body": "Local semantic document knowledge packages with saved snapshots and idle indexing. The overview introduces this area without opening its other sections.",
+          "target": "documentMemoryWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_rag_context_sources",
+        "page_rag_context_usage",
+        "page_rag_context_retrieval",
+        "page_rag_context_index",
+        "page_rag_context_test_search"
+      ],
+      "display_title": "Start tutorial · Document Memory",
+      "optional_chapters": [
+        "rag_context"
+      ]
+    },
+    {
+      "id": "page_rag_context_sources",
+      "title": "Document Memory · Sources",
+      "description": "Use Sources in Document Memory.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.rag_context",
+        "workspace": "runtime",
+        "runtime_section": "memory",
+        "document_section": "Sources"
+      },
+      "category": "Runtime / Document Memory / Document Memory",
+      "order": 210,
+      "topic": "Sources",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose a few documents",
+        "Enable Document Memory in chat"
+      ],
+      "steps": [
+        {
+          "title": "Choose a few documents",
+          "body": "In Sources, use Add files to select local documents, then read Selected files to confirm them. Remove selected file drops one, and Clear files empties the list. Start with a small set rather than a whole library so a test query has a clear expected answer.",
+          "target": "tutorialControl_rag_context_files",
+          "fallback_target": "documentMemoryWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Enable Document Memory in chat",
+          "body": "The Use Document Memory in chat checkbox controls whether retrieved notes are offered during chat. Selecting it is an explicit user action. If you leave it off, building and testing still work, but expected chat grounding should not be assumed until you turn it on.",
+          "target": "tutorialControl_enabled",
+          "fallback_target": "documentMemoryWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_rag_context"
+    },
+    {
+      "id": "page_rag_context_usage",
+      "title": "Document Memory · Usage",
+      "description": "Use Usage in Document Memory.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.rag_context",
+        "workspace": "runtime",
+        "runtime_section": "memory",
+        "document_section": "Usage"
+      },
+      "category": "Runtime / Document Memory / Document Memory",
+      "order": 211,
+      "topic": "Usage",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "What usage covers"
+      ],
+      "steps": [
+        {
+          "title": "What usage covers",
+          "body": "Usage describes how selected documents are expected to appear in chat turns as contextual notes rather than as full documents. Treat retrieved text as supporting context, not as proof of a correct answer. Review which files are selected in Sources before expecting relevant notes in a conversation.",
+          "target": "documentMemoryWorkspace",
+          "fallback_target": "documentMemoryWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_rag_context"
+    },
+    {
+      "id": "page_rag_context_retrieval",
+      "title": "Document Memory · Retrieval",
+      "description": "Use Retrieval in Document Memory.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.rag_context",
+        "workspace": "runtime",
+        "runtime_section": "memory",
+        "document_section": "Retrieval"
+      },
+      "category": "Runtime / Document Memory / Document Memory",
+      "order": 212,
+      "topic": "Retrieval",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Point at a local embedding server",
+        "Tune retrieval limits carefully"
+      ],
+      "steps": [
+        {
+          "title": "Point at a local embedding server",
+          "body": "Local embedding server names the address used to compute semantic vectors, and Semantic search model names the model in use. Refresh embedding models reloads the list. These are local prerequisites; without a reachable server and a listed model, indexing and semantic matching cannot succeed.",
+          "target": "tutorialControl_base_url",
+          "fallback_target": "documentMemoryWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Tune retrieval limits carefully",
+          "body": "Minimum semantic similarity, Retrieval deadline (milliseconds), Maximum matching notes, Minimum matching keywords, and Maximum context characters bound what gets retrieved and how much is returned. Model preprocessing and Embedding model context must match the embedding model’s expectations. Change one bound at a time and re-check with Test search.",
+          "target": "tutorialControl_prefix_scheme",
+          "fallback_target": "documentMemoryWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_rag_context"
+    },
+    {
+      "id": "page_rag_context_index",
+      "title": "Document Memory · Index",
+      "description": "Use Index in Document Memory.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.rag_context",
+        "workspace": "runtime",
+        "runtime_section": "memory",
+        "document_section": "Index"
+      },
+      "category": "Runtime / Document Memory / Document Memory",
+      "order": 213,
+      "topic": "Index",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Build and read index status"
+      ],
+      "steps": [
+        {
+          "title": "Build and read index status",
+          "body": "Build index processes your selected files into a saved snapshot, and Index status reports its state. Reload status refreshes that display without rebuilding. Since indexing is idle work, allow it to finish before judging retrieval; an unfinished index is a state to read, not a failure to fix.",
+          "target": "tutorialControl_rag_context_status",
+          "fallback_target": "documentMemoryWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_rag_context"
+    },
+    {
+      "id": "page_rag_context_test_search",
+      "title": "Document Memory · Test search",
+      "description": "Use Test search in Document Memory.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.rag_context",
+        "workspace": "runtime",
+        "runtime_section": "memory",
+        "document_section": "Test search"
+      },
+      "category": "Runtime / Document Memory / Document Memory",
+      "order": 214,
+      "topic": "Test search",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Run a trial query"
+      ],
+      "steps": [
+        {
+          "title": "Run a trial query",
+          "body": "Enter a Test query phrased like a real question and click Run test search. Result preview shows returned notes for inspection, which verifies retrieval without a live chat. If nothing returns, loosen a bound in Retrieval or confirm the index finished before changing documents on the Sources tab.",
+          "target": "tutorialControl_rag_context_test_query",
+          "fallback_target": "documentMemoryWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_rag_context"
+    }
+  ]
+}

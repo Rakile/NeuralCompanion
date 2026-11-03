@@ -1,0 +1,2 @@
+# Preserve the exact bytes of checksum-pinned protocol sources on Windows.
+*.ts text eol=lf

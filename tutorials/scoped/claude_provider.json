@@ -1,0 +1,169 @@
+{
+  "guides": [
+    {
+      "id": "overview_claude_provider",
+      "title": "Claude Chat Provider overview",
+      "description": "Anthropic Claude provider addon for NC's dynamic chat-provider registry.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.claude_provider",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "claude"
+      },
+      "category": "Runtime / LLM / Claude Chat Provider",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Anthropic Claude provider addon for NC's dynamic chat-provider registry.",
+        "Find focused guidance for Connection, Model, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_claude_provider_connection",
+        "page_claude_provider_model",
+        "page_claude_provider_generation",
+        "language_providers"
+      ],
+      "steps": [
+        {
+          "title": "What Claude Chat Provider does",
+          "body": "Anthropic Claude provider addon for NC's dynamic chat-provider registry. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_claude_provider_connection",
+        "page_claude_provider_model",
+        "page_claude_provider_generation"
+      ],
+      "display_title": "Start tutorial · Claude Chat Provider",
+      "optional_chapters": [
+        "language_providers"
+      ]
+    },
+    {
+      "id": "page_claude_provider_connection",
+      "title": "Claude Chat Provider · Connection",
+      "description": "Use Connection in Claude Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.claude_provider",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "claude"
+      },
+      "category": "Runtime / LLM / Claude Chat Provider",
+      "order": 210,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the Connection area first",
+        "Read a failed connection test"
+      ],
+      "steps": [
+        {
+          "title": "Read the Connection area first",
+          "body": "On the Claude provider page, read the Connection area before entering anything. It explains that an Anthropic API key from your own account is required. Use the explicit Test connection action to verify the key. No values are filled in for you.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read a failed connection test",
+          "body": "If Test connection fails, recheck the key string and ensure no trailing whitespace was pasted. A failure does not necessarily signal an outage; malformed keys look similar. Retry once with the corrected value. Account-specific limits are not visible here.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_claude_provider"
+    },
+    {
+      "id": "page_claude_provider_model",
+      "title": "Claude Chat Provider · Model",
+      "description": "Use Model in Claude Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.claude_provider",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "claude"
+      },
+      "category": "Runtime / LLM / Claude Chat Provider",
+      "order": 211,
+      "topic": "Model",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose a model from the selector",
+        "Match the model to the task"
+      ],
+      "steps": [
+        {
+          "title": "Choose a model from the selector",
+          "body": "After the Connection area shows a working key, use the model selector in the Model area to pick the Claude model you intend to use. The set of models shown depends on your Anthropic account. If the list is empty, retry Test connection rather than guessing a model name.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose a model for the intended input",
+          "body": "Read the model reported by the provider and choose one available to your account. Model selection does not change the saved API key. Availability and input support can differ between models, so use the provider's reported errors when diagnosing a later request rather than assuming every listed model behaves alike.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_claude_provider"
+    },
+    {
+      "id": "page_claude_provider_generation",
+      "title": "Claude Chat Provider · Generation",
+      "description": "Use Generation in Claude Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.claude_provider",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "claude"
+      },
+      "category": "Runtime / LLM / Claude Chat Provider",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Tune generation length and tone",
+        "Read failed generations as provider errors"
+      ],
+      "steps": [
+        {
+          "title": "Tune generation length and tone",
+          "body": "The Generation area groups sampling controls that influence reply length and style. Change one value, then ask a short question and compare. Very low values can make replies terse; very high values add tokens to request cost. Reset to defaults if you cannot remember what you changed, then reapply one adjustment.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read failed generations as provider errors",
+          "body": "A generation that fails mid-stream often reflects a provider-side error or a limit on your Anthropic account. Retry once; if it persists, run Test connection to separate an auth problem from a service problem before editing generation controls.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_claude_provider"
+    }
+  ]
+}

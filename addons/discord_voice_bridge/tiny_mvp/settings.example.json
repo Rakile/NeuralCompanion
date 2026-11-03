@@ -1,0 +1,37 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8788
+  },
+  "bridge": {
+    "tiny_url": "http://127.0.0.1:8788",
+    "nc_turn_url": "http://127.0.0.1:8768/turn",
+    "poll_seconds": 0.25
+  },
+  "participants": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "type": "bot",
+      "connected": true
+    },
+    {
+      "id": "nova",
+      "name": "Nova",
+      "type": "bot",
+      "connected": true
+    },
+    {
+      "id": "mira",
+      "name": "Mira",
+      "type": "bot",
+      "connected": true
+    },
+    {
+      "id": "rakila",
+      "name": "Rakila",
+      "type": "human",
+      "connected": true
+    }
+  ]
+}

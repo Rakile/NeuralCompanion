@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="256" viewBox="0 0 512 256">
+  <!-- Authored equirectangular softbox environment, used for reflections only. -->
+  <defs>
+    <linearGradient id="room" x2="0" y2="1"><stop stop-color="#343a46"/><stop offset=".55" stop-color="#121722"/><stop offset="1" stop-color="#05070a"/></linearGradient>
+    <radialGradient id="softbox"><stop stop-color="white"/><stop offset=".6" stop-color="#bbcbdc" stop-opacity=".85"/><stop offset="1" stop-color="#bbcbdc" stop-opacity="0"/></radialGradient>
+  </defs>
+  <path fill="url(#room)" d="M0 0h512v256H0z"/>
+  <ellipse cx="112" cy="78" rx="35" ry="65" fill="url(#softbox)"/>
+  <ellipse cx="365" cy="67" rx="65" ry="28" fill="url(#softbox)"/>
+  <ellipse cx="250" cy="30" rx="95" ry="15" fill="url(#softbox)" opacity=".5"/>
+</svg>

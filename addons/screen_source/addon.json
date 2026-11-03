@@ -1,0 +1,36 @@
+{
+  "id": "nc.screen_source",
+  "name": "Screen Source",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Screen-backed hidden Vision source for attaching screenshots as ambient sensory context.",
+  "runtime_defaults": {
+    "screen_source_capture_screen_index": -1,
+    "screen_source_auto_attach_next_user_turn": false
+  },
+  "permissions": [
+    "ui.tabs"
+  ],
+  "services": [
+    {
+      "id": "sensory_registry",
+      "provider_id": "screen"
+    }
+  ],
+  "host_services": [],
+  "ui": [
+    {
+      "id": "screen_source_capture_tab",
+      "title": "Capture",
+      "area": "vision_source",
+      "parent_tab_id": "screen",
+      "order": 205,
+      "tooltip": "Screen screenshot size and compression settings.",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "enabled": true
+}

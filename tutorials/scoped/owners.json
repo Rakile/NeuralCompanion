@@ -1,0 +1,2905 @@
+{
+  "owners": [
+    {
+      "manifest_id": "nc.ai_presence_mode",
+      "key": "ai_presence_mode",
+      "name": "AI Presence Mode",
+      "presentation": "addon",
+      "overview_id": "overview_ai_presence_mode",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_ai_presence_mode_overview",
+          "scope": {
+            "owner_addon": "nc.ai_presence_mode",
+            "workspace": "addons",
+            "addon": "ai_presence_mode_tab",
+            "section": "Overview"
+          }
+        },
+        {
+          "topic": "Display",
+          "guide_id": "page_ai_presence_mode_display",
+          "scope": {
+            "owner_addon": "nc.ai_presence_mode",
+            "workspace": "addons",
+            "addon": "ai_presence_mode_tab",
+            "section": "Display"
+          }
+        },
+        {
+          "topic": "Visual style",
+          "guide_id": "page_ai_presence_mode_visual_style",
+          "scope": {
+            "owner_addon": "nc.ai_presence_mode",
+            "workspace": "addons",
+            "addon": "ai_presence_mode_tab",
+            "section": "Visual style"
+          }
+        },
+        {
+          "topic": "Silk Threads",
+          "guide_id": "page_ai_presence_mode_silk_threads",
+          "scope": {
+            "owner_addon": "nc.ai_presence_mode",
+            "workspace": "addons",
+            "addon": "ai_presence_mode_tab",
+            "section": "Silk Threads"
+          }
+        },
+        {
+          "topic": "Mood & color",
+          "guide_id": "page_ai_presence_mode_mood_color",
+          "scope": {
+            "owner_addon": "nc.ai_presence_mode",
+            "workspace": "addons",
+            "addon": "ai_presence_mode_tab",
+            "section": "Mood & color"
+          }
+        },
+        {
+          "topic": "Advanced",
+          "guide_id": "page_ai_presence_mode_advanced",
+          "scope": {
+            "owner_addon": "nc.ai_presence_mode",
+            "workspace": "addons",
+            "addon": "ai_presence_mode_tab",
+            "section": "Advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.audio_story_mode",
+      "key": "audio_story_mode",
+      "name": "Audio Story Mode",
+      "presentation": "addon",
+      "overview_id": "overview_audio_story_mode",
+      "pages": [
+        {
+          "topic": "Project",
+          "guide_id": "page_audio_story_mode_project",
+          "scope": {
+            "owner_addon": "nc.audio_story_mode",
+            "workspace": "addons",
+            "addon": "audio_story_mode_runtime",
+            "section": "Project"
+          }
+        },
+        {
+          "topic": "Audio",
+          "guide_id": "page_audio_story_mode_audio",
+          "scope": {
+            "owner_addon": "nc.audio_story_mode",
+            "workspace": "addons",
+            "addon": "audio_story_mode_runtime",
+            "section": "Audio"
+          }
+        },
+        {
+          "topic": "Novel",
+          "guide_id": "page_audio_story_mode_novel",
+          "scope": {
+            "owner_addon": "nc.audio_story_mode",
+            "workspace": "addons",
+            "addon": "audio_story_mode_runtime",
+            "section": "Novel"
+          }
+        },
+        {
+          "topic": "Story",
+          "guide_id": "page_audio_story_mode_story",
+          "scope": {
+            "owner_addon": "nc.audio_story_mode",
+            "workspace": "addons",
+            "addon": "audio_story_mode_runtime",
+            "section": "Story"
+          }
+        },
+        {
+          "topic": "Images",
+          "guide_id": "page_audio_story_mode_images",
+          "scope": {
+            "owner_addon": "nc.audio_story_mode",
+            "workspace": "addons",
+            "addon": "audio_story_mode_runtime",
+            "section": "Images"
+          }
+        },
+        {
+          "topic": "Review",
+          "guide_id": "page_audio_story_mode_review",
+          "scope": {
+            "owner_addon": "nc.audio_story_mode",
+            "workspace": "addons",
+            "addon": "audio_story_mode_runtime",
+            "section": "Review"
+          }
+        },
+        {
+          "topic": "Play / Cast",
+          "guide_id": "page_audio_story_mode_play_cast",
+          "scope": {
+            "owner_addon": "nc.audio_story_mode",
+            "workspace": "addons",
+            "addon": "audio_story_mode_runtime",
+            "section": "Play / Cast"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.buddy_chat",
+      "key": "buddy_chat",
+      "name": "Buddy Chat",
+      "presentation": "addon",
+      "overview_id": "overview_buddy_chat",
+      "pages": [
+        {
+          "topic": "Setup",
+          "guide_id": "page_buddy_chat_setup",
+          "scope": {
+            "owner_addon": "nc.buddy_chat",
+            "workspace": "addons",
+            "addon": "buddy_chat_tab",
+            "section": "Setup"
+          }
+        },
+        {
+          "topic": "Overview",
+          "guide_id": "page_buddy_chat_overview",
+          "scope": {
+            "owner_addon": "nc.buddy_chat",
+            "workspace": "addons",
+            "addon": "buddy_chat_tab",
+            "section": "Overview"
+          }
+        },
+        {
+          "topic": "Buddies",
+          "guide_id": "page_buddy_chat_buddies",
+          "scope": {
+            "owner_addon": "nc.buddy_chat",
+            "workspace": "addons",
+            "addon": "buddy_chat_tab",
+            "section": "Buddies"
+          }
+        },
+        {
+          "topic": "Voices",
+          "guide_id": "page_buddy_chat_voices",
+          "scope": {
+            "owner_addon": "nc.buddy_chat",
+            "workspace": "addons",
+            "addon": "buddy_chat_tab",
+            "section": "Voices"
+          }
+        },
+        {
+          "topic": "Avatars",
+          "guide_id": "page_buddy_chat_avatars",
+          "scope": {
+            "owner_addon": "nc.buddy_chat",
+            "workspace": "addons",
+            "addon": "buddy_chat_tab",
+            "section": "Avatars"
+          }
+        },
+        {
+          "topic": "Providers",
+          "guide_id": "page_buddy_chat_providers",
+          "scope": {
+            "owner_addon": "nc.buddy_chat",
+            "workspace": "addons",
+            "addon": "buddy_chat_tab",
+            "section": "Providers"
+          }
+        },
+        {
+          "topic": "Advanced",
+          "guide_id": "page_buddy_chat_advanced",
+          "scope": {
+            "owner_addon": "nc.buddy_chat",
+            "workspace": "addons",
+            "addon": "buddy_chat_tab",
+            "section": "Advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chatterbox_multilingual_tts",
+      "key": "chatterbox_multilingual_tts",
+      "name": "Chatterbox Multilingual TTS",
+      "presentation": "tts",
+      "overview_id": "overview_chatterbox_multilingual_tts",
+      "pages": [
+        {
+          "topic": "Language",
+          "guide_id": "page_chatterbox_multilingual_tts_language",
+          "scope": {
+            "owner_addon": "nc.chatterbox_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox_multilingual",
+            "subsection": "Language"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_chatterbox_multilingual_tts_generation",
+          "scope": {
+            "owner_addon": "nc.chatterbox_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox_multilingual",
+            "subsection": "Generation"
+          }
+        },
+        {
+          "topic": "Voice",
+          "guide_id": "page_chatterbox_multilingual_tts_voice",
+          "scope": {
+            "owner_addon": "nc.chatterbox_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox_multilingual",
+            "subsection": "Voice"
+          }
+        },
+        {
+          "topic": "Startup",
+          "guide_id": "page_chatterbox_multilingual_tts_startup",
+          "scope": {
+            "owner_addon": "nc.chatterbox_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox_multilingual",
+            "subsection": "Startup"
+          }
+        },
+        {
+          "topic": "Voice tag rules",
+          "guide_id": "page_chatterbox_multilingual_tts_voice_tag_rules",
+          "scope": {
+            "owner_addon": "nc.chatterbox_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox_multilingual",
+            "subsection": "voice-tag-rules"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chatterbox_tts",
+      "key": "chatterbox_tts",
+      "name": "Chatterbox TTS",
+      "presentation": "tts",
+      "overview_id": "overview_chatterbox_tts",
+      "pages": [
+        {
+          "topic": "Generation",
+          "guide_id": "page_chatterbox_tts_generation",
+          "scope": {
+            "owner_addon": "nc.chatterbox_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox",
+            "subsection": "Generation"
+          }
+        },
+        {
+          "topic": "Voice",
+          "guide_id": "page_chatterbox_tts_voice",
+          "scope": {
+            "owner_addon": "nc.chatterbox_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox",
+            "subsection": "Voice"
+          }
+        },
+        {
+          "topic": "Startup",
+          "guide_id": "page_chatterbox_tts_startup",
+          "scope": {
+            "owner_addon": "nc.chatterbox_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox",
+            "subsection": "Startup"
+          }
+        },
+        {
+          "topic": "Voice tag rules",
+          "guide_id": "page_chatterbox_tts_voice_tag_rules",
+          "scope": {
+            "owner_addon": "nc.chatterbox_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "chatterbox",
+            "subsection": "voice-tag-rules"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chat_mcp_tools",
+      "key": "chat_mcp_tools",
+      "name": "Chat MCP Tools",
+      "presentation": "service",
+      "overview_id": "overview_chat_mcp_tools",
+      "pages": [
+        {
+          "topic": "Persona tools",
+          "guide_id": "page_chat_mcp_tools_persona_tools",
+          "scope": {
+            "owner_addon": "nc.chat_mcp_tools",
+            "workspace": "addons",
+            "addon": "core.persona",
+            "persona_tab": "mcp"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chat_session_player",
+      "key": "chat_session_player",
+      "name": "Conversation Replay",
+      "presentation": "addon",
+      "overview_id": "overview_chat_session_player",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_chat_session_player_overview",
+          "scope": {
+            "owner_addon": "nc.chat_session_player",
+            "workspace": "addons",
+            "addon": "chat_session_player_tab",
+            "section": "Overview"
+          }
+        },
+        {
+          "topic": "Session",
+          "guide_id": "page_chat_session_player_session",
+          "scope": {
+            "owner_addon": "nc.chat_session_player",
+            "workspace": "addons",
+            "addon": "chat_session_player_tab",
+            "section": "Session"
+          }
+        },
+        {
+          "topic": "Messages",
+          "guide_id": "page_chat_session_player_messages",
+          "scope": {
+            "owner_addon": "nc.chat_session_player",
+            "workspace": "addons",
+            "addon": "chat_session_player_tab",
+            "section": "Messages"
+          }
+        },
+        {
+          "topic": "Replay voices",
+          "guide_id": "page_chat_session_player_replay_voices",
+          "scope": {
+            "owner_addon": "nc.chat_session_player",
+            "workspace": "addons",
+            "addon": "chat_session_player_tab",
+            "section": "Replay voices"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.claude_provider",
+      "key": "claude_provider",
+      "name": "Claude Chat Provider",
+      "presentation": "language",
+      "overview_id": "overview_claude_provider",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_claude_provider_connection",
+          "scope": {
+            "owner_addon": "nc.claude_provider",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "claude"
+          }
+        },
+        {
+          "topic": "Model",
+          "guide_id": "page_claude_provider_model",
+          "scope": {
+            "owner_addon": "nc.claude_provider",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "claude"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_claude_provider_generation",
+          "scope": {
+            "owner_addon": "nc.claude_provider",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "claude"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.clipboard_source",
+      "key": "clipboard_source",
+      "name": "Clipboard Source",
+      "presentation": "vision",
+      "overview_id": "overview_clipboard_source",
+      "pages": [
+        {
+          "topic": "setup",
+          "guide_id": "page_clipboard_source_setup",
+          "scope": {
+            "owner_addon": "nc.clipboard_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "clipboard",
+            "sensory_tab": "setup"
+          }
+        },
+        {
+          "topic": "prompts",
+          "guide_id": "page_clipboard_source_prompts",
+          "scope": {
+            "owner_addon": "nc.clipboard_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "clipboard",
+            "sensory_tab": "prompts"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_clipboard_source_advanced",
+          "scope": {
+            "owner_addon": "nc.clipboard_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "clipboard",
+            "sensory_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.clipboard_supervisor",
+      "key": "clipboard_supervisor",
+      "name": "Clipboard Supervisor",
+      "presentation": "vision",
+      "overview_id": "overview_clipboard_supervisor",
+      "pages": [
+        {
+          "topic": "prompts",
+          "guide_id": "page_clipboard_supervisor_prompts",
+          "scope": {
+            "owner_addon": "nc.clipboard_supervisor",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "clipboard",
+            "sensory_tab": "prompts"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_clipboard_supervisor_advanced",
+          "scope": {
+            "owner_addon": "nc.clipboard_supervisor",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "clipboard",
+            "sensory_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.companion_chess",
+      "key": "companion_chess",
+      "name": "Companion Chess",
+      "presentation": "addon",
+      "overview_id": "overview_companion_chess",
+      "pages": [
+        {
+          "topic": "Play",
+          "guide_id": "page_companion_chess_play",
+          "scope": {
+            "owner_addon": "nc.companion_chess",
+            "workspace": "addons",
+            "addon": "companion_chess_tab",
+            "section": "Play"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.companion_orb_overlay",
+      "key": "companion_orb_overlay",
+      "name": "Companion Orb Overlay",
+      "presentation": "addon",
+      "overview_id": "overview_companion_orb_overlay",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_companion_orb_overlay_overview",
+          "scope": {
+            "owner_addon": "nc.companion_orb_overlay",
+            "workspace": "addons",
+            "addon": "companion_orb_overlay_tab",
+            "section": "Overview"
+          }
+        },
+        {
+          "topic": "Look",
+          "guide_id": "page_companion_orb_overlay_look",
+          "scope": {
+            "owner_addon": "nc.companion_orb_overlay",
+            "workspace": "addons",
+            "addon": "companion_orb_overlay_tab",
+            "section": "Look"
+          }
+        },
+        {
+          "topic": "Behavior",
+          "guide_id": "page_companion_orb_overlay_behavior",
+          "scope": {
+            "owner_addon": "nc.companion_orb_overlay",
+            "workspace": "addons",
+            "addon": "companion_orb_overlay_tab",
+            "section": "Behavior"
+          }
+        },
+        {
+          "topic": "Eye Tracking",
+          "guide_id": "page_companion_orb_overlay_eye_tracking",
+          "scope": {
+            "owner_addon": "nc.companion_orb_overlay",
+            "workspace": "addons",
+            "addon": "companion_orb_overlay_tab",
+            "section": "Eye Tracking"
+          }
+        },
+        {
+          "topic": "Reading",
+          "guide_id": "page_companion_orb_overlay_reading",
+          "scope": {
+            "owner_addon": "nc.companion_orb_overlay",
+            "workspace": "addons",
+            "addon": "companion_orb_overlay_tab",
+            "section": "Reading"
+          }
+        },
+        {
+          "topic": "Hotkeys",
+          "guide_id": "page_companion_orb_overlay_hotkeys",
+          "scope": {
+            "owner_addon": "nc.companion_orb_overlay",
+            "workspace": "addons",
+            "addon": "companion_orb_overlay_tab",
+            "section": "Hotkeys"
+          }
+        },
+        {
+          "topic": "Advanced",
+          "guide_id": "page_companion_orb_overlay_advanced",
+          "scope": {
+            "owner_addon": "nc.companion_orb_overlay",
+            "workspace": "addons",
+            "addon": "companion_orb_overlay_tab",
+            "section": "Advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.corsair_visual_instrument",
+      "key": "corsair_visual_instrument",
+      "name": "Corsair Visual Instrument",
+      "presentation": "addon",
+      "overview_id": "overview_corsair_visual_instrument",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_corsair_visual_instrument_connection",
+          "scope": {
+            "owner_addon": "nc.corsair_visual_instrument",
+            "workspace": "addons",
+            "addon": "corsair_visual_instrument_tab",
+            "section": "Connection"
+          }
+        },
+        {
+          "topic": "Devices",
+          "guide_id": "page_corsair_visual_instrument_devices",
+          "scope": {
+            "owner_addon": "nc.corsair_visual_instrument",
+            "workspace": "addons",
+            "addon": "corsair_visual_instrument_tab",
+            "section": "Devices"
+          }
+        },
+        {
+          "topic": "State colors & mood",
+          "guide_id": "page_corsair_visual_instrument_state_colors_mood",
+          "scope": {
+            "owner_addon": "nc.corsair_visual_instrument",
+            "workspace": "addons",
+            "addon": "corsair_visual_instrument_tab",
+            "section": "State colors & mood"
+          }
+        },
+        {
+          "topic": "Keyboard animation designer",
+          "guide_id": "page_corsair_visual_instrument_keyboard_animation_designer",
+          "scope": {
+            "owner_addon": "nc.corsair_visual_instrument",
+            "workspace": "addons",
+            "addon": "corsair_visual_instrument_tab",
+            "section": "Keyboard animation designer"
+          }
+        },
+        {
+          "topic": "Speech response",
+          "guide_id": "page_corsair_visual_instrument_speech_response",
+          "scope": {
+            "owner_addon": "nc.corsair_visual_instrument",
+            "workspace": "addons",
+            "addon": "corsair_visual_instrument_tab",
+            "section": "Speech response"
+          }
+        },
+        {
+          "topic": "Global output",
+          "guide_id": "page_corsair_visual_instrument_global_output",
+          "scope": {
+            "owner_addon": "nc.corsair_visual_instrument",
+            "workspace": "addons",
+            "addon": "corsair_visual_instrument_tab",
+            "section": "Global output"
+          }
+        },
+        {
+          "topic": "Advanced SDK",
+          "guide_id": "page_corsair_visual_instrument_advanced_sdk",
+          "scope": {
+            "owner_addon": "nc.corsair_visual_instrument",
+            "workspace": "addons",
+            "addon": "corsair_visual_instrument_tab",
+            "section": "Advanced SDK"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.deepseek_provider",
+      "key": "deepseek_provider",
+      "name": "DeepSeek Chat Provider",
+      "presentation": "language",
+      "overview_id": "overview_deepseek_provider",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_deepseek_provider_connection",
+          "scope": {
+            "owner_addon": "nc.deepseek_provider",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "deepseek"
+          }
+        },
+        {
+          "topic": "Model",
+          "guide_id": "page_deepseek_provider_model",
+          "scope": {
+            "owner_addon": "nc.deepseek_provider",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "deepseek"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_deepseek_provider_generation",
+          "scope": {
+            "owner_addon": "nc.deepseek_provider",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "deepseek"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.discord_voice_bridge",
+      "key": "discord_voice_bridge",
+      "name": "Discord Voice Bridge",
+      "presentation": "addon",
+      "overview_id": "overview_discord_voice_bridge",
+      "pages": [
+        {
+          "topic": "Local room",
+          "guide_id": "page_discord_voice_bridge_local_room",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Local room"
+          }
+        },
+        {
+          "topic": "General",
+          "guide_id": "page_discord_voice_bridge_general",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "General"
+          }
+        },
+        {
+          "topic": "Discord",
+          "guide_id": "page_discord_voice_bridge_discord",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Discord"
+          }
+        },
+        {
+          "topic": "Capture",
+          "guide_id": "page_discord_voice_bridge_capture",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Capture"
+          }
+        },
+        {
+          "topic": "Playback",
+          "guide_id": "page_discord_voice_bridge_playback",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Playback"
+          }
+        },
+        {
+          "topic": "Filter",
+          "guide_id": "page_discord_voice_bridge_filter",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Filter"
+          }
+        },
+        {
+          "topic": "Persona",
+          "guide_id": "page_discord_voice_bridge_persona",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Persona"
+          }
+        },
+        {
+          "topic": "Runtime",
+          "guide_id": "page_discord_voice_bridge_runtime",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Runtime"
+          }
+        },
+        {
+          "topic": "Status",
+          "guide_id": "page_discord_voice_bridge_status",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Status"
+          }
+        },
+        {
+          "topic": "Moderator",
+          "guide_id": "page_discord_voice_bridge_moderator",
+          "scope": {
+            "owner_addon": "nc.discord_voice_bridge",
+            "workspace": "addons",
+            "addon": "discord_voice_bridge_tab",
+            "section": "Moderator"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.ditto_avatar",
+      "key": "ditto_avatar",
+      "name": "Ditto Avatar",
+      "presentation": "avatar",
+      "overview_id": "overview_ditto_avatar",
+      "pages": [
+        {
+          "topic": "Advanced",
+          "guide_id": "page_ditto_avatar_advanced",
+          "scope": {
+            "owner_addon": "nc.ditto_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "ditto"
+          }
+        },
+        {
+          "topic": "Runtime",
+          "guide_id": "page_ditto_avatar_runtime",
+          "scope": {
+            "owner_addon": "nc.ditto_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "ditto"
+          }
+        },
+        {
+          "topic": "Preview",
+          "guide_id": "page_ditto_avatar_preview",
+          "scope": {
+            "owner_addon": "nc.ditto_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "ditto"
+          }
+        },
+        {
+          "topic": "Avatar",
+          "guide_id": "page_ditto_avatar_avatar",
+          "scope": {
+            "owner_addon": "nc.ditto_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "ditto"
+          }
+        },
+        {
+          "topic": "Animation",
+          "guide_id": "page_ditto_avatar_animation",
+          "scope": {
+            "owner_addon": "nc.ditto_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "ditto"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_ditto_avatar_generation",
+          "scope": {
+            "owner_addon": "nc.ditto_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "ditto"
+          }
+        },
+        {
+          "topic": "Package emotions",
+          "guide_id": "page_ditto_avatar_package_emotions",
+          "scope": {
+            "owner_addon": "nc.ditto_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "ditto"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.ditto_preprocess",
+      "key": "ditto_preprocess",
+      "name": "Ditto Avatar Creator",
+      "presentation": "cards",
+      "overview_id": "overview_ditto_preprocess",
+      "pages": [
+        {
+          "topic": "Source",
+          "guide_id": "page_ditto_preprocess_source",
+          "scope": {
+            "owner_addon": "nc.ditto_preprocess",
+            "workspace": "addons",
+            "addon": "ditto_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Import",
+          "guide_id": "page_ditto_preprocess_import",
+          "scope": {
+            "owner_addon": "nc.ditto_preprocess",
+            "workspace": "addons",
+            "addon": "ditto_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Test",
+          "guide_id": "page_ditto_preprocess_test",
+          "scope": {
+            "owner_addon": "nc.ditto_preprocess",
+            "workspace": "addons",
+            "addon": "ditto_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Package",
+          "guide_id": "page_ditto_preprocess_package",
+          "scope": {
+            "owner_addon": "nc.ditto_preprocess",
+            "workspace": "addons",
+            "addon": "ditto_preprocess_tab"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.elevenlabs_tts",
+      "key": "elevenlabs_tts",
+      "name": "ElevenLabs TTS",
+      "presentation": "tts",
+      "overview_id": "overview_elevenlabs_tts",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_elevenlabs_tts_connection",
+          "scope": {
+            "owner_addon": "nc.elevenlabs_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "elevenlabs_tts",
+            "subsection": "Connection"
+          }
+        },
+        {
+          "topic": "Voice",
+          "guide_id": "page_elevenlabs_tts_voice",
+          "scope": {
+            "owner_addon": "nc.elevenlabs_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "elevenlabs_tts",
+            "subsection": "Voice"
+          }
+        },
+        {
+          "topic": "Delivery",
+          "guide_id": "page_elevenlabs_tts_delivery",
+          "scope": {
+            "owner_addon": "nc.elevenlabs_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "elevenlabs_tts",
+            "subsection": "Delivery"
+          }
+        },
+        {
+          "topic": "Voice tag rules",
+          "guide_id": "page_elevenlabs_tts_voice_tag_rules",
+          "scope": {
+            "owner_addon": "nc.elevenlabs_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "elevenlabs_tts",
+            "subsection": "voice-tag-rules"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.gemini_tts_preview",
+      "key": "gemini_tts_preview",
+      "name": "Gemini TTS Preview",
+      "presentation": "tts",
+      "overview_id": "overview_gemini_tts_preview",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_gemini_tts_preview_overview",
+          "scope": {
+            "owner_addon": "nc.gemini_tts_preview",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "gemini_tts_preview",
+            "subsection": "Provider settings"
+          }
+        },
+        {
+          "topic": "Connection",
+          "guide_id": "page_gemini_tts_preview_connection",
+          "scope": {
+            "owner_addon": "nc.gemini_tts_preview",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "gemini_tts_preview",
+            "subsection": "Connection"
+          }
+        },
+        {
+          "topic": "Voice",
+          "guide_id": "page_gemini_tts_preview_voice",
+          "scope": {
+            "owner_addon": "nc.gemini_tts_preview",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "gemini_tts_preview",
+            "subsection": "Voice"
+          }
+        },
+        {
+          "topic": "Voice tag rules",
+          "guide_id": "page_gemini_tts_preview_voice_tag_rules",
+          "scope": {
+            "owner_addon": "nc.gemini_tts_preview",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "gemini_tts_preview",
+            "subsection": "voice-tag-rules"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.heart_rate_behavior",
+      "key": "heart_rate_behavior",
+      "name": "Heart Rate Behavior",
+      "presentation": "vision",
+      "overview_id": "overview_heart_rate_behavior",
+      "pages": [
+        {
+          "topic": "prompts",
+          "guide_id": "page_heart_rate_behavior_prompts",
+          "scope": {
+            "owner_addon": "nc.heart_rate_behavior",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "heart_rate",
+            "sensory_tab": "prompts"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_heart_rate_behavior_advanced",
+          "scope": {
+            "owner_addon": "nc.heart_rate_behavior",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "heart_rate",
+            "sensory_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.hotkeys",
+      "key": "hotkeys",
+      "name": "Hotkeys",
+      "presentation": "addon",
+      "overview_id": "overview_hotkeys",
+      "pages": [
+        {
+          "topic": "Input",
+          "guide_id": "page_hotkeys_input",
+          "scope": {
+            "owner_addon": "nc.hotkeys",
+            "workspace": "addons",
+            "addon": "hotkeys_tab",
+            "section": "Input"
+          }
+        },
+        {
+          "topic": "Conversation controls",
+          "guide_id": "page_hotkeys_conversation_controls",
+          "scope": {
+            "owner_addon": "nc.hotkeys",
+            "workspace": "addons",
+            "addon": "hotkeys_tab",
+            "section": "Conversation controls"
+          }
+        },
+        {
+          "topic": "Window controls",
+          "guide_id": "page_hotkeys_window_controls",
+          "scope": {
+            "owner_addon": "nc.hotkeys",
+            "workspace": "addons",
+            "addon": "hotkeys_tab",
+            "section": "Window controls"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.identity_artifacts",
+      "key": "identity_artifacts",
+      "name": "NC Identity Relay",
+      "presentation": "addon",
+      "overview_id": "overview_identity_artifacts",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_identity_artifacts_overview",
+          "scope": {
+            "owner_addon": "nc.identity_artifacts",
+            "workspace": "addons",
+            "addon": "identity_artifacts_tab",
+            "section": "Overview"
+          }
+        },
+        {
+          "topic": "Create Identity Export",
+          "guide_id": "page_identity_artifacts_create_identity_export",
+          "scope": {
+            "owner_addon": "nc.identity_artifacts",
+            "workspace": "addons",
+            "addon": "identity_artifacts_tab",
+            "section": "Create Identity Export"
+          }
+        },
+        {
+          "topic": "Privacy",
+          "guide_id": "page_identity_artifacts_privacy",
+          "scope": {
+            "owner_addon": "nc.identity_artifacts",
+            "workspace": "addons",
+            "addon": "identity_artifacts_tab",
+            "section": "Privacy"
+          }
+        },
+        {
+          "topic": "Import",
+          "guide_id": "page_identity_artifacts_import",
+          "scope": {
+            "owner_addon": "nc.identity_artifacts",
+            "workspace": "addons",
+            "addon": "identity_artifacts_tab",
+            "section": "Import"
+          }
+        },
+        {
+          "topic": "Stored Artifacts",
+          "guide_id": "page_identity_artifacts_stored_artifacts",
+          "scope": {
+            "owner_addon": "nc.identity_artifacts",
+            "workspace": "addons",
+            "addon": "identity_artifacts_tab",
+            "section": "Stored Artifacts"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.liquidai_tts",
+      "key": "liquidai_tts",
+      "name": "LiquidAI TTS",
+      "presentation": "tts",
+      "overview_id": "overview_liquidai_tts",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_liquidai_tts_overview",
+          "scope": {
+            "owner_addon": "nc.liquidai_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "liquidai",
+            "subsection": "Provider settings"
+          }
+        },
+        {
+          "topic": "Voice",
+          "guide_id": "page_liquidai_tts_voice",
+          "scope": {
+            "owner_addon": "nc.liquidai_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "liquidai",
+            "subsection": "Voice"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_liquidai_tts_generation",
+          "scope": {
+            "owner_addon": "nc.liquidai_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "liquidai",
+            "subsection": "Generation"
+          }
+        },
+        {
+          "topic": "Setup",
+          "guide_id": "page_liquidai_tts_setup",
+          "scope": {
+            "owner_addon": "nc.liquidai_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "liquidai",
+            "subsection": "Setup"
+          }
+        },
+        {
+          "topic": "Advanced",
+          "guide_id": "page_liquidai_tts_advanced",
+          "scope": {
+            "owner_addon": "nc.liquidai_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "liquidai",
+            "subsection": "Advanced"
+          }
+        },
+        {
+          "topic": "Voice tag rules",
+          "guide_id": "page_liquidai_tts_voice_tag_rules",
+          "scope": {
+            "owner_addon": "nc.liquidai_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "liquidai",
+            "subsection": "voice-tag-rules"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chat_provider_lmstudio",
+      "key": "lmstudio_provider",
+      "name": "LM Studio (REST) Chat Provider",
+      "presentation": "language",
+      "overview_id": "overview_lmstudio_provider",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_lmstudio_provider_connection",
+          "scope": {
+            "owner_addon": "nc.chat_provider_lmstudio",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "lmstudio"
+          }
+        },
+        {
+          "topic": "Model",
+          "guide_id": "page_lmstudio_provider_model",
+          "scope": {
+            "owner_addon": "nc.chat_provider_lmstudio",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "lmstudio"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_lmstudio_provider_generation",
+          "scope": {
+            "owner_addon": "nc.chat_provider_lmstudio",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "lmstudio"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chat_provider_lmstudio_sdk",
+      "key": "lmstudio_sdk_provider",
+      "name": "LM Studio Chat Provider",
+      "presentation": "language",
+      "overview_id": "overview_lmstudio_sdk_provider",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_lmstudio_sdk_provider_connection",
+          "scope": {
+            "owner_addon": "nc.chat_provider_lmstudio_sdk",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "lmstudio_sdk"
+          }
+        },
+        {
+          "topic": "Model",
+          "guide_id": "page_lmstudio_sdk_provider_model",
+          "scope": {
+            "owner_addon": "nc.chat_provider_lmstudio_sdk",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "lmstudio_sdk"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_lmstudio_sdk_provider_generation",
+          "scope": {
+            "owner_addon": "nc.chat_provider_lmstudio_sdk",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "lmstudio_sdk"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.main_chat_remote",
+      "key": "main_chat_remote",
+      "name": "Main Chat Remote",
+      "presentation": "remote",
+      "overview_id": "overview_main_chat_remote",
+      "pages": [
+        {
+          "topic": "connect",
+          "guide_id": "page_main_chat_remote_connect",
+          "scope": {
+            "owner_addon": "nc.main_chat_remote",
+            "workspace": "addons",
+            "addon": "main_chat_remote_tab",
+            "remote_tab": "connect"
+          }
+        },
+        {
+          "topic": "internet",
+          "guide_id": "page_main_chat_remote_internet",
+          "scope": {
+            "owner_addon": "nc.main_chat_remote",
+            "workspace": "addons",
+            "addon": "main_chat_remote_tab",
+            "remote_tab": "internet"
+          }
+        },
+        {
+          "topic": "media",
+          "guide_id": "page_main_chat_remote_media",
+          "scope": {
+            "owner_addon": "nc.main_chat_remote",
+            "workspace": "addons",
+            "addon": "main_chat_remote_tab",
+            "remote_tab": "media"
+          }
+        },
+        {
+          "topic": "usage",
+          "guide_id": "page_main_chat_remote_usage",
+          "scope": {
+            "owner_addon": "nc.main_chat_remote",
+            "workspace": "addons",
+            "addon": "main_chat_remote_tab",
+            "remote_tab": "usage"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_main_chat_remote_advanced",
+          "scope": {
+            "owner_addon": "nc.main_chat_remote",
+            "workspace": "addons",
+            "addon": "main_chat_remote_tab",
+            "remote_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.mcp_core",
+      "key": "mcp_core",
+      "name": "MCP Core",
+      "presentation": "cards",
+      "overview_id": "overview_mcp_core",
+      "pages": [
+        {
+          "topic": "Servers",
+          "guide_id": "page_mcp_core_servers",
+          "scope": {
+            "owner_addon": "nc.mcp_core",
+            "workspace": "runtime",
+            "runtime_section": "mcp"
+          }
+        },
+        {
+          "topic": "Permissions",
+          "guide_id": "page_mcp_core_permissions",
+          "scope": {
+            "owner_addon": "nc.mcp_core",
+            "workspace": "runtime",
+            "runtime_section": "mcp"
+          }
+        },
+        {
+          "topic": "Tools",
+          "guide_id": "page_mcp_core_tools",
+          "scope": {
+            "owner_addon": "nc.mcp_core",
+            "workspace": "runtime",
+            "runtime_section": "mcp"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.mock_heart_rate",
+      "key": "mock_heart_rate",
+      "name": "Mock Heart Rate",
+      "presentation": "vision",
+      "overview_id": "overview_mock_heart_rate",
+      "pages": [
+        {
+          "topic": "setup",
+          "guide_id": "page_mock_heart_rate_setup",
+          "scope": {
+            "owner_addon": "nc.mock_heart_rate",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "heart_rate",
+            "sensory_tab": "setup"
+          }
+        },
+        {
+          "topic": "prompts",
+          "guide_id": "page_mock_heart_rate_prompts",
+          "scope": {
+            "owner_addon": "nc.mock_heart_rate",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "heart_rate",
+            "sensory_tab": "prompts"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_mock_heart_rate_advanced",
+          "scope": {
+            "owner_addon": "nc.mock_heart_rate",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "heart_rate",
+            "sensory_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.multi_persona_roleplay",
+      "key": "multi_persona_roleplay",
+      "name": "Multi Persona Roleplay",
+      "presentation": "addon",
+      "overview_id": "overview_multi_persona_roleplay",
+      "pages": [
+        {
+          "topic": "Status",
+          "guide_id": "page_multi_persona_roleplay_status",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Status"
+          }
+        },
+        {
+          "topic": "Play",
+          "guide_id": "page_multi_persona_roleplay_play",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Play"
+          }
+        },
+        {
+          "topic": "Guide",
+          "guide_id": "page_multi_persona_roleplay_guide",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Guide"
+          }
+        },
+        {
+          "topic": "Story Health",
+          "guide_id": "page_multi_persona_roleplay_story_health",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Story Health"
+          }
+        },
+        {
+          "topic": "Registry",
+          "guide_id": "page_multi_persona_roleplay_registry",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Registry"
+          }
+        },
+        {
+          "topic": "Editor",
+          "guide_id": "page_multi_persona_roleplay_editor",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Editor"
+          }
+        },
+        {
+          "topic": "Voice",
+          "guide_id": "page_multi_persona_roleplay_voice",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Voice"
+          }
+        },
+        {
+          "topic": "Session",
+          "guide_id": "page_multi_persona_roleplay_session",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Session"
+          }
+        },
+        {
+          "topic": "AR",
+          "guide_id": "page_multi_persona_roleplay_ar",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "AR"
+          }
+        },
+        {
+          "topic": "Master",
+          "guide_id": "page_multi_persona_roleplay_master",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Master"
+          }
+        },
+        {
+          "topic": "Story Sounds",
+          "guide_id": "page_multi_persona_roleplay_story_sounds",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Story Sounds"
+          }
+        },
+        {
+          "topic": "Story Images",
+          "guide_id": "page_multi_persona_roleplay_story_images",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Story Images"
+          }
+        },
+        {
+          "topic": "Troubleshooting",
+          "guide_id": "page_multi_persona_roleplay_troubleshooting",
+          "scope": {
+            "owner_addon": "nc.multi_persona_roleplay",
+            "workspace": "addons",
+            "addon": "multi_persona_roleplay_tab",
+            "section": "Troubleshooting"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.musetalk_avatar",
+      "key": "musetalk_avatar",
+      "name": "MuseTalk Avatar",
+      "presentation": "avatar",
+      "overview_id": "overview_musetalk_avatar",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_musetalk_avatar_overview",
+          "scope": {
+            "owner_addon": "nc.musetalk_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "musetalk"
+          }
+        },
+        {
+          "topic": "Avatar",
+          "guide_id": "page_musetalk_avatar_avatar",
+          "scope": {
+            "owner_addon": "nc.musetalk_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "musetalk"
+          }
+        },
+        {
+          "topic": "Pack emotions",
+          "guide_id": "page_musetalk_avatar_pack_emotions",
+          "scope": {
+            "owner_addon": "nc.musetalk_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "musetalk"
+          }
+        },
+        {
+          "topic": "Performance",
+          "guide_id": "page_musetalk_avatar_performance",
+          "scope": {
+            "owner_addon": "nc.musetalk_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "musetalk"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.musetalk_preprocess",
+      "key": "musetalk_preprocess",
+      "name": "MuseTalk Avatar Creator",
+      "presentation": "cards",
+      "overview_id": "overview_musetalk_preprocess",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_musetalk_preprocess_overview",
+          "scope": {
+            "owner_addon": "nc.musetalk_preprocess",
+            "workspace": "addons",
+            "addon": "musetalk_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Source",
+          "guide_id": "page_musetalk_preprocess_source",
+          "scope": {
+            "owner_addon": "nc.musetalk_preprocess",
+            "workspace": "addons",
+            "addon": "musetalk_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Metadata",
+          "guide_id": "page_musetalk_preprocess_metadata",
+          "scope": {
+            "owner_addon": "nc.musetalk_preprocess",
+            "workspace": "addons",
+            "addon": "musetalk_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Mask",
+          "guide_id": "page_musetalk_preprocess_mask",
+          "scope": {
+            "owner_addon": "nc.musetalk_preprocess",
+            "workspace": "addons",
+            "addon": "musetalk_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Ranges",
+          "guide_id": "page_musetalk_preprocess_ranges",
+          "scope": {
+            "owner_addon": "nc.musetalk_preprocess",
+            "workspace": "addons",
+            "addon": "musetalk_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Overrides",
+          "guide_id": "page_musetalk_preprocess_overrides",
+          "scope": {
+            "owner_addon": "nc.musetalk_preprocess",
+            "workspace": "addons",
+            "addon": "musetalk_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Debug",
+          "guide_id": "page_musetalk_preprocess_debug",
+          "scope": {
+            "owner_addon": "nc.musetalk_preprocess",
+            "workspace": "addons",
+            "addon": "musetalk_preprocess_tab"
+          }
+        },
+        {
+          "topic": "Status",
+          "guide_id": "page_musetalk_preprocess_status",
+          "scope": {
+            "owner_addon": "nc.musetalk_preprocess",
+            "workspace": "addons",
+            "addon": "musetalk_preprocess_tab"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.no_avatar",
+      "key": "no_avatar",
+      "name": "No Avatar",
+      "presentation": "avatar",
+      "overview_id": "overview_no_avatar",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_no_avatar_overview",
+          "scope": {
+            "owner_addon": "nc.no_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "none"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.no_stt",
+      "key": "no_stt",
+      "name": "No STT",
+      "presentation": "stt",
+      "overview_id": "overview_no_stt",
+      "pages": [
+        {
+          "topic": "Recognition",
+          "guide_id": "page_no_stt_recognition",
+          "scope": {
+            "owner_addon": "nc.no_stt",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "speech",
+            "provider_kind": "stt",
+            "provider_id": "none"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chat_provider_ollama",
+      "key": "ollama_provider",
+      "name": "Ollama Chat Provider",
+      "presentation": "language",
+      "overview_id": "overview_ollama_provider",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_ollama_provider_connection",
+          "scope": {
+            "owner_addon": "nc.chat_provider_ollama",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "ollama"
+          }
+        },
+        {
+          "topic": "Model",
+          "guide_id": "page_ollama_provider_model",
+          "scope": {
+            "owner_addon": "nc.chat_provider_ollama",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "ollama"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_ollama_provider_generation",
+          "scope": {
+            "owner_addon": "nc.chat_provider_ollama",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "ollama"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chat_provider_openai",
+      "key": "openai_provider",
+      "name": "OpenAI Chat Provider",
+      "presentation": "language",
+      "overview_id": "overview_openai_provider",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_openai_provider_connection",
+          "scope": {
+            "owner_addon": "nc.chat_provider_openai",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "openai"
+          }
+        },
+        {
+          "topic": "Model",
+          "guide_id": "page_openai_provider_model",
+          "scope": {
+            "owner_addon": "nc.chat_provider_openai",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "openai"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_openai_provider_generation",
+          "scope": {
+            "owner_addon": "nc.chat_provider_openai",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "openai"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.pockettts",
+      "key": "pockettts",
+      "name": "PocketTTS",
+      "presentation": "tts",
+      "overview_id": "overview_pockettts",
+      "pages": [
+        {
+          "topic": "Voice",
+          "guide_id": "page_pockettts_voice",
+          "scope": {
+            "owner_addon": "nc.pockettts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts",
+            "subsection": "Voice"
+          }
+        },
+        {
+          "topic": "Startup",
+          "guide_id": "page_pockettts_startup",
+          "scope": {
+            "owner_addon": "nc.pockettts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts",
+            "subsection": "Startup"
+          }
+        },
+        {
+          "topic": "Advanced generation",
+          "guide_id": "page_pockettts_advanced_generation",
+          "scope": {
+            "owner_addon": "nc.pockettts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts",
+            "subsection": "Advanced generation"
+          }
+        },
+        {
+          "topic": "Advanced runtime",
+          "guide_id": "page_pockettts_advanced_runtime",
+          "scope": {
+            "owner_addon": "nc.pockettts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts",
+            "subsection": "Advanced runtime"
+          }
+        },
+        {
+          "topic": "Voice tag rules",
+          "guide_id": "page_pockettts_voice_tag_rules",
+          "scope": {
+            "owner_addon": "nc.pockettts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts",
+            "subsection": "voice-tag-rules"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.pockettts_multilingual_tts",
+      "key": "pockettts_multilingual_tts",
+      "name": "PocketTTS Multilingual",
+      "presentation": "tts",
+      "overview_id": "overview_pockettts_multilingual_tts",
+      "pages": [
+        {
+          "topic": "Language and voice",
+          "guide_id": "page_pockettts_multilingual_tts_language_and_voice",
+          "scope": {
+            "owner_addon": "nc.pockettts_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts_multilingual",
+            "subsection": "Language and voice"
+          }
+        },
+        {
+          "topic": "Startup",
+          "guide_id": "page_pockettts_multilingual_tts_startup",
+          "scope": {
+            "owner_addon": "nc.pockettts_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts_multilingual",
+            "subsection": "Startup"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_pockettts_multilingual_tts_generation",
+          "scope": {
+            "owner_addon": "nc.pockettts_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts_multilingual",
+            "subsection": "Generation"
+          }
+        },
+        {
+          "topic": "Voice tag rules",
+          "guide_id": "page_pockettts_multilingual_tts_voice_tag_rules",
+          "scope": {
+            "owner_addon": "nc.pockettts_multilingual_tts",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "voice",
+            "provider_kind": "tts",
+            "provider_id": "pockettts_multilingual",
+            "subsection": "voice-tag-rules"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.rag_context",
+      "key": "rag_context",
+      "name": "Document Memory",
+      "presentation": "memory",
+      "overview_id": "overview_rag_context",
+      "pages": [
+        {
+          "topic": "Sources",
+          "guide_id": "page_rag_context_sources",
+          "scope": {
+            "owner_addon": "nc.rag_context",
+            "workspace": "runtime",
+            "runtime_section": "memory",
+            "document_section": "Sources"
+          }
+        },
+        {
+          "topic": "Usage",
+          "guide_id": "page_rag_context_usage",
+          "scope": {
+            "owner_addon": "nc.rag_context",
+            "workspace": "runtime",
+            "runtime_section": "memory",
+            "document_section": "Usage"
+          }
+        },
+        {
+          "topic": "Retrieval",
+          "guide_id": "page_rag_context_retrieval",
+          "scope": {
+            "owner_addon": "nc.rag_context",
+            "workspace": "runtime",
+            "runtime_section": "memory",
+            "document_section": "Retrieval"
+          }
+        },
+        {
+          "topic": "Index",
+          "guide_id": "page_rag_context_index",
+          "scope": {
+            "owner_addon": "nc.rag_context",
+            "workspace": "runtime",
+            "runtime_section": "memory",
+            "document_section": "Index"
+          }
+        },
+        {
+          "topic": "Test search",
+          "guide_id": "page_rag_context_test_search",
+          "scope": {
+            "owner_addon": "nc.rag_context",
+            "workspace": "runtime",
+            "runtime_section": "memory",
+            "document_section": "Test search"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.scenic_avatar",
+      "key": "scenic_avatar",
+      "name": "Scenic Avatar",
+      "presentation": "avatar",
+      "overview_id": "overview_scenic_avatar",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_scenic_avatar_overview",
+          "scope": {
+            "owner_addon": "nc.scenic_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "scenic"
+          }
+        },
+        {
+          "topic": "Pack",
+          "guide_id": "page_scenic_avatar_pack",
+          "scope": {
+            "owner_addon": "nc.scenic_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "scenic"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.scenic_pack_creator",
+      "key": "scenic_pack_creator",
+      "name": "Scenic Pack Creator",
+      "presentation": "cards",
+      "overview_id": "overview_scenic_pack_creator",
+      "pages": [
+        {
+          "topic": "Editor",
+          "guide_id": "page_scenic_pack_creator_editor",
+          "scope": {
+            "owner_addon": "nc.scenic_pack_creator",
+            "workspace": "addons",
+            "addon": "scenic_pack_creator_tab"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.screen_source",
+      "key": "screen_source",
+      "name": "Screen Source",
+      "presentation": "vision",
+      "overview_id": "overview_screen_source",
+      "pages": [
+        {
+          "topic": "setup",
+          "guide_id": "page_screen_source_setup",
+          "scope": {
+            "owner_addon": "nc.screen_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "screen",
+            "sensory_tab": "setup"
+          }
+        },
+        {
+          "topic": "prompts",
+          "guide_id": "page_screen_source_prompts",
+          "scope": {
+            "owner_addon": "nc.screen_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "screen",
+            "sensory_tab": "prompts"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_screen_source_advanced",
+          "scope": {
+            "owner_addon": "nc.screen_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "screen",
+            "sensory_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.screen_supervisor",
+      "key": "screen_supervisor",
+      "name": "Screen Supervisor",
+      "presentation": "vision",
+      "overview_id": "overview_screen_supervisor",
+      "pages": [
+        {
+          "topic": "prompts",
+          "guide_id": "page_screen_supervisor_prompts",
+          "scope": {
+            "owner_addon": "nc.screen_supervisor",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "screen",
+            "sensory_tab": "prompts"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_screen_supervisor_advanced",
+          "scope": {
+            "owner_addon": "nc.screen_supervisor",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "screen",
+            "sensory_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.spotify_sense",
+      "key": "spotify_sense",
+      "name": "Spotify Sense",
+      "presentation": "addon",
+      "overview_id": "overview_spotify_sense",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_spotify_sense_overview",
+          "scope": {
+            "owner_addon": "nc.spotify_sense",
+            "workspace": "addons",
+            "addon": "spotify_sense_tab",
+            "section": "Overview"
+          }
+        },
+        {
+          "topic": "Music Hub",
+          "guide_id": "page_spotify_sense_music_hub",
+          "scope": {
+            "owner_addon": "nc.spotify_sense",
+            "workspace": "addons",
+            "addon": "spotify_sense_tab",
+            "section": "Music Hub"
+          }
+        },
+        {
+          "topic": "Connect",
+          "guide_id": "page_spotify_sense_connect",
+          "scope": {
+            "owner_addon": "nc.spotify_sense",
+            "workspace": "addons",
+            "addon": "spotify_sense_tab",
+            "section": "Connect"
+          }
+        },
+        {
+          "topic": "Playback",
+          "guide_id": "page_spotify_sense_playback",
+          "scope": {
+            "owner_addon": "nc.spotify_sense",
+            "workspace": "addons",
+            "addon": "spotify_sense_tab",
+            "section": "Playback"
+          }
+        },
+        {
+          "topic": "Ducking",
+          "guide_id": "page_spotify_sense_ducking",
+          "scope": {
+            "owner_addon": "nc.spotify_sense",
+            "workspace": "addons",
+            "addon": "spotify_sense_tab",
+            "section": "Ducking"
+          }
+        },
+        {
+          "topic": "Story",
+          "guide_id": "page_spotify_sense_story",
+          "scope": {
+            "owner_addon": "nc.spotify_sense",
+            "workspace": "addons",
+            "addon": "spotify_sense_tab",
+            "section": "Story"
+          }
+        },
+        {
+          "topic": "Advanced",
+          "guide_id": "page_spotify_sense_advanced",
+          "scope": {
+            "owner_addon": "nc.spotify_sense",
+            "workspace": "addons",
+            "addon": "spotify_sense_tab",
+            "section": "Advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.ua_companion_orb_overlay",
+      "key": "ua_companion_orb_overlay",
+      "name": "Ua Companion Orb Overlay",
+      "presentation": "service",
+      "overview_id": "overview_ua_companion_orb_overlay",
+      "pages": [
+        {
+          "topic": "Stream service",
+          "guide_id": "page_ua_companion_orb_overlay_stream_service",
+          "scope": {
+            "owner_addon": "nc.ua_companion_orb_overlay",
+            "workspace": "addons",
+            "addon": "core.addons"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.user_identity",
+      "key": "user_identity",
+      "name": "User Identity",
+      "presentation": "addon",
+      "overview_id": "overview_user_identity",
+      "pages": [
+        {
+          "topic": "Profile & portrait",
+          "guide_id": "page_user_identity_profile_portrait",
+          "scope": {
+            "owner_addon": "nc.user_identity",
+            "workspace": "addons",
+            "addon": "user_identity_tab",
+            "section": "Profile & portrait"
+          }
+        },
+        {
+          "topic": "Visual Replies",
+          "guide_id": "page_user_identity_visual_replies",
+          "scope": {
+            "owner_addon": "nc.user_identity",
+            "workspace": "addons",
+            "addon": "user_identity_tab",
+            "section": "Visual Replies"
+          }
+        },
+        {
+          "topic": "Privacy",
+          "guide_id": "page_user_identity_privacy",
+          "scope": {
+            "owner_addon": "nc.user_identity",
+            "workspace": "addons",
+            "addon": "user_identity_tab",
+            "section": "Privacy"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.visual_reply",
+      "key": "visual_reply",
+      "name": "Visual Reply",
+      "presentation": "cards",
+      "overview_id": "overview_visual_reply",
+      "pages": [
+        {
+          "topic": "Generation",
+          "guide_id": "page_visual_reply_generation",
+          "scope": {
+            "owner_addon": "nc.visual_reply",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "visual"
+          }
+        },
+        {
+          "topic": "Display",
+          "guide_id": "page_visual_reply_display",
+          "scope": {
+            "owner_addon": "nc.visual_reply",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "visual"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.visual_story_settings",
+      "key": "visual_story_settings",
+      "name": "Visual Story Settings",
+      "presentation": "cards",
+      "overview_id": "overview_visual_story_settings",
+      "pages": [
+        {
+          "topic": "Story generation",
+          "guide_id": "page_visual_story_settings_story_generation",
+          "scope": {
+            "owner_addon": "nc.visual_story_settings",
+            "workspace": "runtime",
+            "runtime_section": "story"
+          }
+        },
+        {
+          "topic": "Story styles",
+          "guide_id": "page_visual_story_settings_story_styles",
+          "scope": {
+            "owner_addon": "nc.visual_story_settings",
+            "workspace": "runtime",
+            "runtime_section": "story"
+          }
+        },
+        {
+          "topic": "Master prompt",
+          "guide_id": "page_visual_story_settings_master_prompt",
+          "scope": {
+            "owner_addon": "nc.visual_story_settings",
+            "workspace": "runtime",
+            "runtime_section": "story"
+          }
+        },
+        {
+          "topic": "Summary",
+          "guide_id": "page_visual_story_settings_summary",
+          "scope": {
+            "owner_addon": "nc.visual_story_settings",
+            "workspace": "runtime",
+            "runtime_section": "story"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.voice_studio",
+      "key": "voice_studio",
+      "name": "Voice Studio",
+      "presentation": "studio",
+      "overview_id": "overview_voice_studio",
+      "pages": [
+        {
+          "topic": "Create Voices",
+          "guide_id": "page_voice_studio_create_voices",
+          "scope": {
+            "owner_addon": "nc.voice_studio",
+            "workspace": "addons",
+            "addon": "voice_studio_tab",
+            "section": "Create Voices"
+          }
+        },
+        {
+          "topic": "Voice Library",
+          "guide_id": "page_voice_studio_voice_library",
+          "scope": {
+            "owner_addon": "nc.voice_studio",
+            "workspace": "addons",
+            "addon": "voice_studio_tab",
+            "section": "Voice Library"
+          }
+        },
+        {
+          "topic": "Settings",
+          "guide_id": "page_voice_studio_settings",
+          "scope": {
+            "owner_addon": "nc.voice_studio",
+            "workspace": "addons",
+            "addon": "voice_studio_tab",
+            "section": "Settings"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.vseeface_avatar",
+      "key": "vseeface_avatar",
+      "name": "VSeeFace Avatar",
+      "presentation": "avatar",
+      "overview_id": "overview_vseeface_avatar",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_vseeface_avatar_overview",
+          "scope": {
+            "owner_addon": "nc.vseeface_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "vseeface"
+          }
+        },
+        {
+          "topic": "Speech lip sync",
+          "guide_id": "page_vseeface_avatar_speech_lip_sync",
+          "scope": {
+            "owner_addon": "nc.vseeface_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "vseeface"
+          }
+        },
+        {
+          "topic": "Body",
+          "guide_id": "page_vseeface_avatar_body",
+          "scope": {
+            "owner_addon": "nc.vseeface_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "vseeface"
+          }
+        },
+        {
+          "topic": "Dynamics",
+          "guide_id": "page_vseeface_avatar_dynamics",
+          "scope": {
+            "owner_addon": "nc.vseeface_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "vseeface"
+          }
+        },
+        {
+          "topic": "Hand Doctor",
+          "guide_id": "page_vseeface_avatar_hand_doctor",
+          "scope": {
+            "owner_addon": "nc.vseeface_avatar",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "avatar",
+            "provider_kind": "avatar",
+            "provider_id": "vseeface"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.webcam_source",
+      "key": "webcam_source",
+      "name": "Webcam Source",
+      "presentation": "vision",
+      "overview_id": "overview_webcam_source",
+      "pages": [
+        {
+          "topic": "setup",
+          "guide_id": "page_webcam_source_setup",
+          "scope": {
+            "owner_addon": "nc.webcam_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "webcam",
+            "sensory_tab": "setup"
+          }
+        },
+        {
+          "topic": "prompts",
+          "guide_id": "page_webcam_source_prompts",
+          "scope": {
+            "owner_addon": "nc.webcam_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "webcam",
+            "sensory_tab": "prompts"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_webcam_source_advanced",
+          "scope": {
+            "owner_addon": "nc.webcam_source",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "webcam",
+            "sensory_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.webcam_supervisor",
+      "key": "webcam_supervisor",
+      "name": "Webcam Supervisor",
+      "presentation": "vision",
+      "overview_id": "overview_webcam_supervisor",
+      "pages": [
+        {
+          "topic": "prompts",
+          "guide_id": "page_webcam_supervisor_prompts",
+          "scope": {
+            "owner_addon": "nc.webcam_supervisor",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "webcam",
+            "sensory_tab": "prompts"
+          }
+        },
+        {
+          "topic": "advanced",
+          "guide_id": "page_webcam_supervisor_advanced",
+          "scope": {
+            "owner_addon": "nc.webcam_supervisor",
+            "workspace": "runtime",
+            "runtime_section": "vision",
+            "provider_kind": "vision",
+            "provider_id": "webcam",
+            "sensory_tab": "advanced"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.web_intelligence",
+      "key": "web_intelligence",
+      "name": "Web Search",
+      "presentation": "addon",
+      "overview_id": "overview_web_intelligence",
+      "pages": [
+        {
+          "topic": "Overview",
+          "guide_id": "page_web_intelligence_overview",
+          "scope": {
+            "owner_addon": "nc.web_intelligence",
+            "workspace": "addons",
+            "addon": "web_intelligence_tab",
+            "section": "Overview"
+          }
+        },
+        {
+          "topic": "Servers",
+          "guide_id": "page_web_intelligence_servers",
+          "scope": {
+            "owner_addon": "nc.web_intelligence",
+            "workspace": "addons",
+            "addon": "web_intelligence_tab",
+            "section": "Servers"
+          }
+        },
+        {
+          "topic": "Test",
+          "guide_id": "page_web_intelligence_test",
+          "scope": {
+            "owner_addon": "nc.web_intelligence",
+            "workspace": "addons",
+            "addon": "web_intelligence_tab",
+            "section": "Test"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.whisper_english_stt",
+      "key": "whisper_english_stt",
+      "name": "Whisper English STT",
+      "presentation": "stt",
+      "overview_id": "overview_whisper_english_stt",
+      "pages": [
+        {
+          "topic": "Recognition",
+          "guide_id": "page_whisper_english_stt_recognition",
+          "scope": {
+            "owner_addon": "nc.whisper_english_stt",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "speech",
+            "provider_kind": "stt",
+            "provider_id": "whisper_english"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.whisper_multilingual_stt",
+      "key": "whisper_multilingual_stt",
+      "name": "Whisper Multilingual STT",
+      "presentation": "stt",
+      "overview_id": "overview_whisper_multilingual_stt",
+      "pages": [
+        {
+          "topic": "Recognition",
+          "guide_id": "page_whisper_multilingual_stt_recognition",
+          "scope": {
+            "owner_addon": "nc.whisper_multilingual_stt",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "speech",
+            "provider_kind": "stt",
+            "provider_id": "whisper_multilingual"
+          }
+        }
+      ],
+      "runtime_verified": false
+    },
+    {
+      "manifest_id": "nc.chat_provider_xai",
+      "key": "xai_provider",
+      "name": "xAI / Grok Chat Provider",
+      "presentation": "language",
+      "overview_id": "overview_xai_provider",
+      "pages": [
+        {
+          "topic": "Connection",
+          "guide_id": "page_xai_provider_connection",
+          "scope": {
+            "owner_addon": "nc.chat_provider_xai",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "xai"
+          }
+        },
+        {
+          "topic": "Model",
+          "guide_id": "page_xai_provider_model",
+          "scope": {
+            "owner_addon": "nc.chat_provider_xai",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "xai"
+          }
+        },
+        {
+          "topic": "Generation",
+          "guide_id": "page_xai_provider_generation",
+          "scope": {
+            "owner_addon": "nc.chat_provider_xai",
+            "workspace": "runtime",
+            "runtime_section": "runtime",
+            "runtime_responsibility": "language",
+            "provider_kind": "language",
+            "provider_id": "xai"
+          }
+        }
+      ],
+      "runtime_verified": false
+    }
+  ]
+}

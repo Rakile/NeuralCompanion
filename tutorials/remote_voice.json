@@ -1,0 +1,55 @@
+{
+  "id": "remote_voice",
+  "audience": "remote",
+  "order": 103,
+  "title": "Voice and Live Mode",
+  "category": "Personas & Voices",
+  "description": "Hear a short phone reply first, then test and stop one live microphone exchange.",
+  "speech_backend": "chatterbox",
+  "estimated_minutes": 5,
+  "before_you_start": "Complete pairing and one text reply before adding voice. Backend HQ Audio needs desktop speech services; Phone Native needs the phone speech support shown in settings. Use headphones if practical. Microphone permission is needed when you choose to capture speech. Screenshots show settings routes, not the live start button.",
+  "learning_outcomes": [
+    "Hear a phone-started reply through the selected speech route.",
+    "Verify a live speech turn and reply, then stop capture."
+  ],
+  "steps": [
+    {
+      "title": "Verify output before testing the microphone",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.04,
+        0.31,
+        0.92,
+        0.09
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open Settings → Voice & playback. Check Phone TTS volume and Autoplay TTS on phone. Keep your current route for this first test: Backend HQ Audio uses desktop speech services; Phone Native uses the phone speech support and availability shown here.\n\nReturn to Chat and send “Please say hello in one short sentence” from the phone. Check the text reply, then listen on the intended speaker or headphones. Phone-started replies play here; desktop-started replies normally stay on the computer.\n\nIf text arrives silently, check phone media volume, Bluetooth routing and autoplay, then speech readiness. Fix playback before adding microphone input. Hear step and Read aloud narrate on desktop; hearing them does not prove phone playback works.",
+      "expected": "A phone-started assistant reply is audible on the intended phone output.",
+      "recovery": "Check media volume, routing, autoplay and the selected speech route before testing live input.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    },
+    {
+      "title": "Speak one turn, then stop capture",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.04,
+        0.31,
+        0.92,
+        0.09
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open response controls in Chat. Under Live microphone, tap Start and grant microphone access if prompted. Say “What is two plus two?” Then pause and allow the assistant to answer.\n\nCheck both halves: recognized words should form a user turn, then an assistant reply should follow. When finished, use Stop for Live microphone. Stopping speech playback and stopping capture are separate actions; check the live state too.\n\nIf Start reports busy playback, finish or stop that reply and try once more. For failed capture, check microphone permission and the speech route. If a transcript appears without an answer, inspect the desktop LLM rather than changing microphone settings.",
+      "expected": "Your speech becomes a user turn, the assistant answers, and live capture shows stopped when finished.",
+      "recovery": "Finish busy playback before retrying. Check permission for missing capture; check the desktop LLM for a transcript with no answer.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    }
+  ]
+}

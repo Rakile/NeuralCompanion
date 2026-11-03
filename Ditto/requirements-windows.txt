@@ -1,0 +1,18 @@
+# Install PyTorch separately from its CUDA 12.8 wheel index:
+# python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
+# Then: python -m pip install -r requirements-windows.txt
+numpy==1.26.4
+mediapipe==0.10.21
+opencv-contrib-python==4.11.0.86
+onnxruntime-gpu==1.22.0
+onnx==1.17.0
+librosa==0.10.2.post1
+scikit-image==0.25.2
+cython==3.0.12
+einops==0.8.1
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+filetype==1.2.0
+tqdm==4.67.1
+setuptools==75.8.2
+wheel==0.45.1

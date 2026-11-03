@@ -1,0 +1,27 @@
+{
+  "id": "nc.hotkeys",
+  "name": "Hotkeys",
+  "category": "global",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Configurable hotkeys for push-to-talk, control actions, and focused-window UI actions.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "hotkeys_tab",
+      "title": "Hotkeys",
+      "area": "top_level",
+      "placeholder": "hotkeys_tab",
+      "icon_path": "ui/icons/hotkeys.png",
+      "order": 918,
+      "tooltip": "Configure push-to-talk and other available shortcuts.",
+      "metadata": {
+        "native_qml": true,
+        "runtime_role": "hotkeys"
+      }
+    }
+  ],
+  "enabled": true
+}

@@ -1,0 +1,39 @@
+{
+  "id": "nc.vseeface_avatar",
+  "name": "VSeeFace Avatar",
+  "category": "avatar",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "VSeeFace/VMC avatar engine provider.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "services": [
+    {
+      "id": "avatar_provider_registry",
+      "provider_id": "vseeface"
+    }
+  ],
+  "ui": [
+    {
+      "id": "vseeface_avatar_tab",
+      "title": "VSeeFace",
+      "area": "top_level",
+      "placeholder": "vseeface_tab",
+      "icon_path": "ui/icons/vseeface.png",
+      "order": 110,
+      "tooltip": "VSeeFace body pose and runtime controls.",
+      "metadata": {
+        "native_qml": true,
+        "provider_id": "vseeface"
+      }
+    }
+  ],
+  "enabled": true,
+  "runtime_defaults": {
+    "vseeface_controls_state": {},
+    "vseeface_collapsed_cards": {},
+    "vseeface_bridge_enabled": false,
+    "vseeface_bridge_install_path": ""
+  }
+}

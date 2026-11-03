@@ -1,0 +1,13 @@
+{
+  "id": "nc.companion_chess",
+  "name": "Companion Chess",
+  "category": "tools",
+  "version": "0.2.0",
+  "entry_point": "main.py",
+  "description": "Local persona chess or online NC Relay matches in 2D/3D, with private companion commentary and optional Launchpad controls.",
+  "permissions": ["services.consume", "ui.tabs", "storage.read", "storage.write"],
+  "execution_lanes": {"ui": true, "worker": true, "external_process": true},
+  "ui": [{"id": "companion_chess_tab", "title": "Companion Chess", "icon_path": "../../ui_icons/side_tabs/companion_chess.png", "area": "top_level", "order": 935, "metadata": {"native_qml": true}}],
+  "native_qml": true,
+  "enabled": true
+}

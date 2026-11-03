@@ -1,0 +1,173 @@
+{
+  "guides": [
+    {
+      "id": "overview_ollama_provider",
+      "title": "Ollama Chat Provider overview",
+      "description": "Local Ollama chat provider addon for NC's dynamic chat-provider registry.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chat_provider_ollama",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "ollama"
+      },
+      "category": "Runtime / LLM / Ollama Chat Provider",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Local Ollama chat provider addon for NC's dynamic chat-provider registry.",
+        "Find focused guidance for Connection, Model, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_ollama_provider_connection",
+        "page_ollama_provider_model",
+        "page_ollama_provider_generation",
+        "language_providers"
+      ],
+      "steps": [
+        {
+          "title": "What Ollama Chat Provider does",
+          "body": "Local Ollama chat provider addon for NC's dynamic chat-provider registry. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_ollama_provider_connection",
+        "page_ollama_provider_model",
+        "page_ollama_provider_generation"
+      ],
+      "display_title": "Start tutorial · Ollama Chat Provider",
+      "optional_chapters": [
+        "language_providers"
+      ]
+    },
+    {
+      "id": "page_ollama_provider_connection",
+      "title": "Ollama Chat Provider · Connection",
+      "description": "Use Connection in Ollama Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_ollama",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "ollama"
+      },
+      "category": "Runtime / LLM / Ollama Chat Provider",
+      "order": 210,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Verify the local Ollama server",
+        "Recover a missing model list"
+      ],
+      "steps": [
+        {
+          "title": "Verify the local Ollama server",
+          "body": "Open Connection and confirm the server URL points at your running Ollama service. A model list should appear only after the server responds. This backend’s page does not document a dedicated test button; a listed entry after a refresh is the visible sign the server answered, not a generation test.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover a missing model list",
+          "body": "If the selector stays empty, confirm Ollama is running, the URL is correct, and any required local model has been pulled in Ollama itself. A successful link without models means download or name state, not a broken NC addon. Refresh or reconnect before editing generation values.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ollama_provider"
+    },
+    {
+      "id": "page_ollama_provider_model",
+      "title": "Ollama Chat Provider · Model",
+      "description": "Use Model in Ollama Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_ollama",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "ollama"
+      },
+      "category": "Runtime / LLM / Ollama Chat Provider",
+      "order": 211,
+      "topic": "Model",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose one available model",
+        "Distinguish availability from readiness"
+      ],
+      "steps": [
+        {
+          "title": "Choose one available model",
+          "body": "In Model pick a name from the listed entries, then confirm the selector still shows it when you return. A name in the list means the server reported it; it does not prove a reply. After choosing, use a harmless Main Chat ask to confirm generation.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish availability from readiness",
+          "body": "The model selector lists what Ollama reports; readiness depends on a real reply. If generation fails while the name remains listed, check the Ollama server logs and local resources before choosing a different tag. Keep the working selection noted so you can restore it.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ollama_provider"
+    },
+    {
+      "id": "page_ollama_provider_generation",
+      "title": "Ollama Chat Provider · Generation",
+      "description": "Use Generation in Ollama Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_ollama",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "ollama"
+      },
+      "category": "Runtime / LLM / Ollama Chat Provider",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Test with current generation values",
+        "Record changes so they can be reversed"
+      ],
+      "steps": [
+        {
+          "title": "Inspect generation values before comparison",
+          "body": "Keep the existing generation values while learning their purpose. A later short reply with the same prompt and active model gives a useful comparison after one deliberate edit. Connection failures and missing models must be resolved separately; the related guides identify those areas without changing sampling values.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Record changes so they can be reversed",
+          "body": "Note values before editing, then compare the next reply with the previous one rather than assuming a slider guarantees a quality change. If the output worsens, restore the recorded value. Generation tuning assumes a confirmed server and listed model.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_ollama_provider_connection",
+        "page_ollama_provider_model"
+      ],
+      "course_id": "overview_ollama_provider"
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "id": "nc.visual_reply",
+  "name": "Visual Reply",
+  "category": "visuals",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Addon-owned Visuals host tab for visual reply runtime settings.",
+  "native_qml": true,
+  "permissions": [
+    "ui.tabs"
+  ],
+  "runtime_defaults": {
+    "visual_replies_enabled": false,
+    "visual_reply_mode": "off",
+    "visual_reply_provider": "openai",
+    "visual_reply_model": "gpt-image-1",
+    "visual_reply_size": "1024x1024",
+    "visual_reply_provider_settings": {},
+    "visual_reply_auto_show_dock": true,
+    "visual_reply_toolbar_expanded": false,
+    "visual_reply_story_mode": false,
+    "visual_reply_story_max_images": 3,
+    "visual_reply_story_continuity_strength": 0.8,
+    "visual_reply_story_theme_enabled": [],
+    "visual_reply_master_style_prompt": "",
+    "visual_reply_master_prompt_safe": false,
+    "visual_reply_master_prompt_no_speech_bubbles": false
+  },
+  "runtime_env_overrides": {
+    "visual_reply_mode": "NC_VISUAL_REPLY_MODE",
+    "visual_reply_provider": "NC_VISUAL_REPLY_PROVIDER",
+    "visual_reply_model": "NC_VISUAL_REPLY_MODEL",
+    "visual_reply_size": "NC_VISUAL_REPLY_SIZE"
+  },
+  "host_services": [],
+  "ui": [
+    {
+      "id": "visuals_host",
+      "title": "Visuals",
+      "area": "visual_reply_runtime",
+      "placeholder": "host_settings_visuals_tab",
+      "icon_path": "ui/icons/visuals.png",
+      "order": 120,
+      "tooltip": "Visual reply runtime settings and future visual addons.",
+      "metadata": {
+        "nested_title": "Core",
+        "runtime_role": "visual_reply",
+        "disabled_surfaces": [
+          {
+            "dock_name": "visual_reply_dock",
+            "button_name": "btn_visual_reply",
+            "session_visible_key": "visual_reply_visible"
+          }
+        ]
+      }
+    }
+  ],
+  "enabled": true
+}

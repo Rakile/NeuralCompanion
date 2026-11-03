@@ -1,0 +1,77 @@
+{
+  "id": "user_identity",
+  "order": 29,
+  "title": "29. User Identity",
+  "description": "Create a small user profile, import one portrait and decide when chat or generated images may use them.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "user_identity_tab",
+      "section": "Profile & portrait"
+    },
+    {
+      "workspace": "addons",
+      "addon": "user_identity_tab",
+      "section": "Visual Replies"
+    },
+    {
+      "workspace": "addons",
+      "addon": "user_identity_tab",
+      "section": "Privacy"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Start with a nickname and one preference",
+      "body": "In Profile & portrait, find Name, Preferred form of address, Short bio and Interaction notes. Enable User Identity is the master switch for profile context, avatar display and user image references.\n\nFor a small first exercise, use a nickname such as “Sam” and one note: “Explain unfamiliar terms.” Leave other details empty if unnecessary. Finish editing and return to check the fields. If you have not reviewed Privacy yet, do so before enabling profile use or sending another chat request. The switch state confirms your choice; it does not test a generated image.\n\nRead aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "user_identity_tab",
+      "section": "Profile & portrait"
+    },
+    {
+      "title": "Import and check one reusable portrait",
+      "body": "Choose portrait imports an existing image. Select your portrait or illustration and check Accepted user portrait and Portrait status. This lets you establish a reference without generating an image first.\n\nIn Stable visual identity prompt, describe lasting traits such as “short curly brown hair and round glasses”. Keep park scenes or poses for individual requests. Generate portrait is optional and needs a ready Visual Reply provider; Refine identity prompt calls the active LLM. If import fails, check the reported path/format error. Request transparent portrait background affects new generations, not the image you imported.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "user_identity_tab",
+      "section": "Profile & portrait"
+    },
+    {
+      "title": "Allow a shared image only when asked",
+      "body": "In Visual Replies, Show the user avatar on user messages controls chat display. Allow Visual Replies to use the user portrait and When the user may appear separately control generated images.\n\nFor a deliberate first image, choose Include user when asked and allow the portrait only if intended. With Visual Reply ready, ask “Show me and the Persona sitting in a park.” Inspect whether the image follows that request and resembles the accepted reference; likeness is not guaranteed. If you are absent, check the master switch, portrait permission and When setting before changing User reference strength. You may skip generation and keep the display-only portrait.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "user_identity_tab",
+      "section": "Visual Replies"
+    },
+    {
+      "title": "Choose what future requests may include",
+      "body": "In Privacy, inspect Include name and bio in current LLM requests. Turn it off if you want to stop that profile context being added to future requests. This context is temporary; the addon does not append it to canonical chat history, continuity memory or Long-Term Memory.\n\nImage permission is separate: use Never include user in Visual Replies to prevent user inclusion there, or turn off Enable User Identity for all addon identity use. Check the resulting option states. They show your configuration, not the contents of a past request or anything an outside provider already received.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "user_identity_tab",
+      "section": "Privacy"
+    },
+    {
+      "title": "Replace or remove the source reference",
+      "body": "Return to Profile & portrait. Update stored fields here when your details change; asking chat to remember a correction does not edit these fields. Choose portrait replaces the reference, and Clear portrait removes it from this identity profile.\n\nFor practice, reopen the profile and verify your chosen text and accepted image. Clear only if you intend to remove the reference, then check the preview is empty and read Portrait status. Earlier generated images and messages remain separate artifacts. Review the privacy settings before your next request. The basic exercise succeeds when the stored profile and portrait match your choices; generated likeness is an optional separate test.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "user_identity_tab",
+      "section": "Profile & portrait"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Enable User Identity in Addon Manager and restart if requested. This profile describes you, separately from the companion Persona. Review Privacy before entering details you do not want sent to the active provider; hosted providers can receive permitted context or image references. Start with a nickname and an existing portrait or illustration. Generation is optional and needs Visual Reply; prompt refinement needs the active LLM. Reading changes nothing. Narration prefers loaded Chatterbox, with Windows TTS as fallback.",
+  "learning_outcomes": [
+    "Enter a small user profile and verify an accepted portrait.",
+    "Distinguish avatar display from using a portrait in generated images.",
+    "Choose request-time privacy and update or remove a reference."
+  ],
+  "contextual_guides": [
+    "overview_user_identity"
+  ]
+}

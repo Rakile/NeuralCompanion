@@ -1,0 +1,13 @@
+RuntimeWorkspace 1.0 RuntimeWorkspace.qml
+RuntimeProviderWorkspace 1.0 RuntimeProviderWorkspace.qml
+SessionSetupWorkspace 1.0 SessionSetupWorkspace.qml
+SpeechRuntimeWorkspace 1.0 SpeechRuntimeWorkspace.qml
+VisualReplyRuntimeWorkspace 1.0 VisualReplyRuntimeWorkspace.qml
+CoreSettingsWorkspace 1.0 CoreSettingsWorkspace.qml
+PersonaWorkspace 1.0 PersonaWorkspace.qml
+PersonaPromptBuilder 1.0 PersonaPromptBuilder.qml
+TutorialsWorkspace 1.0 TutorialsWorkspace.qml
+OperationsWorkspace 1.0 OperationsWorkspace.qml
+AddonsWorkspace 1.0 AddonsWorkspace.qml
+ConversationWorkspace 1.0 ConversationWorkspace.qml
+VisualsWorkspace 1.0 VisualsWorkspace.qml

@@ -1,0 +1,55 @@
+{
+  "id": "remote_reading",
+  "audience": "remote",
+  "order": 104,
+  "title": "Reading, scrolling and text size",
+  "category": "Chat & Memory",
+  "description": "Make phone chat comfortable to read, then test speech highlighting and scrolling separately.",
+  "speech_backend": "chatterbox",
+  "estimated_minutes": 5,
+  "before_you_start": "Have at least one assistant reply on the phone. Text sizing works without speech. Read along needs playable reply audio with matching timing; use Voice and Live Mode first if audio is not working. Apply controls on the real phone; the Android Editorial screenshots show routes only.",
+  "learning_outcomes": [
+    "Enable Read along for available reply audio.",
+    "Resize text with Aa and choose whether the view follows speech."
+  ],
+  "steps": [
+    {
+      "title": "Try Read along in a familiar layout",
+      "screenshot": "appearance.png",
+      "highlight": [
+        0.04,
+        0.2,
+        0.92,
+        0.18
+      ],
+      "device": "On your phone",
+      "body": "On your phone, Settings → Appearance opens Look. Classic and Editorial arrange controls differently; these pictures use Editorial. Keep your preferred layout and return to Chat rather than changing several appearance options at once.\n\nOpen Quick controls with + and enable Read along. Play a reply with audio and watch for its spoken passage to be marked. Bionic is a separate option; leave it unchanged for this first comparison. A mark moving with speech is the useful result.\n\nIf no mark moves, confirm reply audio is playing and timing is available. You can still read manually without timing. Hear step and Read aloud narrate this desktop lesson, separately from the phone reply being tested.",
+      "expected": "With timed reply audio, Read along marks the spoken passage. Without timing you can still read manually.",
+      "recovery": "Confirm phone reply playback first. A reply without matching timing remains readable and scrollable.",
+      "caption": "Android Editorial • Appearance overview.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    },
+    {
+      "title": "Size the text, then choose automatic follow",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.02,
+        0.92,
+        0.32,
+        0.06
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open Aa in reading controls. Use Conversation text or A−/A+ to change the font one step, then Done and check the same reply. Pinching actual chat text also resizes it. Stop when wrapping feels comfortable; return to Aa to adjust again.\n\nTo follow speech, enable Read along, then Auto-scroll with voice in Reading options. Play a reply and compare with auto-scroll turned off. This separates text size from movement. The auto-scroll option needs Read along enabled.\n\nIf movement makes reading harder, disable auto-scroll and scroll manually. For unexpected jumps while untouched, note the time for Diagnostics. The screenshot only shows the route to Chat.",
+      "expected": "Text size and wrapping change. Auto-scroll follows timed speech when enabled and can be switched off for independent reading.",
+      "recovery": "Enable Read along if auto-scroll is unavailable. For unexpected jumps, disable auto-scroll and record when they happened.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "Pinch on chat: ← •   • → larger; → • • ← smaller",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    }
+  ]
+}

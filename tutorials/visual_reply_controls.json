@@ -1,0 +1,106 @@
+{
+  "id": "visual_reply_controls",
+  "order": 10,
+  "title": "10. Visual Replies",
+  "description": "Generate one deliberate image, inspect and save it, then explore optional workflows and references.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "visual"
+    },
+    {
+      "workspace": "conversation"
+    },
+    {
+      "workspace": "visuals"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "provider_kind": "vision",
+      "provider_id": "shared_awareness"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Set up one image provider",
+      "body": "In Runtime → Visual reply, click the provider you intend to use. Enter its API key, Image model and connection fields as applicable; ComfyUI uses Server address and Workflow path instead. Click outside edited fields, then Make active and check the Active indicator. Viewing a provider alone does not activate it.\n\nSet Visual reply mode to Automatic so image requests can follow the Persona visual policy. It does not generate immediately. If using ComfyUI, use its workflow step below before the first request. Read aloud narrates this guide; Hear step reads only this step.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "visual"
+    },
+    {
+      "title": "Request one simple picture and wait",
+      "body": "Before sending, open Persona → Visual replies. Under Generation behavior, set Visual Reply behavior to Generate when asked. The separate auto-show switch only controls display. Return to Main chat.\n\nIf stopped, start the configured runtime with the top-right power button OFF → ON and wait for readiness. Send “Create a watercolor image of a lighthouse at dusk.” Wait for the image or generation error before retrying. Hosted requests can incur charges.\n\nA visible image is the first successful result. If only prose appears, recheck Automatic mode and Generate when asked for the active Persona. For a generation error, check the image provider’s model access, credentials or server. Leave references and multiple images for later.",
+      "workspace": "conversation",
+      "target": "conversationComposer"
+    },
+    {
+      "title": "Inspect and save the picture you generated",
+      "body": "Open the inline image’s context menu and choose Open and zoom to inspect it. Return to the menu and use Save image as to keep a named copy. These actions operate on that image; check you opened the intended picture before saving. Copy image and Open file location offer other ways to reuse or locate it.\n\nComment on this image stages it in the composer so you can add a question before sending. Add variation makes another image while keeping the original, and needs the runtime ON plus a saved prompt. Leave variation for after your first image works; a missing image means these actions have nothing to operate on.",
+      "workspace": "conversation",
+      "target": "visualReplyAsset",
+      "fallback_target": "conversationComposer",
+      "target_hint": "If there is no assistant response yet, switch NC ON with the top-right power button and send a short message. Image actions require an image response; Edit opens the response editor. You can also continue reading without generating anything."
+    },
+    {
+      "title": "Load the saved picture without regenerating it",
+      "body": "In Visual Reply, choose Load Image and open your saved copy. Confirm the displayed picture matches it. Previous and Next browse stored history when entries exist; loading an external file only displays it and does not send another generation request.\n\nTools exposes actions hidden on compact layouts; Float opens a separate display. Caption edits the displayed image’s caption. Clear clears the display state. Delete Image and Delete All permanently remove stored files after confirmation, so they are unnecessary for this exercise. If a picture is missing, locate the saved file before deleting or generating more.",
+      "workspace": "visuals",
+      "target": "visualReplyToolbar"
+    },
+    {
+      "title": "Optional: allow awareness to request images",
+      "body": "After an explicit image request succeeds, Runtime → Vision Sensors → Shared Awareness Policy offers Allow hidden visual generation. This lets an eligible background review request an image; it does not configure the image provider or establish a sensory source. Leave it off for the basic image exercise.\n\nIf you need this later, first test the chosen source and its rules in the awareness guides. Review which sources are enabled before granting shared image permission. If background generation fails, disable that permission and repeat the explicit image test to separate image-provider problems from source or review-policy problems.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "ComfyUI path: verify the workflow before testing",
+      "body": "If you use ComfyUI, view it in Runtime → Visual reply. Start its server, set Server address and Workflow path to a compatible exported API workflow on this computer, then click Refresh workflow. Read workflow status, Detected model and Prompting Rules before Make active. A workflow file alone does not install its models or custom nodes.\n\nReturn to the simple lighthouse request to test the whole chain. Detection can succeed while execution fails. If it does, read the reported workflow/server error, check missing models or nodes and refresh after fixing them. Providers other than ComfyUI can skip this step.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "visual"
+    },
+    {
+      "title": "Optional: make one controlled ComfyUI comparison",
+      "body": "ComfyUI saves generation settings per server and workflow. Begin with Use workflow dimensions and Use workflow seed to preserve that graph’s choices. Read Next reply to see the effective settings. Only after a working image, try Fixed seed when comparing one supported setting across repeated prompts.\n\nSampler node selects the stage affected by overrides. Changing it clears sampler overrides and restores NC seed behavior. Override sampler settings enables supported literal fields; linked inputs remain workflow controlled. If a field is read only, inspect the graph rather than repeatedly typing into it. Restore workflow values if a comparison breaks the working request.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "visual"
+    },
+    {
+      "title": "Optional: transform one attached reference",
+      "body": "For xAI or Runware, the Image-to-image card has Use image-to-image when a reference image is supplied and a separate Image-to-image model. Configure those only after ordinary generation works. Runware also offers Transformation strength; keep its existing value for the first comparison.\n\nStage a harmless image in Conversation and request “Keep this composition but make it a pencil sketch.” Check the attachment before sending, then compare the result with the source. Without a valid reference the standard image model is used. If composition is ignored, verify the staged image, enabled option and transformation model before changing strength or prompt wording.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "visual"
+    },
+    {
+      "title": "Recognize the context-specific toolbar tools",
+      "body": "Tools also contains Load Current Story Image and Use Current Image Style. These depend on an existing story playback context and can report that no story is loaded. They are not needed to generate, save or reload an ordinary Main chat image. Leave them unused for this exercise.\n\nReturn to your saved lighthouse picture and confirm you can display it again. Your first Visual Reply test succeeded if your deliberate request produced a usable picture through the intended provider. If it did not, return to setup and the reported error; finishing the guide does not establish provider readiness.",
+      "workspace": "visuals",
+      "target": "visualReplyToolbar"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "First get a Main chat text reply working. Choose one image provider with the credentials and model access it needs. ComfyUI additionally requires a running server, compatible API workflow and that workflow’s installed models and nodes. Start with one explicit picture request; automatic awareness images and reference transformations can wait. The guide never selects providers, sends requests or saves images for you.",
+  "learning_outcomes": [
+    "Activate an image provider and verify one explicit Main chat image request.",
+    "Inspect, save and reload the resulting picture.",
+    "Understand optional ComfyUI overrides and reference-image transformations."
+  ],
+  "contextual_guides": [
+    "overview_visual_reply",
+    "page_visuals_overview"
+  ]
+}

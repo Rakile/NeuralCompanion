@@ -1,0 +1,93 @@
+{
+  "guides": [
+    {
+      "id": "overview_whisper_multilingual_stt",
+      "title": "Whisper Multilingual STT overview",
+      "description": "Local faster-whisper STT backend for auto-detected or non-English speech.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.whisper_multilingual_stt",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "speech",
+        "provider_kind": "stt",
+        "provider_id": "whisper_multilingual"
+      },
+      "category": "Runtime / Speech-to-text / Whisper Multilingual STT",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Local faster-whisper STT backend for auto-detected or non-English speech.",
+        "Find focused guidance for Recognition."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_whisper_multilingual_stt_recognition",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "What Whisper Multilingual STT does",
+          "body": "Local faster-whisper STT backend for auto-detected or non-English speech. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_whisper_multilingual_stt_recognition"
+      ],
+      "display_title": "Start tutorial · Whisper Multilingual STT",
+      "optional_chapters": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_whisper_multilingual_stt_recognition",
+      "title": "Whisper Multilingual STT · Recognition",
+      "description": "Use Recognition in Whisper Multilingual STT.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.whisper_multilingual_stt",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "speech",
+        "provider_kind": "stt",
+        "provider_id": "whisper_multilingual"
+      },
+      "category": "Runtime / Speech-to-text / Whisper Multilingual STT",
+      "order": 210,
+      "topic": "Recognition",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect multilingual recognition settings",
+        "Verify with a short spoken phrase",
+        "Local model prerequisites"
+      ],
+      "steps": [
+        {
+          "title": "Inspect multilingual recognition settings",
+          "body": "Read the language and model controls for Whisper Multilingual. Auto-detection suits varied languages; choosing a language can make a controlled test easier to interpret. These are recognition settings within the provider page, not a separate tab. A loaded backend and recorded speech are needed to verify transcription.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Verify with a short spoken phrase",
+          "body": "Recognition settings only show intent. Verification requires speaking a short phrase in the target language and reading the transcript. If words are dropped or mistranslated, re-check language choice before adjusting other recognition values.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Local model prerequisites",
+          "body": "This backend runs locally through faster-whisper, so the environment must be able to load the model. If recognition never returns a transcript, confirm the model is available before assuming settings are wrong. Provide the required setup rather than expecting network access.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_whisper_multilingual_stt"
+    }
+  ]
+}

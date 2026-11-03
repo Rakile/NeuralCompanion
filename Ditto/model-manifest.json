@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "repository": "digital-avatar/ditto-talkinghead",
+  "revision": "e4a2f60328ee7c32af585ac4b3cce299e4c8e254",
+  "files": [
+    {
+      "path": "ditto_cfg/v0.4_hubert_cfg_pytorch.pkl",
+      "size": 31002,
+      "sha256": "8e4c9ecb8dbb5aa4d22cb3f9b2c6ceabc62499b04af5fe074826d5b1044c4146"
+    },
+    {
+      "path": "ditto_pytorch/aux_models/2d106det.onnx",
+      "size": 5030888,
+      "sha256": "f001b856447c413801ef5c42091ed0cd516fcd21f2d6b79635b1e733a7109dbf"
+    },
+    {
+      "path": "ditto_pytorch/aux_models/det_10g.onnx",
+      "size": 16923827,
+      "sha256": "5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91"
+    },
+    {
+      "path": "ditto_pytorch/aux_models/face_landmarker.task",
+      "size": 3758596,
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+    },
+    {
+      "path": "ditto_pytorch/aux_models/hubert_streaming_fix_kv.onnx",
+      "size": 1460740880,
+      "sha256": "04cd6c7c388aaf99cdea8d4599cefede9930e60d6051abd5a33c791aeb931697"
+    },
+    {
+      "path": "ditto_pytorch/aux_models/landmark203.onnx",
+      "size": 114666491,
+      "sha256": "31d22a5041326c31f19b78886939a634a5aedcaa5ab8b9b951a1167595d147db"
+    },
+    {
+      "path": "ditto_pytorch/models/appearance_extractor.pth",
+      "size": 3387959,
+      "sha256": "5279bb8654293dbdf327030b397f107237dd9212fb11dd75b83dfb635211ceb5"
+    },
+    {
+      "path": "ditto_pytorch/models/decoder.pth",
+      "size": 221813590,
+      "sha256": "4780afc7909a9f84e24c01d73b31a555ef651521a1fe3b2429bd04534d992aee"
+    },
+    {
+      "path": "ditto_pytorch/models/lmdm_v0.4_hubert.pth",
+      "size": 191247715,
+      "sha256": "40ef5aa80b76e9fc45a0f606cdd507bbeb09d3d078b016ac61fc47e369be8c94"
+    },
+    {
+      "path": "ditto_pytorch/models/motion_extractor.pth",
+      "size": 112545506,
+      "sha256": "251e6a94ad667a1d0c69526d292677165110ef7f0cf0f6d199f0e414e8aa0ca5"
+    },
+    {
+      "path": "ditto_pytorch/models/stitch_network.pth",
+      "size": 2393098,
+      "sha256": "3652d5a3f95099141a56986aaddec92fadf0a73c87a20fac9a2c07c32b28b611"
+    },
+    {
+      "path": "ditto_pytorch/models/warp_network.pth",
+      "size": 182180086,
+      "sha256": "2f61a6f265fe344f14132364859a78bdbbc2068577170693da57fb96d636e282"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "id": "installer_and_runtimes",
+  "order": 2,
+  "title": "2. Installer and Runtimes",
+  "description": "Understand installed components, provider readiness, and model-backed features.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "memory"
+    },
+    {
+      "workspace": "addons",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.performance",
+      "section": "Overview"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Runtime responsibilities",
+      "body": "NC treats language, speech input, voice output, visual generation and avatar providers as separate parts that install and test independently. Runtime groups them: Session setup, LLM, speech input, Text-to-speech, Visual and Avatar. A working chat model proves only the language part.\n\nExample: you can chat with text using only LM Studio, then add Chatterbox later for speech. Success check: you can point to the group responsible for the feature you are troubleshooting. Use Read aloud to hear the whole guide, or Hear step for only the current instruction; for the better voice, select and load Chatterbox first, otherwise NC tries Windows TTS.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Provider settings",
+      "body": "Click a provider card to view its model, connection and installation status; single-clicking only views. Making a provider active is a separate action. Inside the card, Test connection or the provider's readiness checks verify reachability before you initialize.\n\nExample: view Ollama, confirm its Base URL, click Test connection, then use Make active or double-click the row. Success check: the row says Active provider with a green indicator and the test succeeded. If the provider is absent, enable its addon in Addon Manager and restart when requested; viewing never downloads a model or starts a server.",
+      "workspace": "runtime",
+      "target": "runtimeProviderWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Additional search models",
+      "body": "Document Memory uses its own local embedding server and a model saved with each knowledge package. Its recall switch decides whether documents join chat. An explicit import, rebuild or test search can still ask for model preparation; reading cannot.\n\nConversation memory has a separate optional search setup under Runtime → LLM, and the two do not share an index. Example: finish a conversation-memory search model in its card, then confirm Document Memory still lists its own package. Success check: each memory system reports its own ready or not-ready state. If a search stalls, check the matching card rather than assuming one index serves both.",
+      "workspace": "runtime",
+      "target": "documentMemoryWorkspace",
+      "runtime_section": "memory"
+    },
+    {
+      "title": "MuseTalk resources",
+      "body": "MuseTalk Avatar and its Creator have separate preparation and runtime responsibilities, and Ditto likewise has its own avatar provider and Creator. A prepared pack for one engine is not a pack for the other.\n\nExample: preparing a face for MuseTalk does not make it available to Ditto. Use the guide matching the provider you selected, inside the installed environment that provider needs. Success check: the Creator for your chosen engine shows its prepared resources, and the preview produces frames. If preparation is missing, follow that Creator's own steps; reading this page prepares nothing.",
+      "workspace": "addons",
+      "target": "musetalkCreatorWorkspace",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Safe troubleshooting",
+      "body": "Before reinstalling anything, open Performance Check and the addon status cards. They separate missing components from services that are merely offline, which reinstallation will not fix.\n\nExample: if speech is silent, the status card may show that the service is offline rather than Chatterbox being uninstalled—start or load it before changing installations. Success check: the status tells you whether the component is absent or present-but-inactive, and you choose the matching action. If you still are unsure, restart the NC application itself (not the runtime power button) after saving any chat.",
+      "workspace": "addons",
+      "target": "operationsWorkspace",
+      "addon": "core.performance",
+      "section": "Overview"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "This guide explains what the installer placed and how provider readiness differs from activity. Reading it does not install, test, load or start anything. To follow along, note which addons you enabled and whether LM Studio or Ollama is already running; higher-quality guide narration needs Chatterbox selected and loaded with the top-right power button OFF → ON.",
+  "learning_outcomes": [
+    "Describe how language, speech, visual and avatar providers are separated.",
+    "Tell viewing a provider apart from making it active and testing readiness.",
+    "Recognize that document memory search and conversation memory are configured independently."
+  ],
+  "contextual_guides": [
+    "runtime_session_overview"
+  ]
+}

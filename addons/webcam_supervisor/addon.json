@@ -1,0 +1,33 @@
+{
+  "id": "nc.webcam_supervisor",
+  "name": "Webcam Supervisor",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Persona-driven webcam behavior rules that can react to posture, expression, and attention cues.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "services": [
+    {
+      "id": "sensory_prompt_contributor",
+      "provider_id": "webcam"
+    }
+  ],
+  "host_services": [],
+  "ui": [
+    {
+      "id": "webcam_supervisor_tab",
+      "title": "Supervisor",
+      "area": "vision_source",
+      "parent_tab_id": "webcam",
+      "order": 210,
+      "tooltip": "Persona-driven webcam reactions for noteworthy posture, expression, and attention cues.",
+      "metadata": {
+        "checkable": true
+      }
+    }
+  ],
+  "native_qml": true,
+  "enabled": true
+}

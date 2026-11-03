@@ -1,0 +1,99 @@
+{
+  "author": "BigBadBison",
+  "title": "Spiral Chess Set",
+  "source": "https://www.thingiverse.com/thing:470700",
+  "license": "Creative Commons Attribution - Non-Commercial (as supplied in archive)",
+  "conversion": "STL to OBJ to Qt mesh with bundled PySide6 Balsam; smooth normals and LOD. Uniform scale1.55; Z-up rotated to Y-up; base centered at Y0.",
+  "pieces": {
+    "pawn": {
+      "source": "files/Pawn.stl",
+      "source_sha256": "41691111a4f271d9293f4d3440f9a41d74474394af87063898f5c80cc1f87878",
+      "triangles": 19148,
+      "bounds_min": [
+        -23.22810858784942,
+        0.0,
+        -23.23412861824036
+      ],
+      "bounds_max": [
+        23.22810858784942,
+        75.95000147819519,
+        23.23412861824036
+      ]
+    },
+    "king": {
+      "source": "files/King.STL",
+      "source_sha256": "495fba0883cb34161358d8eb836d019f5f93d3b7adea3e32a10184deb7bfde92",
+      "triangles": 22652,
+      "bounds_min": [
+        -30.972472207574175,
+        0.0,
+        -30.96150188446045
+      ],
+      "bounds_max": [
+        30.972472207574175,
+        161.20000591278077,
+        30.96150188446045
+      ]
+    },
+    "knight": {
+      "source": "files/Knight.STL",
+      "source_sha256": "3e46b633f1296525eea08067c99025df01f668b32e7e43d7640e9e438c68e12c",
+      "triangles": 17872,
+      "bounds_min": [
+        -27.886051300517284,
+        0.0,
+        -27.886050271987916
+      ],
+      "bounds_max": [
+        27.886051300517284,
+        98.58000798225403,
+        27.886050271987916
+      ]
+    },
+    "bishop": {
+      "source": "files/Bishop.stl",
+      "source_sha256": "a40eb95eec369a4b251992c5b90cfcfe5ed4d1839d33aabc592d6ffd6461322f",
+      "triangles": 22948,
+      "bounds_min": [
+        -27.111051300517286,
+        0.0,
+        -27.111051750183105
+      ],
+      "bounds_max": [
+        27.111051300517286,
+        114.68450260162354,
+        27.111051750183105
+      ]
+    },
+    "rook": {
+      "source": "files/Rook2.STL",
+      "source_sha256": "54f5ffec786fd14f3c2467ce44d0f3d865e33b1a19394be55393121c9115d644",
+      "triangles": 37828,
+      "bounds_min": [
+        -27.122313853725792,
+        0.0,
+        -27.122313380241394
+      ],
+      "bounds_max": [
+        27.122313853725792,
+        93.0,
+        27.122313380241394
+      ]
+    },
+    "queen": {
+      "source": "files/Queen.STL",
+      "source_sha256": "b2c3e6d935628debca5f6590de6f9ffa2a350e4f3a84f9ba718de176e97b973b",
+      "triangles": 21760,
+      "bounds_min": [
+        -27.878620170778596,
+        0.0,
+        -27.87048044204712
+      ],
+      "bounds_max": [
+        27.878620170778596,
+        131.8857988357544,
+        27.87048044204712
+      ]
+    }
+  }
+}

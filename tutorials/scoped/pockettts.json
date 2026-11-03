@@ -1,0 +1,250 @@
+{
+  "guides": [
+    {
+      "id": "overview_pockettts",
+      "title": "PocketTTS overview",
+      "description": "Built-in PocketTTS backend exposed as an addon.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.pockettts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts",
+        "subsection": "Voice"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Built-in PocketTTS backend exposed as an addon.",
+        "Find focused guidance for Voice, Startup, Advanced generation, Advanced runtime."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_pockettts_voice",
+        "page_pockettts_startup",
+        "page_pockettts_advanced_generation",
+        "page_pockettts_advanced_runtime",
+        "page_pockettts_voice_tag_rules",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "What PocketTTS does",
+          "body": "Built-in PocketTTS backend exposed as an addon. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_pockettts_voice",
+        "page_pockettts_startup",
+        "page_pockettts_advanced_generation",
+        "page_pockettts_advanced_runtime",
+        "page_pockettts_voice_tag_rules"
+      ],
+      "display_title": "Start tutorial · PocketTTS",
+      "optional_chapters": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_pockettts_voice",
+      "title": "PocketTTS · Voice",
+      "description": "Use Voice in PocketTTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts",
+        "subsection": "Voice"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS",
+      "order": 210,
+      "topic": "Voice",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Select a PocketTTS voice",
+        "Verify the chosen voice persists"
+      ],
+      "steps": [
+        {
+          "title": "Select a PocketTTS voice",
+          "body": "Open the Voice tab and read the available voice choices before selecting one. Choose a voice and test a short phrase. If no voice is offered, confirm PocketTTS is the selected backend in the TTS configuration; this tab shapes the voice, it does not activate the backend by itself.",
+          "target": "providerSettingsSection_Voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Verify the chosen voice persists",
+          "body": "Leave and reopen the Voice tab to confirm the voice selection held. A reset selection means the change did not persist. Test once per change rather than switching voices repeatedly, since each test consumes time and can confuse which voice produced the result. Only explicit Save controls exist for Spotify and VoiceStudio; elsewhere settings apply without one.",
+          "target": "providerSettingsSection_Voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_pockettts"
+    },
+    {
+      "id": "page_pockettts_startup",
+      "title": "PocketTTS · Startup",
+      "description": "Use Startup in PocketTTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts",
+        "subsection": "Startup"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS",
+      "order": 211,
+      "topic": "Startup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Decide when PocketTTS prepares",
+        "Inspect startup state after restart"
+      ],
+      "steps": [
+        {
+          "title": "Decide when PocketTTS prepares",
+          "body": "The Startup tab controls whether PocketTTS initializes with the TTS session. Read the current option and consider whether you prefer faster first speech or a lighter start. Restart the session after a change and observe how quickly the first utterance is available.",
+          "target": "providerSettingsSection_Startup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Inspect startup state after restart",
+          "body": "After a restart, check the reported PocketTTS state before assuming it is ready. An error at startup often names a missing local model or file. Resolve that message before changing startup options again, and confirm recovery with a short spoken test.",
+          "target": "providerSettingsSection_Startup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_pockettts"
+    },
+    {
+      "id": "page_pockettts_advanced_generation",
+      "title": "PocketTTS · Advanced generation",
+      "description": "Use Advanced generation in PocketTTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts",
+        "subsection": "Advanced generation"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS",
+      "order": 212,
+      "topic": "Advanced generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect advanced generation settings",
+        "Recover from an unexpected result"
+      ],
+      "steps": [
+        {
+          "title": "Inspect advanced generation settings",
+          "body": "Advanced generation exposes finer speech-production options. Read the current values first, since defaults are usually a sensible starting point. Change one option and test a short phrase to judge the effect. The purpose of this tab is control, not a quick fix for a misconfigured backend.",
+          "target": "providerSettingsSection_Advanced generation",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover from an unexpected result",
+          "body": "If speech becomes distorted after an advanced change, restore the previous value rather than adjusting several options at once. Test the same short phrase each time so the comparison stays fair. If the backend stops speaking entirely, read the TTS status for an error before continuing.",
+          "target": "providerSettingsSection_Advanced generation",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_pockettts"
+    },
+    {
+      "id": "page_pockettts_advanced_runtime",
+      "title": "PocketTTS · Advanced runtime",
+      "description": "Use Advanced runtime in PocketTTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts",
+        "subsection": "Advanced runtime"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS",
+      "order": 213,
+      "topic": "Advanced runtime",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review advanced runtime options",
+        "Confirm the runtime change took effect"
+      ],
+      "steps": [
+        {
+          "title": "Review advanced runtime options",
+          "body": "Advanced runtime holds lower-level PocketTTS options that affect where and how the backend runs. Read each current value before changing one, because runtime choices can affect load time and compatibility on your machine. Change one, then start the TTS session again to observe the effect.",
+          "target": "providerSettingsSection_Advanced runtime",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm the runtime change took effect",
+          "body": "After adjusting a runtime option, restart the TTS session and verify PocketTTS loads without error. A runtime change that prevents loading needs reverting before further testing. Confirm recovery with one short utterance rather than assuming a clean start proves speech quality.",
+          "target": "providerSettingsSection_Advanced runtime",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_pockettts"
+    },
+    {
+      "id": "page_pockettts_voice_tag_rules",
+      "title": "PocketTTS · Voice tag rules",
+      "description": "Understand the shared voice-tag rules alongside this TTS provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts",
+        "subsection": "voice-tag-rules"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS",
+      "order": 240,
+      "steps": [
+        {
+          "title": "Read the default voice guidance",
+          "body": "Voice tag rules describe how NC interprets voice tags alongside this backend. Read the default guidance before changing it; backend selection and reference-audio selection are separate choices. Keeping the existing rules gives you a known baseline for later speech comparisons.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        },
+        {
+          "title": "Distinguish rules from actual playback",
+          "body": "A saved rule expresses how voice tags should be interpreted, not proof that a backend accepted the reference or produced audio. A later controlled spoken reply is needed to verify routing. If output changes unexpectedly, compare the rules with their previous text before changing provider settings.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        }
+      ],
+      "course_id": "overview_pockettts"
+    }
+  ]
+}

@@ -1,0 +1,254 @@
+{
+  "guides": [
+    {
+      "id": "overview_identity_artifacts",
+      "title": "NC Identity Relay overview",
+      "description": "Connect imported identity continuity to Persona and explicit Chat relay state.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.identity_artifacts",
+        "workspace": "addons",
+        "addon": "identity_artifacts_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / NC Identity Relay",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Connect imported identity continuity to Persona and explicit Chat relay state.",
+        "Find focused guidance for Overview, Create Identity Export, Privacy, Import, Stored Artifacts."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_identity_artifacts_create_identity_export",
+        "page_identity_artifacts_privacy",
+        "page_identity_artifacts_import",
+        "page_identity_artifacts_stored_artifacts",
+        "identity_relay"
+      ],
+      "steps": [
+        {
+          "title": "What NC Identity Relay does",
+          "body": "Connect imported identity continuity to Persona and explicit Chat relay state. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Choose one continuity record to bring across",
+          "body": "Identity Relay stores exported assistant identity information so you can review its use with a Persona. Start with one small external session and a detail you can check, such as the assistant's established role. In Overview, note why you want that continuity. Treat imported text as material to review, including its source and warnings.",
+          "target": "tutorialControl_identity_relay_overview",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm what these pages do and do not do",
+          "body": "Overview explains the sections; importing or inspecting an artifact does not approve every extracted statement or enable continuity in a chat. Nothing connects simply by opening this page. Read the section names to plan the flow: create the protocol, import the artifact, review extraction, then decide privacy.",
+          "target": "tutorialControl_identity_relay_overview",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_identity_artifacts_create_identity_export",
+        "page_identity_artifacts_privacy",
+        "page_identity_artifacts_import",
+        "page_identity_artifacts_stored_artifacts"
+      ],
+      "display_title": "Start tutorial · NC Identity Relay",
+      "optional_chapters": [
+        "identity_relay"
+      ]
+    },
+    {
+      "id": "page_identity_artifacts_overview",
+      "title": "NC Identity Relay · Overview",
+      "description": "Use Overview in NC Identity Relay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.identity_artifacts",
+        "workspace": "addons",
+        "addon": "identity_artifacts_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / NC Identity Relay",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose one continuity record to bring across",
+        "Confirm what these pages do and do not do"
+      ],
+      "steps": [
+        {
+          "title": "Choose one continuity record to bring across",
+          "body": "Identity Relay stores exported assistant identity information so you can review its use with a Persona. Start with one small external session and a detail you can check, such as the assistant's established role. In Overview, note why you want that continuity. Treat imported text as material to review, including its source and warnings.",
+          "target": "tutorialControl_identity_relay_overview",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm what these pages do and do not do",
+          "body": "Overview explains the sections; importing or inspecting an artifact does not approve every extracted statement or enable continuity in a chat. Nothing connects simply by opening this page. Read the section names to plan the flow: create the protocol, import the artifact, review extraction, then decide privacy.",
+          "target": "tutorialControl_identity_relay_overview",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_identity_artifacts",
+      "hidden": true
+    },
+    {
+      "id": "page_identity_artifacts_create_identity_export",
+      "title": "NC Identity Relay · Create Identity Export",
+      "description": "Use Create Identity Export in NC Identity Relay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.identity_artifacts",
+        "workspace": "addons",
+        "addon": "identity_artifacts_tab",
+        "section": "Create Identity Export"
+      },
+      "category": "Addons / NC Identity Relay",
+      "order": 211,
+      "topic": "Create Identity Export",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Get the complete export protocol",
+        "Check the protocol status before relying on a copy"
+      ],
+      "steps": [
+        {
+          "title": "Get the complete export protocol",
+          "body": "In Create Identity Export, use View Export Protocol or Copy Export Protocol, read it, then send the complete protocol to the external LLM session you want to export from. Copying the protocol in NC does not contact the outside service or create the artifact. Keep the full response, including warnings, for Import.",
+          "target": "tutorialControl_identity_relay_view_protocol",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check the protocol status before relying on a copy",
+          "body": "Read Protocol status after viewing or copying. It reports what this page has prepared for export; it does not confirm the external session produced a valid artifact. If the response is ordinary prose or incomplete, request the required complete format there before importing, since a fragment cannot establish the same record.",
+          "target": "tutorialControl_identity_relay_protocol_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_identity_artifacts"
+    },
+    {
+      "id": "page_identity_artifacts_privacy",
+      "title": "NC Identity Relay · Privacy",
+      "description": "Use Privacy in NC Identity Relay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.identity_artifacts",
+        "workspace": "addons",
+        "addon": "identity_artifacts_tab",
+        "section": "Privacy"
+      },
+      "category": "Addons / NC Identity Relay",
+      "order": 212,
+      "topic": "Privacy",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Decide whether selected records may leave NC",
+        "Read the override status after a decision"
+      ],
+      "steps": [
+        {
+          "title": "Decide whether selected records may leave NC",
+          "body": "Open Privacy and read Owner Override: allow selected records to external providers. With a hosted chat provider, selected continuity records may need this explicit permission; importing and inspecting do not. Keep it off unless that exposure is intended. Enabling opens a confirmation and removes the provider-exposure barrier, while relevance, capacity, provenance, malformed-data, and quarantine checks still apply.",
+          "target": "tutorialControl_identity_relay_owner_override",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read the override status after a decision",
+          "body": "Owner Override status shows the current setting. Enabling it confirms the setting, not that every stored record will be sent. If a later connection is blocked, read the reason before changing privacy. Review the provider and confirmation before accepting, and turn the override off when exposure is no longer intended.",
+          "target": "tutorialControl_identity_relay_owner_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_identity_artifacts"
+    },
+    {
+      "id": "page_identity_artifacts_import",
+      "title": "NC Identity Relay · Import",
+      "description": "Use Import in NC Identity Relay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.identity_artifacts",
+        "workspace": "addons",
+        "addon": "identity_artifacts_tab",
+        "section": "Import"
+      },
+      "category": "Addons / NC Identity Relay",
+      "order": 213,
+      "topic": "Import",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Import the artifact with a useful source name",
+        "Recover a rejected import"
+      ],
+      "steps": [
+        {
+          "title": "Import the artifact with a useful source name",
+          "body": "In Import, enter a Source label such as “Writing partner – October”. Paste the complete artifact into Pasted NC_IDENTITY_EXPORT artifact and choose Import Pasted Artifact, or use Import From File for its JSON or text file. Read the import result and validation warnings; the item should then appear in Stored Artifacts.",
+          "target": "tutorialControl_identity_relay_source_label",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover a rejected import",
+          "body": "If Import rejects the artifact, compare the full source artifact with your copy and read the reported error. Use Refresh to reload the stored list, then retry with the complete text and the same source label. Delete Artifact stays in Stored Artifacts, so removing an item is a separate deliberate step.",
+          "target": "tutorialControl_identity_relay_source_label",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_identity_artifacts"
+    },
+    {
+      "id": "page_identity_artifacts_stored_artifacts",
+      "title": "NC Identity Relay · Stored Artifacts",
+      "description": "Use Stored Artifacts in NC Identity Relay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.identity_artifacts",
+        "workspace": "addons",
+        "addon": "identity_artifacts_tab",
+        "section": "Stored Artifacts"
+      },
+      "category": "Addons / NC Identity Relay",
+      "order": 214,
+      "topic": "Stored Artifacts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Compare extracted facts with their source",
+        "Use re-extraction and deletion deliberately"
+      ],
+      "steps": [
+        {
+          "title": "Compare extracted facts with their source",
+          "body": "Select your import in Stored Artifacts and read Raw Artifact, then Structured Extraction and Mechanical Warnings. Check the role, names, and relationships against the original; locate the one detail you planned to carry across. If a record is wrong or ambiguous, leave it unapproved later rather than assuming import validated its meaning.",
+          "target": "tutorialControl_identity_relay_artifacts",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Use re-extraction and deletion deliberately",
+          "body": "Re-run Extraction recalculates the extraction, and Delete Artifact removes the stored item. Use either only for a specific reason; re-extraction changes the structured view, not the source. Read Artifact summary after re-extraction to confirm the result before relying on it. Deleting a stored artifact does not undo any earlier provider exposure.",
+          "target": "tutorialControl_identity_relay_reextract",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_identity_artifacts"
+    }
+  ]
+}

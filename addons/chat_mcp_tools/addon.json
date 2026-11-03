@@ -1,0 +1,11 @@
+{
+  "id": "nc.chat_mcp_tools",
+  "name": "Chat MCP Tools",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Persona-selected MCP tools for ordinary chat through MCP Core.",
+  "permissions": ["services.consume", "storage.read", "storage.write"],
+  "execution_lanes": {"ui": true, "worker": true},
+  "enabled": true
+}

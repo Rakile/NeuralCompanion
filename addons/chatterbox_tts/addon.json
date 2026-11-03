@@ -1,0 +1,46 @@
+{
+  "id": "nc.chatterbox_tts",
+  "name": "Chatterbox TTS",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Built-in Chatterbox TTS backend exposed as an addon.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "runtime_defaults": {
+    "tts_seed": 0,
+    "tts_temperature": 0.8,
+    "tts_top_p": 0.9,
+    "tts_top_k": 40,
+    "tts_repeat_penalty": 1.2,
+    "tts_min_p": 0.0,
+    "tts_normalize_loudness": false,
+    "tts_prewarm_on_start": true,
+    "tts_use_cloned_voice": true,
+    "tts_apply_watermark": false
+  },
+  "services": [
+    {
+      "id": "tts_backend_service",
+      "backend_id": "chatterbox",
+      "metadata": {}
+    }
+  ],
+  "ui": [
+    {
+      "id": "chatterbox_tts_tab",
+      "title": "Chatterbox",
+      "area": "tts_runtime",
+      "placeholder": "tts_chatterbox_tab",
+      "order": 100,
+      "tooltip": "Local Chatterbox TTS settings.",
+      "metadata": {
+        "native_qml": true,
+        "backend_id": "chatterbox"
+      }
+    }
+  ],
+  "enabled": true
+}

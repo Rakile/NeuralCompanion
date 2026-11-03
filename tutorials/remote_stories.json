@@ -1,0 +1,55 @@
+{
+  "id": "remote_stories",
+  "audience": "remote",
+  "order": 105,
+  "title": "Stories and the library",
+  "category": "Stories & Group Chats",
+  "description": "A desktop screenshot walkthrough of stories and the library.",
+  "speech_backend": "chatterbox",
+  "estimated_minutes": 5,
+  "before_you_start": "Read this lesson on NC desktop. A phone is optional for reading; practising requires NC Remote and the relevant desktop services. Screenshots show Android Editorial overview screens; labels and placement can differ by version.",
+  "learning_outcomes": [
+    "Create a story plan",
+    "Save and continue deliberately"
+  ],
+  "steps": [
+    {
+      "title": "Create a story plan",
+      "screenshot": "story.png",
+      "highlight": [
+        0.03,
+        0.28,
+        0.31,
+        0.06
+      ],
+      "device": "On your phone",
+      "body": "On your phone: From Chat, open Story Plan. On an empty plan, choose Refine a story, describe an example such as a quiet journey to a lighthouse, and review the generated beats before applying them.\n\nOn NC desktop, Hear step reads this instruction. Read aloud narrates steps as you advance; turn it off to read silently. Neither control starts a phone action.\n\nExpected result: A draft plan is available for review; it is not a completed story.\n\nIf it does not work: If refinement fails, check the connection and desktop language model. Keep your original description before retrying.",
+      "expected": "A draft plan is available for review; it is not a completed story.",
+      "recovery": "If refinement fails, check the connection and desktop language model. Keep your original description before retrying.",
+      "caption": "Android Editorial • Empty Story Plan.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    },
+    {
+      "title": "Save and continue deliberately",
+      "screenshot": "story.png",
+      "highlight": [
+        0.47,
+        0.08,
+        0.2,
+        0.06
+      ],
+      "device": "On your phone",
+      "body": "On your phone: Use Library to save or open a story. Review the current beat and cast after loading. Continuous Mode is controlled separately in response controls. At the last beat, choose whether to add more beats, dismiss the prompt, or visit the library.\n\nExpected result: The chosen story and beat are visible before you continue playback.\n\nIf it does not work: If a loaded story has the wrong voice, check its cast and voice assignments before continuing. Dismissing a completion prompt should not delete the saved story.",
+      "expected": "The chosen story and beat are visible before you continue playback.",
+      "recovery": "If a loaded story has the wrong voice, check its cast and voice assignments before continuing. Dismissing a completion prompt should not delete the saved story.",
+      "caption": "Android Editorial • Empty Story Plan.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    }
+  ]
+}

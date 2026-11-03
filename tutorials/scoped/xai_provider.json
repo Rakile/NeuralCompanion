@@ -1,0 +1,169 @@
+{
+  "guides": [
+    {
+      "id": "overview_xai_provider",
+      "title": "xAI / Grok Chat Provider overview",
+      "description": "Hosted xAI / Grok chat provider addon for NC's dynamic chat-provider registry.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chat_provider_xai",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "xai"
+      },
+      "category": "Runtime / LLM / xAI / Grok Chat Provider",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Hosted xAI / Grok chat provider addon for NC's dynamic chat-provider registry.",
+        "Find focused guidance for Connection, Model, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_xai_provider_connection",
+        "page_xai_provider_model",
+        "page_xai_provider_generation",
+        "language_providers"
+      ],
+      "steps": [
+        {
+          "title": "What xAI / Grok Chat Provider does",
+          "body": "Hosted xAI / Grok chat provider addon for NC's dynamic chat-provider registry. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_xai_provider_connection",
+        "page_xai_provider_model",
+        "page_xai_provider_generation"
+      ],
+      "display_title": "Start tutorial · xAI / Grok Chat Provider",
+      "optional_chapters": [
+        "language_providers"
+      ]
+    },
+    {
+      "id": "page_xai_provider_connection",
+      "title": "xAI / Grok Chat Provider · Connection",
+      "description": "Use Connection in xAI / Grok Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_xai",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "xai"
+      },
+      "category": "Runtime / LLM / xAI / Grok Chat Provider",
+      "order": 210,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect the connection card",
+        "Read failures as auth or network"
+      ],
+      "steps": [
+        {
+          "title": "Inspect the connection card",
+          "body": "Read the endpoint and API key fields for xAI. Enter credentials only in the provider's protected key field if you intend to configure it. Use Test connection deliberately and read its result. Reachability and authentication do not establish that a chosen chat model can produce a reply.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read failures as auth or network",
+          "body": "A failed test often reflects an invalid or expired key; trailing whitespace is also common. If the key is clean but the test still fails, the upstream service may be unreachable. Separate auth errors from network errors before changing model settings.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_xai_provider"
+    },
+    {
+      "id": "page_xai_provider_model",
+      "title": "xAI / Grok Chat Provider · Model",
+      "description": "Use Model in xAI / Grok Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_xai",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "xai"
+      },
+      "category": "Runtime / LLM / xAI / Grok Chat Provider",
+      "order": 211,
+      "topic": "Model",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Pick a Grok model from the selector",
+        "Change models without changing keys"
+      ],
+      "steps": [
+        {
+          "title": "Pick a Grok model from the selector",
+          "body": "After a successful test, open the model selector and choose the Grok model you intend to use. The list reflects your xAI account entitlements, so an empty list points back to the connection card. Saving a model without a working key leaves the provider unusable.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Change models without changing keys",
+          "body": "Switching the model in the selector leaves the stored API key intact. Re-test only if the connection card still shows an error. Model choice affects cost and speed more than reliability; choose the smallest model that fits your task before moving to Generation tuning.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_xai_provider"
+    },
+    {
+      "id": "page_xai_provider_generation",
+      "title": "xAI / Grok Chat Provider · Generation",
+      "description": "Use Generation in xAI / Grok Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_xai",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "xai"
+      },
+      "category": "Runtime / LLM / xAI / Grok Chat Provider",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Compare generation controls individually",
+        "Separate generation errors from auth errors"
+      ],
+      "steps": [
+        {
+          "title": "Compare generation controls individually",
+          "body": "Read the sampling and output-limit controls. Sampling changes variation; output limits bound response length. Note the previous value before adjusting one setting. A useful comparison needs the same prompt and model later; if an edit makes results worse, restore that value rather than changing several controls together.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read generation errors before retuning",
+          "body": "If a later generation fails, read its error and compare connection, model access and response limits before changing sampling controls. Test connection can help distinguish a connection problem from a rejected model request. Retrying without understanding the error can repeat the same failure.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_xai_provider"
+    }
+  ]
+}

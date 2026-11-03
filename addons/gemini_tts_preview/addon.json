@@ -1,0 +1,33 @@
+{
+  "id": "nc.gemini_tts_preview",
+  "name": "Gemini TTS Preview",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Gemini preview TTS backend addon for Neural Companion.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "services": [
+    {
+      "id": "tts_backend_service",
+      "backend_id": "gemini_tts_preview"
+    }
+  ],
+  "host_services": [],
+  "ui": [
+    {
+      "id": "gemini_tts_preview_tab",
+      "title": "Gemini TTS",
+      "area": "tts_runtime",
+      "order": 125,
+      "tooltip": "Gemini preview TTS backend settings.",
+      "metadata": {
+        "native_qml": true,
+        "backend_id": "gemini_tts_preview"
+      }
+    }
+  ],
+  "enabled": true
+}

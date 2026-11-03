@@ -1,0 +1,71 @@
+@echo off
+setlocal EnableExtensions
+cd /d "%~dp0"
+call :maybe_update_from_git
+if not exist ".venv\Scripts\python.exe" (
+  echo Virtual environment not found.
+  echo Run INSTALL_NEURAL_COMPANION.bat first.
+  pause
+  exit /b 1
+)
+".venv\Scripts\python.exe" qt_app.py
+endlocal
+goto :eof
+
+:maybe_update_from_git
+where git >nul 2>&1 || goto :eof
+git rev-parse --is-inside-work-tree >nul 2>&1 || goto :eof
+git remote get-url origin >nul 2>&1 || goto :eof
+git fetch origin --quiet >nul 2>&1 || goto :eof
+
+set "NC_HEAD="
+set "NC_BRANCH="
+set "NC_REMOTE="
+for /f "delims=" %%i in ('git rev-parse HEAD 2^>nul') do set "NC_HEAD=%%i"
+for /f "delims=" %%i in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "NC_BRANCH=%%i"
+if not defined NC_HEAD goto :eof
+if not defined NC_BRANCH goto :eof
+if /I "%NC_BRANCH%"=="HEAD" goto :eof
+for /f "delims=" %%i in ('git rev-parse "origin/%NC_BRANCH%" 2^>nul') do set "NC_REMOTE=%%i"
+if not defined NC_REMOTE goto :eof
+if /I "%NC_HEAD%"=="%NC_REMOTE%" goto :eof
+git merge-base --is-ancestor "%NC_REMOTE%" "%NC_HEAD%" >nul 2>&1
+if errorlevel 2 goto :eof
+if not errorlevel 1 goto :eof
+
+echo.
+echo A newer version of Neural Companion is available.
+choice /C YNF /N /M "Do you want to update to the latest version? [Y/N/Force] "
+if errorlevel 3 goto :force_update_from_git
+if errorlevel 2 goto :eof
+goto :normal_update_from_git
+
+:normal_update_from_git
+git pull --ff-only origin "%NC_BRANCH%"
+if errorlevel 1 (
+  echo.
+  echo Update failed or local changes blocked the update.
+  echo Launching the current local version instead.
+)
+goto :eof
+
+:force_update_from_git
+echo.
+echo Force update selected. Stashing local tracked and untracked changes before pulling.
+git stash push -u -m "Neural Companion auto-stash before forced update"
+if errorlevel 1 (
+  echo.
+  echo Could not stash local changes. Launching the current local version instead.
+  goto :eof
+)
+git pull --ff-only origin "%NC_BRANCH%"
+if errorlevel 1 (
+  echo.
+  echo Forced update failed after stashing local changes.
+  echo Your local changes are still saved in git stash.
+  echo Launching the current local version instead.
+  goto :eof
+)
+echo.
+echo Update complete. Any previous local changes are saved in git stash.
+goto :eof

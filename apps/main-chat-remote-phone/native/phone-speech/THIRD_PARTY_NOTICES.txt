@@ -1,0 +1,31 @@
+NeuralCompanion Phone Native audio - pinned component provenance
+
+sherpa-onnx 1.13.2: Apache License 2.0 (sherpa's own code).
+Source: https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.2
+License: https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.2/LICENSE
+Android binary includes ONNX Runtime 1.24.3 (MIT).
+Source: https://github.com/microsoft/onnxruntime/tree/v1.24.3
+
+The native TTS bundle includes eSpeak NG. Its pinned corresponding source:
+https://github.com/csukuangfj/espeak-ng/tree/f6fed6c58b5e0998b8e68c6610125e2d07d595a7
+eSpeak NG is GNU General Public License version 3 (GPLv3).
+License: https://github.com/csukuangfj/espeak-ng/blob/f6fed6c58b5e0998b8e68c6610125e2d07d595a7/COPYING
+Integration/build source: sherpa-onnx v1.13.2 cmake/espeak-ng-for-piper.cmake.
+The complete native speech bundle must not be described as Apache-only.
+
+Explicitly downloadable model packs (their LICENSE files are retained privately):
+Moonshine tiny English quantized 2026-02-27: MIT.
+https://huggingface.co/csukuangfj2/sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27
+Kitten nano English v0_8 int8: Apache License 2.0 model provenance.
+https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32
+https://huggingface.co/csukuangfj2/kitten-nano-en-v0_8-int8
+Kitten uses the separately licensed eSpeak NG component/data above.
+
+Apache Commons Compress 1.28.0, Commons IO 2.20.0, Commons Codec 1.19.0,
+Commons Lang3 3.18.0: Apache License 2.0.
+https://commons.apache.org/proper/commons-compress/
+https://www.apache.org/licenses/LICENSE-2.0
+
+This record identifies observed components and source provenance; it is not a
+legal conclusion about combined distribution obligations. Retain these notices
+and review corresponding-source obligations before redistribution.

@@ -1,0 +1,39 @@
+{
+  "id": "nc.pockettts",
+  "name": "PocketTTS",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Built-in PocketTTS backend exposed as an addon.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "runtime_defaults": {
+    "pocket_tts_builtin_voice": "auto",
+    "pocket_tts_use_cloned_voice": true,
+    "pocket_tts_prewarm_on_start": true
+  },
+  "services": [
+    {
+      "id": "tts_backend_service",
+      "backend_id": "pockettts",
+      "metadata": {}
+    }
+  ],
+  "ui": [
+    {
+      "id": "pockettts_tab",
+      "title": "PocketTTS",
+      "area": "tts_runtime",
+      "placeholder": "tts_pockettts_tab",
+      "order": 200,
+      "tooltip": "PocketTTS interpreter settings.",
+      "metadata": {
+        "native_qml": true,
+        "backend_id": "pockettts"
+      }
+    }
+  ],
+  "enabled": true
+}

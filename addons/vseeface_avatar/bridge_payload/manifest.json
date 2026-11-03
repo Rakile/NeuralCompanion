@@ -1,0 +1,34 @@
+{
+  "plugin_id": "nc.vseeface.speech.prototype",
+  "source_files": {
+    "VmcEmotions.cs": "42b900acb0faf41760a920f34c3fd748bc1ef83cc3e512235313b2ac137912f5",
+    "BridgeState.cs": "9c64137f43957138a03f45a4b3d59ea802e837e7e2a617e6863c8231174c05b1",
+    "File-Digest.ps1": "c9a7ee19fc642ebebeb5f4f46f240c2b8cb7f1c20bd2fa9bc8e8a7bd75e167be",
+    "README.md": "9b358268f8d78e5b511ce11e7a9db68c26ed4f1cd707888ed0c9f1371aefe9bf",
+    "StateFile.cs": "4a4ce60f56eb28ecd67b732dae8146073f099e075c31a1c2501f7d4cffe7a046",
+    "BridgePlugin.cs": "3aaad1cb806a0fef0140b83d618eb4c94fde8445ba3e2a57f869ad004ac1c64f",
+    "AudioProbe.cs": "58ca2f4a99d7b54e0ccca2544f36ea503913708f379e97f53ee11b5291ba864f",
+    "Build-Bridge.ps1": "6b32fda9a3e6a149cc1c30605ddbb24439eca82163269feca831a339059d3c00",
+    "StatusHeartbeat.cs": "79f7674ca38756fde9eaadfc979a73df136900fe3a16ba45bbf144c2cd655dee"
+  },
+  "protocol_version": 1,
+  "files": {
+    "licenses/HarmonyX.txt": "7e54ab4766ef78637a05fb3454663a66de6bb960dbd4c7088890ed76b0844f36",
+    "BepInEx_win_x64_5.4.23.3.zip": "41a089e5b1b1f0713b331346baf6677b1184c69eabebf51101097954e854c749",
+    "licenses/Mono.Cecil.txt": "13d58ecbed676511c0c4c4009bff107025e50007ff5e7901dc562700ec62509e",
+    "licenses/UnityDoorstop.txt": "20c17d8b8c48a600800dfd14f95d5cb9ff47066a9641ddeab48dc54aec96e331",
+    "THIRD_PARTY_NOTICES.md": "63ac24a51bd6350899c1997c178d4133cfb4d102cc088a10902a59ff52ea90af",
+    "third_party_source/UnityDoorstop-851712b.zip": "50548e09a5422762497dcdf7126a69933bd1275f8b3eaecb4751afa94cffeb9f",
+    "licenses/MonoMod.txt": "0b64833222e3c6a426ad29362d26334619fe02eaf2b89ea9c37805521896c920",
+    "NCVSeeFaceBridge.dll": "92fc86847ec45b105049887595cd6cc6eef8c8c1a4762e36191990e3b7642b82",
+    "licenses/BepInEx.txt": "dbfeb372fd35d28379a24fbf10a1d2d102b1ed2ccd30b3ad69c2db97fe493c01",
+    "licenses/BepInEx.Harmony.txt": "feb87a2e0c305de3464cc44077da5393c52d8ca6362d37427157d04ec6f4510d"
+  },
+  "supported_assemblies": {
+    "1.13.38c4": "5a24888245967b07a5884a8bd40059e33ff3141608177e7bd4f5c26df67838fe",
+    "1.13.38c5": "bfe25e23fad5647c2da46a1c995a235f97c5bfdb4f9c6ed9a921ab1ef75d4150"
+  },
+  "bridge_version": "0.2.0",
+  "loader_url": "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.3/BepInEx_win_x64_5.4.23.3.zip",
+  "schema_version": 1
+}

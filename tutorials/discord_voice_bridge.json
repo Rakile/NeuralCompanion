@@ -1,0 +1,123 @@
+{
+  "id": "discord_voice_bridge",
+  "order": 26,
+  "title": "26. Discord Voice Bridge and Local Room",
+  "description": "Prepare bot accounts, build a small Persona room in Discord, and test speech and turn-taking.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "discord_voice_bridge_tab",
+      "section": "General"
+    },
+    {
+      "workspace": "addons",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Discord"
+    },
+    {
+      "workspace": "addons",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Capture"
+    },
+    {
+      "workspace": "addons",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Persona"
+    },
+    {
+      "workspace": "addons",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "workspace": "addons",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Moderator"
+    },
+    {
+      "workspace": "addons",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Status"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Choose a Discord room or a desktop Local room",
+      "body": "The addon appears as Discord Voice and supports two room transports. Local runs a group discussion on your desktop without Discord credentials; use 34. Local Room for that exercise. Discord uses bot accounts to speak in a Discord voice channel. This guide prepares a small Discord room and tests one spoken exchange.\n\nA Persona supplies a character’s prompt and voice. A bot account supplies its Discord connection; they are different things and must be linked later. Keep the room stopped while preparing it. If the addon workspace is absent, enable Discord Voice Bridge and restart if requested. Read aloud narrates the guide; Hear step reads this step.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "discord_voice_bridge_tab",
+      "section": "General"
+    },
+    {
+      "title": "Prepare bot accounts and the destination channel",
+      "body": "Open Discord → Bot accounts. Choose Add account, enter a Bot token and optional Account label, then Add account to save and check it. Repeat for the second bot needed by the small room. Tokens belong in these protected account fields, never in chat. A verified token identifies a bot; it does not invite it or prove channel access.\n\nEnter the shared Server ID and Voice channel ID for the room. These identify the server and its voice channel, not your user account or a text channel. Each bot must already be invited and allowed to View Channel, Connect and Speak there. If checks fail, correct the token; if a verified bot cannot join later, check the invite, IDs and channel permissions.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Discord"
+    },
+    {
+      "title": "Understand incoming speech before adjusting capture",
+      "body": "Capture splits incoming Discord audio into utterances for speech recognition. Playback sends generated speech back to the voice channel. Leave advanced thresholds unchanged for the first test; a short question from one human is easier to diagnose than several people talking at once.\n\nBefore starting, return to Discord and review Accept incoming voice from. Listed users uses Discord user IDs (optional); an empty list also accepts everyone. Enter your actual Discord user ID if you want only your voice accepted, then Save Settings. Changed acceptance settings require restarting the room/bridge. After the room starts in the next steps, test “Please greet us in one sentence” and check capture and audible output separately.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Capture"
+    },
+    {
+      "title": "Prepare the characters separately from their accounts",
+      "body": "The Persona section configures the standalone bridge prompt and voice reference. For the shared room exercise, use saved Persona profiles instead: prepare one moderator and one other character in the Persona addon, with distinct names and short prompts. Their linked profiles provide the room characters’ prompts and voice settings.\n\nDo not expect the standalone Persona field to assign every room character. In Local room you will add those saved profiles and give each a Prepared bot. Distinct voices also need valid voice references and a text-to-speech backend that supports them. If both characters sound alike, check those linked profiles before changing capture settings.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Persona"
+    },
+    {
+      "title": "Build the room and complete one voice exchange",
+      "body": "In Local room, choose Room transport → Discord while stopped. Use + Add Personas to add your two saved characters. Assign a different Prepared bot on each card, and choose Make moderator for one. Click Start room, or Continue conversation to preserve saved history. If Main Chat is active, review the switch and save prompts before proceeding.\n\nJoin the configured voice channel in Discord and ask “Please greet us in one sentence.” Confirm the intended bots joined and you hear a reply; Open conversation shows Conversation → Discord room. If start is unavailable, check the moderator, second Persona, unique accounts and visible startup errors. Desktop Join conversation and mic controls belong to Local transport; speak through Discord for this test.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Queue a speaker without interrupting the current turn",
+      "body": "With the room running, inspect Moderator and its Current/Next information. These describe who has the floor and who is queued, not whether the bridge is connected. In the room, select a participant and choose Speak next, then watch Speaking and UP NEXT. The queued participant should speak after the current turn rather than cut it off.\n\nIf the wrong participant remains locked, use Release speaker lock; Clear next speaker removes an unwanted queued choice. Leave automatic recovery and interruption options unchanged while learning this first handoff. If a chosen bot never speaks, check that it is present, connected and eligible rather than repeatedly queuing it.",
+      "workspace": "addons",
+      "target": "discordModeratorWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Moderator"
+    },
+    {
+      "title": "Diagnose the layer that failed",
+      "body": "Open Status and read validation, service state and the latest error. A bot joining proves the Discord connection only; recognition, model generation and speech playback still need their own successful test. If setup reports missing Node dependencies, stop bridges before using Install / Update Node Deps.\n\nFor a silent joined bot, check incoming-user acceptance, routing/current-speaker protection and NC speech-provider readiness. For a bot that never joins, check account verification, the invite and channel access. Use Stop room before changing startup settings, then start or continue and repeat one short question. Copy Diagnostics provides a redacted support bundle; avoid sharing raw credential settings.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Status"
+    },
+    {
+      "title": "Recheck accounts before expanding the room",
+      "body": "Return to Discord → Bot accounts and use Check all accounts. Read each result: a verified token still needs the correct server invitation and voice permissions. If editing an existing account, leave its token blank to retain the stored secret; replace it only when needed.\n\nAdd more characters only after the two-character exchange works. Each simultaneous AI participant needs a different available Prepared bot in Local room → Discord. Confirm the intended account joins and speaks after assignment. If no account is free, wait for a departing participant’s cleanup or prepare another account. Finishing this guide confirms the workflow only if your spoken test actually received a reply.",
+      "workspace": "addons",
+      "target": "discordBotAccounts",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Discord",
+      "fallback_target": "addonSettingsContent",
+      "target_hint": "Open Discord in the addon to find Bot accounts. The former Bots section is no longer used."
+    }
+  ],
+  "before_you_start": "Enable Discord Voice Bridge in Addon Manager and restart NC if requested. First prepare saved Personas and working NC chat, speech recognition and text-to-speech providers. A new Discord room needs a moderator, another AI Persona and a different bot account for each. Invite those bots to the intended server with voice-channel access. Node.js/npm and the bridge dependencies must be available. Save Main Chat before starting: Main Chat and a room cannot run together. The tutorial never adds credentials, installs dependencies or starts a room for you.",
+  "category": "Workflows",
+  "learning_outcomes": [
+    "Distinguish saved Personas from the bot accounts assigned to them.",
+    "Start a small Discord room and verify one captured question and spoken reply.",
+    "Queue a participant and diagnose account, transport or speech failures."
+  ],
+  "contextual_guides": [
+    "overview_discord_voice_bridge"
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "id": "remote_visual",
+  "audience": "remote",
+  "order": 106,
+  "title": "Visual Reply images",
+  "category": "Avatars & Images",
+  "description": "Request one simple phone image, wait for its result, and identify the available image controls.",
+  "speech_backend": "chatterbox",
+  "estimated_minutes": 5,
+  "before_you_start": "Connect NC Remote and verify chat first. Configure a desktop Visual Reply provider and confirm it can generate an image. This exercise makes a real generation request when you tap Generate. The Android Editorial screenshots show the Visual screen before an image arrives.",
+  "learning_outcomes": [
+    "Submit one prompt and recognize a completed image.",
+    "Distinguish display and refresh actions from another generation."
+  ],
+  "steps": [
+    {
+      "title": "Generate one image with a clear prompt",
+      "screenshot": "visual.png",
+      "highlight": [
+        0.03,
+        0.62,
+        0.94,
+        0.05
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open Visual. In Visual prompt, type “A lighthouse at sunrise beside a calm sea” and tap Generate once. Watch the status and wait for the desktop provider to finish. Repeated requests make it harder to judge which result arrived.\n\nWhen the image appears, compare it with the lighthouse, sunrise and sea you requested. An accepted request is the beginning; a displayed image is the end-to-end result. If Generate is disabled, check the connection and desktop visual readiness. Read any error before retrying.\n\nHear step and Read aloud narrate the desktop lesson. They do not submit the prompt; use Generate on your phone when ready.",
+      "expected": "The request progresses and a generated image appears for inspection.",
+      "recovery": "If Generate is unavailable, check connection and desktop visual readiness. Keep the prompt and read any provider error before retrying.",
+      "caption": "Android Editorial • Visual Reply empty state.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    },
+    {
+      "title": "Inspect controls before another generation",
+      "screenshot": "visual.png",
+      "highlight": [
+        0.03,
+        0.69,
+        0.94,
+        0.06
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open Desktop & more actions in Visual. Read the options first. Show on Desktop displays the current visual there; Refresh asks for current state. Generate Last starts another image request, so do not use it merely to refresh the display. Leave Clear alone while learning.\n\nFor a small test, use Refresh and check the current image and status. If you use Show on Desktop, check the desktop Visual Reply view too. These controls concern generated still images; the live avatar stream is configured separately.\n\nIf no image arrived, return to its generation status or inspect the desktop provider error. Expanding the controls alone is not proof of successful generation.",
+      "expected": "Extra controls expand and you can distinguish displaying or refreshing an image from generating another.",
+      "recovery": "If empty, check whether generation finished and inspect desktop provider status before submitting more prompts.",
+      "caption": "Android Editorial • Visual Reply empty state.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    }
+  ]
+}

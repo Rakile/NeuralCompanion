@@ -1,0 +1,214 @@
+{
+  "guides": [
+    {
+      "id": "overview_chat_session_player",
+      "title": "Conversation Replay",
+      "description": "Dedicated conversation replay and context loading tools.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chat_session_player",
+        "workspace": "addons",
+        "addon": "chat_session_player_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Conversation Replay",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Dedicated conversation replay and context loading tools.",
+        "Find focused guidance for Overview, Session, Messages, Replay voices."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "chat_session_player",
+        "page_chat_session_player_session",
+        "page_chat_session_player_messages",
+        "page_chat_session_player_replay_voices"
+      ],
+      "steps": [
+        {
+          "title": "What Conversation Replay does",
+          "body": "Dedicated conversation replay and context loading tools. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Read the session summary first",
+          "body": "Open Overview and read Session summary. It reports the shared chat context, replayable message count and runtime state. Runtime stopped describes the live engine; replay can prepare an offline runtime. It does not mean a saved chat has loaded or that speech was tested. Save your current Conversation first if it matters.",
+          "target": "tutorialControl_chat_replay_summary",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish summary from loaded context",
+          "body": "The summary is a report, not proof that the intended saved chat is loaded. Confirm the chat through Session and Messages. If the summary names a different conversation, load the correct file before selecting replay turns.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "chat_session_player"
+      ],
+      "display_title": "Start tutorial · Conversation Replay",
+      "optional_chapters": [
+        "page_chat_session_player_session",
+        "page_chat_session_player_messages",
+        "page_chat_session_player_replay_voices"
+      ]
+    },
+    {
+      "id": "page_chat_session_player_overview",
+      "title": "Conversation Replay · Overview",
+      "description": "Use Overview in Conversation Replay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_session_player",
+        "workspace": "addons",
+        "addon": "chat_session_player_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Conversation Replay",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the session summary first",
+        "Distinguish summary from loaded context"
+      ],
+      "steps": [
+        {
+          "title": "Read the session summary first",
+          "body": "Open Overview and read Session summary. It reports the shared chat context, replayable message count and runtime state. Runtime stopped describes the live engine; replay can prepare an offline runtime. It does not mean a saved chat has loaded or that speech was tested. Save your current Conversation first if it matters.",
+          "target": "tutorialControl_chat_replay_summary",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish summary from loaded context",
+          "body": "The summary is a report, not proof that the intended saved chat is loaded. Confirm the chat through Session and Messages. If the summary names a different conversation, load the correct file before selecting replay turns.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_chat_session_player",
+      "hidden": true
+    },
+    {
+      "id": "page_chat_session_player_session",
+      "title": "Conversation Replay · Session",
+      "description": "Use Session in Conversation Replay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_session_player",
+        "workspace": "addons",
+        "addon": "chat_session_player_tab",
+        "section": "Session"
+      },
+      "category": "Addons / Conversation Replay",
+      "order": 211,
+      "topic": "Session",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Load one specific saved chat",
+        "Recover a wrong or empty load"
+      ],
+      "steps": [
+        {
+          "title": "Load one specific saved chat",
+          "body": "Open Session and choose Load chat context, then select the short conversation you intend to hear. Quick Load instead opens NC’s quick-save context, which may differ. Use Refresh and inspect the summary, then check Messages for familiar text. Loading changes Main Chat’s shared context.",
+          "target": "tutorialControl_chat_replay_load",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover a wrong or empty load",
+          "body": "If Messages is empty or unfamiliar, return to Session and choose the correct saved file. Do not start a full replay to discover what loaded. Quick Load and Load chat context can point at different chats, so verify the intended one before continuing.",
+          "target": "tutorialControl_chat_replay_load",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chat_session_player"
+    },
+    {
+      "id": "page_chat_session_player_messages",
+      "title": "Conversation Replay · Messages",
+      "description": "Use Messages in Conversation Replay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_session_player",
+        "workspace": "addons",
+        "addon": "chat_session_player_tab",
+        "section": "Messages"
+      },
+      "category": "Addons / Conversation Replay",
+      "order": 212,
+      "topic": "Messages",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Select a starting turn without speaking",
+        "Play the smallest useful replay"
+      ],
+      "steps": [
+        {
+          "title": "Select a starting turn without speaking",
+          "body": "In Messages select a replayable turn near the end of the short chat and read its first words. Previous and Next move the selection; they do not skip playing speech. Replay from selected starts at that turn and can continue through following turns.",
+          "target": "tutorialControl_chat_replay_messages",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Play the smallest useful replay",
+          "body": "Choose Replay latest reply for the smallest test, or Replay from selected to hear your noted turn. Listen and read Replay status. This addon exposes no separate pause, skip or stop in its listed controls; use shared speech controls. If no sound is heard, check TTS readiness and output device before replaying a whole chat.",
+          "target": "tutorialControl_chat_replay_selected",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chat_session_player"
+    },
+    {
+      "id": "page_chat_session_player_replay_voices",
+      "title": "Conversation Replay · Replay voices",
+      "description": "Use Replay voices in Conversation Replay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_session_player",
+        "workspace": "addons",
+        "addon": "chat_session_player_tab",
+        "section": "Replay voices"
+      },
+      "category": "Addons / Conversation Replay",
+      "order": 213,
+      "topic": "Replay voices",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Keep both roles on the current voice",
+        "Optional references need backend support"
+      ],
+      "steps": [
+        {
+          "title": "Keep both roles on the current voice",
+          "body": "In Replay voices leave Assistant voice and User voice on Use current TTS voice for a first test. This uses the configured speech voice without a separate reference per role. Confirm both selectors when you return, then judge voices during the replay in Messages.",
+          "target": "tutorialControl_chat_replay_assistant_voice",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Optional references need backend support",
+          "body": "If you add local voices/*.wav references, choose them for each role and use Refresh voices. A filename in a menu is not a voice test; reference support depends on the active backend. If one role sounds unchanged, verify that backend before adding more files.",
+          "target": "tutorialControl_chat_replay_refresh_voices",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chat_session_player"
+    }
+  ]
+}

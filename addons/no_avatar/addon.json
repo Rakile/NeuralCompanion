@@ -1,0 +1,19 @@
+{
+  "id": "nc.no_avatar",
+  "name": "No Avatar",
+  "category": "avatar",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Audio-only avatar provider.",
+  "permissions": [],
+  "services": [
+    {
+      "id": "avatar_provider_registry",
+      "provider_id": "none",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "enabled": true
+}

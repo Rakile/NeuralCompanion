@@ -1,0 +1,262 @@
+{
+  "guides": [
+    {
+      "id": "overview_vseeface_avatar",
+      "title": "VSeeFace Avatar overview",
+      "description": "VSeeFace/VMC avatar engine provider.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.vseeface_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "vseeface"
+      },
+      "category": "Runtime / Avatar / VSeeFace Avatar",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "VSeeFace/VMC avatar engine provider.",
+        "Find focused guidance for Overview, Speech lip sync, Body, Dynamics, Hand Doctor."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_vseeface_avatar_speech_lip_sync",
+        "page_vseeface_avatar_body",
+        "page_vseeface_avatar_dynamics",
+        "page_vseeface_avatar_hand_doctor"
+      ],
+      "steps": [
+        {
+          "title": "What VSeeFace Avatar does",
+          "body": "VSeeFace/VMC avatar engine provider. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Start and read the runtime summary",
+          "body": "In Overview, read the VSeeFace runtime summary before Start VSeeFace. The summary shows the current runtime state; use it to decide whether a launch is needed. Hide NC Interface collapses the card display without stopping the runtime, so you can reach other windows.",
+          "target": "tutorialControl_vseeface_avatar_tab::btn_vseeface_card_collapse",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Collapse keeps the card tidy",
+          "body": "Card display hides the expanded options while leaving settings intact. Use it on short screens. If you later need the options back, expand the card and confirm the runtime summary still reflects the state you expect.",
+          "target": "tutorialControl_vseeface_avatar_tab::btn_vseeface_card_collapse",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_vseeface_avatar_speech_lip_sync",
+        "page_vseeface_avatar_body",
+        "page_vseeface_avatar_dynamics",
+        "page_vseeface_avatar_hand_doctor"
+      ],
+      "display_title": "Start tutorial · VSeeFace Avatar"
+    },
+    {
+      "id": "page_vseeface_avatar_overview",
+      "title": "VSeeFace Avatar · Overview",
+      "description": "Use Overview in VSeeFace Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.vseeface_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "vseeface"
+      },
+      "category": "Runtime / Avatar / VSeeFace Avatar",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Start and read the runtime summary",
+        "Collapse keeps the card tidy"
+      ],
+      "steps": [
+        {
+          "title": "Start and read the runtime summary",
+          "body": "In Overview, read the VSeeFace runtime summary before Start VSeeFace. The summary shows the current runtime state; use it to decide whether a launch is needed. Hide NC Interface collapses the card display without stopping the runtime, so you can reach other windows.",
+          "target": "tutorialControl_vseeface_avatar_tab::btn_vseeface_card_collapse",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Collapse keeps the card tidy",
+          "body": "Card display hides the expanded options while leaving settings intact. Use it on short screens. If you later need the options back, expand the card and confirm the runtime summary still reflects the state you expect.",
+          "target": "tutorialControl_vseeface_avatar_tab::btn_vseeface_card_collapse",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_vseeface_avatar",
+      "hidden": true
+    },
+    {
+      "id": "page_vseeface_avatar_speech_lip_sync",
+      "title": "VSeeFace Avatar · Speech lip sync",
+      "description": "Use Speech lip sync in VSeeFace Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.vseeface_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "vseeface"
+      },
+      "category": "Runtime / Avatar / VSeeFace Avatar",
+      "order": 211,
+      "topic": "Speech lip sync",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Enable speech lip sync and choose the folder",
+        "Check setup and read the status",
+        "Remove or rebuild deliberately"
+      ],
+      "steps": [
+        {
+          "title": "Enable speech lip sync and choose the folder",
+          "body": "In Speech lip sync, read VSeeFace setup and required settings, set the VSeeFace folder with Choose VSeeFace folder, then tick Enable speech lip sync. Download VSeeFace if you need the app itself. Follow the required settings because the bridge expects them.",
+          "target": "tutorialControl_vseeface_avatar_tab::vseeface_bridge_instructions",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check setup and read the status",
+          "body": "Use Check setup / refresh status and read Last checked status. If the bridge is missing or outdated, Install bridge, Update / repair bridge or Use installed bridge apply the appropriate state. Read the status after each action rather than assuming success.",
+          "target": "tutorialControl_vseeface_avatar_tab::vseeface_bridge_status",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Remove or rebuild deliberately",
+          "body": "Remove bridge detaches lip sync without touching the VSeeFace app. Open bridge source and Self-build instructions are for diagnosing a custom build. Confirm the status displays the intended final state before returning to Overview.",
+          "target": "tutorialControl_vseeface_avatar_tab::btn_vseeface_bridge_remove",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_vseeface_avatar"
+    },
+    {
+      "id": "page_vseeface_avatar_body",
+      "title": "VSeeFace Avatar · Body",
+      "description": "Use Body in VSeeFace Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.vseeface_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "vseeface"
+      },
+      "category": "Runtime / Avatar / VSeeFace Avatar",
+      "order": 212,
+      "topic": "Body",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Load and save body presets",
+        "Live Sync and deletion caution"
+      ],
+      "steps": [
+        {
+          "title": "Load and save body presets",
+          "body": "In Body, choose a Body preset and Load to apply it. Save updates the current preset, while Save As names a new one. Body emotion selects an emotion to apply. Confirm the avatar reflects the preset in VSeeFace before treating the change as complete.",
+          "target": "tutorialControl_vseeface_avatar_tab::body_combo",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Live Sync and deletion caution",
+          "body": "Live Sync keeps body values synchronized as you change them. Delete removes the selected preset, so pick deliberately. Turn Live Sync on when tuning many fields; turn it off when you want to compare a saved preset against unsaved edits.",
+          "target": "tutorialControl_vseeface_avatar_tab::btn_body_save",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_vseeface_avatar"
+    },
+    {
+      "id": "page_vseeface_avatar_dynamics",
+      "title": "VSeeFace Avatar · Dynamics",
+      "description": "Use Dynamics in VSeeFace Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.vseeface_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "vseeface"
+      },
+      "category": "Runtime / Avatar / VSeeFace Avatar",
+      "order": 213,
+      "topic": "Dynamics",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect the dynamics group before editing"
+      ],
+      "steps": [
+        {
+          "title": "Inspect the dynamics group before editing",
+          "body": "Dynamics affects how the model moves in response to tracking. Before editing, note current values. Adjust one at a time and watch the VSeeFace window for the resulting movement. If a change looks wrong, restore the previous value rather than stacking edits.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_vseeface_avatar"
+    },
+    {
+      "id": "page_vseeface_avatar_hand_doctor",
+      "title": "VSeeFace Avatar · Hand Doctor",
+      "description": "Use Hand Doctor in VSeeFace Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.vseeface_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "vseeface"
+      },
+      "category": "Runtime / Avatar / VSeeFace Avatar",
+      "order": 214,
+      "topic": "Hand Doctor",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Activate the debug override and load a preset",
+        "Adjust axes one at a time and save"
+      ],
+      "steps": [
+        {
+          "title": "Activate the debug override and load a preset",
+          "body": "In Hand Doctor, choose a Calibration preset and use Load preset to edit. If needed, toggle Activate Debug Override to see the effect. Confirm the avatar's hands show the overridden shape before continuing to fine-tune finger and thumb axes.",
+          "target": "tutorialControl_vseeface_avatar_tab::hand_debug_active",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Adjust axes one at a time and save",
+          "body": "Finger X, Y, Z and Thumb X, Y, Z rotate the corresponding axes. Change one value, inspect the hands, then continue. Save calibration preset stores the result. If an axis seems to do nothing, confirm debug override is active and the right preset is loaded.",
+          "target": "tutorialControl_vseeface_avatar_tab::hand_calibration_preset",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_vseeface_avatar"
+    }
+  ]
+}

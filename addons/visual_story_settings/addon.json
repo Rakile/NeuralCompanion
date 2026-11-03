@@ -1,0 +1,26 @@
+{
+  "id": "nc.visual_story_settings",
+  "name": "Visual Story Settings",
+  "category": "visuals",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Controls story-mode visual reply generation, continuity, styles, and master prompt guards.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "visual_story_settings_tab",
+      "title": "Story Visuals",
+      "area": "host_settings",
+      "placeholder": "host_settings_story_visuals_tab",
+      "icon_path": "ui/icons/story_visuals.png",
+      "order": 121,
+      "tooltip": "Story-mode visual reply settings.",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "enabled": true
+}

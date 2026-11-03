@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "package": "expo-video",
+  "version": "3.0.16",
+  "files": [
+    {
+      "path": "ios/VideoManager.swift",
+      "before": "8810b9f404ec48c6474c347c996c322bce00c091ba728c5f274628189dee00a6",
+      "after": "7093cba2b1a2d7b5f5196057a2ad0c7963d9583ab272ba8ec0b9afb66587a338",
+      "license": "MIT"
+    }
+  ]
+}

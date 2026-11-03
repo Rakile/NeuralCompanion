@@ -1,0 +1,118 @@
+{
+  "id": "companion_orb_lfm_interactive",
+  "order": 20,
+  "title": "20. Companion Orb Vision and Actions",
+  "description": "Locate a visible desktop target with the Orb before considering optional guidance or confirmed clicks.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "setup",
+      "provider_kind": "vision",
+      "provider_id": "companion_orb_target"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "desktop_map",
+      "provider_kind": "vision",
+      "provider_id": "companion_orb_target"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "actions",
+      "provider_kind": "vision",
+      "provider_id": "companion_orb_target"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "advanced",
+      "provider_kind": "vision",
+      "provider_id": "companion_orb_target"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Start with finding, before clicking",
+      "body": "A grounded result links a name such as “Search box” to a location on the current screen. The Orb can combine UI Automation, visible-text recognition (OCR) and an optional vision model to find it. A description of a page alone is not a verified click target.\n\nIn Vision Sensors → Companion Orb Target, open Setup and find Vision model. Keep click permissions unchanged and off for this exercise. We will inspect one provider, restrict the desktop map and test a visible target. If these controls are absent, check that the Orb addon is enabled and loaded.\n\nRead aloud narrates the guide; Hear step reads only this step.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "setup",
+      "target_hint": "Open Companion Orb Target in Vision Sensors. Model tests and capture are explicit actions; check their requirements before running them."
+    },
+    {
+      "title": "Select the auxiliary vision model",
+      "body": "In Setup → Vision model, choose Provider and click Refresh models. Read Model availability, then select a vision-capable Vision model available to that connection. Configure provider opens the shared connection settings if the endpoint or credentials need attention. Check where images will be sent before testing.\n\nAn empty list calls for fixing that provider connection or making a vision model available on its server, then refreshing. Selecting a name is not a model test and does not change the Main chat model. This capability is not limited to LFM; leave tuning at its existing values until a real request succeeds.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "setup",
+      "target_hint": "Open Companion Orb Target in Vision Sensors. Model tests and capture are explicit actions; check their requirements before running them."
+    },
+    {
+      "title": "Limit the desktop map to a useful area",
+      "body": "Desktop map scanning builds reusable locations for visible content. Its scope is separate from the Orb window or region used for a watch or drop. Choose an Active window or selected monitor containing a harmless document rather than All monitors for your first test. Review scan mode and interval before enabling ongoing scanning.\n\nUnder Movement and focus, Allow deliberate conversational focus movement permits the Orb to move toward a requested subject. Try asking it to focus on a clearly visible heading without requesting a click. Compare its landing point with the heading. If it misses, check scope and visibility before increasing scanning frequency.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "desktop_map",
+      "target_hint": "Open Companion Orb Target in Vision Sensors. Model tests and capture are explicit actions; check their requirements before running them."
+    },
+    {
+      "title": "Optional: give one interaction visual guidance",
+      "body": "Actions → Visual guidance has separate switches for Gaze reactions, Drag/drop snapshots and Reading comments. They decide which interactions may ask the auxiliary model for help. They do not calibrate eye tracking or create an ongoing watch. Keep them unchanged until the basic target test works.\n\nIf you want to test a drop, enable Drag/drop snapshots, use a harmless selected crop, and compare the response with what was in that crop. A drop can share an image with the configured endpoint. If it describes the wrong place, correct the target selection before retrying; turn the guidance back off if it was only a test.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "actions",
+      "target_hint": "Open Companion Orb Target in Vision Sensors. Model tests and capture are explicit actions; check their requirements before running them."
+    },
+    {
+      "title": "Keep target recognition separate from click permission",
+      "body": "In Actions → Confirmed clicks, check Enable confirmed vision-target clicks is off. A correct focus movement does not require enabling it. Keep it off while you establish that the Orb consistently finds the intended control on the current screen.\n\nLater, if you choose to enable clicking, inspect Confirmation method and its requirements before testing a harmless control. Long gaze and Double blink are confirmation choices, not automatic permission from a model response. Verification can reject stale or mismatched targets. Do not lower thresholds to force an uncertain target through; refresh the view and check the location first.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "actions",
+      "target_hint": "Open Companion Orb Target in Vision Sensors. Model tests and capture are explicit actions; check their requirements before running them."
+    },
+    {
+      "title": "Run one grounding test and read its result",
+      "body": "Advanced → Vision runtime and Vision pipeline report what handled an interaction. With a harmless target visible and the runtime ready, use Test Visual Grounding if you want a deliberate capture and model test. Read the reported result and compare any named region or coordinates with the actual screen. A listed model alone did not establish this.\n\nIf the test fails, use the runtime status to separate an unavailable endpoint from missing or mismatched targets. Leave debug recording and retained desktop-map captures off unless you need them for a specific investigation; those options keep screen data beyond the immediate test.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "advanced"
+    },
+    {
+      "title": "Restore only what you changed",
+      "body": "If the test located the intended subject while clicks stayed off, the basic exercise succeeded. In Advanced, turn off diagnostic recording or retained captures you enabled. Return to Actions to turn off optional guidance and confirmed clicks used only for testing, then restore your desktop-map scanning scope and mode if you changed them.\n\nRemove a test watch in Watches if you created one; stopping scanning does not remove watches or general Behavior rules. If resource contention affected chat, inspect Vision runtime status before altering model residency. Keep the last working provider settings rather than changing several memory options at once.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "advanced"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "First show the Companion Orb and choose a harmless visible target using guide 19. This lesson explains the extra model and desktop map that can locate things on screen. An auxiliary vision model is optional and uses a configured provider; it does not replace your chat model. Capture and model tests can send the selected image to that endpoint. Keep confirmed clicks off for the first test. Reading changes nothing.",
+  "learning_outcomes": [
+    "Select and inspect an auxiliary vision provider separately from Main chat.",
+    "Check grounding against a visible target with clicking disabled.",
+    "Distinguish optional guidance, click consent and diagnostic retention."
+  ],
+  "contextual_guides": [
+    "overview_companion_orb_overlay"
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "avatar_engine": "ditto",
+  "ditto_draft": false,
+  "ditto_emotion_map": {},
+  "ditto_render_settings": {
+    "ditto_avatar_selection": "From reply emotion",
+    "ditto_blink_open": 0,
+    "ditto_blink_style": "Checkpoint blink sequence",
+    "ditto_conditioning": "Checkpoint reference",
+    "ditto_emotion": "Neutral",
+    "ditto_emotion_selection": "Manual",
+    "ditto_expression": 0.7,
+    "ditto_eye_first_frame": false,
+    "ditto_eyes": "Disabled",
+    "ditto_fade_in": 0,
+    "ditto_fade_keys": "Expression only",
+    "ditto_fade_out": 0,
+    "ditto_fade_target": "Source pose",
+    "ditto_motion": "Expression only",
+    "ditto_pitch_offset": 2.0,
+    "ditto_pitch_strength": 1.0,
+    "ditto_relative": true,
+    "ditto_roll_offset": 0.0,
+    "ditto_roll_strength": 1.0,
+    "ditto_seed": "",
+    "ditto_smoothing": 3,
+    "ditto_source_smoothing": 13,
+    "ditto_steps": 15,
+    "ditto_stitching": true,
+    "ditto_translation_strength": 1.0,
+    "ditto_yaw_offset": 0.0,
+    "ditto_yaw_strength": 1.0
+  },
+  "ditto_canvas": [
+    1062,
+    1390
+  ],
+  "id": "Echo_Ditto",
+  "display_name": "Echo",
+  "default_variant": "neutral",
+  "variants": {
+    "neutral": {
+      "ditto_source_media": "",
+      "ditto_render_settings": {
+        "ditto_blink_open": 0,
+        "ditto_blink_style": "Checkpoint blink sequence",
+        "ditto_conditioning": "Checkpoint reference",
+        "ditto_emotion": "Neutral",
+        "ditto_expression": 0.7,
+        "ditto_eye_first_frame": true,
+        "ditto_eyes": "Enabled",
+        "ditto_fade_in": 0,
+        "ditto_fade_keys": "Expression and head motion",
+        "ditto_fade_out": 0,
+        "ditto_fade_target": "Source pose",
+        "ditto_motion": "Animate head and expression",
+        "ditto_pitch_offset": 2.0,
+        "ditto_pitch_strength": 1.0,
+        "ditto_relative": true,
+        "ditto_roll_offset": 0.0,
+        "ditto_roll_strength": 1.0,
+        "ditto_seed": "",
+        "ditto_smoothing": 3,
+        "ditto_source_smoothing": 13,
+        "ditto_steps": 18,
+        "ditto_stitching": true,
+        "ditto_translation_strength": 1.0,
+        "ditto_yaw_offset": 0.0,
+        "ditto_yaw_strength": 1.0
+      },
+      "avatar_path": "neutral",
+      "avatar_id": "neutral",
+      "tags": [
+        "neutral"
+      ],
+      "display_name": "Neutral"
+    }
+  }
+}

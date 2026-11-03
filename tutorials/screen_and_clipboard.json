@@ -1,0 +1,129 @@
+{
+  "id": "screen_and_clipboard",
+  "order": 12,
+  "title": "12. Screen and Clipboard",
+  "description": "Test a narrow screen capture and one deliberate clipboard image delivery before optional background reactions.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "setup",
+      "provider_kind": "vision",
+      "provider_id": "screen"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "setup",
+      "provider_kind": "vision",
+      "provider_id": "clipboard"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "setup",
+      "provider_kind": "vision",
+      "provider_id": "companion_orb_target"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "provider_kind": "vision",
+      "provider_id": "shared_awareness"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "advanced",
+      "provider_kind": "vision",
+      "provider_id": "clipboard"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Prepare a small screen area first",
+      "body": "Screen Source supplies images; Screen Supervisor optionally reacts to them. In Screen → Setup, choose Selected region under Capture area. Use Select region to mark only a harmless document and read Current region to confirm a selection exists. The later capture test will check whether that selection can be read.\n\nWhole screen captures a monitor or All screens; Selected square gives a square area with Select square. Keep background capture and screen next-turn attachment off during this initial setup. Read aloud narrates the guide; Hear step reads this instruction without capturing anything.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "screen",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Choose deliberate clipboard delivery",
+      "body": "Clipboard handles copied images, not copied paragraphs. In Clipboard → Setup, leave Send copied images immediately off and Use copied images in background awareness off for the first exercise. Choose Attach to the next user turn when you want to add your own question before sending. Enable the Clipboard source when you are ready to use that delivery.\n\nThe next-turn option waits for a submitted message; immediate-send does not wait and needs a running runtime. Immediate-send and background awareness are mutually exclusive. We will test next-turn delivery below so you can control exactly when the picture enters chat.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "clipboard",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Keep Orb capture separate",
+      "body": "Companion Orb Target uses its own selected window, region or screen. The Screen Source region you just marked does not replace that target. Leave Orb settings unchanged for this exercise; you do not need an Orb watch to send a screenshot or clipboard image.\n\nIf an Orb response later describes the wrong window, check the Orb target rather than changing Screen Source. Guide 19 teaches its separate watching consent and guide 20 its optional grounding and confirmed actions. One successful Screen Source diagnostic does not verify either of those Orb paths.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Check the image recipient before sending",
+      "body": "Before the clipboard test, confirm which image-capable chat provider and model will receive the picture. Local and hosted routes have different destinations; the fact that an observation is hidden from ordinary chat display does not keep it local. Use only the harmless sample you intend to share.\n\nLeave Shared Awareness Policy unchanged for diagnostic capture and manual next-turn delivery. It governs background reviews, while clipboard immediate-send and next-turn attachment are separate. Disabling shared awareness later will not cancel those delivery choices or recall images already sent.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "Verify capture, then send one clipboard image",
+      "body": "Return to Screen → Setup and click Test capture. Read Sensory capture result for the successful capture filename or an error. This checks the source without calling an LLM; the report does not prove the model understood the picture. If it fails, recheck Current region and select the area again before adding rules.\n\nFor the clipboard exercise, enable its next-turn delivery, copy one harmless image, then ask Main chat “Describe the main subject in this copied image.” Send only when ready. Check the attachment and resulting answer. If absent, confirm Clipboard is enabled and you copied image data rather than text or a file path. Turn next-turn delivery off after the test.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "screen",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Optional: react to one visible screen change",
+      "body": "After capture works, Screen Setup can add a background reaction. Select an Active Reaction Profile, click Add Rule and set Visual Trigger to “A slide titled Test complete is visible” with Action “Briefly acknowledge that title.” Choose Repeat mode One-off, turn Enabled on and check Enable Screen Supervisor.\n\nEnable Screen Source and Shared Awareness Policy with a ready runtime, and Allow hidden proactive speech only if you want the acknowledgement spoken. Show the title within the selected area and wait for an eligible check. If silent, verify capture and those permissions before changing the prompt. Disable the test rule afterward.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "screen",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Optional: react to one copied image",
+      "body": "To test background clipboard reactions, first turn off next-turn and immediate-send delivery so they cannot confuse the result. Enable Clipboard and Use copied images in background awareness. Select a profile, use Add Rule, set Clipboard Image Trigger to “A new image shows a red circle” and Action to “Acknowledge the red circle.”\n\nChoose Repeat mode One-off, enable the rule and Enable Clipboard Supervisor. With shared background and speech permissions ready, copy one harmless red-circle image. Compare any acknowledgement with it. If none arrives, confirm an image reached the source before editing the trigger. Disable the test rule and background feed when done.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "clipboard",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Read prompts as configuration, then restore controls",
+      "body": "Prompts frames the observation; Advanced shows Combined hidden review prompt preview using example content. Read it to understand what the model would be asked. It is assembled text, not a live capture or proof a reaction ran. You do not need to edit it for either first exercise.\n\nTo stop reactions, disable your rule or supervisor. To stop future background contributions, disable the source or shared policy as appropriate. Review Clipboard’s next-turn, immediate-send and background-feed switches separately, plus Screen’s next-turn attachment if used. Restore only the settings you changed and keep intentional existing sources intact.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "clipboard",
+      "sensory_tab": "advanced"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Use a harmless document and picture for practice. Screen and Clipboard are separate sensory source addons; copied text does not count as a clipboard image. Test capture takes one local diagnostic sample without calling an LLM. Sending image questions needs a working image-capable chat route. Automatic background reviews need the running runtime and shared permissions. Reading this guide enables or sends nothing.",
+  "learning_outcomes": [
+    "Select a narrow Screen Source area and verify diagnostic capture.",
+    "Deliver one clipboard image on an intended message rather than sending immediately.",
+    "Add an optional one-off reaction and stop its independent delivery paths."
+  ],
+  "contextual_guides": [
+    "page_vision_overview",
+    "overview_screen_source",
+    "overview_clipboard_source"
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "guides": [
+    {
+      "id": "overview_lmstudio_provider",
+      "title": "LM Studio (REST) Chat Provider overview",
+      "description": "Optional LM Studio Responses API provider. Disabled by default; enable and restart NC to use REST instead of the default SDK provider.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chat_provider_lmstudio",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "lmstudio"
+      },
+      "category": "Runtime / LLM / LM Studio (REST) Chat Provider",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Optional LM Studio Responses API provider. Disabled by default; enable and restart NC to use REST instead of the default SDK provider.",
+        "Find focused guidance for Connection, Model, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_lmstudio_provider_connection",
+        "page_lmstudio_provider_model",
+        "page_lmstudio_provider_generation",
+        "language_providers"
+      ],
+      "steps": [
+        {
+          "title": "What LM Studio (REST) Chat Provider does",
+          "body": "Optional LM Studio Responses API provider. Disabled by default; enable and restart NC to use REST instead of the default SDK provider. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_lmstudio_provider_connection",
+        "page_lmstudio_provider_model",
+        "page_lmstudio_provider_generation"
+      ],
+      "display_title": "Start tutorial · LM Studio (REST) Chat Provider",
+      "optional_chapters": [
+        "language_providers"
+      ]
+    },
+    {
+      "id": "page_lmstudio_provider_connection",
+      "title": "LM Studio (REST) Chat Provider · Connection",
+      "description": "Use Connection in LM Studio (REST) Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_lmstudio",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "lmstudio"
+      },
+      "category": "Runtime / LLM / LM Studio (REST) Chat Provider",
+      "order": 210,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Enable the addon first",
+        "Check the connection card and test"
+      ],
+      "steps": [
+        {
+          "title": "Enable the addon first",
+          "body": "This provider is disabled by default. Enable LM Studio (REST) Chat Provider in Addon Manager and restart NC as requested. Until then, its Connection, Model, and Generation areas are not expected to appear. Enabling it changes which transport NC uses, so do this deliberately rather than as a first step.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check the connection card and test",
+          "body": "After restart, open the Connection area on this page and read the connection card for the server address it expects. Confirm LM Studio is running locally, then use Test connection to check reachability. A passing connection test confirms the endpoint, not that a model is loaded or that responses are complete.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_lmstudio_provider"
+    },
+    {
+      "id": "page_lmstudio_provider_model",
+      "title": "LM Studio (REST) Chat Provider · Model",
+      "description": "Use Model in LM Studio (REST) Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_lmstudio",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "lmstudio"
+      },
+      "category": "Runtime / LLM / LM Studio (REST) Chat Provider",
+      "order": 211,
+      "topic": "Model",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Select a model in the selector"
+      ],
+      "steps": [
+        {
+          "title": "Select a model in the selector",
+          "body": "Use the model selector to choose a model the running server exposes. If the list is empty, the server likely has no loaded model; address that before repeatedly refreshing. Selecting a model changes what Generation settings apply to, so confirm the name matches what you intended.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_lmstudio_provider"
+    },
+    {
+      "id": "page_lmstudio_provider_generation",
+      "title": "LM Studio (REST) Chat Provider · Generation",
+      "description": "Use Generation in LM Studio (REST) Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_lmstudio",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "lmstudio"
+      },
+      "category": "Runtime / LLM / LM Studio (REST) Chat Provider",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Generation options apply to REST"
+      ],
+      "steps": [
+        {
+          "title": "Generation options apply to REST",
+          "body": "Generation options shape replies from this REST provider. Read the current values before changing them. If an unfamiliar option appears, treat it as unknown and change one at a time. Verify with a short reply whether the transport switch and model produce expected responses.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_lmstudio_provider"
+    }
+  ]
+}

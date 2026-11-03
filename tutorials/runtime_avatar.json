@@ -1,0 +1,47 @@
+{
+  "id": "runtime_avatar",
+  "title": "Avatar",
+  "description": "Read the avatar provider list, see which avatar option is highlighted, and understand what this page does and does not start.",
+  "kind": "section",
+  "scope": {
+    "workspace": "runtime",
+    "runtime_section": "runtime",
+    "runtime_responsibility": "avatar"
+  },
+  "category": "Runtime / Runtime Session",
+  "order": 47,
+  "before_you_start": "You can read this guide with the engine stopped. It opens settings pages and highlights controls; changes and tests are explicit user actions.",
+  "learning_outcomes": [
+    "Locate the avatar provider list",
+    "Read the highlighted selection correctly",
+    "Know that activation and live behavior depend on your own actions"
+  ],
+  "steps": [
+    {
+      "title": "Browse avatar backends",
+      "body": "Read the avatar provider list. Viewing a backend's settings is separate from selecting it for the session. The None option intentionally disables avatar output. Keep the current backend selected for this tour; a sparse list can reflect disabled or unavailable addons.",
+      "target": "avatarProviderList",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Identify backend requirements",
+      "body": "Inspect the viewed backend's settings. MuseTalk, Ditto, Scenic Avatar and VSeeFace have different assets and runtime requirements. Read paths, pack selections or connection controls without changing them. If the required assets are missing, finish this tour and follow that provider's setup guide.",
+      "target": "runtimeProviderSettingsPanel",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Find the activation action",
+      "body": "Find Make active when a different backend is being viewed. Activating a backend changes the session choice; it does not prove its assets are ready or its renderer has started. This tutorial leaves that decision to you and does not load an avatar runtime.",
+      "target": "runtimeProviderSettingsPanel",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Know where preview fits",
+      "body": "The Avatar Preview workspace displays output; this page configures the provider that supplies it. A preview exercise can be started separately after configuration. Finish here when you can distinguish the viewed backend, active session choice and required assets.",
+      "target": "avatarProviderList",
+      "fallback_target": "runtimeResponsibilityStack"
+    }
+  ],
+  "estimated_minutes": 3,
+  "course_id": "runtime_session_overview"
+}

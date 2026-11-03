@@ -1,0 +1,107 @@
+{
+  "id": "ditto_avatar",
+  "order": 37,
+  "title": "37. Ditto Avatars",
+  "description": "Prepare one face, preview a short speaking test, and select the saved Ditto package for chat.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "workspace": "addons",
+      "addon": "ditto_preprocess_tab",
+      "section": "Source"
+    },
+    {
+      "workspace": "addons",
+      "addon": "ditto_preprocess_tab",
+      "section": "Test"
+    },
+    {
+      "workspace": "addons",
+      "addon": "ditto_preprocess_tab",
+      "section": "Package"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Check Ditto before choosing media",
+      "body": "View Ditto in Runtime → Avatar. Viewing exposes settings without activating or loading the provider. Check the reported runtime status; Advanced contains Ditto installation and Ditto Python executable if paths are missing. A blank executable setting uses the installation’s expected environment.\n\nOur first goal is one speaking portrait, not tuned emotion variants. Save your chat, switch the top-right power button ON → OFF if running, and wait for cleanup before opening the creator. If required files or models are missing, resolve that installation requirement first; changing a source image will not fix it.\n\nRead aloud narrates the guide; Hear step reads only this step.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "title": "Choose one clear portrait",
+      "body": "In Addons → Ditto Avatar Creator → Choose media, drop a portrait or click Or choose a file. Use one centered, front-facing face with an unobstructed mouth. A still image makes a smaller first exercise than a long video. Check the selected filename as the wizard advances to Prepare.\n\nIf you want to reuse an existing package, use Open a saved avatar, select it and press Open instead. Opening a saved package does not prepare it again. If new media is rejected, read the error and try a supported still image before investigating video frame-rate choices.",
+      "workspace": "addons",
+      "target": "dittoCreatorWizard",
+      "addon": "ditto_preprocess_tab",
+      "section": "Source"
+    },
+    {
+      "title": "Prepare and wait for the saved package",
+      "body": "Enter a recognizable Avatar name and click Prepare avatar. Preparation creates the assets once and saves the package automatically. Keep the source unchanged while progress is active. For a video, read any frame-rate prompt before choosing Convert to 25 FPS or Keep original frames.\n\nWait until the creator reaches Try & use and says it is ready for a preview. If it reports an error, use that stage to check the source or runtime; do not start chat to fix a creator job. Cancel stops preparation, while Cancel and unload releases the worker when you need to leave active work.",
+      "workspace": "addons",
+      "target": "dittoCreatorWizard",
+      "addon": "ditto_preprocess_tab",
+      "section": "Source"
+    },
+    {
+      "title": "Hear and watch the local preview",
+      "body": "In Try & use, check Avatar to preview names your new base face, then click Preview speaking. Listen to the test while watching the mouth. Mute preview silences this local test while leaving animation visible; Stop preview ends it. Check both sound and motion before selecting the avatar for chat.\n\nClick Use in chat and look for Selected for chat. Merely choosing Avatar to preview does not change chat selection. If Use in chat is blocked, resolve any unfinished emotion entry by preparing or discarding it. If the preview fails, fix that reported error before trying the full chat pipeline.",
+      "workspace": "addons",
+      "target": "dittoCreatorWizard",
+      "addon": "ditto_preprocess_tab",
+      "section": "Test"
+    },
+    {
+      "title": "Verify the same package in Main chat",
+      "body": "Stop preview and unload creator models before starting chat. Return to Runtime → Avatar → Ditto. Confirm Avatar package and Fixed avatar match the package you tested; keep Source avatar selection on Fixed for this first reply. Click Use this avatar if Ditto is not active.\n\nSwitch the top-right power button OFF → ON, wait for initialization, then ask Main chat for one spoken sentence. Avatar Preview should show that face moving with the audible reply. If only text appears, check TTS first. If speech works but the face is still, inspect Ditto status and package selection before changing motion settings.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "title": "Optional: add one source variant",
+      "body": "After the base face works, save and stop chat before returning to the creator. Open the saved package, choose Add emotion variants (optional), enter a label such as curious, and use Choose media for this label. Prepare that source just as you prepared the base portrait.\n\nSelect the variant in Avatar to preview and test it locally before Use in chat. The variant changes the source image or video associated with a reply label; it does not define Ditto’s generated facial expression. If an entry still says needs preparation, finish or discard it before using the package. Keep the working base while testing the extra look.",
+      "workspace": "addons",
+      "target": "dittoCreatorWizard",
+      "addon": "ditto_preprocess_tab",
+      "section": "Package"
+    },
+    {
+      "title": "Optional: separate source and expression changes",
+      "body": "Runtime → Avatar → Ditto has two independent selectors. Source avatar selection → From reply emotion chooses among your prepared package variants. Generated expression selection → From reply emotion chooses Ditto’s built-in expressions for speech chunks. Package emotions limits eligible source variants.\n\nFor a repeatable comparison, keep source selection Fixed and expression selection Manual, choose an Emotion and send a new short spoken request. Compare it with Neutral before trying automatic selection. Settings apply to new rendered chunks; queued output keeps its earlier values. If the face changes unexpectedly, return these selectors to Fixed and Manual before changing strength or smoothing.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "title": "Finish with the intended models and preview",
+      "body": "For continued chat, float Avatar Preview and try Avatar only or Always on top if useful. Confirm a new spoken reply still appears in the floating view. These window controls change presentation, not the selected package. Guide 35 explains docking and restoring controls.\n\nBefore preparing another source or changing installation paths, save and stop chat. In the creator, use Stop preview then Unload models, or Cancel and unload for active work. Check Model state becomes Unloaded. Saved packages remain available. A completed guide is not a completed avatar test unless the intended face actually moved with speech.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "First verify audible Main chat speech. Ditto needs its own installed runtime, Python environment and required models; this guide does not install them. Prepare or test in Ditto Avatar Creator with chat stopped and Ditto unloaded. Use one clear portrait for the first exercise; optional variants can wait until the base face works. The guide never prepares media, starts the runtime or sends a message for you.",
+  "learning_outcomes": [
+    "Prepare and locally preview one saved avatar package.",
+    "Select the package for chat and verify lip sync with audible speech.",
+    "Distinguish source variants from generated expressions and unload creator models."
+  ],
+  "contextual_guides": [
+    "overview_ditto_avatar",
+    "overview_ditto_preprocess"
+  ]
+}

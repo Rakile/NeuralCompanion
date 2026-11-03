@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#183d57"/><stop offset="1" stop-color="#111a32"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#51e3f5"/><stop offset="1" stop-color="#9a79e6"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0a1624" stroke="#41667b" stroke-width="1.5"/>
+  <rect x="9" y="9" width="46" height="46" rx="10" fill="url(#panel)" stroke="url(#rim)" stroke-width="2"/>
+  <path d="M15 32C20 29 23 23 27 24C29 24 30 27 32 27C34 27 35 24 37 24C41 23 44 29 49 32C45 36 42 44 32 44C22 44 19 36 15 32Z" fill="#1c5268" stroke="url(#rim)" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M17 32C23 30 27 31 32 31C37 31 41 30 47 32C42 36 37 39 32 39C27 39 22 36 17 32Z" fill="#07111d" stroke="#72e5f2" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M22 32Q32 31 42 32Q38 35 32 35Q26 35 22 32Z" fill="#b7e9f1"/>
+</svg>

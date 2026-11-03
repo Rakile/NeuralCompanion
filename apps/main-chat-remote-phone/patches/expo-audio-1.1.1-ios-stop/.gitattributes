@@ -1,0 +1,6 @@
+# Hash-pinned Swift artifacts must survive Windows and Apple Git checkouts identically.
+ios/*.swift text eol=lf
+upstream/ios/*.swift text eol=lf
+ios/*.podspec text eol=lf
+upstream/ios/*.podspec text eol=lf
+ios/Tests/*.swift text eol=lf

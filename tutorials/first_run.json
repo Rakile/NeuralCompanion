@@ -1,0 +1,118 @@
+{
+  "id": "first_run",
+  "order": 1,
+  "title": "1. Get Started: Your First Chat",
+  "description": "Choose a local or API chat provider, connect a model, switch NC on, and receive your first main-chat reply.",
+  "speech_backend": "chatterbox",
+  "steps": [
+    {
+      "title": "Choose and activate your chat provider",
+      "body": "Start in Runtime → LLM, in the Providers list.\n\nFor a local LLM, double-click LM Studio or Ollama. For an API service, double-click OpenAI, xAI / Grok, DeepSeek or Claude—the one you have API access to. Double-clicking activates it. Alternatively, single-click to view its settings, then click Make active at the top of its details. A single click alone only opens settings.\n\nCheck that your chosen row says Active provider and has the green indicator. Next we will connect that provider; do not send a message yet. Read aloud narrates the guide; Hear step reads only the current step.",
+      "workspace": "runtime",
+      "target": "runtimeProviderList",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Connect your provider: local server or API key",
+      "body": "Keep the same provider selected. Its Model and connection card is on the right.\n\nLM Studio: open LM Studio, load a chat model and start its local server. Ollama: start Ollama and make a chat model available there. Check the Base URL in NC against your server address. A downloaded model alone does not start a server.\n\nOpenAI, xAI / Grok, DeepSeek or Claude: paste your key from that service into API Key in this card. This is the provider connection field, not the chat message box or Persona system prompt. A subscription to a separate chat app does not supply NC with an API key. Click outside the field to finish editing. Use only the setup path for the provider you chose.",
+      "workspace": "runtime",
+      "target": "runtimeProviderApiKeyField",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language",
+      "fallback_target": "runtimeProviderConnectionCard",
+      "target_hint": "For LM Studio/Ollama, follow the local-server instructions in Model and connection. API Key is highlighted when that field is available for the viewed provider."
+    },
+    {
+      "title": "Choose the Chat model and test the connection",
+      "body": "In Model and connection, click Refresh next to Chat model. Open the Chat model dropdown and select the model you want the active provider to use. For local providers, choose a model available on your running server. For API providers, choose a model your API account can access.\n\nClick Test connection above this card and read the result. Continue when the intended model is selected and the test succeeds. If the list is empty or the test fails, check the local server/Base URL or API Key and account access, then Refresh again. Confirm the intended provider still says Active provider. The guide does not choose a model or make a paid API request for you.",
+      "workspace": "runtime",
+      "target": "runtimeChatModelSelector",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Choose how you give NC input",
+      "body": "In Session setup → Input and profile, choose Text Only for your first chat. It uses typed messages without microphone transcription; you can still hear replies through a configured text-to-speech provider.\n\nVoice Activation uses speech detection to trigger microphone input. Push-to-Talk records while you hold its configured key; the current binding is shown below these controls. Always On also uses the automatic speech-detection path in the current Main Chat runtime; it is not a separate mode that records continuously through silence. Microphone modes need a working speech-to-text provider and input device.\n\nCheck that Text Only is selected before continuing. Next we will explain the two separate choices below it: Input role and Stream mode.",
+      "workspace": "runtime",
+      "target": "sessionInputModeSelector",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "session"
+    },
+    {
+      "title": "Input role: who is this message from?",
+      "body": "Leave Input role on User Message for ordinary chat. It presents your next message as your question or request, such as “Explain rainbows.” Use this role for image attachments too.\n\nSystem Message is advanced: it adds instruction-style content, such as “Keep answers brief,” that can steer the model depending on the provider. Assistant Message adds your words as if the assistant had said them; the next reply can continue or build on that content. It does not select another Persona, and neither option edits your saved Persona prompt.\n\nThe role is stored with the message you send. Switching back does not remove or relabel messages already in the conversation. For this first test, confirm User Message is selected; you do not need to send any advanced-role examples.",
+      "workspace": "runtime",
+      "target": "sessionInputRoleSelector",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "session"
+    },
+    {
+      "title": "Stream mode: a complete reply or a progressive one?",
+      "body": "Keep Stream mode Off for a simple first test. Off waits for the complete model reply before passing it to the speech pipeline. Speech can still be split into chunks afterward; Off does not disable voice output.\n\nOn requests the reply progressively. When the provider and model support streaming, text arrives in pieces and speech can begin before the whole answer is ready. Sentence and chunk boundaries, the speech backend and any avatar buffering affect when you actually hear it. An earlier start is possible, not guaranteed; a slow setup can still pause between chunks.\n\nThis switch does not enable the microphone or make NC reply on its own. Get one normal reply first, then optionally compare Off and On on new short messages. Change one setting at a time so you can judge the difference.",
+      "workspace": "runtime",
+      "target": "sessionStreamModeSelector",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "session"
+    },
+    {
+      "title": "Switch the top-right power button ON",
+      "body": "Find the large power-symbol button in the top-right corner of the main NC window. It shows OFF while stopped and ON while running. This is the Initialize control—there is no separate button labelled Initialize in the current layout.\n\nIf it shows OFF, click it once and wait for initialization to finish. If it already shows ON, leave it on and continue. Clicking it while ON stops the engine (the action previously called Terminate). Do not toggle it to refresh the model. If startup fails, read the reported status and use Startup Self-Check. A selected provider does not by itself mean the engine is ready.",
+      "workspace": "runtime",
+      "target": "runtimeSessionButton",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Send your first message in Main chat",
+      "body": "The guide has opened Conversation. If a Local room conversation is showing, select Main chat first. Type “Hello! Please introduce yourself in one sentence.” in the message field, then click Send.\n\nExpected result: your message appears, followed by an assistant text reply. If there is no reply, check that the power button is ON and the provider connection test succeeds. Keep troubleshooting the basic chat path before adding voice or avatars.",
+      "workspace": "conversation",
+      "target": "conversationComposer"
+    },
+    {
+      "title": "Recognize a successful first reply",
+      "body": "Read the assistant reply. A visible text reply confirms the basic main-chat path. You do not need a microphone, avatar, image generator or memory-search model for this. Audible speech is a separate test if you enabled TTS.\n\nIf no assistant reply appeared, use Back to review the power, model and connection steps. Reaching this page alone is not proof that chat worked.",
+      "workspace": "conversation",
+      "target": "conversationResponseActions",
+      "fallback_target": "conversationComposer",
+      "target_hint": "Response controls appear after an assistant reply. If none exists, send a short message after successful startup, or continue reading without generating."
+    },
+    {
+      "title": "Save your first conversation",
+      "body": "Click Save above the messages and choose a recognizable filename if prompted. Check that saving finishes without an error. Save as creates another named copy; Load reopens a saved conversation. These are separate from Memory settings. Save before closing NC. Switching the top-right power button OFF stops the engine and leaves the current conversation visible.",
+      "workspace": "conversation",
+      "target": "conversationSaveButton",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. If Save is hidden, open Controls and enable the Save button visibility option."
+    },
+    {
+      "title": "Later: hide the console with its handle",
+      "body": "The highlighted dotted handle separates System console from the conversation. Click Show me below to watch the actual handle move all the way left and hide the console, then return to its starting position. The demonstration leaves your saved layout and console setting unchanged.\n\nTo do it yourself afterward, drag the handle fully left to keep the console hidden. Drag it right or double-click it to reopen. You can also focus the handle and press Space or Enter. The handle remains available while the console is hidden.",
+      "workspace": "conversation",
+      "target": "conversationSplitHandle",
+      "demonstration": "console_split"
+    },
+    {
+      "title": "Later: add optional speech and guide narration",
+      "body": "You can keep chatting with text. When ready, Runtime → Text-to-speech lets you choose a speech provider. For higher-quality tutorial narration, select Chatterbox and check its installation requirements. Selecting it alone does not load it.\n\nIf you need to restart the configured stack, save your chat first, use the top-right power button ON → OFF, wait for cleanup, then OFF → ON. Wait for Chatterbox to finish loading before Hear step. NC tries Windows TTS if Chatterbox is unavailable or fails. The Speech and Streaming guide covers microphone input and other voice settings.",
+      "workspace": "runtime",
+      "target": "speechProviderList",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "voice"
+    },
+    {
+      "title": "Continue chatting, then explore",
+      "body": "Return to Main chat and continue your conversation. The first-chat test is complete if an assistant text reply appeared; speech is tested only if you heard it. Tutorials keeps all the other guides, including Conversation and Chat, Personas and Visual Identity, Speech and Streaming, and Startup Self-Check. They explain the console handle, saved Personas, voice, images and advanced features when you need them. Finish closes this guide.",
+      "workspace": "conversation",
+      "target": "conversationWorkspace"
+    }
+  ],
+  "before_you_start": "Start here for your first chat. You can read without loading a model. Local chat uses LM Studio or Ollama; OpenAI, xAI / Grok, DeepSeek and Claude require their own API access and API key. The large power button at the top-right starts NC when OFF and stops it when ON. The guide highlights controls but never selects a provider, enters credentials, starts the engine or sends a message for you. Voice is optional. Higher-quality guide narration needs Chatterbox selected and loaded; Windows TTS is the fallback when available.",
+  "category": "Getting started",
+  "learning_outcomes": [
+    "Configure and initialize the main-chat provider.",
+    "Distinguish Input mode, Input role and Stream mode and choose a first-chat setup.",
+    "Send a message and recognize a successful text reply.",
+    "Understand optional speech and save your conversation."
+  ]
+}

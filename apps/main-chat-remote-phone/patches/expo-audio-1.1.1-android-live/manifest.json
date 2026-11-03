@@ -1,0 +1,297 @@
+{
+  "format": 1,
+  "package": "expo-audio",
+  "version": "1.1.1",
+  "license": "MIT",
+  "licenseSource": "https://github.com/expo/expo/blob/sdk-54/LICENSE",
+  "files": [
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCOrderedContinuation.kt",
+      "artifact": "android/NCOrderedContinuation.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "ac1bb7d10504890509b88dddd88f54f9dcf230b4a92b7921ecd75d0791039b2e"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCConnectionCueOutput.kt",
+      "artifact": "android/NCConnectionCueOutput.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "a72f5d1bcd47c8046d5ce0facf1e27abfed15444a15152d339cb06e15ea8852a"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCOrderedCachedIdle.kt",
+      "artifact": "android/NCOrderedCachedIdle.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "7683873037e020674102ff106772e51a9f5e027749dee328d92f128dc2132663"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCOrderedCachedVideo.kt",
+      "artifact": "android/NCOrderedCachedVideo.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "1d5c914328d1f2647c41ff561fbd38e03a5395a5f475492891940917de2c2ba2"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/AudioModule.kt",
+      "artifact": "android/AudioModule.kt",
+      "license": "MIT",
+      "before": "cb24f02e27c6dcf48a359156d51b3a92c8518d295de725363a3071068892faaa",
+      "after": "c2e0f65c9d3f4225cf559e40beb402297174ba424e89d4788beafb9343eea96e"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/AudioPlayer.kt",
+      "artifact": "android/AudioPlayer.kt",
+      "license": "MIT",
+      "before": "88dd8cb23944a766e8bd4fd39e6bff5ed95142aeae78ad61cf1d8dc604a6bf2c",
+      "after": "2f469d4b85ee9f0f3b1700364c917f70c9e89eebd45f895527e5f29fbb9cba7f"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCManualDeparturePolicy.kt",
+      "artifact": "android/NCManualDeparturePolicy.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "81a5f2e6187b36dd71fd7e788f2e8a4fec8dbb5d2d7f3cca18aee3c7a4365581"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/service/AudioControlsService.kt",
+      "artifact": "android/AudioControlsService.kt",
+      "license": "MIT",
+      "before": "d7f4fbb7305278a4f8e1b45f3aa33d169db53395b8244d6d3389002aa9489d8c",
+      "after": "650bdf588f3b89475e83c45fbd668e1e173745fe26028bbdafd40bda1b51ca7d"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCPlaybackGuard.kt",
+      "artifact": "android/NCPlaybackGuard.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "7cefc19149c4a47cc74f8a7ae27f5513ed47f43b0a48d042eee67e884c83b7e2"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCMuxedTrialReceipt.kt",
+      "artifact": "android/NCMuxedTrialReceipt.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "73c0ef03322e24edc9891cf2ef028eeb09a236ceb5c424bf5b48206e60551cb7"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCMuxedTrialPlayer.kt",
+      "artifact": "android/NCMuxedTrialPlayer.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "54b4bc68bee8e7e00ecfe3f245a882dd08535fd7deabcf49ebd33961390b105e"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCMuxedTrialView.kt",
+      "artifact": "android/NCMuxedTrialView.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "63d56e04bc79b762a7d743dc36204b4ddf50fadb0b7d4fd9d0af1538f97c88eb"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCMuxedTrialSourceOwner.kt",
+      "artifact": "android/NCMuxedTrialSourceOwner.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "91f77f9131adfc8f91f9c416f4d41cc61b59e98e8e3f84825e010ecf40672101"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCMuxedTrialReaderFence.kt",
+      "artifact": "android/NCMuxedTrialReaderFence.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "b3551afd1028a700f681f1d85c5d25048ab7704115a01b5bcf3ad8932a113ae9"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedPresentation.kt",
+      "artifact": "android/NCContinuousMuxedPresentation.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "a9cfaaa6d9b91ffeab3de8dcfbaf4cb25d8db2772f449cb734fce5fae4dd6773"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedAudioRenderer.kt",
+      "artifact": "android/NCContinuousMuxedAudioRenderer.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "996d69a508354a3a9a23d9acd21c75915f8eab9e5048fdaa94573c2065f35740"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedVideoRenderer.kt",
+      "artifact": "android/NCContinuousMuxedVideoRenderer.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "c1d43f2c2a393d62ccfca2194ac2670aad657fead0cdffcf915af1e02a4a5bc1"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedAudioSink.kt",
+      "artifact": "android/NCContinuousMuxedAudioSink.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "f498cc263d409d8ae6140273ce411e8ea143bad48a8a1089cd09fd1909935d50"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedAuthority.kt",
+      "artifact": "android/NCContinuousMuxedAuthority.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "efc1b86e192165c36c4ccc163aaaa32600fc7bb38c82f5489ff9ae9f3cfdaf0b"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedQueueState.kt",
+      "artifact": "android/NCContinuousMuxedQueueState.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "412f3d08c96b482b68727259362b2e1d38f9de8d30a393aa1b1eb17c3eb0255d"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedQueue.kt",
+      "artifact": "android/NCContinuousMuxedQueue.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "368c0c5b4a22695a42efa96d5926d495def86365bf9845dc7469f51f33f4060c"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedTailSource.kt",
+      "artifact": "android/NCContinuousMuxedTailSource.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "51f9ac0eacf9cfb3f2942982f6fb6d6b54e07254e13f1f95becccd1798b50c2c"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedJournal.kt",
+      "artifact": "android/NCContinuousMuxedJournal.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "5033bcc0461b7fe095b7e88baae9ce4f6b4703ab9a8a638e894e8cc44b0cfd6b"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedOutputGate.kt",
+      "artifact": "android/NCContinuousMuxedOutputGate.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "ee92462dc8aec24e38b376fe3224c902e4fd30f1ca4fcbecdff458eb737db3c0"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedSinkController.kt",
+      "artifact": "android/NCContinuousMuxedSinkController.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "b174ed7b29c20473c9234a6d64c0e554927827545ee2401c6856213bc578c074"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedRequests.kt",
+      "artifact": "android/NCContinuousMuxedRequests.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "ec6c17f7867e4ad6d8f89cf7c695c7b63d372a45c6454599c680611b1ceeeb35"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCContinuousMuxedRpc.kt",
+      "artifact": "android/NCContinuousMuxedRpc.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "c48c24e0890bed16d0e1a90b5c7cc00ebeeeb93ddc9c9afaf72808306d1db5dd"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCDiagnosticContract.kt",
+      "artifact": "android/NCDiagnosticContract.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "fc78fa375e1df185efe6a1c7a97954ddb834db4377daaf8a451b0304283c1b39"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCDiagnosticRecorder.kt",
+      "artifact": "android/NCDiagnosticRecorder.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "14bc9b758d88cda8f52d277d9498599ff2d9b77e3d72260f2a2d9d243a9ad074"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCDiagnosticSchema.kt",
+      "artifact": "android/NCDiagnosticSchema.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "b887705e641b4de8f00052c3d018f848724a9cfe876db420b8f14b4832610b17"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCDiagnosticPolicy.kt",
+      "artifact": "android/NCDiagnosticPolicy.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "c26e6d74b2621f8dfb04632273c5d5d586fd1a441322c06104c47c7d99d9f3ec"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCDiagnosticPolicyData.kt",
+      "artifact": "android/NCDiagnosticPolicyData.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "b57e0b3e4ae81c3637b2a1c498e02c469b89ddd0fd1f77896f8c2f2ff4562b1e"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCOrderedIdleCache.kt",
+      "artifact": "android/NCOrderedIdleCache.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "a206b67b2c21214a9be6cf41c1fbc5852db96730d504e2604c3fe35e9e413ea7"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/AudioRecorder.kt",
+      "artifact": "android/AudioRecorder.kt",
+      "license": "MIT",
+      "before": "62d013875eab6fd1a788935750fad7289f9224a8ec975c167f2b22a6acbaf44c",
+      "after": "f1be178465c78463b4c964d357a1565d7ad69411ed19205e0c81d295bc1a898e",
+      "previousAfter": "af49c368bc7bbce7ca44535e200898b09c36dcf0a3f522e1896e20980432cb98"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCCaptureRoute.kt",
+      "artifact": "android/NCCaptureRoute.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "9da87c1b6eb2d0669308c57897db2c311eac6d71dc951bff298ca75096feabf0"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCSoundscapePolicy.kt",
+      "artifact": "android/NCSoundscapePolicy.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "2242a7870e2fb36be8fcf79ac3023a74de7e75cda0169f2496de65d2b111a1a2"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCSoundscapeController.kt",
+      "artifact": "android/NCSoundscapeController.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "a52153855d0dd00ae885440fd8ea1b5afb4ea9d1b9625b508f5da059164ce904"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCSoundscapeFiles.kt",
+      "artifact": "android/NCSoundscapeFiles.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "f2ddc1a3abe892d2f4d0d66393f9712cbcf8178a84f69e2bf3079cfc9bc7d698"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCSoundscapeActivity.kt",
+      "artifact": "android/NCSoundscapeActivity.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "93591cfb6a14745f87f898a33c8d23fa2885e979b8fad8d73478d8f1988bc8ff"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCProgressivePcmQueue.kt",
+      "artifact": "android/NCProgressivePcmQueue.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "e478dcebd4253caaacba50f2025ae8ac55ac914413222f92e23240a2a233e06f"
+    },
+    {
+      "path": "android/src/main/java/expo/modules/audio/NCProgressivePcmMediaSource.kt",
+      "artifact": "android/NCProgressivePcmMediaSource.kt",
+      "license": "MIT",
+      "before": null,
+      "after": "5f9e00f756a7382e21d3d933e077a571cb41708fa16e00e5c73f6e14ea63e37c"
+    }
+  ]
+}

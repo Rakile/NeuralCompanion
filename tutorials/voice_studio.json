@@ -1,0 +1,101 @@
+{
+  "id": "voice_studio",
+  "order": 30,
+  "title": "30. Voice Studio",
+  "description": "Create one reusable voice recording, listen to it in the library and assign it only after a successful audition.",
+  "speech_backend": "chatterbox",
+  "before_you_start": "Enable Voice Studio in Addon Manager and restart if requested. Choose one creation route: ElevenLabs needs API access and credits; VoiceStudio — Local needs a separate running service and loaded engine. A saved WAV is a reusable voice reference, not a loaded TTS provider. Start with one manually entered character; AI cast drafting and longer cloud dialogue are optional. Reading makes no requests. Guide narration prefers loaded Chatterbox, with Windows TTS as fallback.",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "voice_studio_tab",
+      "section": "Settings"
+    },
+    {
+      "workspace": "addons",
+      "addon": "voice_studio_tab",
+      "section": "Create Voices"
+    },
+    {
+      "workspace": "addons",
+      "addon": "voice_studio_tab",
+      "section": "Voice Library"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Check one voice-creation route",
+      "body": "In Settings, choose the route you already have. For ElevenLabs, select Use NC ElevenLabs connection or provide a Session-only API key, then Check ElevenLabs connection. Generation uses account credits; Save settings does not store session-only key text.\n\nFor local creation, enter the running service’s loopback URL and Check local connection. Confirm a detected engine says loaded; NC does not install, start or download that separate service. Save settings after deliberate edits. Resolve connection errors before creating audio. Read aloud narrates the guide; Hear step reads only this instruction.",
+      "workspace": "addons",
+      "addon": "voice_studio_tab",
+      "section": "Settings",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Generate and save one character’s sample",
+      "body": "In Create Voices, choose your checked Creation provider and Add character. Name it “Mira” and describe a calm, measured voice. Enter Sample text that you want to hear: ElevenLabs needs 100–1,000 characters; local generation accepts 1–5,000.\n\nLeave automatic saving off so you can compare. Click Generate selected, wait for candidates, select one and Preview it. Only after listening, use Save selected WAV. Confirm the recording appears in Voice Library. If rejected, read the character’s State/error and correct the sample length or provider readiness before retrying. Draft characters with AI is optional and creates descriptions, not audio.",
+      "workspace": "addons",
+      "addon": "voice_studio_tab",
+      "section": "Create Voices",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Label the recording so you can find it later",
+      "body": "In Voice Library, select the new recording and Play original sample. You should hear the candidate you saved. Add a useful Description or Notes such as “calm, low, measured”, then Save details.\n\nSelect another entry and return to verify the details persisted. Notes are shared with Persona; they do not change the sound. Remove from library hides an entry while retaining its WAV for existing assignments. Show removed voices and Restore to library make it available again. Do not remove your new sample merely to finish this step; keep it ready for the audition.",
+      "workspace": "addons",
+      "addon": "voice_studio_tab",
+      "section": "Voice Library",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Hear your own sentence in that voice",
+      "body": "Try your own words tests whether a saved reference works for new speech. Load Chatterbox or Chatterbox Multilingual in Runtime → Text-to-speech; selecting it alone is insufficient. If restarting the stack, save chat, switch the top-right power button ON → OFF, wait, then OFF → ON.\n\nReturn to your selected library recording, enter “The harbor is quiet tonight”, Generate test, then Play test. Listen for those words in the intended voice. If Generate test is disabled, read the readiness line and check valid reference/text. Save test recording… exports separately; auditioning does not assign the chat voice.",
+      "workspace": "addons",
+      "addon": "voice_studio_tab",
+      "section": "Voice Library",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Later: save a cast draft before generating a batch",
+      "body": "In Create Voices, Save cast drafts preserves editable names, voice descriptions and sample text. Load saved drafts restores them after its confirmation. Check the Saved drafts path and review what would replace the current draft.\n\nDraft characters with AI uses Voice count and your brief to propose a cast; inspect every character before audio generation. Generate all / continue processes the cast. Leave Automatic — save first valid candidate off to pause for listening and choice. Turn it on only if you want that first valid candidate saved automatically. A saved draft is not a generated WAV; keep the one-voice exercise working before batching.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "voice_studio_tab",
+      "section": "Create Voices"
+    },
+    {
+      "title": "Optional: translate a character into local engine instructions",
+      "body": "For VoiceStudio — Local in Create Voices, choose a detected loaded engine. Read Engine instruction / supported OmniVoice tags for the selected character. Freeform engines can use the description; OmniVoice accepts limited gender, age, pitch, whisper and English accent tags.\n\nUse Adapt selected character with AI only if you want the active NC LLM to propose supported instructions, then inspect them. A trait such as “raspy” can remain in the description rather than become a supported tag. Generate one candidate and listen before expanding the cast. If the engine is not ready, load it in the separate service and check the connection again.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "voice_studio_tab",
+      "section": "Create Voices"
+    },
+    {
+      "title": "Optional: understand longer cloud dialogue and cleanup",
+      "body": "Longer dialogue — ElevenLabs candidate is in Create Voices. It creates a tracked temporary cloud voice to record new text. Generate dialogue and clean up saves and verifies a local WAV before deleting that temporary voice; it uses credits and is unnecessary for the basic reference exercise.\n\nSettings → Temporary cloud voices shows unresolved jobs. If you try this later, confirm the local recording saved and cleanup succeeded. When a creation or synthesis outcome is unknown, inspect the ElevenLabs account/history before allowing a retry. Follow the exact tracked job’s recovery controls; repeated requests can duplicate spend.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "voice_studio_tab",
+      "section": "Settings"
+    },
+    {
+      "title": "Assign only the reference you have tested",
+      "body": "Saving a WAV makes it available; it does not replace Main Chat’s voice. With your original and new-text audition checked, open Persona → Voice on the intended saved Persona. Select the recording and choose Use this voice for that Persona.\n\nCheck Assigned to and the saved filename, then try a short spoken chat reply with a compatible reference-capable TTS backend. If it sounds unchanged, inspect Conversation currently uses and backend support before generating another reference. You have completed the creation exercise when the WAV is saved and audible; assignment is separately verified by the intended Persona’s spoken reply.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "voice_studio_tab",
+      "section": "Voice Library"
+    }
+  ],
+  "category": "Workflows",
+  "learning_outcomes": [
+    "Check one creation provider and save one reviewed WAV reference.",
+    "Organize the library and distinguish original playback from a new-text audition.",
+    "Assign a finished reference and recognize optional batch/local/cloud workflows."
+  ],
+  "contextual_guides": [
+    "overview_voice_studio"
+  ]
+}

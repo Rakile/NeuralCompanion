@@ -1,0 +1,116 @@
+{
+  "id": "avatars_and_musetalk",
+  "order": 8,
+  "title": "8. Avatars and MuseTalk",
+  "description": "Choose an avatar route and verify one short spoken reply before exploring alternate outputs.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "workspace": "addons",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "musetalk"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    }
+  ],
+  "global_targets": [
+    "runtimeSessionButton"
+  ],
+  "steps": [
+    {
+      "title": "Choose the output you want to test",
+      "body": "Runtime → Avatar decides how NC presents a reply. No Avatar keeps audio without a face. Scenic uses tagged pack images; MuseTalk and Ditto animate prepared faces; VSeeFace drives an external VMC avatar. Start with MuseTalk only if its runtime and a prepared pack are available. Otherwise choose No Avatar while following the preparation steps.\n\nClick a provider to view settings; Use this avatar activates it. Check the active indicator after clicking. The speech provider is configured separately. Viewing an avatar page neither loads its models nor proves that speech works.\n\nRead aloud narrates the guide; Hear step reads only this step.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "title": "Select a prepared MuseTalk pack",
+      "body": "View MuseTalk under Runtime → Avatar and click Refresh avatar packs. Choose Avatar pack and read Pack availability and Pack default avatar. The default is displayed here; change it in the creator with Make default. Keep optional Pack emotions and Performance settings unchanged for the first test.\n\nIf the expected pack is available, click Use this avatar. You are ready for the preview test after any needed preparation below. If the list is empty, stop here and prepare one pack in MuseTalk Avatar Creator; changing Render FPS or VRAM mode cannot create missing assets.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "title": "If needed: prepare one source in the creator",
+      "body": "Already have a ready pack? Keep it and continue. Otherwise save your chat, switch the top-right power button ON → OFF if running, and wait for cleanup before using Addons → MuseTalk Avatar Creator. The creator needs the models free from chat.\n\nCreate a New pack, choose one clear face with Choose still image or a short Choose video, and check Avatar ID and Destination. Follow the MuseTalk Avatar Creator guide through Preprocess avatar and its completion result. A prepared entry is the result to look for; opening the creator alone prepares nothing. Afterward release creator resources before starting chat.",
+      "workspace": "addons",
+      "target": "musetalkCreatorWorkspace",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "If needed: inspect the mouth mask",
+      "body": "The mask marks the part of the face MuseTalk can replace during animation. For a prepared source needing adjustment, use Render preview to load one frame, inspect the mouth area, then make a small edit in the mask editor. Render with edited mask shows the clean result in Avatar Preview while the editor retains its painted overlay.\n\nSave edited mask as override stores an exact-frame edit; Save mask metadata preserves reusable mask settings. If the blend cuts into cheek or chin, reduce the painted area and render again. Leave advanced ranges for the creator guide. A pack that already looks good needs no mask changes.",
+      "workspace": "addons",
+      "target": "creatorMaskEditor",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Verify one spoken reply in Avatar Preview",
+      "body": "After creator cleanup, return to Runtime → Avatar, refresh and select your prepared MuseTalk pack, and confirm MuseTalk is active. Switch the large top-right power button OFF → ON and wait for initialization. In Main chat ask, “Please say hello in one short sentence.”\n\nWatch Avatar Preview while listening. The selected face should move with the spoken reply. Float preview opens a separate view. If the face stays still, check audible TTS first, then the active avatar, selected pack and startup status. An idle picture or text reply alone does not verify lip sync.",
+      "workspace": "musetalk",
+      "target": "musetalkEmbeddedImage",
+      "fallback_target": "floatMusetalkPreviewButton",
+      "target_hint": "The preview image appears only after frames exist. Float preview remains available when the preview is idle."
+    },
+    {
+      "title": "Stop before another preparation job",
+      "body": "Once the short test works, save the conversation. Before switching heavy avatar setups or reopening the creator, switch the top-right power button ON → OFF and wait for cleanup. The power button stops the whole configured runtime, including speech and chat.\n\nIf the creator still has work active, let it finish and follow its resource-release prompt. Retry creator cleanup handles a failed creator release. Clear cache removes selected-avatar acceleration data; it does not unload every model. Confirm stopped runtime and completed creator cleanup before preparing again.",
+      "workspace": "runtime",
+      "target": "runtimeSessionButton",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Optional: use Scenic or audio only",
+      "body": "For a lighter visual route, view Scenic, choose a discovered Scenic pack and read Pack availability. Click Use this avatar, start the runtime if stopped, and request a short reply. Inspect the selected pack image in the preview; available tags determine what Scenic can show. It does not lip-sync a still image.\n\nIf no usable pack is available, choose No Avatar and click Use this avatar to keep ordinary spoken chat without rendered frames. A missing Scenic image calls for checking the pack and its tags, rather than preparing MuseTalk assets.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "title": "Optional: test an external VSeeFace avatar",
+      "body": "VSeeFace is a separate route for an external avatar application, not a local image pack. Have your external avatar and VMC receiver running before viewing VSeeFace in Runtime → Avatar and choosing Use this avatar. Keep body, dynamics and hand tuning unchanged for the first comparison.\n\nStart NC if stopped, send one short spoken request, and watch the external application for mouth or expression movement. If speech plays but the external face does not react, check receiver and connection settings before adjusting poses. The local MuseTalk preview is not evidence that this external route works.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    },
+    {
+      "title": "Optional: keep a compact desktop face",
+      "body": "For a working local avatar, open Avatar Preview and choose Float preview. The floating window offers Avatar only to give the picture more room, and Always on top to keep it visible. Restore its controls by hovering or pressing Esc. Confirm you can still reach Conversation and see the next spoken reply.\n\nDitto uses its own runtime and saved packages; follow 37. Ditto Avatars if you want that route. Your basic avatar test is complete only when the intended face moved with audible speech. Reaching Finish, or floating an idle picture, does not establish that result.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "First confirm Main chat can produce both a text reply and audible speech with your chosen TTS provider. A talking face needs that speech pipeline. MuseTalk also needs its runtime, models and a prepared pack; the separate Avatar Creator guide covers creating one. Save your chat and stop the runtime before preparing assets. The guide changes no providers or files for you.",
+  "learning_outcomes": [
+    "Choose an avatar route and recognize the difference between viewing and activating it.",
+    "Select a prepared MuseTalk pack and verify local lip sync with a short reply.",
+    "Use a simpler fallback or an optional external route and clean up before preparation."
+  ],
+  "contextual_guides": [
+    "page_avatar_preview_overview",
+    "overview_musetalk_avatar"
+  ]
+}

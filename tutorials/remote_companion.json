@@ -1,0 +1,55 @@
+{
+  "id": "remote_companion",
+  "audience": "remote",
+  "order": 107,
+  "title": "Companion and fullscreen modes",
+  "category": "Avatars & Images",
+  "description": "Choose a phone chat presentation and practise entering and leaving Live full screen.",
+  "speech_backend": "chatterbox",
+  "estimated_minutes": 5,
+  "before_you_start": "Use a connected phone with a working text conversation. Conversation view needs no live avatar; animated frames also need a ready desktop avatar provider and stream. These Android Editorial screenshots show settings routes. Remember your current view so you can restore it.",
+  "learning_outcomes": [
+    "Compare the main chat presentations.",
+    "Reveal fullscreen controls and return to the normal interface."
+  ],
+  "steps": [
+    {
+      "title": "Choose a view and check the change",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.04,
+        0.21,
+        0.92,
+        0.09
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open Settings → Companion. Under Main chat view, choose Conversation and return to Chat to recognize the text feed. To compare, choose Companion or Portrait Presence in the same setting, then return to Chat again. Change one view at a time so the difference is clear.\n\nAn empty avatar area does not prove pairing failed: live frames also need the desktop avatar provider and stream. Return to Conversation to continue with text while diagnosing a missing avatar. Selecting a view does not load its model.\n\nHear step reads this instruction on desktop; Read aloud narrates the guide. View changes happen on your real phone.",
+      "expected": "Chat uses the chosen presentation. Conversation remains usable without a live avatar stream.",
+      "recovery": "For missing frames, check desktop avatar and stream readiness. Restore Conversation to continue with text.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    },
+    {
+      "title": "Enter fullscreen and find the way back",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.04,
+        0.5,
+        0.92,
+        0.1
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open Settings → Tools → Live full screen. This is separate from Main chat view. Once fullscreen opens, double-tap a clear background area to reveal its controls. Locate the exit control and return to the normal interface before trying a longer session.\n\nThe first exercise is to enter, reveal the menu, and leave successfully. Live voice needs its own microphone and playback setup; use Voice and Live Mode for that test. You do not need to start speaking to learn the navigation.\n\nIf double-tapping does nothing, use the background rather than a button. If fullscreen cannot stay open, read the session status and confirm the required live services are ready.",
+      "expected": "You can reveal fullscreen controls and return to the ordinary phone interface.",
+      "recovery": "Double-tap an unobstructed background area. If the session is unavailable, read its status and continue in normal Chat.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "Double-tap background: tap • tap",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    }
+  ]
+}

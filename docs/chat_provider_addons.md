@@ -1,0 +1,274 @@
+# Chat Provider Addons
+
+Chat providers register runtime handlers through the named
+`context.capabilities.providers` port, backed by `qt.chat_providers`. A provider
+using the shared native settings UI does not need its own widget page. Start
+with the [current quickstart](addon_quickstart.md) and
+[Claude entry point](../addons/claude_provider/main.py).
+
+This guide describes the currently supported provider-addon contract. Treat the field names and handler expectations below as the interface NC expects third-party providers to follow.
+
+## Where to put an addon
+
+Create a folder under `addons/`:
+
+```text
+addons/my_provider/
+  addon.json
+  main.py
+```
+
+The manifest needs an addon id, a name, `entry_point`, and `enabled: true`. Chat provider addons usually do not need UI tab permissions unless they also create custom tabs.
+
+## Provider contract
+
+Inside `Addon.initialize(context)`, get the service:
+
+```python
+chat_service = context.capabilities.providers
+if chat_service is None:
+    context.logger.warning("Chat provider capability is unavailable.")
+    return None
+```
+
+Then call `register_provider(...)` with:
+
+- `provider_id`: stable lowercase id, for example `claude` or `deepseek`.
+- `label`: user-facing dropdown label.
+- `description`: short provider description.
+- `model_list_handler(quiet)`: returns model ids or model dicts with at least `id`.
+- `completion_handler(params, additional_params)`: returns one complete assistant string.
+- `stream_handler(params, additional_params)`: yields assistant text chunks.
+- `connection_check_handler()`: returns `{"ok": bool, "detail": str}`.
+- `api_key_getter` and `base_url_getter`: optional helpers used by shared UI/runtime checks.
+- `normal_chat_capable=True` and `frozen_execution_version=1`: declare the
+  request-scoped normal-chat contract.
+- `frozen_prepare_handler`, `frozen_completion_handler`, and
+  `frozen_stream_handler`: required frozen execution v1 hooks.
+- `frozen_private_config_getter`: optional request-acceptance hook for private
+  provider state that is not covered by the API-key or base-URL getters.
+- `frozen_public_config_fields`: explicit allowlist for the sanitized provider
+  configuration exposed outside the private execution binding.
+- `metadata["config_fields"]`: provider connection/settings field descriptions.
+- `metadata["generation_fields"]`: provider-specific generation field descriptions used by the runtime UI and request builder.
+
+### Handler expectations
+
+The provider registry currently accepts these handlers:
+
+- `model_list_handler(quiet: bool) -> list[Any]`
+- `completion_handler(params: dict[str, Any], additional_params: dict[str, Any] | None) -> str`
+- `stream_handler(params: dict[str, Any], additional_params: dict[str, Any] | None) -> Iterable[str]`
+- `connection_check_handler() -> dict[str, Any]`
+
+If a handler is omitted, NC may fall back to shared defaults where possible, but a real provider addon should implement the full set if it wants normal model refresh, completion, streaming, and connection reporting.
+
+### Frozen normal-chat execution v1
+
+Normal chat captures one provider registration, model, generation configuration,
+and private provider configuration when the user turn is accepted. A provider
+that claims normal-chat support is available only when it registers frozen
+execution version `1` and all three frozen handlers:
+
+```python
+chat_service.register_provider(
+    ...,
+    normal_chat_capable=True,
+    frozen_execution_version=1,
+    frozen_prepare_handler=self._prepare_frozen_chat,
+    frozen_completion_handler=self._complete_frozen_chat,
+    frozen_stream_handler=self._stream_frozen_chat,
+    frozen_private_config_getter=self._frozen_private_config,
+    frozen_public_config_fields=("base_url", "provider_is_remote"),
+)
+```
+
+The prepare handler receives the private frozen binding plus detached request
+mappings and must return exactly `(params, additional_params)`. It should bind
+the captured model and captured generation fields. Completion and stream
+handlers receive one immutable frozen request and must use the private config
+from that request's binding rather than reading current settings again.
+
+The legacy completion and stream handlers remain useful for non-normal-chat
+callers, but core does not use them as a fallback when frozen normal-chat hooks
+are missing. The provider is instead shown as unavailable with an update
+message.
+
+Identity Relay strict capacity negotiation is additive. Providers that can
+attest an exact context limit and token counter may also register
+`model_capabilities_handler` and `token_counter`. Providers without those hooks
+remain usable for ordinary frozen normal chat; Relay ON fails closed when strict
+capacity cannot be established.
+
+Recommended return conventions:
+
+- `model_list_handler` may return plain model ids or dicts with at least `id`.
+- `completion_handler` should return one complete assistant text string.
+- `stream_handler` should yield assistant text chunks in order.
+- `connection_check_handler` should return `{"ok": bool, "detail": str}` and may include extra diagnostics.
+
+### Native tool calling
+
+Tool support is an additional contract, not implied by frozen text completion.
+Providers declare `metadata["native_tool_protocol_v1"]` as `responses`,
+`chat_completions`, `anthropic`, or `openai` (NC's OpenAI transport selection).
+Declare `native_tool_streaming_v1=True` only when the streaming handler preserves
+structured tool events as well as ordinary assistant text.
+
+Use the codecs in [native_tool_calls.py](../core/native_tool_calls.py) and the
+existing [streaming codec](../core/native_tool_stream.py) as the
+reference. Preserve call IDs, argument JSON, tool results and stream boundaries;
+converting an entire structured response to a text string loses this contract.
+NC owns the MCP permission checks and conversation tool loop. A provider must
+not substitute an SDK's independent agent loop for that flow.
+
+Model catalog entries can supply `supports_tools: true` or `false`, independently
+of `supports_images`. Omit tool support when it is unknown. NC does not infer
+tool reliability from a model name. Catalog support controls filtering and
+whether explicitly unsupported models receive tools; it does not grant tools.
+See the [MCP user guide](addons/mcp.md) for the separate connection, consumer and
+persona permissions.
+
+### Optional frozen model lifecycle
+
+Local providers may register `frozen_model_lifecycle_handler` alongside
+`model_capabilities_handler`. This lets core inspect, prepare and unload models
+using the captured provider binding rather than current mutable UI settings.
+It is optional for ordinary providers, not a replacement for the three frozen
+normal-chat handlers.
+
+The [LM Studio SDK implementation](../addons/lmstudio_sdk_provider/main.py)
+provides the current local reference for `inspect`, `load`, `unload_one` and
+`unload`, including the cancellation token, target identifier and context
+override. Its backend delegates load-configuration compatibility to the shared
+LM Studio lifecycle. Reuse a compatible loaded model rather than unconditionally
+reloading it. Closing a provider's client is distinct from unloading a model on
+an external server.
+
+### Registration lifecycle
+
+Register providers in `Addon.initialize(context)` and unregister them in `shutdown()`.
+
+The reference pattern is:
+
+```python
+def initialize(self, context):
+    super().initialize(context)
+    self._chat_service = context.capabilities.providers
+    if self._chat_service is None:
+        return None
+    self._chat_service.register_provider(...)
+    return None
+
+def shutdown(self):
+    if getattr(self, "_chat_service", None) is not None:
+        self._chat_service.unregister_provider(PROVIDER_ID)
+    return None
+```
+
+Disabling an addon in **Addons** changes next-launch registration. Restart and
+select an available provider in **Runtime → Runtime Session → LLM**; do not rely
+on a disabled provider remaining callable.
+
+### What belongs to the addon
+
+The addon should own provider-specific concerns such as:
+
+- API key lookup and base URL selection.
+- Translating NC payloads into the provider API shape.
+- Provider-specific request fields such as `max_tokens`, `top_k`, or API version headers.
+- Streaming protocol differences.
+- Connection checks and provider-specific error reporting.
+
+The core should remain responsible for:
+
+- listing registered providers,
+- rendering provider metadata,
+- choosing the current provider and model,
+- and routing chat requests to the selected provider handlers.
+
+Provider settings owned by the shared runtime settings surface can be read with:
+
+```python
+chat_service.get_provider_setting("my_provider", "api_key")
+chat_service.get_provider_settings("my_provider")
+```
+
+## Runtime payload shape
+
+NC calls provider handlers with a mostly OpenAI-style chat payload. The core always supplies `model` and `messages`; provider `generation_fields` decide which generation parameters are added.
+
+```python
+{
+    "model": "model-id",
+    "messages": [{"role": "system|user|assistant", "content": "..."}],
+    "temperature": 0.8,
+    "top_p": 0.95,
+    "max_tokens": 1024,
+}
+```
+
+Each `generation_fields` entry can include:
+
+- `id`: stable setting id, for example `temperature`.
+- `label`: user-facing label.
+- `kind`: `float`, `int`, `bool`, `text`, `select`, or `note`.
+- `default`, `min`, `max`, `step`, `decimals`: renderer and fallback values.
+- `request_key`: optional request payload key if it differs from `id`.
+- `request_location`: `params`, `additional_params`, or `none`.
+- `omit_if`: optional value or list of values that should not be sent.
+- `description`: tooltip/help text.
+
+A provider may set `metadata["legacy_generation_fallback"] = False` to use its
+declared field defaults for unset provider-specific generation settings, in both
+live and frozen requests. Saved provider-specific values still take precedence.
+Omitting this metadata keeps the existing legacy-global fallback behavior.
+The SDK-backed LM Studio provider opts out of that legacy fallback.
+
+### Metadata shape
+
+`config_fields` and `generation_fields` feed the shared native LLM runtime
+surface in **Runtime → Runtime Session → LLM**. See
+[RuntimeProviderWorkspace.qml](../ui/qml/workspaces/RuntimeProviderWorkspace.qml)
+and [QtChatProviderService](../ui/qml_bridge/runtime_services.py). These field
+descriptions do not require a Designer tab or grant access to a window.
+
+Common field kinds:
+
+- `float`
+- `int`
+- `bool`
+- `text`
+- `select`
+- `note`
+
+For `select` fields, the addon should provide stable option ids and user-facing labels. For `note`, NC should treat the field as informational only.
+
+Useful metadata conventions:
+
+- `request_key` lets a field map to a different request field name than its `id`.
+- `request_location` controls whether the value goes into `params`, `additional_params`, or stays UI-only.
+- `omit_if` can suppress a value when it is a default or disabled sentinel.
+
+### Model list shape
+
+NC accepts either:
+
+- a list of model ids, or
+- a list of model dicts with at least `id`.
+
+If a model dict includes capability flags such as `supports_images`, the UI may use them for filtering and capability summaries.
+
+If a provider uses another API shape, translate inside the addon. The Claude addon is the reference example: it converts system messages into the Anthropic `system` field, converts chat turns to `messages`, maps `stop` to `stop_sequences`, and parses server-sent streaming text deltas.
+
+The shipped [`chat_provider_addon` template](templates/chat_provider_addon/)
+contains frozen execution v1 transport wiring, but belongs to the
+[legacy template collection](templates/README.md). Reuse its provider concepts
+only after comparing with the current
+[Claude implementation](../addons/claude_provider/main.py) and
+[provider registry](../core/chat_providers.py); its existence does not establish
+current UI compatibility.
+
+### Contract stability
+
+The goal is for this provider contract to stay stable for third-party addons. Prefer additive metadata keys and optional handlers over changing existing meanings.

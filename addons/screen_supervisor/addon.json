@@ -1,0 +1,32 @@
+{
+  "id": "nc.screen_supervisor",
+  "name": "Screen Supervisor",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Playful screen-based behavior rules that can interrupt when noteworthy on-screen content appears.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "services": [
+    {
+      "id": "sensory_prompt_contributor",
+      "provider_id": "screen"
+    }
+  ],
+  "ui": [
+    {
+      "id": "screen_supervisor_tab",
+      "title": "Supervisor",
+      "area": "vision_source",
+      "parent_tab_id": "screen",
+      "order": 210,
+      "tooltip": "Persona-driven screen reactions for noteworthy on-screen content.",
+      "metadata": {
+        "checkable": true
+      }
+    }
+  ],
+  "native_qml": true,
+  "enabled": true
+}

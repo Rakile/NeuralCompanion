@@ -1,0 +1,209 @@
+{
+  "guides": [
+    {
+      "id": "overview_musetalk_avatar",
+      "title": "MuseTalk Avatar overview",
+      "description": "MuseTalk avatar engine provider.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.musetalk_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "musetalk"
+      },
+      "category": "Runtime / Avatar / MuseTalk Avatar",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "MuseTalk avatar engine provider.",
+        "Find focused guidance for Overview, Avatar, Pack emotions, Performance."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_musetalk_avatar_avatar",
+        "page_musetalk_avatar_pack_emotions",
+        "page_musetalk_avatar_performance",
+        "avatars_and_musetalk"
+      ],
+      "steps": [
+        {
+          "title": "What MuseTalk Avatar does",
+          "body": "MuseTalk avatar engine provider. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Confirm MuseTalk is the current engine",
+          "body": "In Overview, read MuseTalk avatar runtime and Current selection. Current selection states which avatar engine is active; this provider must be selected for its packs and performance settings to matter. If another engine is shown, recognize that MuseTalk is configured but not in use rather than broken.",
+          "target": "tutorialControl_musetalk_avatar_tab::musetalk_runtime_summary",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_musetalk_avatar_avatar",
+        "page_musetalk_avatar_pack_emotions",
+        "page_musetalk_avatar_performance"
+      ],
+      "display_title": "Start tutorial · MuseTalk Avatar",
+      "optional_chapters": [
+        "avatars_and_musetalk"
+      ]
+    },
+    {
+      "id": "page_musetalk_avatar_overview",
+      "title": "MuseTalk Avatar · Overview",
+      "description": "Use Overview in MuseTalk Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "musetalk"
+      },
+      "category": "Runtime / Avatar / MuseTalk Avatar",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Confirm MuseTalk is the current engine"
+      ],
+      "steps": [
+        {
+          "title": "Confirm MuseTalk is the current engine",
+          "body": "In Overview, read MuseTalk avatar runtime and Current selection. Current selection states which avatar engine is active; this provider must be selected for its packs and performance settings to matter. If another engine is shown, recognize that MuseTalk is configured but not in use rather than broken.",
+          "target": "tutorialControl_musetalk_avatar_tab::musetalk_runtime_summary",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_musetalk_avatar",
+      "hidden": true
+    },
+    {
+      "id": "page_musetalk_avatar_avatar",
+      "title": "MuseTalk Avatar · Avatar",
+      "description": "Use Avatar in MuseTalk Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "musetalk"
+      },
+      "category": "Runtime / Avatar / MuseTalk Avatar",
+      "order": 211,
+      "topic": "Avatar",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose a pack and check availability",
+        "Delete a package deliberately",
+        "Optional followup: pack previews"
+      ],
+      "steps": [
+        {
+          "title": "Choose a pack and check availability",
+          "body": "Pack availability reports which packs are usable. Refresh avatar packs reloads the list. Select an Avatar pack, and note Pack default avatar for the fallback image. Choose a pack whose availability reads as usable before expecting rendering to succeed.",
+          "target": "tutorialControl_musetalk_avatar_tab::musetalk_pack_status",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Delete a package deliberately",
+          "body": "Delete package permanently removes the selected package from disk, unlike simply switching packs. Use it only when you are sure the package is no longer wanted; it is not a recovery step for a pack that merely fails to render. Check Pack availability before and after to confirm the change.",
+          "target": "tutorialControl_musetalk_avatar_tab::musetalk_delete_package",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Optional followup: pack previews",
+          "body": "If you need to check a pack visually, the Scenic Avatar provider offers its own pack preview and pack contents. Treat that as an optional separate inspection, not part of MuseTalk setup. Stay on this page unless you deliberately want to compare a different avatar engine’s packs.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_avatar"
+    },
+    {
+      "id": "page_musetalk_avatar_pack_emotions",
+      "title": "MuseTalk Avatar · Pack emotions",
+      "description": "Use Pack emotions in MuseTalk Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "musetalk"
+      },
+      "category": "Runtime / Avatar / MuseTalk Avatar",
+      "order": 212,
+      "topic": "Pack emotions",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect emotion packing status"
+      ],
+      "steps": [
+        {
+          "title": "Inspect emotion packing status",
+          "body": "Pack emotions card with its Pack emotions status label shows the state of emotion packing for the selected pack. Read the status to learn whether packing is available or pending. Emotion availability affects Expressiveness options elsewhere, so knowing this state helps explain missing emotion choices.",
+          "target": "tutorialControl_musetalk_avatar_tab::musetalk_pack_emotions_status",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_avatar"
+    },
+    {
+      "id": "page_musetalk_avatar_performance",
+      "title": "MuseTalk Avatar · Performance",
+      "description": "Use Performance in MuseTalk Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "musetalk"
+      },
+      "category": "Runtime / Avatar / MuseTalk Avatar",
+      "order": 213,
+      "topic": "Performance",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review render performance settings",
+        "Send MuseTalk face mask to Companion Orb"
+      ],
+      "steps": [
+        {
+          "title": "Review render performance settings",
+          "body": "Render FPS, VRAM mode, and Loop fade (ms) tune rendering cost and blending. Progressive animation buffer (seconds) trades startup delay for smoother playback. Change one value at a time while speaking a short line; if the avatar stutters, check VRAM mode before raising FPS.",
+          "target": "tutorialControl_musetalk_avatar_tab::musetalk_fps",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Send MuseTalk face mask to Companion Orb",
+          "body": "Send MuseTalk face mask to Companion Orb is an optional integration checkbox. Turn it on only if you intend the orb to receive face-mask data. It changes what another surface sees, not whether MuseTalk renders, so verify the avatar itself before toggling it.",
+          "target": "tutorialControl_musetalk_avatar_tab::ua_companion_orb_send_musetalk_face_mask",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_avatar"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+settings.local.json
+settings.local.json*
+__pycache__/
+*.pyc
+runtime_instances/
+runtime_logs/
+runtime_replies/
+node_bridge/reply_floor_*.json
+node_bridge/captures/
+node_bridge/mock_replies/
+node_bridge/turns/

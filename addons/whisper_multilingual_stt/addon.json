@@ -1,0 +1,12 @@
+{
+  "id": "nc.whisper_multilingual_stt",
+  "name": "Whisper Multilingual STT",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Local faster-whisper STT backend for auto-detected or non-English speech.",
+  "category": "global",
+  "permissions": [
+    "services.register"
+  ],
+  "enabled": true
+}

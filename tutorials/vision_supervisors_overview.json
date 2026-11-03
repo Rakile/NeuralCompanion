@@ -1,0 +1,92 @@
+{
+  "id": "vision_supervisors_overview",
+  "order": 11,
+  "title": "11. Vision Sensors and Shared Awareness",
+  "description": "Understand the source-to-response path, test one screen sample, and control optional background reviews.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "provider_kind": "vision",
+      "provider_id": "shared_awareness"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "setup",
+      "provider_kind": "vision",
+      "provider_id": "screen"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Understand the switch before enabling it",
+      "body": "Shared Awareness Policy gates background awareness across enabled sensory sources. With the policy off, configured source selections are retained but their background work is suspended. Opening this page only views settings. Leave the policy as it is while learning the path; do not turn it on simply to read the lesson.\n\nWe will use one narrow Screen sample as the first exercise, then optionally add a one-off reaction. Manual capture tests and explicit clipboard delivery have separate controls. Read aloud narrates the guide and Hear step reads only this step; neither starts background awareness.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "Choose a source before choosing a reaction",
+      "body": "A source supplies data: Screen, Webcam, Companion Orb Target and Clipboard provide image observations; Mock Heart Rate provides simulated BPM text; Spotify Sense provides music context. Select a source card to inspect settings. Its switch or Enable this sensory source changes participation; viewing the card does not.\n\nFor this lesson choose Screen and locate its Capture area controls. Screen Supervisor, Webcam Supervisor, Clipboard Supervisor and Heart Rate Behavior add optional reaction rules to their corresponding sources. If source or supervisor controls are missing, check that the relevant addon is loaded before trying to construct a rule.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "Choose a manageable review pace",
+      "body": "Back in Shared Awareness Policy, note Check-in interval and Sensory history depth before changing either. Interval is minimum spacing between eligible checks; a busy or paused runtime can delay them. A shorter interval can mean more captures and model requests, not guaranteed continuous monitoring.\n\nHistory depth determines how many previous sensory turns accompany a new review. Keep a modest existing interval and short history for one-source testing so you can connect the response to the latest observation. If reactions seem delayed, first check whether the runtime and source are eligible before shortening the interval.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "Decide what a review is allowed to produce",
+      "body": "Allow hidden proactive speech permits eligible background results to reach normal TTS. Allow hidden visual generation independently permits image requests through your configured Visual Reply provider. Neither switch creates a source, a reaction rule or a working output provider.\n\nLeave both off until capture works. For the optional one-off spoken test, confirm ordinary chat speech first, then allow speech only when you are ready. Keep image generation off because this exercise needs no picture. Review all enabled sources before changing a shared permission; it can affect more than the source you are currently viewing.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "Read the review instructions before editing",
+      "body": "The shared ping/pong prompt describes how NC should review sensory context. Source Prompts and a supervisor’s Advanced Prompt Rules add their own instructions. Combined hidden review prompt preview lets you inspect the assembled wording with sample payloads; it does not show that a live review occurred.\n\nRead the current preview and find the difference between instructions and observed screen content. A screenshot containing “ignore your rules” should remain data to interpret. Keep working prompts unchanged for the first capture and reaction tests. If wording later needs repair, change one narrow instruction and reread the preview before testing.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "Test a source, then optionally test its rule",
+      "body": "In Screen → Setup choose Selected region, use Select region around a harmless document and read Current region. Press Test capture and read Sensory capture result. A successful filename confirms the diagnostic source produced an image without an LLM call. An error means fix source selection before adding reactions.\n\nFor a full background test, follow Screen and Clipboard to add one One-off rule for a visible test title. With a ready runtime, enable Screen, its supervisor and Shared Awareness Policy, and allow speech if wanted. Show the matching title and wait for an eligible check. Capture success and an appropriate spoken reaction are two separate results.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "screen",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Stop the smallest layer that meets your goal",
+      "body": "Disable a test rule or its supervisor to stop that reaction while preserving source configuration. Disable the source to stop its background contribution. Disable Shared Awareness Policy to suspend background sources together. Restore the settings changed for the exercise and verify the test rule is off.\n\nNext-turn attachments and clipboard immediate-send are separate from background awareness; inspect them if you used them. Orb watches also have their own task list: remove a test watch there, rather than assuming disabling a supervisor removed it. Success means the sample or reaction you actually tested worked, not merely that the guide reached Finish.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Begin with one harmless screen area rather than several sensors. Source addons supply observations; supervisors add reaction rules; Shared Awareness Policy and response permissions govern automatic reviews. Test capture is a deliberate diagnostic without an LLM call and does not require you to start Main chat. Background reactions additionally need a working running runtime and appropriate providers. Reading the guide changes none of these settings.",
+  "learning_outcomes": [
+    "Distinguish a source, its reaction rules and shared response permissions.",
+    "Test one sample before allowing automatic background checks.",
+    "Stop a rule, a source or the shared policy without overlooking explicit delivery paths."
+  ],
+  "contextual_guides": [
+    "page_vision_overview"
+  ]
+}

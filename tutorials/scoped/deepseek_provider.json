@@ -1,0 +1,169 @@
+{
+  "guides": [
+    {
+      "id": "overview_deepseek_provider",
+      "title": "DeepSeek Chat Provider overview",
+      "description": "DeepSeek chat provider addon for NC's dynamic chat-provider registry.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.deepseek_provider",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "deepseek"
+      },
+      "category": "Runtime / LLM / DeepSeek Chat Provider",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "DeepSeek chat provider addon for NC's dynamic chat-provider registry.",
+        "Find focused guidance for Connection, Model, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_deepseek_provider_connection",
+        "page_deepseek_provider_model",
+        "page_deepseek_provider_generation",
+        "language_providers"
+      ],
+      "steps": [
+        {
+          "title": "What DeepSeek Chat Provider does",
+          "body": "DeepSeek chat provider addon for NC's dynamic chat-provider registry. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_deepseek_provider_connection",
+        "page_deepseek_provider_model",
+        "page_deepseek_provider_generation"
+      ],
+      "display_title": "Start tutorial · DeepSeek Chat Provider",
+      "optional_chapters": [
+        "language_providers"
+      ]
+    },
+    {
+      "id": "page_deepseek_provider_connection",
+      "title": "DeepSeek Chat Provider · Connection",
+      "description": "Use Connection in DeepSeek Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.deepseek_provider",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "deepseek"
+      },
+      "category": "Runtime / LLM / DeepSeek Chat Provider",
+      "order": 210,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review connection requirements",
+        "Confirm saved connection details"
+      ],
+      "steps": [
+        {
+          "title": "Review connection requirements",
+          "body": "Read the required fields in Connection. Provide the API key and endpoint details the provider requires, exactly as specified. Do not expect account-specific defaults; if a value is required, supply it rather than leaving it blank.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm saved connection details",
+          "body": "After entering details, revisit the Connection area and confirm the fields persisted. Leaving them blank or mistyped shows as a connection error later. If a value looks truncated, re-enter it carefully instead of assuming the provider rejected it.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_deepseek_provider"
+    },
+    {
+      "id": "page_deepseek_provider_model",
+      "title": "DeepSeek Chat Provider · Model",
+      "description": "Use Model in DeepSeek Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.deepseek_provider",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "deepseek"
+      },
+      "category": "Runtime / LLM / DeepSeek Chat Provider",
+      "order": 211,
+      "topic": "Model",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose from the model selector",
+        "Test connection before using generation"
+      ],
+      "steps": [
+        {
+          "title": "Choose from the model selector",
+          "body": "In the Model area, open the model selector and pick a model the provider supports. If the list is empty, the connection details may be incomplete. Confirm the chosen model appears selected when you revisit this area.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Test connection before using generation",
+          "body": "Use the explicit Test connection control to verify credentials before relying on the provider. A successful model selection does not prove the key works. If the test fails, check Connection fields rather than switching models repeatedly.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_deepseek_provider"
+    },
+    {
+      "id": "page_deepseek_provider_generation",
+      "title": "DeepSeek Chat Provider · Generation",
+      "description": "Use Generation in DeepSeek Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.deepseek_provider",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "deepseek"
+      },
+      "category": "Runtime / LLM / DeepSeek Chat Provider",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Tune generation for everyday replies",
+        "Distinguish slow replies from failed ones"
+      ],
+      "steps": [
+        {
+          "title": "Tune generation for everyday replies",
+          "body": "Generation holds response controls such as length and creativity. Adjust one at a time and send a short real chat message to compare. If replies become too long or unstable, revert the change before trying another setting.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish slow replies from failed ones",
+          "body": "A provider can be slow without being broken. Watch the reply arrive before concluding the connection failed. Only revisit Connection or the model selector if Test connection reports an error or no reply arrives after a reasonable wait.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_deepseek_provider"
+    }
+  ]
+}

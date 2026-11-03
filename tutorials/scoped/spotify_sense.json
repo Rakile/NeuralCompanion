@@ -1,0 +1,326 @@
+{
+  "guides": [
+    {
+      "id": "overview_spotify_sense",
+      "title": "Spotify Sense overview",
+      "description": "Optional Spotify Web API controls, current-track awareness, and safe music tools for NeuralCompanion.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.spotify_sense",
+        "workspace": "addons",
+        "addon": "spotify_sense_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Spotify Sense",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Optional Spotify Web API controls, current-track awareness, and safe music tools for NeuralCompanion.",
+        "Find focused guidance for Overview, Music Hub, Connect, Playback, Ducking, Story, Advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_spotify_sense_music_hub",
+        "page_spotify_sense_connect",
+        "page_spotify_sense_playback",
+        "page_spotify_sense_ducking",
+        "page_spotify_sense_story",
+        "page_spotify_sense_advanced",
+        "spotify_sense"
+      ],
+      "steps": [
+        {
+          "title": "What Spotify Sense does",
+          "body": "Optional Spotify Web API controls, current-track awareness, and safe music tools for NeuralCompanion. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Read activation status before enabling",
+          "body": "In Overview, read Spotify Sense Status and Spotify Sense Activation Status. The activation label says whether the service is live; a disabled master switch alone does not prove an error. Turn on Enable Spotify Sense only once you are ready to test. Album artwork and Now playing should then reflect the track playing in Spotify.",
+          "target": "tutorialControl_spotify_sense_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Compare current playback with the status",
+          "body": "Compare Now playing with your current Spotify track and read the connection status as well. Blank or stale metadata can have several causes, including authorization, connectivity or playback state. Spotify Sense Guide and Spotify Sense Commands provide reference text; they do not grant autonomous playback permissions.",
+          "target": "tutorialControl_spotify_sense_enabled",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_spotify_sense_music_hub",
+        "page_spotify_sense_connect",
+        "page_spotify_sense_playback",
+        "page_spotify_sense_ducking",
+        "page_spotify_sense_story",
+        "page_spotify_sense_advanced"
+      ],
+      "display_title": "Start tutorial · Spotify Sense",
+      "optional_chapters": [
+        "spotify_sense"
+      ]
+    },
+    {
+      "id": "page_spotify_sense_overview",
+      "title": "Spotify Sense · Overview",
+      "description": "Use Overview in Spotify Sense.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.spotify_sense",
+        "workspace": "addons",
+        "addon": "spotify_sense_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Spotify Sense",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read activation status before enabling",
+        "Confirm the track, not just the switch"
+      ],
+      "steps": [
+        {
+          "title": "Read activation status before enabling",
+          "body": "In Overview, read Spotify Sense Status and Spotify Sense Activation Status. The activation label says whether the service is live; a disabled master switch alone does not prove an error. Turn on Enable Spotify Sense only once you are ready to test. Album artwork and Now playing should then reflect the track playing in Spotify.",
+          "target": "tutorialControl_spotify_sense_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Compare current playback with the status",
+          "body": "Compare Now playing with your current Spotify track and read the connection status as well. Blank or stale metadata can have several causes, including authorization, connectivity or playback state. Spotify Sense Guide and Spotify Sense Commands provide reference text; they do not grant autonomous playback permissions.",
+          "target": "tutorialControl_spotify_sense_enabled",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_spotify_sense",
+      "hidden": true
+    },
+    {
+      "id": "page_spotify_sense_music_hub",
+      "title": "Spotify Sense · Music Hub",
+      "description": "Use Music Hub in Spotify Sense.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.spotify_sense",
+        "workspace": "addons",
+        "addon": "spotify_sense_tab",
+        "section": "Music Hub"
+      },
+      "category": "Addons / Spotify Sense",
+      "order": 211,
+      "topic": "Music Hub",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Browse before granting control",
+        "Treat browsing as reading, not controlling"
+      ],
+      "steps": [
+        {
+          "title": "Browse before granting control",
+          "body": "Open Music Hub to see a larger browsing surface for current playback and library options. Use it to check what the linked account can see before changing autonomous settings in Playback. Browsing here does not grant a model the right to change music.",
+          "target": "tutorialControl_spotify_sense_music_hub_page",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Treat browsing as reading, not controlling",
+          "body": "Music Hub displays content and playback state without setting defaults. If you want those defaults to apply, adjust the Default device in Playback on this same page. Reading this view cannot start playback autonomously; only a user action or an explicitly allowed tool call can.",
+          "target": "tutorialControl_spotify_sense_music_hub_page",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_spotify_sense"
+    },
+    {
+      "id": "page_spotify_sense_connect",
+      "title": "Spotify Sense · Connect",
+      "description": "Use Connect in Spotify Sense.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.spotify_sense",
+        "workspace": "addons",
+        "addon": "spotify_sense_tab",
+        "section": "Connect"
+      },
+      "category": "Addons / Spotify Sense",
+      "order": 212,
+      "topic": "Connect",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Enter your Spotify app credentials",
+        "Recognize a failed authorization"
+      ],
+      "steps": [
+        {
+          "title": "Enter your Spotify app credentials",
+          "body": "In Connect, enter the Client ID from your Spotify developer app and confirm Redirect URI matches the registered return address. A saved credential does not complete login; the authorization step is separate. If you do not have an app yet, create one in the Spotify developer dashboard before entering values here.",
+          "target": "tutorialControl_spotify_sense_client_id",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recognize a failed authorization",
+          "body": "A failed login usually means the saved Client ID differs from the app, or the Redirect URI string does not exactly match what Spotify registered. Reopen Connect and compare character by character before retrying. Repeating the approval flow with the same mismatch will keep failing; fix the value first.",
+          "target": "tutorialControl_spotify_sense_client_id",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_spotify_sense"
+    },
+    {
+      "id": "page_spotify_sense_playback",
+      "title": "Spotify Sense · Playback",
+      "description": "Use Playback in Spotify Sense.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.spotify_sense",
+        "workspace": "addons",
+        "addon": "spotify_sense_tab",
+        "section": "Playback"
+      },
+      "category": "Addons / Spotify Sense",
+      "order": 213,
+      "topic": "Playback",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose a default device and control level",
+        "Distinguish queue and playlist scopes"
+      ],
+      "steps": [
+        {
+          "title": "Choose a default device and control level",
+          "body": "In Playback, select the Default device that should receive music. This is the playback target, separate from NeuralCompanion's speech output device. Leave Allow autonomous LLM Spotify control off for the first pass. Require confirmation before changing music is the safer default when you later allow tools to act.",
+          "target": "tutorialControl_spotify_sense_allow_llm_control",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish queue and playlist scopes",
+          "body": "Allow queue changes and Allow playlist changes grant wider scopes than simple playback. Enabling either permits the model, when autonomous control is on, to modify content beyond the current track. Keep both off while learning. Turning them on later should follow an explicit decision, not a blank default.",
+          "target": "tutorialControl_spotify_sense_allow_queue_changes",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_spotify_sense"
+    },
+    {
+      "id": "page_spotify_sense_ducking",
+      "title": "Spotify Sense · Ducking",
+      "description": "Use Ducking in Spotify Sense.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.spotify_sense",
+        "workspace": "addons",
+        "addon": "spotify_sense_tab",
+        "section": "Ducking"
+      },
+      "category": "Addons / Spotify Sense",
+      "order": 214,
+      "topic": "Ducking",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Recognize this card's controls",
+        "Diagnose missing restoration elsewhere"
+      ],
+      "steps": [
+        {
+          "title": "Recognize this card's controls",
+          "body": "Ducking is not part of the documented Spotify Sense controls; volume behaviour during speech is handled by NC's audio settings, not Spotify Sense. If you need lower volume during speech, look there. Do not look for Lower music while NC speaks here, as that expectation comes from a different surface.",
+          "target": "tutorialControl_spotify_sense_duck_while_speaking",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Diagnose missing restoration elsewhere",
+          "body": "If music stays quiet after a reply, confirm the reply finished normally and check NC's audio and volume settings, not Spotify Sense. Manually raise volume if needed and retry. Spotify Sense does not expose restoration controls here, so troubleshooting belongs in NC's audio side.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_spotify_sense"
+    },
+    {
+      "id": "page_spotify_sense_story",
+      "title": "Spotify Sense · Story",
+      "description": "Use Story in Spotify Sense.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.spotify_sense",
+        "workspace": "addons",
+        "addon": "spotify_sense_tab",
+        "section": "Story"
+      },
+      "category": "Addons / Spotify Sense",
+      "order": 215,
+      "topic": "Story",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Story mode is not on this page",
+        "Use a permission-compatible request"
+      ],
+      "steps": [
+        {
+          "title": "Story mode is not on this page",
+          "body": "Spotify Sense has no Story section among its controls. Story-related music preferences belong to a different page or addon. Reading Overview, Music Hub, Connect and Playback is the full scope here. Do not infer a Story mode from the presence of music controls.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Use a permission-compatible request",
+          "body": "A request such as 'use quiet background music' only plays if the permission level you selected in Playback allows it and a device is reachable. If nothing plays, check the scopes and the Default device before retrying. This is a scope check, not a model failure; fixing the scope is your explicit action.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_spotify_sense"
+    },
+    {
+      "id": "page_spotify_sense_advanced",
+      "title": "Spotify Sense · Advanced",
+      "description": "Use Advanced in Spotify Sense.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.spotify_sense",
+        "workspace": "addons",
+        "addon": "spotify_sense_tab",
+        "section": "Advanced"
+      },
+      "category": "Addons / Spotify Sense",
+      "order": 216,
+      "topic": "Advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Enable debug logging when diagnosing"
+      ],
+      "steps": [
+        {
+          "title": "Enable debug logging when diagnosing",
+          "body": "Advanced holds Debug log. Turn it on when you need extra detail on a failing authorization or playback issue, and turn it off when done to keep logs tidy. Debug logging records behaviour; it does not by itself fix the connection. Read the log before changing Connect values again.",
+          "target": "tutorialControl_spotify_sense_debug_logging_enabled",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_spotify_sense"
+    }
+  ]
+}

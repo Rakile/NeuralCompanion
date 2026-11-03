@@ -1,0 +1,11 @@
+{
+  "id": "nc.chat_provider_lmstudio_sdk",
+  "name": "LM Studio Chat Provider",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Default LM Studio provider using the Python SDK and NC's standard chat and persona MCP contracts.",
+  "permissions": [],
+  "services": [{"id": "chat_provider_registry", "provider_id": "lmstudio_sdk"}],
+  "enabled": true
+}

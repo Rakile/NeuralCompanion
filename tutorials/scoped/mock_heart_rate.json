@@ -1,0 +1,169 @@
+{
+  "guides": [
+    {
+      "id": "overview_mock_heart_rate",
+      "title": "Mock Heart Rate overview",
+      "description": "Floating mock BPM window plus a reusable heart-rate service and sensory provider for addon experiments.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.mock_heart_rate",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "heart_rate",
+        "sensory_tab": "setup"
+      },
+      "category": "Runtime / Vision Sensors / Mock Heart Rate",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Floating mock BPM window plus a reusable heart-rate service and sensory provider for addon experiments.",
+        "Find focused guidance for setup, prompts, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_mock_heart_rate_setup",
+        "page_mock_heart_rate_prompts",
+        "page_mock_heart_rate_advanced",
+        "presence_sources"
+      ],
+      "steps": [
+        {
+          "title": "What Mock Heart Rate does",
+          "body": "Floating mock BPM window plus a reusable heart-rate service and sensory provider for addon experiments. The overview introduces this area without opening its other sections.",
+          "target": "visionSourceSettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_mock_heart_rate_setup",
+        "page_mock_heart_rate_prompts",
+        "page_mock_heart_rate_advanced"
+      ],
+      "display_title": "Start tutorial · Mock Heart Rate",
+      "optional_chapters": [
+        "presence_sources"
+      ]
+    },
+    {
+      "id": "page_mock_heart_rate_setup",
+      "title": "Mock Heart Rate · setup",
+      "description": "Use setup in Mock Heart Rate.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.mock_heart_rate",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "heart_rate",
+        "sensory_tab": "setup"
+      },
+      "category": "Runtime / Vision Sensors / Mock Heart Rate",
+      "order": 210,
+      "topic": "setup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Understand what this addon provides",
+        "Confirm the mock window appears"
+      ],
+      "steps": [
+        {
+          "title": "Understand what this addon provides",
+          "body": "The setup tab explains the floating BPM window and the reusable service for experiments. Read it as a mock source, not a real sensor reading. Note where the BPM window appears so you can recognize it later. No configuration here changes real health data.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm the mock window appears",
+          "body": "Open the addon feature that shows the floating BPM window and look for it on your desktop. Its presence confirms the mock display ran. If it does not appear, check whether the addon is enabled and loaded before trying again. Treat displayed values as illustrative only.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_mock_heart_rate"
+    },
+    {
+      "id": "page_mock_heart_rate_prompts",
+      "title": "Mock Heart Rate · prompts",
+      "description": "Use prompts in Mock Heart Rate.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.mock_heart_rate",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "heart_rate",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Mock Heart Rate",
+      "order": 211,
+      "topic": "prompts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review how prompt text is used",
+        "Test a prompt change in a short exchange"
+      ],
+      "steps": [
+        {
+          "title": "Review how prompt text is used",
+          "body": "The prompts area describes how the mock heart-rate provider can supply context for prompts. Read the current text before editing, since prompt changes affect what the model receives in experiments. Change one phrase at a time so you can tell which edit altered behavior.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Test a prompt change in a short exchange",
+          "body": "After editing the prompt text, run a short chat exchange and observe whether the expected mock context appears. If nothing changes, confirm the addon is active and the setting saved. Keep the edit small so a later revert is simple.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_mock_heart_rate"
+    },
+    {
+      "id": "page_mock_heart_rate_advanced",
+      "title": "Mock Heart Rate · advanced",
+      "description": "Use advanced in Mock Heart Rate.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.mock_heart_rate",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "heart_rate",
+        "sensory_tab": "advanced"
+      },
+      "category": "Runtime / Vision Sensors / Mock Heart Rate",
+      "order": 212,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect advanced experimental options",
+        "Recover from an experimental change"
+      ],
+      "steps": [
+        {
+          "title": "Inspect advanced experimental options",
+          "body": "Advanced collects lower-level options for the mock provider. Read each value before changing it, since these affect experiments rather than normal chat. Make one change and observe the result in a short test. Defaults are a reasonable baseline if you have no specific goal.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover from an experimental change",
+          "body": "If an advanced change makes the provider misbehave, restore the previous value and retest the same short scenario. Keeping a note of your starting values makes this quick. If the addon stops loading, read its status before assuming a persistent fault.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_mock_heart_rate"
+    }
+  ]
+}

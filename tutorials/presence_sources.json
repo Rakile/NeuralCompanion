@@ -1,0 +1,104 @@
+{
+  "id": "presence_sources",
+  "order": 13,
+  "title": "13. Webcam and Mock Heart Rate",
+  "description": "Test one camera snapshot or simulated BPM source, then add one clearly observable reaction.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "provider_kind": "vision",
+      "provider_id": "shared_awareness"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "setup",
+      "provider_kind": "vision",
+      "provider_id": "webcam"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "setup",
+      "provider_kind": "vision",
+      "provider_id": "heart_rate"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Choose one source for your first experiment",
+      "body": "A source supplies an observation; a supervisor decides whether a rule matches it. Webcam Source supplies still snapshots and Webcam Supervisor adds rules. Mock Heart Rate supplies simulated BPM text and Heart Rate Behavior adds rules. Shared Awareness Policy governs automatic background checks.\n\nChoose the camera path if you have a working camera; otherwise use the mock path. The next two steps explain each source, but you need only one working source for the first exercise. Leave background and response permissions unchanged until its Test capture succeeds. Opening a source card only views its settings.\n\nRead aloud narrates the guide; Hear step reads only this step.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "Test one selected camera",
+      "body": "In Webcam → Setup, click Refresh cameras, choose Capture camera and read Camera status. Confirm it names the camera you intended. Place a harmless object in its view, then click Test capture. This requests one diagnostic snapshot without calling an LLM.\n\nRead Sensory capture result for success or a specific error; it is a capture report, not proof NC recognized the object. If no device is found, reconnect the camera or release it from another app, then refresh. If a saved camera is unavailable, select a currently discovered camera. Keep background capture off until the correct device succeeds.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "webcam",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Or test a simulated BPM value",
+      "body": "In Heart Rate → Setup, set Heart rate to 72. If useful, enable Show floating heart-rate monitor and check it displays that value. Click Test capture and read Sensory capture result; successful text context confirms the mock source can supply a signal without calling the model.\n\nChange Heart rate to 125 and check the setting or floating monitor changes, then return it to 72 for the later threshold test. Do not expect speech yet. This is a value you set for an experiment, not a measurement of your body. If capture fails, resolve the source registration error before editing reaction rules.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "heart_rate",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Allow only the response needed for the test",
+      "body": "For an optional spoken reaction, first confirm Main chat produces audible speech. Start the configured runtime with the top-right power button OFF → ON if stopped and wait for readiness. Enable only your selected source and the Shared Awareness Policy when you are ready for background reviews.\n\nAllow hidden proactive speech permits eligible results to use TTS. Leave Allow hidden visual generation off for this exercise; it independently permits image requests. Review other enabled sources before changing shared permissions because they can also be affected. These switches provide permission, not a promise to react without a matching rule.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    },
+    {
+      "title": "Camera path: acknowledge one visible object",
+      "body": "If using the camera, select Active Reaction Profile under Webcam Setup, then Add Rule. Set Webcam Trigger to “A mug is visibly held in front of the camera” and Action to “Briefly acknowledge the mug.” Choose Repeat mode One-off, turn the rule Enabled on, and check Enable Webcam Supervisor.\n\nHold a mug clearly in frame and wait for an eligible background check. Compare any acknowledgement with the actual object, then lower it. If nothing happens, check camera capture, source and shared-policy switches, supervisor status and speech readiness before changing the wording. Disable this test rule afterward. Skip this path if using mock BPM.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "webcam",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Mock path: cause one threshold match",
+      "body": "For the simulated path, choose a Heart Rate Behavior profile and Add Rule. Set Signal Trigger to “The heart rate is above 120 BPM” and Action to “Say the demo threshold was crossed.” Choose Repeat mode One-off, enable the rule and check Enable Heart Rate Behavior. Begin with mock Heart rate at 72.\n\nWith the selected source, shared policy and speech permission ready, change Heart rate to 125 and wait for an eligible check. A matching spoken acknowledgement tests the full rule path; the floating number alone tests only the value. If silent, check each permission and runtime status before rewriting the condition. These are simulated signals.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "heart_rate",
+      "sensory_tab": "setup"
+    },
+    {
+      "title": "Stop the experiment at each layer",
+      "body": "Record what you observed: a successful diagnostic capture, a changed mock display, and a spoken rule reaction are different results. A quiet diagnostic capture is expected because Test capture does not call the LLM. Do not count arriving at this final page as a successful reaction.\n\nDisable your test rule or supervisor to stop that reaction, then disable the source if you enabled it only for this exercise. Restore mock Heart rate to 72 and turn off the floating monitor separately. Restore shared speech and background-policy settings you changed, checking other intentional sources before stopping them.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "shared_awareness"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Webcam needs a connected camera and its source addon. Mock Heart Rate is a simulated development value, with no health-device connection. Start by testing the source alone; automatic reviews additionally need a running chat runtime and Shared Awareness Policy. Speech needs working TTS and its separate permission. You can read without enabling any of these. Read aloud and Hear step narrate the lesson; loaded Chatterbox is preferred, with Windows TTS attempted as fallback.",
+  "learning_outcomes": [
+    "Verify a selected camera can capture or a simulated BPM source can supply context.",
+    "Configure and test one explicit reaction rather than assuming capture causes speech.",
+    "Stop the test rule, source and optional floating monitor."
+  ],
+  "contextual_guides": [
+    "page_vision_overview",
+    "overview_webcam_source",
+    "overview_mock_heart_rate"
+  ]
+}

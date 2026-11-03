@@ -1,0 +1,27 @@
+{
+  "id": "nc.rag_context",
+  "name": "Document Memory",
+  "category": "chat",
+  "version": "0.2.0",
+  "entry_point": "main.py",
+  "description": "Local semantic document knowledge packages with saved snapshots and idle indexing.",
+  "permissions": [
+    "storage.read",
+    "storage.write",
+    "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "rag_context_tab",
+      "title": "Document Memory",
+      "area": "host_settings",
+      "icon_path": "ui/icons/RAG.png",
+      "order": 132,
+      "tooltip": "Create reusable local knowledge packages from text/PDF snapshots and recall them during chat.",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "enabled": true
+}

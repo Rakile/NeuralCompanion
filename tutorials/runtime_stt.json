@@ -1,0 +1,47 @@
+{
+  "id": "runtime_stt",
+  "title": "Speech to Text",
+  "description": "Find the speech provider list and read which speech-to-text provider is selected, staying clear of activation and settings you don't need.",
+  "kind": "section",
+  "scope": {
+    "workspace": "runtime",
+    "runtime_section": "runtime",
+    "runtime_responsibility": "speech"
+  },
+  "category": "Runtime / Runtime Session",
+  "order": 44,
+  "before_you_start": "You can read this guide with the engine stopped. It opens settings pages and highlights controls; changes and tests are explicit user actions.",
+  "learning_outcomes": [
+    "Locate speech-to-text entries in the shared speech list",
+    "Distinguish browsing from activation",
+    "Know why transcription quality varies"
+  ],
+  "steps": [
+    {
+      "title": "Identify transcription providers",
+      "body": "This page lists speech-to-text providers. Read the active indicator and viewed selection separately. Single-clicking an entry shows its settings; it does not choose a different active backend. The disabled option means microphone transcription is off, while typing remains available.",
+      "target": "speechProviderList",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Read recognition settings",
+      "body": "Inspect the selected provider's recognition controls. Language support depends on the backend; English-only and multilingual Whisper are separate options. Keep existing values for a read-only tour. If controls are unavailable, check whether that provider addon is loaded rather than choosing unrelated settings.",
+      "target": "runtimeProviderSettingsPanel",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Understand Make active",
+      "body": "Find the explicit Make active action when viewing a different backend. Use it only if you intend to change transcription. This guide does not activate or initialize a model. A microphone test later needs a suitable session input mode, a configured microphone and a running recognition backend.",
+      "target": "runtimeProviderSettingsPanel",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Know what a successful test means",
+      "body": "A successful transcription produces the words you spoke in the expected input flow. A visible provider name alone is not that test. If recognition is absent, check backend availability and the input mode through their own guides after finishing this page. Keep this tour focused on transcription settings.",
+      "target": "speechProviderList",
+      "fallback_target": "runtimeResponsibilityStack"
+    }
+  ],
+  "estimated_minutes": 3,
+  "course_id": "runtime_session_overview"
+}

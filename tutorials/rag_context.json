@@ -1,0 +1,112 @@
+{
+  "id": "rag_context",
+  "order": 22,
+  "title": "22. Document Memory",
+  "description": "Build a small document knowledge package, find one known fact in search, then let a chat reply use it.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "memory",
+      "document_section": "Sources"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "memory",
+      "document_section": "Retrieval"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "memory",
+      "document_section": "Index"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "memory",
+      "document_section": "Test search"
+    },
+    {
+      "workspace": "conversation"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "memory",
+      "document_section": "Usage"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Start with one small document",
+      "body": "Document Memory lets chat look up your files. In Runtime → Memory → Document Memory, choose New package, give it a recognizable name and create it. Check Active knowledge package, then Add files and select your short test document.\n\nThe source row should show the filename with Enabled and Indexed states. Enabled makes it eligible for recall; Indexed means a compatible searchable snapshot exists. If the file picker cannot select your format, start with a plain .txt or .md file. Keep this package small until its first search works.\n\nRead aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "runtime",
+      "target": "documentMemoryWorkspace",
+      "runtime_section": "memory",
+      "document_section": "Sources"
+    },
+    {
+      "title": "Check the package’s search model",
+      "body": "Retrieval configures how this package finds passages. Its embedding model represents text for search; it does not write chat replies. Check Semantic search model and Local embedding server against your running server and installed model.\n\nRead Model preprocessing for that model before changing prefixes. Leave chunk size and overlap at their defaults for the first exercise. Edits remain a draft until Apply changes… and its confirmation; Revert edits discards them. If you deliberately change the model, review the re-indexing prompt and wait for readiness. If the server or model is unavailable, fix that setup before building the index.",
+      "workspace": "runtime",
+      "target": "documentMemoryWorkspace",
+      "runtime_section": "memory",
+      "document_section": "Retrieval"
+    },
+    {
+      "title": "Wait for a searchable snapshot",
+      "body": "Open Index and read the progress and errors. Indexing prepares passages from your document and waits while replies, recording, speech or queued audio are busy. Pause indexing defers work; Resume indexing continues it.\n\nRefresh from sources rereads original files. Rebuild saved embeddings recalculates search data from saved snapshots, so it is useful when the originals are unavailable. For the first test, wait until your source is Indexed. If progress stalls, check for a paused build, busy chat/audio, or a reported server/model error before retrying. Chat recall being off does not prevent an explicit import or rebuild.",
+      "workspace": "runtime",
+      "target": "documentMemoryWorkspace",
+      "runtime_section": "memory",
+      "document_section": "Index"
+    },
+    {
+      "title": "Find the fact before using it in chat",
+      "body": "Open Test search and enter a Test query about your document, such as “When does the studio open on Tuesdays?” Click Run test search and read the returned excerpt.\n\nLook for the exact “09:30” detail from your source. This checks document retrieval independently of a chat answer. If results are empty, wait for model preparation and indexing, verify the source is Enabled, then try wording from the document. If a server or indexing error is shown, resolve that error first; changing the question will not fix it.",
+      "workspace": "runtime",
+      "target": "documentMemoryWorkspace",
+      "runtime_section": "memory",
+      "document_section": "Test search"
+    },
+    {
+      "title": "Ask a question with a checkable answer",
+      "body": "Once Test search finds the fact, return to Sources and enable Use Document Memory in chat if you want this package used. Then, with Main Chat ready, ask the same opening-time question in Conversation.\n\nCompare the reply with the document: does it say 09:30 on Tuesdays? Source names appear only when the package’s usage settings expose them. If retrieval worked but chat ignores it, check that the intended package is active, recall and the source are enabled, and the Persona does not override the memory choice. A plausible answer by itself is not proof it used your document.",
+      "workspace": "conversation",
+      "target": "conversationComposer"
+    },
+    {
+      "title": "Turn chat recall off without deleting the package",
+      "body": "In Sources, inspect Use Document Memory in chat. Turning it off stops the package contributing excerpts to ordinary chat; it keeps your saved documents and index.\n\nIf you want to compare behavior, turn it off now and confirm the switch changes, then restore your intended state. A direct Test search, import or rebuild is still an explicit operation and may load the local model. Do not use this switch as an indexing stop button; use Pause indexing on Index for that.",
+      "workspace": "runtime",
+      "target": "documentMemoryEnabled",
+      "runtime_section": "memory",
+      "document_section": "Sources"
+    },
+    {
+      "title": "Choose whether answers show their sources",
+      "body": "Open Usage and read Knowledge presentation. Reference documents suits our opening-hours note because the model should treat it as supporting material. Integrated knowledge suits background lore; Manual lets you write your own guidance.\n\nSelecting a preset replaces the prompt guide and source visibility below, so read both before keeping a change. Source labels help you trace a fact but do not guarantee a correct answer. Ask the test question again after a deliberate change and compare wording and source visibility. If you are unsure, retain the current settings rather than rewriting the memory prompt.",
+      "workspace": "runtime",
+      "target": "documentMemoryUsagePreset",
+      "runtime_section": "memory",
+      "document_section": "Usage"
+    },
+    {
+      "title": "Update the note and verify the new fact",
+      "body": "For an optional second test, change the original document’s opening time to 10:00. In Sources, use that row’s Refresh / Retry, or Refresh from sources for the whole package. Opening chat alone does not reread edited files.\n\nWait for successful indexing, then repeat Test search and look for 10:00. A ready older snapshot can remain usable until its replacement succeeds, so check the refresh status if you still find 09:30. Disabling a source keeps its index; removing it takes it out of the package. Finish after checking the retrieved passage, then leave chat recall in the state you want.",
+      "workspace": "runtime",
+      "target": "documentMemoryPackageSelector",
+      "runtime_section": "memory",
+      "document_section": "Sources"
+    }
+  ],
+  "before_you_start": "Prepare one short supported document with a fact you can check, such as “The studio opens at 09:30 on Tuesdays.” Use a local embedding server with an installed model; this search model is separate from the chat LLM and conversation-memory search. Imports, indexing and direct search can load that package’s model even while chat recall is off. A normal grounded reply also needs working Main Chat. Reading runs none of these actions. Narration prefers loaded Chatterbox, with Windows TTS as fallback.",
+  "learning_outcomes": [
+    "Create a small knowledge package and understand source/index status.",
+    "Verify one known fact through Test search before enabling chat recall.",
+    "Control source presentation and refresh an edited document."
+  ],
+  "category": "Workflows",
+  "contextual_guides": [
+    "overview_rag_context"
+  ]
+}

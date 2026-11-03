@@ -1,0 +1,15 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false
+  },
+  "exclude": [
+    "node_modules",
+    "scripts",
+    "native-webrtc/tests",
+    "modules/**/tests"
+  ]
+}

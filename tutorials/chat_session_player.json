@@ -1,0 +1,82 @@
+{
+  "id": "chat_session_player",
+  "order": 21,
+  "title": "21. Chat Session Player",
+  "description": "Load a short saved chat, choose a starting turn and hear it replay through NC’s existing speech service.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "chat_session_player_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "addons",
+      "addon": "chat_session_player_tab",
+      "section": "Session"
+    },
+    {
+      "workspace": "addons",
+      "addon": "chat_session_player_tab",
+      "section": "Messages"
+    },
+    {
+      "workspace": "addons",
+      "addon": "chat_session_player_tab",
+      "section": "Replay voices"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Check which conversation replay will use",
+      "body": "Open Addons → Conversation Replay → Overview and read Session summary. It reports the shared chat context, replayable message count and runtime state.\n\nOur first exercise is to hear one short saved exchange. If Overview already names the intended chat, you may keep it. Otherwise save your current Conversation before the next step. “Runtime stopped” describes the live engine; replay can prepare an offline replay runtime. It does not mean a saved chat has loaded or that speech has been tested.\n\nRead aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "chat_session_player_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Load and verify the short saved chat",
+      "body": "Open Session and choose Load chat context. Select the short conversation you want to hear. Quick Load instead opens NC’s quick-save context, which may be a different chat.\n\nUse Refresh and inspect the summary, then Messages. Confirm familiar words from the intended exchange before playing anything. Loading changes Main Chat’s shared context. If the list is empty or the wrong chat appears, return to Session and choose the correct saved file; do not start a full replay to discover what loaded.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "chat_session_player_tab",
+      "section": "Session"
+    },
+    {
+      "title": "Select a starting point without starting speech",
+      "body": "In Messages, select a replayable turn near the end of your short chat. Read the highlighted entry and note its first words. Previous and Next move this selection; they do not skip speech already playing.\n\nWait until the final step to start playback. Replay from selected begins at this turn and can continue through following turns. Replay latest reply limits the first test to the latest assistant response; Replay complete chat is for later. If these are disabled, verify the loaded context contains replayable user or assistant text.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "chat_session_player_tab",
+      "section": "Messages"
+    },
+    {
+      "title": "Keep or choose the two role voices",
+      "body": "Open Replay voices. For a basic test, leave Assistant voice and User voice on Use current TTS voice. This uses the configured speech voice without a separate reference for each role.\n\nOptional: choose different local voices/*.wav references and use Refresh voices after adding files. Confirm the selected names, then listen during the next step. Hearing the original filename in a menu is not a voice test: reference support depends on the active backend. If one voice sounds unchanged, first verify the backend accepts audio references.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "chat_session_player_tab",
+      "section": "Replay voices"
+    },
+    {
+      "title": "Start a short replay and listen for its first words",
+      "body": "Return to Messages and choose Replay latest reply for the smallest test, or Replay from selected to hear the starting turn you noted. Listen and read Replay status. The first words should match that message.\n\nReplay uses NC’s shared speech/runtime service, including offline replay when the live engine is stopped. This addon has no separate pause, skip or stop transport; Previous/Next still only move selection. Use shared speech controls where available, or the main power control to stop the runtime. If status reports an error or no sound is heard, check TTS readiness and output device before replaying a whole chat.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "chat_session_player_tab",
+      "section": "Messages"
+    }
+  ],
+  "before_you_start": "Enable Conversation Replay in Addon Manager and restart if requested. Save the current chat before loading another: replay uses the shared conversation, not an isolated preview. Choose a short saved exchange for your first test and have TTS configured. Separate user/assistant WAV references are optional. Reading never loads a file or starts playback. Narration prefers loaded Chatterbox and otherwise tries Windows TTS.",
+  "category": "Workflows",
+  "learning_outcomes": [
+    "Load the intended saved context without losing the current chat.",
+    "Select a replay starting point separately from starting speech.",
+    "Listen to replay and optionally assign different user and assistant references."
+  ],
+  "contextual_guides": [
+    "overview_chat_session_player"
+  ]
+}

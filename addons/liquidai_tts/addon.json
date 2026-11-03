@@ -1,0 +1,48 @@
+{
+  "id": "nc.liquidai_tts",
+  "name": "LiquidAI TTS",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Local LFM3 Audio text-to-speech in an isolated managed worker.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "runtime_defaults": {
+    "liquidai_tts_python": "",
+    "liquidai_tts_model_dir": "",
+    "liquidai_tts_language": "American English",
+    "liquidai_tts_voice": "female",
+    "liquidai_tts_seed": 0,
+    "liquidai_tts_temperature": 1.0,
+    "liquidai_tts_top_k": 128,
+    "liquidai_tts_repetition_penalty": 1.1,
+    "liquidai_tts_max_tokens": 1024,
+    "liquidai_tts_prewarm_on_start": true,
+    "liquidai_tts_stream_audio": false,
+    "liquidai_tts_startup_buffer_seconds": 1.0
+  },
+  "services": [
+    {
+      "id": "tts_backend_service",
+      "backend_id": "liquidai",
+      "metadata": {}
+    }
+  ],
+  "ui": [
+    {
+      "id": "liquidai_tts_tab",
+      "title": "LiquidAI",
+      "area": "tts_runtime",
+      "placeholder": "tts_liquidai_tab",
+      "order": 250,
+      "tooltip": "Local LiquidAI voices, generation settings and dedicated runtime setup.",
+      "metadata": {
+        "native_qml": true,
+        "backend_id": "liquidai"
+      }
+    }
+  ],
+  "enabled": true
+}

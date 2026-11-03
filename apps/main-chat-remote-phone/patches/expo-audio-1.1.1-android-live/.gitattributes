@@ -1,0 +1,2 @@
+# Preserve checksum-pinned Kotlin artifacts across Windows and Unix checkouts.
+*.kt text eol=lf

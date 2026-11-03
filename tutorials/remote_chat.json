@@ -1,0 +1,55 @@
+{
+  "id": "remote_chat",
+  "audience": "remote",
+  "order": 102,
+  "title": "Chat and message controls",
+  "category": "Chat & Memory",
+  "description": "Send a phone message, recognize a completed reply, and inspect its actions without replacing it.",
+  "speech_backend": "chatterbox",
+  "estimated_minutes": 5,
+  "before_you_start": "Complete Connect your phone and verify desktop chat first. Keep NC Remote connected and NC running on desktop. Practise on the real phone; these Android Editorial screenshots show routes to controls, not a live composer.",
+  "learning_outcomes": [
+    "Send a short message and verify an assistant text reply.",
+    "Distinguish replaying a reply from generating a replacement."
+  ],
+  "steps": [
+    {
+      "title": "Send one short message from Chat",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.02,
+        0.92,
+        0.32,
+        0.06
+      ],
+      "device": "On your phone",
+      "body": "On your phone, tap Chat in the bottom navigation. In Message or /command, type “Explain a rainbow in one sentence” and tap the send arrow once. Wait for the assistant to finish before sending another message. Start with text so microphone settings cannot obscure this basic test.\n\nCheck that your message appears and an assistant text reply follows. If Send is unavailable, check the desktop connection and NC power state. If only your message appears, inspect the desktop LLM status; changing the phone display cannot repair a model connection.\n\nHear step and Read aloud narrate this desktop lesson. Use the real phone composer to practise; tapping this screenshot sends nothing.",
+      "expected": "Your message and a completed assistant text reply are visible in Chat.",
+      "recovery": "Check connection and desktop engine readiness if Send is unavailable. If only your message appears, inspect the desktop provider status.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    },
+    {
+      "title": "Inspect actions before choosing one",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.02,
+        0.92,
+        0.32,
+        0.06
+      ],
+      "device": "On your phone",
+      "body": "On your phone, double-tap the assistant reply to open response controls. First inspect the options, then close the controls. Opening them alone should leave the reply intact. Close the keyboard if it covers the controls.\n\nReplay plays the existing answer again when audio is available. Regenerate asks the model for a replacement answer; choose it only when you want to change the response. To practise playback, use Replay and listen.\n\nFor reading and display options, open Quick controls with + in the composer. Those affect presentation; return to the response itself when you want actions on that answer.",
+      "expected": "Response controls open while the existing answer remains visible. Replay is a separate audio test.",
+      "recovery": "Double-tap an assistant response rather than your message. Dismiss the keyboard if needed; missing audio is a separate playback issue.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "Double-tap a response: tap • tap",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    }
+  ]
+}

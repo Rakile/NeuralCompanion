@@ -1,0 +1,113 @@
+{
+  "id": "corsair_leds",
+  "order": 27,
+  "title": "27. Corsair LEDs",
+  "description": "Connect iCUE, send a visible keyboard preview, and make one spoken reply change the lighting.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Connection"
+    },
+    {
+      "workspace": "addons",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Devices"
+    },
+    {
+      "workspace": "addons",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "State colors & mood"
+    },
+    {
+      "workspace": "addons",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Keyboard animation designer"
+    },
+    {
+      "workspace": "addons",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Speech response"
+    },
+    {
+      "workspace": "addons",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Advanced SDK"
+    },
+    {
+      "workspace": "addons",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Global output"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Connect NC to the keyboard through iCUE",
+      "body": "iCUE is Corsair’s device software; the SDK is the interface NC uses to send lighting. Keep iCUE running. Read Keyboard discovery and SDK requirements: leave Device Memory Mode and allow SDK device control as described there.\n\nIn Connection, click Reconnect & Rescan once, then read Connection status and Status detail. You want a successful SDK connection before designing an effect. If it fails, follow the reported SDK/device reason and check iCUE access, then rescan. An animation setting cannot repair this connection. Read aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Connection"
+    },
+    {
+      "title": "Check which keyboard will receive the effect",
+      "body": "Open Devices and read Detected keyboards. A renderer maps an effect to the LEDs the keyboard exposes: zone rendering controls groups of lights, while per-key rendering controls individual keys. Leave Force zone renderer and Force per-key renderer on Automatic by LED layout for the first test.\n\nLocate your physical keyboard in the list and check for an offline warning. Automatic mode can drive every supported discovered keyboard, so note all listed devices. If yours is absent or offline, wake it in iCUE and use Reconnect & Rescan. Force a renderer only when the connection works but the detected layout needs correction.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Devices"
+    },
+    {
+      "title": "Make the four runtime states recognizable",
+      "body": "Open each State colors swatch and choose clearly different colors for Idle, Listening, Thinking and Speaking. These correspond to waiting, capturing input, preparing a reply and playing speech. A Text Only chat will not exercise microphone Listening.\n\nFor a simple first design, try a quiet Idle color and a bright contrasting Speaking color. Leave Tint state colors with the current mood off so you can learn the base colors first. Check the four saved swatches; a swatch change alone is not proof of keyboard output. The next step sends a deliberate preview. If colors become hard to distinguish, return to simple hues before adding mood tint.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "State colors & mood"
+    },
+    {
+      "title": "Send your first Speaking preview",
+      "body": "In Keyboard animation designer, set State to edit to Speaking and choose one Animation. Speed controls movement, Intensity its strength, Animation size its extent and Trail / softness how long or softly it fades. Change one at a time while watching Keyboard preview. Test audio level supplies preview energy; it does not record your microphone.\n\nUse the Preview Speaking action to send the effect to the physical keyboard. Watch the actual keys, not only the on-screen preview. If the screen changes but hardware does not, revisit Connection status and Detected keyboards. A working preview proves the hardware path; the next exercise checks real speech.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Keyboard animation designer"
+    },
+    {
+      "title": "Compare preview energy with a real spoken reply",
+      "body": "Speech sensitivity scales playback energy into the animation, and Speech smoothing softens rapid changes. They visualize NC’s outgoing speech; they do not change microphone recognition. Keep your preview values, then send one short Main Chat question with the runtime ON and a working text-to-speech provider.\n\nCheck that Speaking activates during audible output. If it does but barely moves, raise sensitivity a little; if it flickers sharply, add smoothing. If the hardware preview worked but chat has no response, first confirm actual spoken playback. If the whole effect is too strong, lower Brightness under Global output rather than altering microphone settings.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Speech response"
+    },
+    {
+      "title": "Use SDK diagnostics only for a connection problem",
+      "body": "Advanced SDK exposes the 64-bit SDK DLL path. A DLL is the library that lets NC talk to iCUE; it is not a keyboard effect file. If the preview worked, leave this path alone. Use Connection status and Status detail to identify a missing or incompatible SDK before browsing for a replacement.\n\nIf the notes require a change, record the existing path, use Browse for SDK DLL to select the correct 64-bit library, then Reconnect & Rescan. Use Write SDK Config only when the in-app requirements call for it. If connection gets worse, restore the recorded path and rescan. Do not use renderer overrides to hide an SDK error.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Advanced SDK"
+    },
+    {
+      "title": "Keep the output comfortable and choose startup behavior",
+      "body": "Global output limits every state: Brightness sets the overall light level, Animation speed scales movement, and Frame cap limits lighting updates per second. Lower Brightness first if the preview is distracting. Reduce Frame cap if you want fewer updates, then check that motion is still readable.\n\nIn Connection, review Enable Corsair visual lighting at startup for the next NC session; changing it does not toggle current lighting. You have tested the basics when both a hardware preview and a real spoken reply produced the expected lights. If only preview worked, keep troubleshooting runtime speech before calling the integration ready.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "corsair_visual_instrument_tab",
+      "section": "Global output"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Enable Corsair Visual Instrument in Addon Manager and restart NC if requested. You need a supported Corsair keyboard reachable through iCUE and its SDK; RGB lighting alone does not guarantee SDK support. The first goal is a visible hardware preview, followed by one real spoken-reply test. Keep iCUE running and start at a comfortable brightness. The guide only highlights controls; rescanning and previewing are your actions.",
+  "learning_outcomes": [
+    "Connect to iCUE and confirm the intended keyboard is detected.",
+    "Design state colors and animations and test speech response.",
+    "Use output limits and startup behavior safely."
+  ],
+  "contextual_guides": [
+    "overview_corsair_visual_instrument"
+  ]
+}

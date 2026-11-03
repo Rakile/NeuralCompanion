@@ -1,0 +1,23 @@
+{
+  "id": "nc.ditto_preprocess",
+  "name": "Ditto Avatar Creator",
+  "category": "avatar",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Prepare Ditto portraits and animation loops without duplicating reverse frames.",
+  "permissions": ["ui.tabs"],
+  "host_services": [],
+  "native_qml": true,
+  "ui": [
+    {
+      "id": "ditto_preprocess_tab",
+      "title": "Ditto Avatar Creator",
+      "area": "top_level",
+      "order": 110,
+      "tooltip": "Prepare a still portrait, video, or PNG sequence for the Ditto avatar engine.",
+      "icon_path": "../../ui_icons/side_tabs/ditto_creator.png",
+      "metadata": {"native_qml": true}
+    }
+  ],
+  "enabled": true
+}

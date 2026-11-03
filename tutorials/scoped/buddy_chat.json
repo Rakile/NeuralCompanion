@@ -1,0 +1,327 @@
+{
+  "guides": [
+    {
+      "id": "overview_buddy_chat",
+      "title": "Buddy Chat",
+      "description": "Natural multi-buddy chat with ready-made groups, guided setup, refinable personalities, routed voices, and shared or per-persona LLM providers.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.buddy_chat",
+        "workspace": "addons",
+        "addon": "buddy_chat_tab",
+        "section": "Setup"
+      },
+      "category": "Addons / Buddy Chat",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Natural multi-buddy chat with ready-made groups, guided setup, refinable personalities, routed voices, and shared or per-persona LLM providers.",
+        "Find focused guidance for Setup, Overview, Buddies, Voices, Avatars, Providers, Advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "buddy_chat",
+        "page_buddy_chat_setup",
+        "page_buddy_chat_overview",
+        "page_buddy_chat_buddies",
+        "page_buddy_chat_voices",
+        "page_buddy_chat_avatars",
+        "page_buddy_chat_providers",
+        "page_buddy_chat_advanced"
+      ],
+      "steps": [
+        {
+          "title": "What Buddy Chat does",
+          "body": "Natural multi-buddy chat with ready-made groups, guided setup, refinable personalities, routed voices, and shared or per-persona LLM providers. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "buddy_chat"
+      ],
+      "display_title": "Start tutorial · Buddy Chat",
+      "optional_chapters": [
+        "page_buddy_chat_setup",
+        "page_buddy_chat_overview",
+        "page_buddy_chat_buddies",
+        "page_buddy_chat_voices",
+        "page_buddy_chat_avatars",
+        "page_buddy_chat_providers",
+        "page_buddy_chat_advanced"
+      ]
+    },
+    {
+      "id": "page_buddy_chat_setup",
+      "title": "Buddy Chat · Setup",
+      "description": "Use Setup in Buddy Chat.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.buddy_chat",
+        "workspace": "addons",
+        "addon": "buddy_chat_tab",
+        "section": "Setup"
+      },
+      "category": "Addons / Buddy Chat",
+      "order": 210,
+      "topic": "Setup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Preview a small role-based group",
+        "Use the preview before applying"
+      ],
+      "steps": [
+        {
+          "title": "Preview a small role-based group",
+          "body": "In Setup choose Supportive Duo - 2 buddies and read the staged names and prompts. Preview only proposes a group; Apply group writes it to Main Chat and can replace an existing cast. Cancel preview discards the proposal, so read before applying.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Review the group preview",
+          "body": "Read the roles and prompts proposed in the preview. If they do not suit your intended exchange, cancel and use Build my group instead. Applying a group is deliberate. After finishing this section, the Overview guide provides a separate check of the applied group and main-conversation settings.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_buddy_chat_overview"
+      ],
+      "course_id": "overview_buddy_chat"
+    },
+    {
+      "id": "page_buddy_chat_overview",
+      "title": "Buddy Chat · Overview",
+      "description": "Use Overview in Buddy Chat.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.buddy_chat",
+        "workspace": "addons",
+        "addon": "buddy_chat_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Buddy Chat",
+      "order": 211,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Confirm the group is configured",
+        "Separate configuration from actual output"
+      ],
+      "steps": [
+        {
+          "title": "Confirm the group is configured",
+          "body": "In Overview read LLM provider mode, Natural main conversation, Force buddy every N replies, Max buddies per reply, and the Enable Buddy Chat switch. These show what a reply should use. This area does not prove output; an actual named-buddy exchange in the chat is the real test.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Separate configuration from actual output",
+          "body": "Overview settings and named buddies confirm setup, not a working reply. A spoken or written exchange confirms output. If only the main Persona replies, recheck active switches, saved prompts and Max buddies per reply in Overview before editing prompts or providers.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_buddy_chat"
+    },
+    {
+      "id": "page_buddy_chat_buddies",
+      "title": "Buddy Chat · Buddies",
+      "description": "Use Buddies in Buddy Chat.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.buddy_chat",
+        "workspace": "addons",
+        "addon": "buddy_chat_tab",
+        "section": "Buddies"
+      },
+      "category": "Addons / Buddy Chat",
+      "order": 212,
+      "topic": "Buddies",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Give each active buddy one job",
+        "Verify the active list matches Overview"
+      ],
+      "steps": [
+        {
+          "title": "Give each active buddy one job",
+          "body": "In Buddies check each buddy’s active switch, name, role and system prompt. For a two-person example give one the role Teacher and the other Beginner, then read the saved values on this page to confirm they persisted. An inactive buddy keeps its configuration but leaves the active cast.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Verify the active list matches Overview",
+          "body": "If the list is empty or short, no group was applied or buddies were switched off. Apply a group or re-enable the intended names here. Note the resulting names so you can compare with Overview without leaving the page mid-edit.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_buddy_chat"
+    },
+    {
+      "id": "page_buddy_chat_voices",
+      "title": "Buddy Chat · Voices",
+      "description": "Use Voices in Buddy Chat.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.buddy_chat",
+        "workspace": "addons",
+        "addon": "buddy_chat_tab",
+        "section": "Voices"
+      },
+      "category": "Addons / Buddy Chat",
+      "order": 213,
+      "topic": "Voices",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Prepare an optional voice reference",
+        "Confirm backend support before retuning prompts"
+      ],
+      "steps": [
+        {
+          "title": "Prepare an optional voice reference",
+          "body": "Voices can give recognized buddy speech segments different sounds. If you have a reference, enable that buddy’s use voice sample and choose the file with Choose voice sample. A named file does not prove routing; compare voices only after a working text exchange.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm backend support before retuning prompts",
+          "body": "A reference-capable desktop TTS backend is required. If every buddy sounds alike, check that support and the saved voice fields instead of rewriting buddy prompts. Leave voices off until the text exchange works; they are an optional layer over correct role prompts.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_buddy_chat"
+    },
+    {
+      "id": "page_buddy_chat_avatars",
+      "title": "Buddy Chat · Avatars",
+      "description": "Use Avatars in Buddy Chat.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.buddy_chat",
+        "workspace": "addons",
+        "addon": "buddy_chat_tab",
+        "section": "Avatars"
+      },
+      "category": "Addons / Buddy Chat",
+      "order": 214,
+      "topic": "Avatars",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect one portrait prompt before generating",
+        "Keep text working while portraits fail"
+      ],
+      "steps": [
+        {
+          "title": "Inspect one portrait prompt before generating",
+          "body": "Open Avatars and read one buddy’s avatar prompt. Use Generate avatar for that name only after Visual Reply is configured, then check that buddy’s preview before generating the rest. If it fails, verify image-provider readiness; the text group can still work without portraits.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Keep text working while portraits fail",
+          "body": "Portrait generation is independent of the tested conversation. A missing image does not mean the buddy or its prompts are broken. Confirm text contributions still appear before spending more image requests, then retry only this buddy’s portrait on this page.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_buddy_chat"
+    },
+    {
+      "id": "page_buddy_chat_providers",
+      "title": "Buddy Chat · Providers",
+      "description": "Use Providers in Buddy Chat.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.buddy_chat",
+        "workspace": "addons",
+        "addon": "buddy_chat_tab",
+        "section": "Providers"
+      },
+      "category": "Addons / Buddy Chat",
+      "order": 215,
+      "topic": "Providers",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Keep the working Main runtime for a first test",
+        "Treat per-persona settings as overrides"
+      ],
+      "steps": [
+        {
+          "title": "Inspect optional provider overrides",
+          "body": "Providers holds optional shared provider, model, URL and key fields. Read the current override state before editing; leaving inheritance in place is a valid choice. Refresh shared models reports available models, not a successful generation. The Overview guide separately explains which provider mode the group uses.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Treat per-persona settings as overrides",
+          "body": "Use Buddy Provider or Use Per-Persona Providers only for deliberate separate connections, then fill the matching fields and inspect Test Buddy provider. If an override fails, switch back to Main runtime while you check its endpoint, credentials and model. Confirm the saved override state when you return to this area.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_buddy_chat_overview"
+      ],
+      "course_id": "overview_buddy_chat"
+    },
+    {
+      "id": "page_buddy_chat_advanced",
+      "title": "Buddy Chat · Advanced",
+      "description": "Use Advanced in Buddy Chat.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.buddy_chat",
+        "workspace": "addons",
+        "addon": "buddy_chat_tab",
+        "section": "Advanced"
+      },
+      "category": "Addons / Buddy Chat",
+      "order": 216,
+      "topic": "Advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read shared instructions after a text test",
+        "Undo or refine only with a working baseline"
+      ],
+      "steps": [
+        {
+          "title": "Read shared instructions after a text test",
+          "body": "Advanced contains Override main persona instructions while Buddy Chat is enabled and the Buddy system override. Read these values only after the basic exchange works. Changing them alters how the whole group behaves, so keep current values unless you have found a specific conflict.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Undo or refine only with a working baseline",
+          "body": "Staged refinements are proposals, not applied prompts. Read the staged prompt, apply only what you intend, and use Undo last setup to return to the previous applied group. If a refinement fails, keep the working group and check its provider rather than applying an incomplete result.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_buddy_chat"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "id": "nc.musetalk_avatar",
+  "name": "MuseTalk Avatar",
+  "category": "avatar",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "MuseTalk avatar engine provider.",
+  "permissions": [
+    "ui.tabs",
+    "services.register"
+  ],
+  "runtime_defaults": {
+    "musetalk_avatar_id": "default_avatar",
+    "musetalk_avatar_pack_id": "",
+    "musetalk_enabled_pack_emotions": {},
+    "musetalk_video_path": "data\\video\\ani.mp4",
+    "musetalk_fps": 24,
+    "musetalk_vram_mode": "balanced",
+    "musetalk_loop_fade_ms": 180,
+    "musetalk_progressive_buffer_seconds": 2.0,
+    "musetalk_chunk_target_chars": 110,
+    "musetalk_chunk_max_chars": 220,
+    "musetalk_quickstart_1_target_chars": 90,
+    "musetalk_quickstart_1_max_chars": 130,
+    "musetalk_quickstart_2_target_chars": 130,
+    "musetalk_quickstart_2_max_chars": 180,
+    "ua_companion_orb_send_musetalk_face_mask": false
+  },
+  "services": [
+    {
+      "id": "avatar_provider_registry",
+      "provider_id": "musetalk",
+      "metadata": {}
+    }
+  ],
+  "host_services": [],
+  "ui": [
+    {
+      "id": "musetalk_avatar_tab",
+      "title": "MuseTalk",
+      "area": "top_level",
+      "placeholder": "musetalk_tab",
+      "icon_path": "ui/icons/musetalk.png",
+      "order": 120,
+      "tooltip": "MuseTalk avatar runtime and preview controls.",
+      "metadata": {
+        "provider_id": "musetalk"
+      }
+    }
+  ],
+  "enabled": true,
+  "native_qml": true
+}

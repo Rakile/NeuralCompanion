@@ -1,0 +1,106 @@
+{
+  "id": "visual_story_settings",
+  "order": 25,
+  "title": "25. Story Visuals",
+  "description": "Set a small illustration limit, test one spoken Main chat story, and tune a shared style afterward.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "visual_story_settings_tab",
+      "section": "Story generation"
+    },
+    {
+      "workspace": "addons",
+      "addon": "visual_story_settings_tab",
+      "section": "Story styles"
+    },
+    {
+      "workspace": "addons",
+      "addon": "visual_story_settings_tab",
+      "section": "Master prompt"
+    },
+    {
+      "workspace": "addons",
+      "addon": "visual_story_settings_tab",
+      "section": "Summary"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Find the controls for one illustrated reply",
+      "body": "Story Visuals requests pictures for eligible spoken story chunks. The speech provides the narrative, and the active Visual reply provider generates the illustrations. Our first exercise is one short Main chat story with a limit of one image.\n\nIn Addons → Story Visuals find Story generation, Story styles, Master prompt and Summary. If missing, check the addon is loaded and this is its settings tab. Keep existing styles and prompts unchanged until the first result works. Read aloud narrates the guide; Hear step reads only this step without requesting story pictures.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "visual_story_settings_tab",
+      "section": "Story generation"
+    },
+    {
+      "title": "Enable a small test and listen to the story",
+      "body": "Before enabling Story mode, set Maximum images per reply to 1 here. Then turn Story mode on. Confirm the configured runtime is ON and ready. In Main chat ask “Tell a brief two-scene story about a traveler leaving a cottage and entering a forest.” Listen for speech and wait for the image request to finish.\n\nLook for at least one picture related to the spoken narrative. Images may take longer than audio. If none appears, check speech actually played, Story mode and Runtime’s Allow story mode to request visual replies are enabled, and a direct image request still works. Do not adjust style to fix a provider error.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "visual_story_settings_tab",
+      "section": "Story generation"
+    },
+    {
+      "title": "Understand the limit before increasing it",
+      "body": "Maximum images per reply caps image requests for one response. It does not force every reply to produce that many pictures, and short replies may supply fewer eligible chunks. Keep 1 while checking the first result; the provider’s completion and the image itself matter more than reaching the cap.\n\nAfter one reliable image, you can try 2 for a two-scene comparison. More pictures add generation work and hosted-provider charges. If the second test becomes slow or fails, return the limit to 1 and verify a short reply again before changing providers or prompts.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "visual_story_settings_tab",
+      "section": "Story generation"
+    },
+    {
+      "title": "Optional: compare recurring details across two images",
+      "body": "Continuity strength guides how much established visual detail carries into successive images. It cannot guarantee identical characters. Once two images complete reliably, note the current strength and compare a story whose traveler appears in both scenes. Look at clothing and facial features as well as the changed location.\n\nRaise the value a little if recurring details drift; lower it if the new scene remains too close to the old composition. Repeat with the same story request and judge the result rather than assuming the slider guarantees it. Keep the image limit low; a new scene failing to generate needs provider-error checks before continuity changes.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "visual_story_settings_tab",
+      "section": "Story generation"
+    },
+    {
+      "title": "Optional: choose one illustrated medium",
+      "body": "Story styles adds recurring visual instructions. For a clear comparison, enable Use Cartoon and read Cartoon prompt, leaving conflicting style presets off. Request another short story only after you are ready to make another image request, then compare the outlines and overall treatment with your first picture.\n\nThe style prompt describes how scenes should look; the current narrative supplies what happens. Avoid putting a single scene’s props into a style used for all scenes. If the treatment is inconsistent, review enabled styles and try one coherent choice before rewriting several prompts at once.",
+      "workspace": "addons",
+      "addon": "visual_story_settings_tab",
+      "section": "Story styles",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Optional: add a short master style anchor",
+      "body": "Master style prompt adds shared guidance to every story image. Use it only for details you want repeated, such as “soft watercolor, muted earth colors, traveler wearing a blue coat.” Keep actions and camera framing in the current scene rather than fixing them for the whole story.\n\nNote the existing prompt before editing it. On the next small test compare the shared palette or clothing across images. If the cottage appears in every scene, remove it from the master anchor. Leave the field empty when a selected style already gives the look you want; extra wording is optional, not a prerequisite for illustration.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "visual_story_settings_tab",
+      "section": "Master prompt"
+    },
+    {
+      "title": "Optional: inspect text and content guidance",
+      "body": "Add safe-content guidance and Prevent speech bubbles and visible text add instructions to the provider. For a picture without written dialogue, enable the no-text option before your next intended test and inspect the result for lettering and speech bubbles. These settings guide generation; they do not inspect or guarantee the finished image.\n\nIf unwanted text appears, check for conflicting style or master-prompt wording before retrying. Change one instruction at a time and review the next result. Safe-content guidance also needs result review. Neither option repairs missing images or an unavailable provider.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "visual_story_settings_tab",
+      "section": "Master prompt"
+    },
+    {
+      "title": "Compare Summary with the result, then finish",
+      "body": "In Summary read Current story setup. Check Story mode, maximum image count, continuity percentage and enabled styles against the choices you made. This confirms configuration, while the picture and audible story confirm actual output. A summary saying on is not evidence generation completed.\n\nIf your small story produced an appropriate picture, keep the working configuration or restore your earlier settings. Turn Story mode off if illustrations were only for this experiment. If it failed, return to the first test and its error rather than increasing limits. Imported-audio and group-roleplay workflows are outside this lesson.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "visual_story_settings_tab",
+      "section": "Summary"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "First test one explicit Visual Reply and one audible Main chat reply. Story Visuals uses those existing image and speech providers; it does not set them up. Enable the addon before its tab can appear. This lesson is limited to its Main chat story-image controls. Begin with one image per reply; styles and continuity are later comparisons. Reading never enables Story mode or sends a request.",
+  "learning_outcomes": [
+    "Generate a small Main chat story-image test through working speech and image providers.",
+    "Separate image limits, visual continuity and shared style guidance.",
+    "Read Summary and restore Story mode when the experiment is finished."
+  ],
+  "contextual_guides": [
+    "overview_visual_story_settings"
+  ]
+}

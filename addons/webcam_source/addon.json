@@ -1,0 +1,31 @@
+{
+  "id": "nc.webcam_source",
+  "name": "Webcam Source",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Webcam-backed hidden Vision source for attaching webcam snapshots as ambient sensory context.",
+  "runtime_defaults": {
+    "webcam_source_device_id": "0"
+  },
+  "services": [
+    {
+      "id": "sensory_registry",
+      "provider_id": "webcam"
+    }
+  ],
+  "ui": [
+    {
+      "id": "webcam_source_tab",
+      "title": "Camera",
+      "area": "vision_source",
+      "parent_tab_id": "webcam",
+      "order": 210,
+      "tooltip": "Discover, select, and test the camera used by Webcam sensory capture.",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "enabled": true
+}

@@ -1,0 +1,3289 @@
+from __future__ import annotations
+
+import copy
+import audioop
+import ipaddress
+import json
+import os
+import re
+import secrets
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import wave
+from collections import deque
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from core.addons.base import BaseAddon
+from addons.discord_voice_bridge.local_room import LocalRoomController
+from addons.discord_voice_bridge.bot_accounts import account_rows, check_discord_accounts, perform_account_action
+from addons.discord_voice_bridge.room_session import RoomSessionController
+from addons.discord_voice_bridge.local_room_behavior import apply_behavior, behavior_from_settings
+from addons.discord_voice_bridge.runtime_server import DiscordVoiceRuntimeServer
+from addons.discord_voice_bridge.settings import (
+    ensure_local_room_bots,
+    load_settings,
+    load_settings_schema,
+    reload_settings,
+    redacted_settings,
+    save_local_settings,
+)
+
+
+ADDON_DIR = Path(__file__).resolve().parent
+NODE_BRIDGE_DIR = ADDON_DIR / "node_bridge"
+TINY_MVP_DIR = ADDON_DIR / "tiny_mvp"
+INSTANCE_SETTINGS_DIR = ADDON_DIR / "runtime_instances"
+DEFAULT_TINY_MVP_ROOM_SCRIPT = TINY_MVP_DIR / "main.py"
+DEFAULT_TINY_MVP_BRIDGE_SCRIPT = TINY_MVP_DIR / "tiny_voice_bridge.py"
+NODE_BRIDGE_REQUIRED_PACKAGES = (
+    "@discordjs/voice",
+    "discord.js",
+    "dotenv",
+    "ffmpeg-static",
+    "opusscript",
+    "prism-media",
+)
+RUNTIME_LOG_MAX_BYTES = 5 * 1024 * 1024
+RUNTIME_LOG_KEEP_BYTES = 4 * 1024 * 1024
+
+
+def _trim_runtime_log_file(path: Path, *, max_bytes: int = RUNTIME_LOG_MAX_BYTES, keep_bytes: int = RUNTIME_LOG_KEEP_BYTES) -> None:
+    try:
+        if not path.exists():
+            return
+        size = path.stat().st_size
+        if size <= max_bytes:
+            return
+        keep = max(0, min(int(keep_bytes), int(max_bytes)))
+        with path.open("rb") as handle:
+            handle.seek(max(0, size - keep))
+            tail = handle.read()
+        trimmed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        marker = (
+            f"--- Discord Voice Bridge log trimmed @ {trimmed_at}; "
+            f"kept last {len(tail)} byte(s) of {size} ---\n"
+        ).encode("utf-8", errors="replace")
+        path.write_bytes(marker + tail)
+    except Exception:
+        pass
+
+
+class _BoundedRuntimeLog:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self._handle = None
+        self._open()
+
+    def _open(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        _trim_runtime_log_file(self.path)
+        self._handle = self.path.open("a", encoding="utf-8")
+
+    def write(self, text: str) -> int:
+        handle = self._handle
+        if handle is None:
+            self._open()
+            handle = self._handle
+        if handle is None:
+            return 0
+        written = handle.write(str(text or ""))
+        try:
+            handle.flush()
+            if handle.tell() > RUNTIME_LOG_MAX_BYTES:
+                handle.close()
+                self._handle = None
+                _trim_runtime_log_file(self.path)
+                self._open()
+        except Exception:
+            pass
+        return written
+
+    def flush(self) -> None:
+        handle = self._handle
+        if handle is not None:
+            handle.flush()
+
+    def close(self) -> None:
+        handle = self._handle
+        self._handle = None
+        if handle is not None:
+            handle.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+        return False
+
+
+def _open_runtime_log(path: Path) -> _BoundedRuntimeLog:
+    return _BoundedRuntimeLog(path)
+
+
+class BridgeInstance:
+    def __init__(self, *, instance_id: str, settings: dict[str, Any], settings_path: Path, bridge_token: str):
+        self.instance_id = instance_id
+        self.settings = settings
+        self.settings_path = settings_path
+        self.status_path = INSTANCE_SETTINGS_DIR / f"{_safe_instance_id(instance_id)}.status.json"
+        self.command_path = INSTANCE_SETTINGS_DIR / f"{_safe_instance_id(instance_id)}.commands.jsonl"
+        self.bridge_token = bridge_token
+        self.runtime_server = None
+        self.endpoint_error = ""
+        self.process = None
+        self.log_handle = None
+        self.output_thread = None
+
+
+class Addon(BaseAddon):
+    """Discord voice bridge addon with isolated NC voice-turn runtime."""
+
+    def initialize(self, context):
+        super().initialize(context)
+        self.context = context
+        self._local_room = LocalRoomController(self)
+        context.services.register('room_resource_activity', self, metadata={'kind': 'runtime_resource'})
+        self._room_session = RoomSessionController(self, self._local_room)
+        self._bridge_instances: list[BridgeInstance] = []
+        self._tiny_mvp_mic_lock = threading.RLock()
+        self._tiny_mvp_mic_stop: threading.Event | None = None
+        self._tiny_mvp_mic_thread: threading.Thread | None = None
+        self._tiny_mvp_mic_error = ""
+        self._tiny_mvp_mic_start_timer: threading.Timer | None = None
+        self._tiny_mvp_room_process = None
+        self._tiny_mvp_room_log_handle = None
+        self._tiny_mvp_room_output_thread = None
+        self._tiny_mvp_room_owned = False
+        self._tiny_mvp_monitor_process = None
+        self._tiny_mvp_monitor_log_handle = None
+        self._tiny_mvp_monitor_output_thread = None
+        self._tiny_mvp_monitor_owned = False
+        settings = ensure_local_room_bots()
+        self._start_instances_from_settings(settings, force=False, sync_tiny_mvp_mic=False)
+        self._schedule_tiny_mvp_local_mic_sync(settings)
+        context.logger.info("Discord Voice Bridge initialized (%s instance(s)).", len(self._bridge_instances))
+        return None
+
+    def shutdown(self):
+        timer = getattr(self, "_tiny_mvp_mic_start_timer", None)
+        if timer is not None:
+            timer.cancel()
+        self._tiny_mvp_mic_start_timer = None
+        local_room = getattr(self, "_local_room", None)
+        if local_room is not None:
+            try:
+                local_room.stop()
+            except Exception:
+                pass
+        self._stop_tiny_mvp_local_mic()
+        self.stop_bridge_instances()
+        self._stop_tiny_mvp_room_server()
+        self._stop_tiny_mvp_monitor()
+        return None
+
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip().lower()
+        request = dict(payload or {})
+        if capability == "discord_voice_bridge.node_bridge_dir":
+            return str(NODE_BRIDGE_DIR)
+        if capability == "discord_voice_bridge.status":
+            return self.status_snapshot()
+        if capability == "discord_voice_bridge.settings":
+            return redacted_settings()
+        if capability == "discord_voice_bridge.settings_schema":
+            return load_settings_schema()
+        if capability == "discord_voice_bridge.validate_settings":
+            return self.validate_settings()
+        if capability == "runtime.discord.native_snapshot":
+            return self.native_snapshot()
+        if capability == "runtime.discord.native_update":
+            return self.native_update_setting(
+                str(request.get("key") or ""),
+                request.get("value"),
+            )
+        if capability == "runtime.discord.native_action":
+            return self.native_action(
+                str(request.get("action") or ""),
+                dict(request.get("payload") or {}),
+            )
+        return None
+
+    def native_snapshot(self):
+        """Return the finite, redacted state consumed by the native QML adapter."""
+        snapshot = self.status_snapshot()
+        # Live room controls must not wait for a busy worker's cached status.
+        instances = {item.instance_id: item for item in getattr(self, "_bridge_instances", [])}
+        room_controls: dict[str, dict[str, Any]] = {}
+        for status in snapshot.get("instances", []):
+            instance = instances.get(status.get("id"))
+            if instance is None or not status.get("runtime_connected") or _bridge_mode(instance.settings) != "tiny_mvp":
+                continue
+            tiny_url = str(_get(instance.settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+            if tiny_url not in room_controls:
+                room_controls[tiny_url] = {}
+                try:
+                    room = _http_json("GET", f"{tiny_url}/state", timeout=0.5)
+                    live = room.get("moderator_state") or {}
+                    allowed = live.get("allow_current_interruption")
+                    if isinstance(allowed, bool):
+                        room_controls[tiny_url]["allow_current_interruption"] = allowed
+                    for key in ("pending_route", "route_next_target_bot_id", "pending_human_route",
+                                "route_next_speaker_user_id", "route_next_speaker_name"):
+                        if key in live:
+                            room_controls[tiny_url][key] = live[key]
+                except Exception:
+                    # A disconnected room leaves the last reported value visible.
+                    pass
+            if room_controls[tiny_url]:
+                node = status.setdefault("node_status", {})
+                moderator = node.setdefault("moderator_state", dict(node.get("moderator") or {}))
+                moderator.update(room_controls[tiny_url])
+        snapshot["schema"] = load_settings_schema()
+        snapshot["validation"] = self.validate_settings()
+        snapshot["local_room"] = self._get_room_session().snapshot()
+        snapshot["discord_accounts"] = account_rows(
+            load_settings(), snapshot["local_room"], snapshot.get("instances", []))
+        return snapshot
+
+    def native_update_setting(self, key: str, value: Any):
+        field = _native_settings_field(key)
+        if field is None:
+            raise KeyError(f"Unknown Discord Voice Bridge setting {key!r}.")
+        normalized = _normalize_native_setting(field, value)
+        updates: dict[str, Any] = {}
+        _set(updates, str(field["key"]), normalized)
+        settings = save_local_settings(
+            updates,
+            allow_secret_updates=bool(field.get("secret", False)),
+        )
+        if str(field["key"]).startswith("room_router.dead_air_recovery.") and any(
+            instance.process is not None and instance.process.poll() is None
+            for instance in list(getattr(self, "_bridge_instances", []) or [])
+        ):
+            # The legacy recovery controls saved AND reloaded running bots.
+            # Keep unrelated provider/playback settings out of this live update.
+            try:
+                self.apply_live_settings(None, settings, sections=("room_router",))
+            except Exception as error:
+                raise RuntimeError(f"Recovery settings were saved, but live reload failed: {error}") from error
+        return {
+            "ok": True,
+            "settings": redacted_settings(settings),
+            "validation": self.validate_settings(settings),
+        }
+
+    def _get_room_session(self):
+        room = getattr(self, "_room_session", None)
+        if room is None:
+            local = getattr(self, "_local_room", None)
+            if local is None:
+                local = LocalRoomController(self)
+                self._local_room = local
+            room = RoomSessionController(self, local)
+            self._room_session = room
+        return room
+
+    def native_action(self, action: str, payload: dict[str, Any] | None = None):
+        action = str(action or "").strip().lower()
+        request = dict(payload or {})
+        instance_id = str(request.get("instance_id") or "").strip()
+        local_room = self._get_room_session()
+        if action in {"account_add", "account_update", "account_remove", "account_check_all"}:
+            try:
+                if action == "account_check_all":
+                    return check_discord_accounts()
+                with local_room.resource_maintenance():
+                    result = perform_account_action(action, request, local_room.snapshot,
+                        lambda: list(getattr(self, "_bridge_instances", []) or []))
+                if action != "account_remove":
+                    result['verification'] = check_discord_accounts([result['account_id']])
+                return result
+            except ValueError as error:
+                return {"ok": False, "error": str(error)}
+            except KeyError:
+                return {"ok": False, "error": "Choose an available Discord account."}
+            except OSError:
+                return {"ok": False, "error": "Could not save Discord accounts. Check local settings access and try again."}
+            except RuntimeError:
+                return {"ok": False, "error": "Room is starting or stopping; resources are busy. Try again when it is ready."}
+        if action == "room_configure":
+            return local_room.configure(request)
+        if action == "local_room_start":
+            # A status refresh owns the same facade lock; let it finish before
+            # startup reads settings. Resource cleanup keeps its nonblocking guard.
+            with local_room.resource_maintenance(blocking=True):
+                return local_room.start(load_settings())
+        if action == "local_room_stop":
+            return local_room.stop_after_turn()
+        if action == "local_room_new_conversation":
+            return local_room.new_conversation()
+        if action == 'local_room_history':
+            return local_room.history(str(request.get('participant_id') or ''))
+        if action == 'local_room_set_topic':
+            return local_room.set_topic(str(request.get('topic') or ''))
+        if action == 'local_room_save_behavior':
+            return local_room.save_behavior(request.get('behavior'))
+        if action == "local_room_join":
+            return local_room.join()
+        if action == "local_room_leave":
+            return local_room.leave()
+        if action == "local_room_mute":
+            return local_room.set_muted(bool(request.get("muted")))
+        if action == "local_room_send":
+            return local_room.send(str(request.get("text") or ""), request.get('sender_id'))
+        if action == "local_room_control":
+            return local_room.control(str(request.get("command") or ""),
+                str(request.get("participant_id") or ""), str(request.get("text") or ""))
+        if action == "local_room_add_persona":
+            identity = str(request.get('persona_id') or (request.get('persona') or {}).get('id') or '')
+            return local_room.add_persona(dict(id=identity), str(request.get('bot_id') or ''))
+        if action == 'local_room_replace_persona':
+            return local_room.replace_persona(str(request.get('participant_id') or ''),
+                dict(id=str(request.get('persona_id') or '')), str(request.get('bot_id') or ''))
+        if action == 'local_room_retry_join':
+            return local_room.retry_join(str(request.get('participant_id') or ''))
+        if action == "validate":
+            return {"ok": True, "validation": self.validate_settings()}
+        if action == "start_all":
+            with local_room.resource_maintenance():
+                return self.start_bridge_instances()
+        if action == "stop_all":
+            return self.stop_bridge_instances()
+        if action == "restart_all":
+            with local_room.resource_maintenance():
+                return self.restart_bridge_instances()
+        if action == "install_node_dependencies":
+            return self.install_node_bridge_dependencies()
+        if action == "apply_live":
+            return self.apply_live_settings(instance_id or None)
+        if action == "start_instance":
+            with local_room.resource_maintenance():
+                return self.start_bridge_instance(instance_id)
+        if action == "stop_instance":
+            return self.stop_bridge_instance(instance_id)
+        if action == "restart_instance":
+            with local_room.resource_maintenance():
+                return self.restart_bridge_instance(instance_id)
+        if action == "reset_instance_context":
+            return self.reset_instance_context(instance_id)
+        if action == "erase_instance_context":
+            return self.erase_instance_context(instance_id)
+        if action == "erase_all_contexts":
+            return self.erase_all_instance_contexts()
+        if action == "set_bot_token":
+            bot_id = str(request.get("bot_id") or "").strip()
+            token = str(request.get("token") or "").strip()
+            if not bot_id or not token:
+                raise ValueError("Bot ID and a non-empty token are required.")
+            settings = load_settings()
+            bots = [copy.deepcopy(item) for item in list(settings.get("bots") or []) if isinstance(item, dict)]
+            target = next((item for item in bots if str(item.get("id") or "") == bot_id), None)
+            if target is None:
+                raise KeyError(f"Unknown Discord bot {bot_id!r}.")
+            target.setdefault("discord", {})["token"] = token
+            saved = save_local_settings({"bots": bots}, allow_secret_updates=True)
+            return {"ok": True, "settings": redacted_settings(saved)}
+        if action == "send_instance_command":
+            command = str(request.get("command") or "").strip()
+            if command not in {
+                "clear_queue",
+                "join",
+                "leave",
+                "moderator_call_on",
+                "moderator_clear",
+                "moderator_clear_enforcer",
+                "moderator_clear_floor",
+                "moderator_clear_pending",
+                "moderator_give_floor",
+                "moderator_give_human_floor",
+                "moderator_mute",
+                "moderator_mute_human",
+                "moderator_route_next",
+                "moderator_route_next_human",
+                "moderator_set_current_interruption",
+                "moderator_set_enforcer",
+                "moderator_set_mute_enforcement",
+                "moderator_unmute",
+                "moderator_unmute_human",
+                "play_test_tone",
+                "room_pause_after_turn",
+                "room_resume",
+                "room_restore_checkpoint",
+                "room_directive",
+                "reload_settings",
+                "reset_context",
+                "send_message",
+                "stop_playback",
+            }:
+                raise ValueError(f"Unsupported Discord bridge command {command!r}.")
+            return self.send_instance_command(
+                instance_id,
+                command,
+                dict(request.get("command_payload") or {}),
+            )
+        if action == "send_all_command":
+            command = str(request.get("command") or "").strip()
+            allowed = {
+                "clear_queue",
+                "moderator_clear",
+                "moderator_clear_floor",
+                "moderator_clear_pending",
+                "moderator_give_floor",
+                "moderator_give_human_floor",
+                "moderator_mute",
+                "moderator_mute_human",
+                "moderator_route_next",
+                "moderator_route_next_human",
+                "moderator_set_current_interruption",
+                "moderator_unmute",
+                "moderator_unmute_human",
+                "stop_playback",
+                "room_pause_after_turn",
+                "room_resume",
+                "room_restore_checkpoint",
+            }
+            if command not in allowed:
+                raise ValueError(f"Unsupported all-bot Discord bridge command {command!r}.")
+            command_payload = dict(request.get("command_payload") or {})
+            targets = [
+                item.instance_id
+                for item in list(getattr(self, "_bridge_instances", []) or [])
+                if _bridge_instance_is_running(item)
+            ]
+            if not targets:
+                raise RuntimeError("No running Discord bridge bot instances are available.")
+            result = None
+            for target in targets:
+                result = self.send_instance_command(target, command, command_payload)
+            return result
+        raise KeyError(f"Unknown Discord Voice Bridge action {action!r}.")
+
+    def resources_snapshot(self):
+        return []
+
+    def resource_users(self):
+        if self._local_room.session_settings is not None:
+            return ['Local room']
+        if any((item.process is not None and item.process.poll() is None)
+               or bool(getattr(getattr(item, 'runtime_server', None), 'running', False))
+               for item in getattr(self, '_bridge_instances', ())):
+            return ['Discord Voice']
+        return []
+
+    def resource_maintenance(self):
+        room = getattr(self, '_room_session', None) or self._local_room
+        return room.resource_maintenance()
+
+    def status_snapshot(self):
+        settings = load_settings()
+        instances = list(getattr(self, "_bridge_instances", []) or [])
+        status_by_instance = {
+            item.instance_id: _read_instance_status(item.status_path)
+            for item in instances
+        }
+        return {
+            "status": "ready",
+            "node_bridge_dir": str(NODE_BRIDGE_DIR),
+            "tiny_mvp_room_script": str(_tiny_mvp_room_script(settings)),
+            "tiny_mvp_room_running": self._tiny_mvp_room_server_running(),
+            "tiny_mvp_monitor_running": self._tiny_mvp_monitor_running(),
+            "tiny_mvp_bridge_script": str(_tiny_mvp_bridge_script(settings)),
+            "tiny_mvp_mic_running": self._tiny_mvp_local_mic_running(),
+            "settings": redacted_settings(settings),
+            "runtime_connected": any(item.process is not None and item.process.poll() is None for item in instances),
+            "endpoint_running": any(item.runtime_server is not None and item.runtime_server.running for item in instances),
+            "endpoint_url": instances[0].runtime_server.url if instances and instances[0].runtime_server is not None else "",
+            "instances": [
+                {
+                    "id": item.instance_id,
+                    "name": str(item.settings.get("name") or item.instance_id),
+                    "discord_bot_tag": str(status_by_instance.get(item.instance_id, {}).get("bot_tag") or ""),
+                    "discord_bot_id": str(status_by_instance.get(item.instance_id, {}).get("bot_id") or ""),
+                    "guild_id": str(_get(item.settings, "discord.guild_id", "") or ""),
+                    "guild_name": str(status_by_instance.get(item.instance_id, {}).get("guild_name") or ""),
+                    "voice_channel_id": str(_get(item.settings, "discord.voice_channel_id", "") or ""),
+                    "voice_channel_name": str(status_by_instance.get(item.instance_id, {}).get("voice_channel_name") or ""),
+                    "token_env_var": str(_get(item.settings, "discord.token_env_var", "") or ""),
+                    "runtime_port": _get(item.settings, "nc_runtime.port", ""),
+                    "pid": item.process.pid if item.process is not None and item.process.poll() is None else "",
+                    "settings_path": str(item.settings_path),
+                    "status_path": str(item.status_path),
+                    "command_path": str(item.command_path),
+                    "log_path": str(ADDON_DIR / "runtime_logs" / f"discord_voice_bridge_{item.instance_id}.log"),
+                    "runtime_connected": item.process is not None and item.process.poll() is None,
+                    "endpoint_running": item.runtime_server is not None and item.runtime_server.running,
+                    "endpoint_error": str(getattr(item, "endpoint_error", "") or ""),
+                    "endpoint_url": item.runtime_server.url if item.runtime_server is not None else "",
+                    "node_status": status_by_instance.get(item.instance_id, {}),
+                    "runtime_status": _runtime_server_status(item),
+                }
+                for item in instances
+            ],
+        }
+
+    def start_bridge_instances(self):
+        if getattr(self, "_bridge_instances", None):
+            self._sync_tiny_mvp_local_mic(load_settings())
+            return self.status_snapshot()
+        return self._start_instances_from_settings(load_settings(), force=True)
+
+    def _stop_bridge_instance_resources(self, instance: BridgeInstance) -> None:
+        """Retire an owned record only after its exact resources have stopped."""
+        owned = getattr(self, '_owned_discord_instances', {})
+        record = owned.get(instance.instance_id)
+        owns_record = record is not None and record[0] is instance
+        process, server = instance.process, instance.runtime_server
+        try:
+            self._stop_node_bridge(instance)
+            self._stop_runtime_server(instance)
+            if owns_record and ((process is not None and process.poll() is None)
+                    or (server is not None and getattr(server, 'running', False))):
+                raise RuntimeError("The owned Discord resources did not stop; cleanup must be retried.")
+        except Exception:
+            # Low-level helpers may clear their fields despite a failed stop.
+            # Keep live references and the reservation so cleanup remains retryable.
+            if owns_record:
+                if process is not None and process.poll() is None:
+                    instance.process = process
+                if server is not None and getattr(server, 'running', False):
+                    instance.runtime_server = server
+            raise
+        if owns_record and owned.get(instance.instance_id) is record:
+            owned.pop(instance.instance_id, None)
+
+    def stop_bridge_instances(self):
+        self._stop_tiny_mvp_local_mic()
+        mic = getattr(self, '_tiny_mvp_mic_thread', None)
+        if mic is not None and mic.is_alive():
+            mic.join(timeout=15.0)
+            if mic.is_alive():
+                raise RuntimeError('Room microphone is still stopping. Retry Stop room shortly.')
+        for instance in list(getattr(self, "_bridge_instances", []) or []):
+            self._stop_bridge_instance_resources(instance)
+        self._bridge_instances = []
+        self._stop_tiny_mvp_room_server()
+        return self.status_snapshot()
+
+    def restart_bridge_instances(self):
+        self.stop_bridge_instances()
+        return self._start_instances_from_settings(load_settings(), force=True)
+
+    def _owned_discord_room_key(self, room_identity: dict) -> tuple[str, str, str]:
+        if not isinstance(room_identity, dict):
+            raise RuntimeError("A Discord room identity is required.")
+        key = tuple(str(room_identity.get(field) or "").strip()
+                    for field in ("guild_id", "channel_id", "room_id"))
+        if not all(key):
+            raise RuntimeError("A complete Discord room identity is required.")
+        return key
+
+    def _check_owned_discord_identity(self, instance: BridgeInstance, room_identity: dict):
+        key = self._owned_discord_room_key(room_identity)
+        if (not instance.settings.get('_discord_room_session')
+                or self._owned_discord_room_key(instance.settings.get('_room_identity')) != key):
+            raise RuntimeError("The Discord instance belongs to another room.")
+        return key
+
+    def prepare_owned_discord_instance(self, settings: dict, bot_id: str, *, room_identity: dict,
+                                       expected_admission_id: str | None = None) -> BridgeInstance:
+        """Compile one target without rewriting retained accounts or their ports."""
+        self._owned_discord_room_key(room_identity)
+        bot_id = _safe_instance_id(bot_id)
+        retained = list(getattr(self, '_bridge_instances', []) or [])
+        existing = next((item for item in retained if item.instance_id == bot_id), None)
+        if existing is not None:
+            key = self._check_owned_discord_identity(existing, room_identity)
+            if (not expected_admission_id
+                    or getattr(self, '_owned_discord_instances', {}).get(bot_id) != (existing, key)
+                    or existing.settings.get('_room_admission_id') != expected_admission_id):
+                raise RuntimeError("The Discord account is already in use or its admission has changed.")
+        elif expected_admission_id is not None:
+            raise RuntimeError("The retained Discord account is no longer registered.")
+        compiled = _effective_bridge_settings(settings, force=True)
+        target = next((value for ident, value, _ in compiled if ident == bot_id), None)
+        if target is None:
+            raise RuntimeError("The selected Discord account was not compiled.")
+        # Normalization may move entries when the cast changes. Pin every retained
+        # endpoint in the new worker's candidate list; never write those settings.
+        by_id = {item.instance_id: item for item in retained}
+        for ident, value, _ in compiled:
+            if ident in by_id and ident != bot_id:
+                value['nc_runtime'] = copy.deepcopy(by_id[ident].settings.get('nc_runtime', {}))
+        occupied = {int(_get(item.settings, 'nc_runtime.port', 0) or 0) for item in retained if item is not existing}
+        if existing is not None:
+            target['nc_runtime'] = copy.deepcopy(existing.settings.get('nc_runtime', {}))
+            target['discord'] = copy.deepcopy(existing.settings.get('discord', {}))
+        port = int(_get(target, 'nc_runtime.port', 8768) or 8768)
+        while port in occupied:
+            port += 1
+        if port < 1 or port > 65535:
+            raise RuntimeError("No free Discord runtime port is available.")
+        target.setdefault('nc_runtime', {})['port'] = port
+        host = str(_get(target, 'nc_runtime.host', '127.0.0.1') or '127.0.0.1')
+        target['nc_runtime']['http_endpoint'] = f'http://{host}:{port}/turn'
+        target['nc_runtime']['endpoint'] = f'ws://{host}:{port}/discord-voice'
+        _attach_room_router_candidates(target, _room_router_candidates_from_bots([value for _, value, _ in compiled]))
+        instance = BridgeInstance(instance_id=bot_id, settings=target,
+                                  settings_path=INSTANCE_SETTINGS_DIR / f'{bot_id}.json',
+                                  bridge_token=existing.bridge_token if existing is not None else secrets.token_urlsafe(32))
+        self._check_owned_discord_identity(instance, room_identity)
+        instance.settings_path = _write_instance_settings(bot_id, target)
+        return instance
+
+    def register_owned_discord_instance(self, instance: BridgeInstance, *, room_identity: dict) -> BridgeInstance:
+        """Explicitly adopt an initial room instance; never infer standalone ownership."""
+        key = self._check_owned_discord_identity(instance, room_identity)
+        if self._find_instance(instance.instance_id) is not instance:
+            raise RuntimeError("The Discord instance object is no longer registered.")
+        owned = getattr(self, '_owned_discord_instances', {})
+        previous = owned.get(instance.instance_id)
+        if previous is not None and previous != (instance, key):
+            raise RuntimeError("The Discord account has another owner.")
+        self._owned_discord_instances = owned
+        owned[instance.instance_id] = (instance, key)
+        return instance
+
+    def start_owned_discord_instance(self, instance: BridgeInstance, *, room_identity: dict) -> BridgeInstance:
+        key = self._check_owned_discord_identity(instance, room_identity)
+        existing = self._find_instance(instance.instance_id)
+        owned = getattr(self, '_owned_discord_instances', {})
+        if existing is not None:
+            if existing is instance and owned.get(instance.instance_id) == (instance, key):
+                return instance
+            raise RuntimeError("The Discord account is already in use.")
+        if instance.instance_id in owned:
+            raise RuntimeError("The Discord account has stale ownership; cleanup is required.")
+        # Publish only this supplied object. Startup helpers can swallow failures;
+        # the wrapper must verify the actual endpoint and child process.
+        self._bridge_instances.append(instance)
+        self._owned_discord_instances = owned
+        owned[instance.instance_id] = (instance, key)
+        try:
+            self._start_runtime_server(instance)
+            if instance.runtime_server is None or not instance.runtime_server.running:
+                raise RuntimeError(instance.endpoint_error or "The Discord runtime endpoint did not start.")
+            self._start_node_bridge(instance)
+            if instance.process is None or instance.process.poll() is not None:
+                raise RuntimeError("The Discord bridge process did not start.")
+        except Exception:
+            self._stop_bridge_instance_resources(instance)
+            self._bridge_instances[:] = [item for item in self._bridge_instances if item is not instance]
+            raise
+        return instance
+
+    def stop_owned_discord_instance(self, bot_id: str, *, room_identity: dict) -> None:
+        key = self._owned_discord_room_key(room_identity)
+        owned = getattr(self, '_owned_discord_instances', {})
+        record = owned.get(_safe_instance_id(bot_id))
+        if record is None or record[1] != key:
+            raise RuntimeError("The Discord account is not owned by this room.")
+        instance = record[0]
+        if self._find_instance(instance.instance_id) is not instance:
+            raise RuntimeError("The Discord instance object has changed; refusing cleanup.")
+        self._check_owned_discord_identity(instance, room_identity)
+        self._stop_bridge_instance_resources(instance)
+        self._bridge_instances[:] = [item for item in self._bridge_instances if item is not instance]
+
+    def start_bridge_instance(self, instance_id: str):
+        instance_id = _safe_instance_id(instance_id)
+        if not instance_id:
+            raise RuntimeError("No Discord bridge bot instance selected.")
+        existing = self._find_instance(instance_id)
+        if existing is not None and _bridge_instance_is_running(existing):
+            return self.status_snapshot()
+        instance = self._configured_instance(instance_id)
+        if instance is None:
+            raise RuntimeError(f"Discord bridge bot instance {instance_id!r} was not found in settings.")
+        if existing is not None:
+            self._stop_bridge_instance_resources(existing)
+        self._bridge_instances = [
+            item for item in list(getattr(self, "_bridge_instances", []) or [])
+            if item.instance_id != instance_id
+        ]
+        self._bridge_instances.append(instance)
+        self._start_runtime_server(instance)
+        self._start_node_bridge(instance)
+        self._sync_tiny_mvp_local_mic(load_settings())
+        return self.status_snapshot()
+
+    def stop_bridge_instance(self, instance_id: str):
+        instance = self._find_instance(instance_id)
+        if instance is None:
+            return self.status_snapshot()
+        self._stop_bridge_instance_resources(instance)
+        self._bridge_instances = [
+            item for item in list(getattr(self, "_bridge_instances", []) or [])
+            if item is not instance
+        ]
+        self._sync_tiny_mvp_local_mic(load_settings())
+        return self.status_snapshot()
+
+    def restart_bridge_instance(self, instance_id: str):
+        instance_id = _safe_instance_id(instance_id)
+        self.stop_bridge_instance(instance_id)
+        return self.start_bridge_instance(instance_id)
+
+    def send_instance_command(self, instance_id: str, action: str, payload: dict[str, Any] | None = None):
+        instance = self._find_instance(_safe_instance_id(instance_id))
+        if instance is None:
+            raise RuntimeError(f"Discord bridge bot instance {instance_id!r} is not running.")
+        direct_room_actions = {"moderator_set_current_interruption", "moderator_route_next", "moderator_route_next_human"}
+        if str(action or "").strip() in direct_room_actions and _bridge_mode(instance.settings) == "tiny_mvp":
+            tiny_url = str(_get(instance.settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+            command_payload = dict(payload or {})
+            command_payload["action"] = str(action).strip()
+            result = _http_json("POST", f"{tiny_url}/moderator", command_payload, timeout=2.0)
+            if result.get("ok") is not True:
+                raise RuntimeError(str(result.get("error") or "The room did not confirm the moderator command."))
+            return self.status_snapshot()
+        command = {
+            "id": secrets.token_urlsafe(12),
+            "action": str(action or "").strip(),
+            "payload": payload if isinstance(payload, dict) else {},
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        if not command["action"]:
+            raise RuntimeError("Discord bridge command action is empty.")
+        INSTANCE_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        with instance.command_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(command, ensure_ascii=True) + "\n")
+        return self.status_snapshot()
+
+    def reset_instance_context(self, instance_id: str):
+        instance = self._find_instance(_safe_instance_id(instance_id))
+        if instance is None:
+            raise RuntimeError(f"Discord bridge bot instance {instance_id!r} is not running.")
+        if instance.runtime_server is not None and hasattr(instance.runtime_server, "reset_history"):
+            instance.runtime_server.reset_history()
+        self.send_instance_command(instance.instance_id, "reset_context")
+        return self.status_snapshot()
+
+    def erase_instance_context(self, instance_id: str):
+        instance_id = _safe_instance_id(instance_id)
+        if not instance_id:
+            raise RuntimeError("No Discord bridge bot instance selected.")
+        instance = self._find_instance(instance_id)
+        if instance is not None and instance.runtime_server is not None and hasattr(instance.runtime_server, "reset_history"):
+            instance.runtime_server.reset_history()
+        _delete_instance_history_file(instance_id)
+        return self.status_snapshot()
+
+    def erase_all_instance_contexts(self):
+        settings = load_settings()
+        instance_ids = {
+            configured.instance_id
+            for configured in _bridge_instances_from_settings(settings, force=True)
+        }
+        instance_ids.update(
+            instance.instance_id
+            for instance in list(getattr(self, "_bridge_instances", []) or [])
+        )
+        for instance in list(getattr(self, "_bridge_instances", []) or []):
+            if instance.runtime_server is not None and hasattr(instance.runtime_server, "reset_history"):
+                instance.runtime_server.reset_history()
+        for instance_id in instance_ids:
+            _delete_instance_history_file(instance_id)
+        return self.status_snapshot()
+
+    def apply_live_settings(
+        self,
+        instance_id: str | None = None,
+        settings: dict[str, Any] | None = None,
+        sections: tuple[str, ...] | list[str] | None = None,
+    ):
+        payload = settings if isinstance(settings, dict) else reload_settings()
+        section_names = tuple(str(item) for item in (sections or ()) if str(item or "").strip())
+        targets = []
+        requested = _safe_instance_id(instance_id) if str(instance_id or "").strip() else ""
+        for configured in _bridge_instances_from_settings(payload, force=True):
+            if requested and configured.instance_id != requested:
+                continue
+            running = self._find_instance(configured.instance_id)
+            if running is None:
+                continue
+            if section_names:
+                merged = copy.deepcopy(running.settings if isinstance(running.settings, dict) else configured.settings)
+                for section in section_names:
+                    value = configured.settings.get(section)
+                    if isinstance(value, dict):
+                        merged[section] = copy.deepcopy(value)
+                        if section == 'room_router' and running.settings.get('_discord_room_session'):
+                            merged[section]['dead_air_recovery'] = copy.deepcopy(
+                                (payload.get('room_router') or {}).get('dead_air_recovery') or {})
+                running.settings = merged
+            else:
+                running.settings = configured.settings
+            _write_instance_settings(running.instance_id, running.settings)
+            if running.runtime_server is not None and hasattr(running.runtime_server, "apply_live_settings"):
+                running.runtime_server.apply_live_settings(running.settings)
+            self.send_instance_command(running.instance_id, "reload_settings")
+            targets.append(running.instance_id)
+        self._sync_tiny_mvp_local_mic(payload)
+        if requested and not targets:
+            raise RuntimeError(f"Discord bridge bot instance {requested!r} is not running.")
+        return {"ok": True, "updated": targets, "status": self.status_snapshot()}
+
+    def install_node_bridge_dependencies(self):
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        running = [
+            instance.instance_id
+            for instance in list(getattr(self, "_bridge_instances", []) or [])
+            if _bridge_instance_is_running(instance)
+        ]
+        if running:
+            names = ", ".join(running[:5])
+            extra = f" and {len(running) - 5} more" if len(running) > 5 else ""
+            raise RuntimeError(f"Stop the Discord bridge before installing Node dependencies. Running instance(s): {names}{extra}.")
+        npm = shutil.which("npm")
+        if not npm:
+            raise RuntimeError("npm was not found on PATH. Install Node.js/npm before installing Discord bridge dependencies.")
+        package_json = NODE_BRIDGE_DIR / "package.json"
+        if not package_json.exists():
+            raise RuntimeError(f"Node bridge package.json is missing: {package_json}")
+
+        log_dir = ADDON_DIR / "runtime_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "discord_voice_bridge_npm_install.log"
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if logger:
+            logger.info("Discord Voice Bridge installing Node dependencies in %s", NODE_BRIDGE_DIR)
+        try:
+            result = subprocess.run(
+                [npm, "install"],
+                cwd=str(NODE_BRIDGE_DIR),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                creationflags=creationflags,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=600,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("npm install timed out after 10 minutes.") from exc
+
+        output = _redact_runtime_log_text(result.stdout or "")
+        with _open_runtime_log(log_path) as handle:
+            handle.write("\n--- npm install ---\n")
+            handle.write(output)
+            if output and not output.endswith("\n"):
+                handle.write("\n")
+            handle.write(f"exit_code={result.returncode}\n")
+
+        if result.returncode != 0:
+            raise RuntimeError(f"npm install failed with exit code {result.returncode}. See {log_path}")
+        if logger:
+            logger.info("Discord Voice Bridge Node dependencies installed/updated. log=%s", log_path)
+        return {"ok": True, "log_path": str(log_path)}
+
+    def validate_settings(self, settings: dict[str, Any] | None = None, *, force: bool = True):
+        payload = settings if isinstance(settings, dict) else load_settings()
+        return _validate_bridge_settings(payload, force=force) + _transport_environment_issues(payload, require_install=True)
+
+    def _start_instances_from_settings(self, settings: dict[str, Any], *, force: bool, sync_tiny_mvp_mic: bool = True):
+        instances = _bridge_instances_from_settings(settings, force=force)
+        if not instances:
+            # Disabled bridges are intentionally inert. Do not inspect optional
+            # Node/TinyMVP dependencies until a configured instance is enabled
+            # or the user explicitly requests a start (force=True).
+            self._bridge_instances = []
+            return self.status_snapshot()
+        issues = _validate_bridge_settings(settings, force=force) + _transport_environment_issues(settings, require_install=True)
+        errors = [item for item in issues if item.get("severity") == "error"]
+        if errors:
+            logger = getattr(getattr(self, "context", None), "logger", None)
+            if logger:
+                for issue in errors:
+                    logger.warning("Discord Voice Bridge settings error: %s", issue.get("message"))
+            self._bridge_instances = []
+            return self.status_snapshot()
+        self._bridge_instances = []
+        if any(_bridge_mode(instance.settings) == "tiny_mvp" for instance in instances):
+            if not self._ensure_tiny_mvp_room_server(settings):
+                self._bridge_instances = []
+                return self.status_snapshot()
+        else:
+            self._stop_tiny_mvp_room_server()
+        for instance in instances:
+            self._bridge_instances.append(instance)
+            self._start_runtime_server(instance)
+            self._start_node_bridge(instance)
+        if sync_tiny_mvp_mic:
+            self._sync_tiny_mvp_local_mic(settings)
+        return self.status_snapshot()
+
+    def sync_local_room_instances(self, settings):
+        """Reconcile only owned local workers, leaving retained members running."""
+        current = list(getattr(self, "_bridge_instances", []) or [])
+        if (not getattr(getattr(self, "_local_room", None), "_owned", False)
+                or not settings.get("_local_room_session")
+                or any(not item.settings.get("_local_room_session") for item in current)):
+            raise RuntimeError("Only owned Local room instances can be changed here.")
+        prepared = copy.deepcopy(settings)
+        # A prior failed removal can leave a stopped record; restart it on rollback.
+        for item in current:
+            if item.process is None or item.process.poll() is not None:
+                self._stop_runtime_server(item)
+        current = [item for item in current if item.process is not None and item.process.poll() is None]
+        self._bridge_instances = list(current)
+        existing = {item.instance_id: item for item in current}
+        reserved = {int(_get(item.settings, "nc_runtime.port", 0)) for item in current}
+        for bot in prepared.get("bots") or []:
+            running = existing.get(bot["id"])
+            if running:
+                port = int(_get(running.settings, "nc_runtime.port", 8768))
+            else:
+                port = None
+                for number in range(8768, 65536):
+                    if number in reserved:
+                        continue
+                    with socket.socket() as probe:
+                        try:
+                            probe.bind((str(_get(prepared, "nc_runtime.host", "127.0.0.1")), number))
+                        except OSError:
+                            continue
+                    port = number
+                    break
+                if port is None:
+                    raise RuntimeError("No local runtime port is available for this Persona.")
+            reserved.add(port)
+            bot.setdefault("nc_runtime", {})["port"] = port
+        errors = [item for item in _validate_bridge_settings(prepared, force=True)
+                  if item.get("severity") == "error"]
+        if errors:
+            raise ValueError(str(errors[0].get("message") or "Local room settings are invalid."))
+        keep = {bot['id'] for bot in prepared.get('bots') or []}
+        additions = copy.deepcopy(prepared)
+        additions['bots'] = [bot for bot in additions['bots'] if bot['id'] not in existing]
+        configured = _bridge_instances_from_settings(additions, force=True) if additions['bots'] else []
+        added = []
+        started_workers = set()
+
+        def unregister(instance_id, admission_id=''):
+            result = _http_json("POST", str(_get(prepared, "tiny_mvp.url", "http://127.0.0.1:8788")).rstrip("/")
+                + "/participants/remove", {"id": instance_id, 'admission_id': admission_id}, timeout=1.5)
+            if result.get("ok") is False:
+                raise RuntimeError("Local room could not unregister the removed participant.")
+
+        try:
+            for item in configured:
+                if item.instance_id in existing:
+                    continue
+                added.append(item)
+                self._start_runtime_server(item)
+                if item.runtime_server is None or not item.runtime_server.running:
+                    raise RuntimeError(f"Local room could not start the runtime endpoint for {item.instance_id}.")
+                started_workers.add(item.instance_id)
+                self._start_node_bridge(item)
+                if item.process is None or item.process.poll() is not None:
+                    raise RuntimeError(f"Local room could not start {item.instance_id}.")
+                controller = getattr(self, '_local_room', None)
+                expected_epoch = prepared.get('_local_room_membership_epoch')
+                if expected_epoch is not None and (not getattr(controller, '_owned', False)
+                        or getattr(controller, '_membership_epoch', None) != expected_epoch):
+                    raise RuntimeError('This Local room membership operation was superseded.')
+                self._bridge_instances.append(item)
+            self.publish_local_room_membership(prepared)
+        except Exception as original:
+            cleanup_errors = []
+            for item in added:
+                self._stop_node_bridge(item)
+                self._stop_runtime_server(item)
+                if item.instance_id in started_workers:
+                    try:
+                        unregister(item.instance_id, item.settings.get('_local_room_admission_id', ''))
+                    except Exception as cleanup_error:
+                        cleanup_errors.append(str(cleanup_error))
+            self._bridge_instances = [item for item in self._bridge_instances if item not in added]
+            if cleanup_errors:
+                raise RuntimeError("Local room cast update failed; cleanup needs attention: " + "; ".join(cleanup_errors)) from original
+            raise
+        for item in current:
+            if item.instance_id not in keep:
+                self._stop_node_bridge(item)
+                self._stop_runtime_server(item)
+                unregister(item.instance_id, item.settings.get('_local_room_admission_id', ''))
+        self._bridge_instances = [item for item in self._bridge_instances if item.instance_id in keep]
+        settings["bots"] = prepared["bots"]
+        return self.status_snapshot()
+
+    def publish_local_room_membership(self, settings):
+        """Publish candidates without generic reload or microphone synchronization."""
+        prepared = copy.deepcopy(settings)
+        running = {item.instance_id: item for item in list(getattr(self, '_bridge_instances', []) or [])}
+        for bot in prepared.get('bots') or []:
+            if bot['id'] in running:
+                bot.setdefault('nc_runtime', {})['port'] = _get(running[bot['id']].settings, 'nc_runtime.port', 8768)
+        compiled = {identity: value for identity, value, _ in _effective_bridge_settings(prepared, force=True)}
+        candidates = _room_router_candidates_from_bots(list(compiled.values()))
+        conversation = settings.get('_local_room_conversation_id', '')
+        for instance in list(getattr(self, '_bridge_instances', []) or []):
+            if (instance.instance_id not in compiled or not instance.settings.get('_local_room_session')
+                    or instance.settings.get('_local_room_conversation_id', '') != conversation):
+                continue
+            merged = copy.deepcopy(instance.settings)
+            merged['room_router'] = copy.deepcopy(compiled[instance.instance_id].get('room_router') or {})
+            _attach_room_router_candidates(merged, candidates)
+            instance.settings = merged
+            _write_instance_settings(instance.instance_id, merged)
+            if instance.runtime_server is not None and hasattr(instance.runtime_server, 'apply_live_settings'):
+                instance.runtime_server.apply_live_settings(merged)
+            self.send_instance_command(instance.instance_id, 'local_room_cast_changed', dict(
+                conversation_id=conversation, admission_id=merged.get('_local_room_admission_id', '')))
+
+    def stop_local_room_admission(self, instance_id, admission_id, *, conversation_id):
+        """Clean only the exact stale Local worker; never a returning admission."""
+        for instance in list(getattr(self, '_bridge_instances', []) or []):
+            settings = instance.settings
+            if (instance.instance_id != instance_id or not settings.get('_local_room_session')
+                    or settings.get('_local_room_admission_id') != admission_id
+                    or settings.get('_local_room_conversation_id') != conversation_id):
+                continue
+            self._stop_node_bridge(instance)
+            self._stop_runtime_server(instance)
+            _http_json('POST', str(_get(settings, 'tiny_mvp.url', 'http://127.0.0.1:8788')).rstrip('/')
+                + '/participants/remove', dict(id=instance_id, admission_id=admission_id), timeout=1.5)
+            self._bridge_instances = [item for item in self._bridge_instances if item is not instance]
+
+    def _tiny_mvp_room_server_running(self) -> bool:
+        process = getattr(self, "_tiny_mvp_room_process", None)
+        return bool(process is not None and process.poll() is None)
+
+    def _tiny_mvp_monitor_running(self) -> bool:
+        process = getattr(self, "_tiny_mvp_monitor_process", None)
+        return bool(process is not None and process.poll() is None)
+
+    def _ensure_tiny_mvp_room_server(self, settings: dict[str, Any]) -> bool:
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        tiny_url = str(_get(settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+        if _tiny_mvp_room_reachable(tiny_url):
+            self._sync_tiny_mvp_mic_participant(settings, tiny_url)
+            self._sync_tiny_mvp_monitor(settings, tiny_url)
+            return True
+        if self._tiny_mvp_room_server_running():
+            self._sync_tiny_mvp_mic_participant(settings, tiny_url)
+            self._sync_tiny_mvp_monitor(settings, tiny_url)
+            return True
+        script = _tiny_mvp_room_script(settings)
+        if not script.exists():
+            if logger:
+                logger.warning("TinyMVP room server script is missing: %s", script)
+            return False
+        host, port = _tiny_mvp_host_port(tiny_url)
+        log_dir = ADDON_DIR / "runtime_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "tiny_mvp_room.log"
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self._tiny_mvp_room_log_handle = _open_runtime_log(log_path)
+            launched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self._tiny_mvp_room_log_handle.write(f"\n--- TinyMVP room launch @ {launched_at} ---\nscript={script}\nurl={tiny_url}\n")
+            self._tiny_mvp_room_log_handle.flush()
+            room_environment = os.environ.copy()
+            if settings.get('_local_room_session'):
+                from addons.discord_voice_bridge.local_room_memory import INSTANCE_ROOT
+                room_environment['NC_LOCAL_ROOM_TRANSCRIPT'] = str(INSTANCE_ROOT/'local_room/transcript.jsonl')
+                room_environment['NC_LOCAL_ROOM_CONVERSATION_ID'] = settings['_local_room_conversation_id']
+            self._tiny_mvp_room_process = subprocess.Popen(
+                _tiny_mvp_room_command(settings, host, port),
+                env=room_environment,
+                cwd=str(script.parent),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                creationflags=creationflags,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self._tiny_mvp_room_owned = True
+            self._tiny_mvp_room_output_thread = threading.Thread(
+                target=self._forward_tiny_mvp_room_output,
+                name="TinyMVPRoomOutput",
+                daemon=True,
+            )
+            self._tiny_mvp_room_output_thread.start()
+        except Exception as exc:
+            if logger:
+                logger.warning("TinyMVP room server failed to start: %s", exc)
+            self._close_tiny_mvp_room_log_handle()
+            self._tiny_mvp_room_process = None
+            self._tiny_mvp_room_owned = False
+            return False
+        deadline = time.monotonic() + 4.0
+        while time.monotonic() < deadline:
+            if _tiny_mvp_room_reachable(tiny_url):
+                if logger:
+                    logger.info("TinyMVP room server is ready at %s", tiny_url)
+                self._sync_tiny_mvp_mic_participant(settings, tiny_url)
+                self._sync_tiny_mvp_monitor(settings, tiny_url)
+                return True
+            if not self._tiny_mvp_room_server_running():
+                break
+            time.sleep(0.15)
+        if logger:
+            logger.warning("TinyMVP room server did not become reachable at %s", tiny_url)
+        return False
+
+    def _forward_tiny_mvp_room_output(self):
+        process = getattr(self, "_tiny_mvp_room_process", None)
+        handle = getattr(self, "_tiny_mvp_room_log_handle", None)
+        if process is None or process.stdout is None:
+            return
+        try:
+            for line in process.stdout:
+                if handle is not None:
+                    handle.write(_redact_runtime_log_text(line))
+                    handle.flush()
+        except Exception:
+            pass
+
+    def _stop_tiny_mvp_room_server(self) -> None:
+        self._stop_tiny_mvp_monitor()
+        process = getattr(self, "_tiny_mvp_room_process", None)
+        if process is not None and bool(getattr(self, "_tiny_mvp_room_owned", False)) and process.poll() is None:
+            _terminate_process_tree(process)
+        self._tiny_mvp_room_process = None
+        self._tiny_mvp_room_output_thread = None
+        self._tiny_mvp_room_owned = False
+        self._close_tiny_mvp_room_log_handle()
+
+    def _close_tiny_mvp_room_log_handle(self) -> None:
+        handle = getattr(self, "_tiny_mvp_room_log_handle", None)
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        self._tiny_mvp_room_log_handle = None
+
+    def _sync_tiny_mvp_monitor(self, settings: dict[str, Any], tiny_url: str) -> None:
+        if bool(_get(settings or {}, "tiny_mvp.start_with_gui", True)):
+            self._start_tiny_mvp_monitor(settings, tiny_url)
+        else:
+            self._stop_tiny_mvp_monitor()
+
+    @staticmethod
+    def _sync_tiny_mvp_mic_participant(settings: dict[str, Any], tiny_url: str) -> None:
+        if _bridge_mode(settings) != "tiny_mvp" or not _get(settings, "tiny_mvp.capture_mic", False):
+            return
+        tiny_url = str(tiny_url or "").rstrip("/")
+        if not tiny_url:
+            return
+        mic_user_id, mic_user_name = _tiny_mvp_mic_identity(settings)
+        _http_json(
+            "POST",
+            f"{tiny_url}/participants/upsert",
+            {"id": mic_user_id, "name": mic_user_name, "type": "human", "connected": True},
+            timeout=1.5,
+        )
+        if mic_user_id == "rakila":
+            return
+        try:
+            state = _http_json("GET", f"{tiny_url}/state", timeout=1.5)
+        except Exception:
+            return
+        participants = state.get("participants") if isinstance(state, dict) else []
+        if not isinstance(participants, list):
+            return
+        for participant in participants:
+            if not isinstance(participant, dict):
+                continue
+            if str(participant.get("id") or "").strip().lower() != "rakila":
+                continue
+            if str(participant.get("name") or "").strip() != "Rakila":
+                continue
+            if str(participant.get("kind") or participant.get("type") or "").strip().lower() != "human":
+                continue
+            if bool(participant.get("current")) or bool(participant.get("next")):
+                continue
+            try:
+                queued_audio = int(participant.get("queued_audio") or 0)
+            except (TypeError, ValueError):
+                queued_audio = 0
+            if queued_audio:
+                continue
+            try:
+                _http_json("POST", f"{tiny_url}/participants/remove", {"id": "rakila"}, timeout=1.5)
+            except Exception:
+                return
+            return
+
+    def _start_tiny_mvp_monitor(self, settings: dict[str, Any], tiny_url: str) -> None:
+        if self._tiny_mvp_monitor_running():
+            return
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        script = _tiny_mvp_room_script(settings)
+        if not script.exists():
+            if logger:
+                logger.warning("TinyMVP monitor script is missing: %s", script)
+            return
+        log_dir = ADDON_DIR / "runtime_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "tiny_mvp_monitor.log"
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self._tiny_mvp_monitor_log_handle = _open_runtime_log(log_path)
+            launched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            monitor_url = f"{str(tiny_url).rstrip('/')}/state"
+            self._tiny_mvp_monitor_log_handle.write(f"\n--- TinyMVP monitor launch @ {launched_at} ---\nscript={script}\nurl={monitor_url}\n")
+            self._tiny_mvp_monitor_log_handle.flush()
+            self._tiny_mvp_monitor_process = subprocess.Popen(
+                _tiny_mvp_monitor_command(settings, monitor_url),
+                cwd=str(script.parent),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                creationflags=creationflags,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self._tiny_mvp_monitor_owned = True
+            self._tiny_mvp_monitor_output_thread = threading.Thread(
+                target=self._forward_tiny_mvp_monitor_output,
+                name="TinyMVPMonitorOutput",
+                daemon=True,
+            )
+            self._tiny_mvp_monitor_output_thread.start()
+        except Exception as exc:
+            if logger:
+                logger.warning("TinyMVP monitor failed to start: %s", exc)
+            self._close_tiny_mvp_monitor_log_handle()
+            self._tiny_mvp_monitor_process = None
+            self._tiny_mvp_monitor_owned = False
+
+    def _forward_tiny_mvp_monitor_output(self):
+        process = getattr(self, "_tiny_mvp_monitor_process", None)
+        handle = getattr(self, "_tiny_mvp_monitor_log_handle", None)
+        if process is None or process.stdout is None:
+            return
+        try:
+            for line in process.stdout:
+                if handle is not None:
+                    handle.write(_redact_runtime_log_text(line))
+                    handle.flush()
+        except Exception:
+            pass
+
+    def _stop_tiny_mvp_monitor(self) -> None:
+        process = getattr(self, "_tiny_mvp_monitor_process", None)
+        if process is not None and bool(getattr(self, "_tiny_mvp_monitor_owned", False)) and process.poll() is None:
+            _terminate_process_tree(process)
+        self._tiny_mvp_monitor_process = None
+        self._tiny_mvp_monitor_output_thread = None
+        self._tiny_mvp_monitor_owned = False
+        self._close_tiny_mvp_monitor_log_handle()
+
+    def _close_tiny_mvp_monitor_log_handle(self) -> None:
+        handle = getattr(self, "_tiny_mvp_monitor_log_handle", None)
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        self._tiny_mvp_monitor_log_handle = None
+
+    def _start_runtime_server(self, instance: BridgeInstance):
+        room = getattr(self, '_local_room', None)
+        if room is None:
+            return self._start_runtime_server_unlocked(instance)
+        with room.resource_maintenance():
+            return self._start_runtime_server_unlocked(instance)
+
+    def _start_runtime_server_unlocked(self, instance: BridgeInstance):
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        instance.endpoint_error = ""
+        try:
+            instance.runtime_server = DiscordVoiceRuntimeServer(
+                settings=instance.settings,
+                logger=logger,
+                bridge_token=instance.bridge_token,
+                addon_context=getattr(self, "context", None),
+            )
+            instance.runtime_server.start()
+        except Exception as exc:
+            instance.runtime_server = None
+            instance.endpoint_error = _redact_runtime_log_text(str(exc))
+            if logger:
+                logger.warning("Discord Voice Bridge %s failed to start runtime endpoint: %s", instance.instance_id, exc)
+
+    def _stop_runtime_server(self, instance: BridgeInstance):
+        server = instance.runtime_server
+        if server is not None:
+            server.stop()
+            drain = getattr(server, 'wait_until_idle', None)
+            if callable(drain) and not drain():
+                # Retain this exact endpoint for a subsequent Stop attempt. Its
+                # accepted requests still own models and must not be unloaded.
+                raise RuntimeError('Room requests are still stopping. Retry Stop room shortly.')
+        instance.runtime_server = None
+
+    def _start_node_bridge(self, instance: BridgeInstance):
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        environment_errors = [
+            item for item in _transport_environment_issues(instance.settings, require_install=True)
+            if item.get("severity") == "error"
+        ]
+        if environment_errors:
+            if logger:
+                for issue in environment_errors:
+                    logger.warning("Discord Voice Bridge could not start: %s", issue.get("message"))
+            return
+        bridge_mode = _bridge_mode(instance.settings)
+        tiny_mode = bridge_mode == "tiny_mvp"
+        executable = sys.executable if tiny_mode else shutil.which("node")
+        script = _tiny_mvp_bridge_script(instance.settings) if tiny_mode else NODE_BRIDGE_DIR / "src" / "index.js"
+
+        env = os.environ.copy()
+        env["NC_DISCORD_BRIDGE_SETTINGS_JSON"] = str(instance.settings_path)
+        env["NC_DISCORD_BRIDGE_STATUS_JSON"] = str(instance.status_path)
+        env["NC_DISCORD_BRIDGE_COMMAND_JSONL"] = str(instance.command_path)
+        if tiny_mode:
+            capture_dir = NODE_BRIDGE_DIR / "captures"
+            capture_dir.mkdir(parents=True, exist_ok=True)
+            env["NC_DISCORD_BRIDGE_CAPTURE_DIR"] = str(capture_dir)
+        if instance.bridge_token:
+            env["NC_DISCORD_BRIDGE_TOKEN"] = instance.bridge_token
+        discord = instance.settings.get("discord") if isinstance(instance.settings, dict) else {}
+        if isinstance(discord, dict):
+            token = str(discord.get("token") or "").strip()
+            token_env_var = str(discord.get("token_env_var") or "DISCORD_TOKEN").strip() or "DISCORD_TOKEN"
+            if _looks_like_discord_token(token_env_var) and not token:
+                token = token_env_var
+                token_env_var = "DISCORD_TOKEN"
+            if token:
+                env[token_env_var] = token
+
+        log_dir = ADDON_DIR / "runtime_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"discord_voice_bridge_{instance.instance_id}.log"
+        try:
+            instance.status_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            instance.command_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        instance.log_handle = _open_runtime_log(log_path)
+        token_env_var = str(_get(instance.settings, "discord.token_env_var", "DISCORD_TOKEN") or "DISCORD_TOKEN")
+        launched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        transport_label = "TinyMVP Voice Bridge" if tiny_mode else "Discord Voice Bridge"
+        instance.log_handle.write(
+            f"\n--- {transport_label} launch: {instance.instance_id} @ {launched_at} ---\n"
+            f"settings={instance.settings_path}\n"
+            f"bridge_mode={bridge_mode}\n"
+            f"token_env_var={token_env_var}\n"
+        )
+        instance.log_handle.flush()
+
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            if tiny_mode:
+                nc_runtime = instance.settings.get("nc_runtime") if isinstance(instance.settings, dict) else {}
+                tiny_mvp = instance.settings.get("tiny_mvp") if isinstance(instance.settings.get("tiny_mvp"), dict) else {}
+                tiny_url = str(tiny_mvp.get("url") or "http://127.0.0.1:8788").strip() or "http://127.0.0.1:8788"
+                nc_turn_url = str(nc_runtime.get("http_endpoint") or "").strip()
+                if not nc_turn_url:
+                    host = str(nc_runtime.get("host") or "127.0.0.1").strip() or "127.0.0.1"
+                    port = int(nc_runtime.get("port") or 8768)
+                    nc_turn_url = f"http://{host}:{port}/turn"
+                poll_seconds = float(tiny_mvp.get("poll_seconds") or 0.25)
+                mic_user_id, mic_user_name = _tiny_mvp_mic_identity(instance.settings)
+                args = [
+                    str(executable),
+                    str(script),
+                    "--bot-id",
+                    instance.instance_id,
+                    "--bot-name",
+                    str(instance.settings.get("name") or instance.instance_id),
+                    "--tiny-url",
+                    tiny_url,
+                    "--nc-turn-url",
+                    nc_turn_url,
+                    "--poll-seconds",
+                    str(poll_seconds),
+                    "--mic-user-id",
+                    mic_user_id,
+                    "--mic-user-name",
+                    mic_user_name,
+                ]
+                playback_settings = instance.settings.get("playback") if isinstance(instance.settings.get("playback"), dict) else {}
+                if _bool_setting(
+                    playback_settings.get("route_protected_mic_speech"),
+                    _bool_setting(tiny_mvp.get("route_protected_mic_speech"), False),
+                ):
+                    args.append("--route-protected-mic-speech")
+                cwd = str(script.parent)
+            else:
+                args = [str(executable), str(script)]
+                cwd = str(NODE_BRIDGE_DIR)
+            instance.process = subprocess.Popen(
+                args,
+                cwd=cwd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                creationflags=creationflags,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            instance.output_thread = threading.Thread(
+                target=self._forward_node_bridge_output,
+                args=(instance,),
+                name=f"DiscordVoiceBridgeOutput-{instance.instance_id}",
+                daemon=True,
+            )
+            instance.output_thread.start()
+        except Exception as exc:
+            if logger:
+                logger.warning("Discord Voice Bridge %s failed to start Node bridge: %s", instance.instance_id, exc)
+            self._close_log_handle(instance)
+            return
+
+        if logger:
+            logger.info("Discord Voice Bridge %s transport started: mode=%s, pid=%s, log=%s", instance.instance_id, bridge_mode, instance.process.pid, log_path)
+
+    def _stop_node_bridge(self, instance: BridgeInstance):
+        process = instance.process
+        if process is not None and process.poll() is None:
+            _terminate_process_tree(process)
+        if process is not None and process.poll() is not None:
+            server = getattr(instance, "runtime_server", None)
+            if server is not None and callable(getattr(server, "confirm_remote_output_stopped", None)):
+                server.confirm_remote_output_stopped()
+        instance.process = None
+        instance.output_thread = None
+        self._close_log_handle(instance)
+
+    def _forward_node_bridge_output(self, instance: BridgeInstance):
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        process = instance.process
+        stream = getattr(process, "stdout", None)
+        if stream is None:
+            return
+        try:
+            for line in stream:
+                text = str(line or "").rstrip()
+                if not text:
+                    continue
+                text = _redact_runtime_log_text(text)
+                handle = instance.log_handle
+                if handle is not None:
+                    try:
+                        handle.write(text + "\n")
+                        handle.flush()
+                    except Exception:
+                        pass
+                if logger:
+                    logger.info("[DiscordBridge:%s] %s", instance.instance_id, text)
+        except Exception as exc:
+            if logger:
+                logger.debug("Discord Voice Bridge %s output forwarding stopped: %s", instance.instance_id, exc)
+
+    def _close_log_handle(self, instance: BridgeInstance):
+        handle = instance.log_handle
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        instance.log_handle = None
+
+    def _find_instance(self, instance_id: str) -> BridgeInstance | None:
+        wanted = _safe_instance_id(instance_id)
+        for instance in list(getattr(self, "_bridge_instances", []) or []):
+            if instance.instance_id == wanted:
+                return instance
+        return None
+
+    def _configured_instance(self, instance_id: str) -> BridgeInstance | None:
+        wanted = _safe_instance_id(instance_id)
+        for instance in _bridge_instances_from_settings(load_settings(), force=True):
+            if instance.instance_id == wanted:
+                return instance
+        return None
+
+    def _tiny_mvp_local_mic_running(self) -> bool:
+        thread = getattr(self, "_tiny_mvp_mic_thread", None)
+        return bool(thread is not None and thread.is_alive())
+
+    def _schedule_tiny_mvp_local_mic_sync(self, settings: dict[str, Any]) -> None:
+        if _bridge_mode(settings) != "tiny_mvp" or not _get(settings, "tiny_mvp.capture_mic", False):
+            return
+        with self._tiny_mvp_mic_lock:
+            existing = getattr(self, "_tiny_mvp_mic_start_timer", None)
+            if existing is not None:
+                existing.cancel()
+            timer = threading.Timer(4.0, lambda: self._sync_tiny_mvp_local_mic(load_settings()))
+            timer.daemon = True
+            self._tiny_mvp_mic_start_timer = timer
+            timer.start()
+
+    def _sync_tiny_mvp_local_mic(self, settings: dict[str, Any]) -> None:
+        settings = self._tiny_mvp_live_settings(settings)
+        tiny_mvp = settings.get("tiny_mvp") if isinstance(settings, dict) else {}
+        if _bridge_mode(settings) == "tiny_mvp" and isinstance(tiny_mvp, dict) and bool(tiny_mvp.get("capture_mic")):
+            tiny_url = str(_get(settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+            try:
+                self._sync_tiny_mvp_mic_participant(settings, tiny_url)
+            except Exception:
+                pass
+        enabled = (
+            _bridge_mode(settings) == "tiny_mvp"
+            and isinstance(tiny_mvp, dict)
+            and bool(tiny_mvp.get("capture_mic"))
+            and any(_bridge_mode(item.settings) == "tiny_mvp" and _bridge_instance_is_running(item) for item in list(getattr(self, "_bridge_instances", []) or []))
+        )
+        if enabled:
+            self._start_tiny_mvp_local_mic(settings)
+        else:
+            self._stop_tiny_mvp_local_mic()
+
+    def _start_tiny_mvp_local_mic(self, settings: dict[str, Any]) -> None:
+        with self._tiny_mvp_mic_lock:
+            local_room = getattr(self, '_local_room', None)
+            if (settings.get('_local_room_session') and local_room is not None
+                    and (getattr(local_room, '_phase', 'running') != 'running'
+                         or getattr(local_room, '_tearing_down', False))):
+                return
+            if self._tiny_mvp_local_mic_running():
+                return
+            stop_event = threading.Event()
+            self._tiny_mvp_mic_error = ""
+            self._tiny_mvp_mic_stop = stop_event
+            thread = threading.Thread(
+                target=self._tiny_mvp_local_mic_loop,
+                args=(copy.deepcopy(settings), stop_event),
+                name="DiscordTinyMVPLocalMic",
+                daemon=True,
+            )
+            self._tiny_mvp_mic_thread = thread
+            thread.start()
+
+    def _stop_tiny_mvp_local_mic(self) -> None:
+        with getattr(self, "_tiny_mvp_mic_lock", threading.RLock()):
+            stop_event = getattr(self, "_tiny_mvp_mic_stop", None)
+            thread = getattr(self, "_tiny_mvp_mic_thread", None)
+            if stop_event is not None:
+                stop_event.set()
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=1.5)
+            if thread is None or not thread.is_alive():
+                self._tiny_mvp_mic_stop = None
+                self._tiny_mvp_mic_thread = None
+            self._tiny_mvp_mic_error = ""
+
+    def _tiny_mvp_local_mic_loop(self, initial_settings: dict[str, Any], stop_event: threading.Event) -> None:
+        # Prepare only the room's voice-input resources, not the main chat loop.
+        # The worker owns its hotkey lease until capture exits (including failure).
+        release_hotkeys = None
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        try:
+            local_room = getattr(self, "_local_room", None)
+            if local_room is not None and isinstance(local_room.session_settings, dict):
+                if stop_event.is_set():
+                    return
+                capabilities = self.context.capabilities
+                transcription = getattr(capabilities, "file_transcription", None)
+                prepare = getattr(transcription, "ensure_ready", None)
+                if not callable(prepare) or not prepare():
+                    raise RuntimeError("Selected STT backend could not be prepared.")
+                print("[Local room mic] STT ready; preparing hotkey listener.", flush=True)
+                if stop_event.is_set():
+                    return
+                interaction = getattr(capabilities, "interaction", None)
+                acquire = getattr(interaction, "acquire_capture_hotkeys", None)
+                if not callable(acquire):
+                    raise RuntimeError("Room microphone hotkey listener is unavailable.")
+                release_hotkeys = acquire()
+                print("[Local room mic] Hotkey listener acquired; starting capture worker.", flush=True)
+                if logger:
+                    logger.info("Local room voice input ready: selected STT and Session setup hotkey initialized.")
+            self._run_tiny_mvp_local_mic_loop(initial_settings, stop_event)
+        except Exception as exc:
+            if not stop_event.is_set():
+                self._tiny_mvp_mic_error = f"Microphone initialization failed: {exc}"
+                print(f"[Local room mic] {self._tiny_mvp_mic_error}", flush=True)
+                if logger:
+                    logger.warning(self._tiny_mvp_mic_error)
+        finally:
+            if callable(release_hotkeys):
+                release_hotkeys()
+                print("[Local room mic] Capture worker exited; hotkey listener released.", flush=True)
+
+    def _run_tiny_mvp_local_mic_loop(self, initial_settings: dict[str, Any], stop_event: threading.Event) -> None:
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        # PyAudio can crash natively if opened while the Qt shell is still
+        # enumerating devices during startup. This mic loop is nonessential to
+        # bridge connection, so give UI startup a short window to finish first.
+        if stop_event.wait(2.0):
+            return
+        try:
+            import speech_recognition as sr  # type: ignore[import-not-found]
+        except Exception as exc:
+            self._tiny_mvp_mic_error = f"Microphone unavailable: {exc}"
+            if logger:
+                logger.warning("TinyMVP NC microphone input needs speech_recognition/PyAudio: %s", exc)
+            return
+
+        settings = copy.deepcopy(initial_settings)
+        tiny_mvp = settings.get("tiny_mvp") if isinstance(settings.get("tiny_mvp"), dict) else {}
+        recognizer = sr.Recognizer()
+        recognizer.dynamic_energy_threshold = True
+        capture = settings.get("capture") if isinstance(settings.get("capture"), dict) else {}
+        silence_ms = _float_setting(capture.get("silence_ms"), 1200.0)
+        recognizer.pause_threshold = max(0.2, silence_ms / 1000.0)
+        recognizer.non_speaking_duration = min(0.8, max(0.2, recognizer.pause_threshold / 2.0))
+        device_text = str(tiny_mvp.get("mic_device") or "").strip()
+        local_room = getattr(self, "_local_room", None)
+        room_capture = local_room is not None and isinstance(local_room.session_settings, dict)
+        if room_capture:
+            runtime_config = getattr(getattr(self.context, "capabilities", None), "runtime_config", None)
+            if runtime_config is not None:
+                device_text = str(runtime_config.get("audio_input_device", "Default Input") or "Default Input").strip()
+            if device_text == "Default Input":
+                device_text = ""
+        device_index = self._tiny_mvp_mic_device_index(sr, device_text)
+        if room_capture and device_text and device_index is None:
+            self._tiny_mvp_mic_error = f"Selected microphone was not found: {device_text}. Check Session setup."
+            print(f"[Local room mic] {self._tiny_mvp_mic_error}", flush=True)
+            if logger:
+                logger.warning(self._tiny_mvp_mic_error)
+            return
+        sample_rate = _int_setting(tiny_mvp.get("mic_sample_rate") or capture.get("wav_sample_rate"), 16000)
+        capture_max = _float_setting(capture.get("max_turn_seconds"), -1.0)
+        phrase_limit = capture_max if capture_max > 0 else -1.0
+        last_capture_error = ""
+        if room_capture:
+            print(f"[Local room mic] Input={device_text or 'Default Input'}, device index={device_index}; waiting for capture permission.", flush=True)
+        if logger:
+            phrase_label = f"{phrase_limit:.1f}s" if phrase_limit > 0 else "unlimited"
+            logger.info("TinyMVP NC microphone input started (sample_rate=%s, phrase_limit=%s).", sample_rate, phrase_label)
+        try:
+            while not stop_event.is_set():
+                settings = self._tiny_mvp_live_settings(load_settings())
+                if _bridge_mode(settings) != "tiny_mvp" or not _get(settings, "tiny_mvp.capture_mic", False):
+                    break
+                if not self._tiny_mvp_capture_allowed(settings):
+                    stop_event.wait(0.05)
+                    continue
+                if room_capture:
+                    print("[Local room mic] Capture permitted; opening microphone.", flush=True)
+                with sr.Microphone(device_index=device_index, sample_rate=sample_rate) as source:
+                    if room_capture:
+                        print("[Local room mic] Microphone opened; calibrating.", flush=True)
+                    if not self._tiny_mvp_capture_allowed(settings):
+                        continue
+                    try:
+                        recognizer.adjust_for_ambient_noise(source, duration=0.4)
+                    except Exception:
+                        pass
+                    if room_capture:
+                        print(f"[Local room mic] Calibration finished; speech energy threshold={recognizer.energy_threshold:.1f}.", flush=True)
+                    while not stop_event.is_set():
+                        settings = self._tiny_mvp_live_settings(load_settings())
+                        if _bridge_mode(settings) != "tiny_mvp" or not _get(settings, "tiny_mvp.capture_mic", False):
+                            break
+                        if not self._tiny_mvp_capture_allowed(settings):
+                            break
+                        # Snapshot timing for each recording. Native UI edits are already saved;
+                        # don't change limits partway through speech.
+                        previous_timing = (phrase_limit, recognizer.pause_threshold)
+                        capture = settings.get("capture") if isinstance(settings.get("capture"), dict) else {}
+                        capture_max = _float_setting(capture.get("max_turn_seconds"), -1.0)
+                        phrase_limit = capture_max if capture_max > 0 else -1.0
+                        silence_ms = _float_setting(capture.get("silence_ms"), 1200.0)
+                        recognizer.pause_threshold = max(0.2, silence_ms / 1000.0)
+                        recognizer.non_speaking_duration = min(0.8, max(0.2, recognizer.pause_threshold / 2.0))
+                        if logger and previous_timing != (phrase_limit, recognizer.pause_threshold):
+                            phrase_label = f"{phrase_limit:.1f}s" if phrase_limit > 0 else "unlimited"
+                            logger.info("TinyMVP NC microphone capture settings updated (phrase_limit=%s, silence_cutoff=%.2fs).",
+                                        phrase_label, recognizer.pause_threshold)
+                        try:
+                            wav_path = self._capture_tiny_mvp_local_mic_wav(
+                                source,
+                                recognizer,
+                                settings,
+                                stop_event,
+                                phrase_limit=phrase_limit,
+                            )
+                        except TimeoutError:
+                            self._set_local_room_human_activity(settings, False)
+                            continue
+                        except Exception as exc:
+                            self._set_local_room_human_activity(settings, False)
+                            if room_capture and str(exc) != last_capture_error:
+                                last_capture_error = str(exc)
+                                print(f"[Local room mic] Audio read failed: {exc}", flush=True)
+                            if logger:
+                                logger.debug("TinyMVP NC microphone listen skipped: %s", exc)
+                            time.sleep(0.25)
+                            continue
+                        if stop_event.is_set() or not self._tiny_mvp_capture_enabled(settings):
+                            self._set_local_room_human_activity(settings, False)
+                            if wav_path is not None:
+                                self._cleanup_tiny_mvp_local_mic_wav(wav_path, settings)
+                            break
+                        if wav_path is None:
+                            self._set_local_room_human_activity(settings, False)
+                            continue
+                        if room_capture:
+                            print(f"[Local room mic] Recording completed ({_wav_duration_seconds(wav_path):.2f}s); submitting for transcription/routing.", flush=True)
+                        try:
+                            self._submit_tiny_mvp_local_mic_wav(wav_path, settings)
+                        except Exception as exc:
+                            if room_capture:
+                                print(f"[Local room mic] Transcription/routing failed: {exc}", flush=True)
+                            if logger:
+                                logger.warning("TinyMVP NC microphone turn failed: %s", exc)
+                        finally:
+                            self._set_local_room_human_activity(settings, False)
+        except Exception as exc:
+            self._tiny_mvp_mic_error = f"Microphone input stopped: {exc}"
+            if room_capture:
+                print(f"[Local room mic] {self._tiny_mvp_mic_error}", flush=True)
+            if logger:
+                logger.warning("TinyMVP NC microphone input stopped: %s", exc)
+        finally:
+            self._set_local_room_human_activity(initial_settings, False)
+            if logger:
+                logger.info("TinyMVP NC microphone input stopped.")
+
+    def _set_local_room_human_activity(self, settings, active):
+        if not settings.get('_local_room_session') or bool(getattr(self, '_tiny_mvp_human_active', False)) == bool(active):
+            return
+        tiny = settings.get('tiny_mvp') or {}
+        url = str(tiny.get('url') or 'http://127.0.0.1:8788').rstrip('/')
+        if active:
+            # The server may accept this even if its HTTP response is lost.
+            self._tiny_mvp_human_active = True
+        try:
+            result = _http_json('POST', url + '/local-room/human-speaking',
+                               {'id': str(tiny.get('mic_user_id') or 'human'), 'active': bool(active)}, timeout=0.5)
+            if result.get('ok') is not False:
+                self._tiny_mvp_human_active = bool(active)
+        except Exception:
+            # A room stopping must not take down the capture worker.
+            pass
+
+    def _tiny_mvp_live_settings(self, fallback: dict[str, Any]) -> dict[str, Any]:
+        local_room = getattr(self, "_local_room", None)
+        session_settings = getattr(local_room, "session_settings", None) if local_room is not None else None
+        if isinstance(session_settings, dict):
+            return copy.deepcopy(session_settings)
+        return copy.deepcopy(fallback if isinstance(fallback, dict) else {})
+
+    def _tiny_mvp_capture_allowed(self, settings: dict[str, Any]) -> bool:
+        if not self._tiny_mvp_capture_enabled(settings):
+            return False
+        local_room = getattr(self, "_local_room", None)
+        if local_room is None or not isinstance(getattr(local_room, "session_settings", None), dict):
+            return True
+        return bool(local_room.microphone_capture_allowed())
+
+    def _tiny_mvp_capture_enabled(self, settings: dict[str, Any]) -> bool:
+        if _bridge_mode(settings) != "tiny_mvp" or not _get(settings, "tiny_mvp.capture_mic", False):
+            return False
+        local_room = getattr(self, "_local_room", None)
+        if local_room is None or not isinstance(getattr(local_room, "session_settings", None), dict):
+            return True
+        return bool(local_room.microphone_capture_enabled())
+
+    @staticmethod
+    def _tiny_mvp_mic_device_index(sr_module, device_text: str) -> int | None:
+        if not device_text:
+            return None
+        try:
+            return int(device_text)
+        except ValueError:
+            pass
+        try:
+            names = sr_module.Microphone.list_microphone_names()
+        except Exception:
+            return None
+        needle = device_text.lower()
+        for index, name in enumerate(names):
+            if needle in str(name or "").lower():
+                return index
+        return None
+
+    def _capture_tiny_mvp_local_mic_wav(
+        self,
+        source,
+        recognizer,
+        settings: dict[str, Any],
+        stop_event: threading.Event,
+        *,
+        phrase_limit: float,
+    ) -> Path | None:
+        local_room = getattr(self, "_local_room", None)
+        push_to_talk = bool(settings.get("_local_room_session") and local_room is not None
+                            and local_room._input_mode() == "push_to_talk")
+        chunk_size = int(getattr(source, "CHUNK", 1024) or 1024)
+        sample_rate = int(getattr(source, "SAMPLE_RATE", 16000) or 16000)
+        sample_width = int(getattr(source, "SAMPLE_WIDTH", 2) or 2)
+        seconds_per_buffer = chunk_size / float(sample_rate or 16000)
+        pause_seconds = max(0.2, float(getattr(recognizer, "pause_threshold", 0.8) or 0.8))
+        non_speaking_seconds = max(0.1, float(getattr(recognizer, "non_speaking_duration", 0.5) or 0.5))
+        pre_speech_buffers = max(1, int(non_speaking_seconds / seconds_per_buffer))
+        pause_buffers = max(1, int(pause_seconds / seconds_per_buffer))
+        energy_threshold = max(120.0, float(getattr(recognizer, "energy_threshold", 300.0) or 300.0))
+        pre_roll: deque[bytes] = deque(maxlen=pre_speech_buffers)
+        frames: list[bytes] = []
+        quiet_after_voice = 0
+        started_at = 0.0
+        probe_done = False
+        wait_started = time.monotonic()
+        while not stop_event.is_set():
+            if push_to_talk and local_room._input_mode() != "push_to_talk":
+                return None  # An input-mode change cancels the held recording.
+            if not self._tiny_mvp_capture_allowed(settings):
+                if frames and self._tiny_mvp_capture_enabled(settings):
+                    break
+                return None
+            data = self._read_tiny_mvp_source_chunk(source, chunk_size)
+            if not data:
+                continue
+            energy = audioop.rms(data, sample_width)
+            if not frames:
+                if energy > energy_threshold:
+                    self._set_local_room_human_activity(settings, True)
+                    started_at = time.monotonic()
+                    frames.extend(pre_roll)
+                    frames.append(data)
+                    quiet_after_voice = 0
+                else:
+                    pre_roll.append(data)
+                    if not push_to_talk and time.monotonic() - wait_started >= 0.5:
+                        raise TimeoutError("no speech detected")
+                continue
+
+            frames.append(data)
+            if energy > energy_threshold:
+                quiet_after_voice = 0
+            else:
+                quiet_after_voice += 1
+
+            elapsed = time.monotonic() - started_at
+            if not probe_done and self._maybe_probe_tiny_mvp_interruption(
+                frames,
+                settings,
+                duration_seconds=elapsed,
+                sample_rate=sample_rate,
+                sample_width=sample_width,
+            ):
+                probe_done = True
+            # Local PTT owns the turn boundary: silence and duration caps apply
+            # only to automatic capture. Release/stop/mute are checked above.
+            if not push_to_talk and quiet_after_voice >= pause_buffers:
+                break
+            if not push_to_talk and phrase_limit > 0 and elapsed >= phrase_limit:
+                break
+        if stop_event.is_set() or not frames:
+            return None
+        return self._write_tiny_mvp_local_mic_frame_wav(
+            frames,
+            settings,
+            sample_rate=sample_rate,
+            sample_width=sample_width,
+            suffix="final",
+        )
+
+    @staticmethod
+    def _read_tiny_mvp_source_chunk(source, chunk_size: int) -> bytes:
+        stream = getattr(source, "stream", None)
+        if stream is None:
+            return b""
+        try:
+            return stream.read(chunk_size, exception_on_overflow=False)
+        except TypeError:
+            return stream.read(chunk_size)
+
+    def _write_tiny_mvp_local_mic_wav(self, audio, settings: dict[str, Any]) -> Path:
+        capture = settings.get("capture") if isinstance(settings.get("capture"), dict) else {}
+        tiny_mvp = settings.get("tiny_mvp") if isinstance(settings.get("tiny_mvp"), dict) else {}
+        sample_rate = _int_setting(tiny_mvp.get("mic_sample_rate") or capture.get("wav_sample_rate"), 16000)
+        wav_bytes = audio.get_wav_data(convert_rate=sample_rate, convert_width=2)
+        capture_dir = NODE_BRIDGE_DIR / "captures"
+        capture_dir.mkdir(parents=True, exist_ok=True)
+        wav_path = capture_dir / f"tinymvp_nc_mic_{int(time.time() * 1000)}_{secrets.token_hex(4)}.wav"
+        wav_path.write_bytes(wav_bytes)
+        return wav_path
+
+    def _write_tiny_mvp_local_mic_frame_wav(
+        self,
+        frames: list[bytes],
+        settings: dict[str, Any],
+        *,
+        sample_rate: int,
+        sample_width: int,
+        suffix: str,
+    ) -> Path:
+        capture_dir = NODE_BRIDGE_DIR / "captures"
+        capture_dir.mkdir(parents=True, exist_ok=True)
+        wav_path = capture_dir / f"tinymvp_nc_mic_{suffix}_{int(time.time() * 1000)}_{secrets.token_hex(4)}.wav"
+        with wave.open(str(wav_path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(max(1, int(sample_width or 2)))
+            handle.setframerate(max(8000, int(sample_rate or 16000)))
+            handle.writeframes(b"".join(frames))
+        return wav_path
+
+    def _maybe_probe_tiny_mvp_interruption(
+        self,
+        frames: list[bytes],
+        settings: dict[str, Any],
+        *,
+        duration_seconds: float,
+        sample_rate: int,
+        sample_width: int,
+    ) -> bool:
+        playback = settings.get("playback") if isinstance(settings.get("playback"), dict) else {}
+        capture = settings.get("capture") if isinstance(settings.get("capture"), dict) else {}
+        if not _bool_setting(playback.get("interrupt_reply_on_user_speech"), True):
+            return False
+        interrupt_after = _float_setting(playback.get("interrupt_after_seconds"), 4.0)
+        min_turn = _float_setting(capture.get("min_turn_seconds"), 0.6)
+        threshold = max(min_turn, interrupt_after)
+        if threshold <= 0 or duration_seconds < threshold:
+            return False
+        tiny_url = str(_get(settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+        try:
+            state = _http_json("GET", f"{tiny_url}/state", timeout=1.0)
+        except Exception:
+            return False
+        if not str((state or {}).get("playback_owner_id") or "").strip():
+            return False
+        tiny_mvp = settings.get("tiny_mvp") if isinstance(settings.get("tiny_mvp"), dict) else {}
+        user_id = str(tiny_mvp.get("mic_user_id") or "human").strip() or "human"
+        if _tiny_mvp_current_speaker_blocks_user(state, user_id):
+            return False
+        if not self._tiny_mvp_reply_immunity_elapsed(state, playback):
+            return False
+        instance = self._tiny_mvp_route_instance()
+        server = getattr(instance, "runtime_server", None) if instance is not None else None
+        if server is None or not hasattr(server, "probe_transcript"):
+            return False
+        probe_path = self._write_tiny_mvp_local_mic_frame_wav(
+            frames,
+            settings,
+            sample_rate=sample_rate,
+            sample_width=sample_width,
+            suffix="probe",
+        )
+        try:
+            result = server.probe_transcript(
+                {
+                    "wav_path": str(probe_path),
+                    "duration_seconds": duration_seconds,
+                }
+            )
+            if bool(result.get("accepted")):
+                _http_json("POST", f"{tiny_url}/stop", {"reason": f"nc microphone accepted {duration_seconds:.1f}s speech probe"})
+                logger = getattr(getattr(self, "context", None), "logger", None)
+                if logger:
+                    logger.info("TinyMVP NC microphone interrupted playback after accepted %.1fs probe: %s", duration_seconds, result.get("input_text") or "")
+        finally:
+            self._cleanup_tiny_mvp_local_mic_wav(probe_path, settings)
+        return True
+
+    @staticmethod
+    def _tiny_mvp_reply_immunity_elapsed(state: dict[str, Any], playback: dict[str, Any]) -> bool:
+        immunity_seconds = _float_setting(playback.get("reply_immunity_seconds"), 0.0)
+        if immunity_seconds <= 0:
+            return True
+        owner_id = str((state or {}).get("playback_owner_id") or "").strip()
+        participants = (state or {}).get("participants")
+        if not owner_id or not isinstance(participants, list):
+            return True
+        owner = next((item for item in participants if isinstance(item, dict) and str(item.get("id") or "") == owner_id), None)
+        updated_at = str((owner or {}).get("updated_at") or "").strip()
+        if not updated_at:
+            return True
+        try:
+            started = datetime.fromisoformat(updated_at)
+        except ValueError:
+            return True
+        now = datetime.now(started.tzinfo) if started.tzinfo is not None else datetime.now()
+        return (now - started).total_seconds() >= immunity_seconds
+
+    def _submit_tiny_mvp_local_mic_wav(self, wav_path: Path, settings: dict[str, Any]) -> None:
+        logger = getattr(getattr(self, "context", None), "logger", None)
+        instance = self._tiny_mvp_route_instance()
+        if instance is None or instance.runtime_server is None:
+            return
+        tiny_url = str(_get(settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+        state = _http_json("GET", f"{tiny_url}/state")
+        participants = list((state or {}).get("participants") or [])
+        tiny_mvp = settings.get("tiny_mvp") if isinstance(settings.get("tiny_mvp"), dict) else {}
+        user_id = str(tiny_mvp.get("mic_user_id") or "human").strip() or "human"
+        speaker_name = str(tiny_mvp.get("mic_user_name") or "Human").strip() or "Human"
+        if _tiny_mvp_participant_is_muted(state, user_id):
+            if logger:
+                logger.info("TinyMVP NC microphone ignored muted participant %s.", speaker_name)
+            _http_json(
+                "POST",
+                f"{tiny_url}/decision",
+                {"source_id": user_id, "target_id": "", "answer": False, "reason": "muted_speaker"},
+            )
+            self._cleanup_tiny_mvp_local_mic_wav(wav_path, settings)
+            return
+        protected_current_speech = _tiny_mvp_current_speaker_blocks_user(state, user_id)
+        playback = settings.get("playback") if isinstance(settings.get("playback"), dict) else {}
+        route_protected_mic_speech = _bool_setting(
+            playback.get("route_protected_mic_speech"),
+            _bool_setting(tiny_mvp.get("route_protected_mic_speech"), False),
+        )
+        if protected_current_speech and not route_protected_mic_speech:
+            if logger:
+                logger.info("TinyMVP NC microphone ignored %s because the current speaker is protected.", speaker_name)
+            _http_json(
+                "POST",
+                f"{tiny_url}/decision",
+                {"source_id": user_id, "target_id": "", "answer": False, "reason": "current_speaker_protected"},
+            )
+            self._cleanup_tiny_mvp_local_mic_wav(wav_path, settings)
+            return
+        duration_seconds = _wav_duration_seconds(wav_path)
+        capture = settings.get("capture") if isinstance(settings.get("capture"), dict) else {}
+        min_turn_seconds = _float_setting(capture.get("min_turn_seconds"), 0.6)
+        if duration_seconds < min_turn_seconds:
+            if logger:
+                logger.info("TinyMVP NC microphone ignored %.2fs capture below minimum %.2fs.", duration_seconds, min_turn_seconds)
+            self._cleanup_tiny_mvp_local_mic_wav(wav_path, settings)
+            return
+        route_key = f"tinymvp_nc_mic_{user_id}_{int(time.time() * 1000)}_{secrets.token_hex(3)}"
+        payload = {
+            "route_key": route_key,
+            "user_id": user_id,
+            "speaker_name": speaker_name,
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "wav_path": str(wav_path),
+            "duration_seconds": duration_seconds,
+            "participants": participants,
+            "room_context": _tiny_mvp_room_context(
+                participants,
+                state=state,
+                limit=_int_setting(_get(settings, "chat.context_entries", 20), 20),
+            ),
+            "record_route_context": bool(protected_current_speech and route_protected_mic_speech),
+        }
+        decision = instance.runtime_server.route_turn(payload)
+        input_text = str(decision.get("input_text") or "").strip()
+        speech_accepted = bool(decision.get("speech_accepted"))
+        if input_text and speech_accepted:
+            _http_json("POST", f"{tiny_url}/speech", {"speaker_id": user_id, "text": input_text, "reason": "nc microphone"})
+            self._record_tiny_mvp_user_turn_for_all_instances(decision, route_key, participants=participants)
+            if not protected_current_speech:
+                self._maybe_stop_tiny_mvp_playback_for_user_speech(tiny_url, settings, duration_seconds)
+        target_id = _safe_instance_id(decision.get("target_bot_id") or "")
+        reason = str(decision.get("reason") or "nc microphone route").strip()
+        if bool(decision.get("answer")) and target_id:
+            _http_json("POST", f"{tiny_url}/route", {"target_id": target_id, "reason": reason,
+                       **_local_room_decision_markers(decision)})
+            if logger:
+                logger.info("TinyMVP NC microphone routed %s -> %s: %s", speaker_name, target_id, reason)
+        else:
+            _http_json(
+                "POST",
+                f"{tiny_url}/decision",
+                {"source_id": user_id, "target_id": target_id, "answer": False, "reason": reason,
+                 **_local_room_decision_markers(decision)},
+            )
+            if input_text and speech_accepted and not protected_current_speech:
+                if settings.get('_local_room_session'):
+                    self._maybe_recover_tiny_mvp_dead_air(tiny_url, settings, reason, decision=decision,
+                                                       runtime=instance.runtime_server)
+                else:
+                    self._maybe_recover_tiny_mvp_dead_air(tiny_url, settings, reason)
+            if logger:
+                logger.info("TinyMVP NC microphone no-route for %s: %s", speaker_name, reason)
+        self._cleanup_tiny_mvp_local_mic_wav(wav_path, settings)
+
+    def _route_tiny_mvp_text(self, text: str, settings: dict[str, Any]) -> dict[str, Any]:
+        message = str(text or "").strip()
+        if not message:
+            raise ValueError("Local room message text is required.")
+        instance = self._tiny_mvp_route_instance()
+        if instance is None or instance.runtime_server is None:
+            raise RuntimeError("Local room routing endpoint is not ready.")
+        tiny_url = str(_get(settings, "tiny_mvp.url", "http://127.0.0.1:8788") or "http://127.0.0.1:8788").rstrip("/")
+        state = _http_json("GET", f"{tiny_url}/state")
+        participants = list((state or {}).get("participants") or [])
+        route_key = f"tinymvp_local_text_{int(time.time() * 1000)}_{secrets.token_hex(3)}"
+        decision = instance.runtime_server.route_turn(
+            {
+                "route_key": route_key,
+                "user_id": "human",
+                "speaker_name": str(_get(settings, "tiny_mvp.mic_user_name", "You") or "You"),
+                "captured_at": datetime.now().isoformat(timespec="seconds"),
+                "input_text": message,
+                "duration_seconds": 1.0,
+                "participants": participants,
+                "room_context": _tiny_mvp_room_context(
+                    participants,
+                    state=state,
+                    limit=_int_setting(_get(settings, "chat.context_entries", 20), 20),
+                ),
+            }
+        )
+        self._record_tiny_mvp_user_turn_for_all_instances(decision, route_key, participants=participants)
+        target_id = _safe_instance_id(decision.get("target_bot_id") or "")
+        reason = str(decision.get("reason") or "Local room text route").strip()
+        if bool(decision.get("answer")) and target_id:
+            _http_json(
+                "POST",
+                f"{tiny_url}/route",
+                {"source_id": "human", "target_id": target_id, "reason": reason,
+                 **_local_room_decision_markers(decision)},
+            )
+        else:
+            _http_json(
+                "POST",
+                f"{tiny_url}/decision",
+                {"source_id": "human", "target_id": target_id, "answer": False, "reason": reason,
+                 **_local_room_decision_markers(decision)},
+            )
+            if settings.get('_local_room_session') and decision.get('speech_accepted', True):
+                self._maybe_recover_tiny_mvp_dead_air(tiny_url, settings, reason, decision=decision,
+                                                   runtime=instance.runtime_server)
+        return decision
+
+    def _tiny_mvp_route_instance(self) -> BridgeInstance | None:
+        for instance in list(getattr(self, "_bridge_instances", []) or []):
+            if _bridge_mode(instance.settings) != "tiny_mvp":
+                continue
+            if instance.runtime_server is not None and getattr(instance.runtime_server, "running", False):
+                return instance
+        return None
+
+    def _record_tiny_mvp_user_turn_for_all_instances(self, decision: dict[str, Any], route_key: str, *, participants=None) -> None:
+        context_text = str(decision.get("context_input_text") or "").strip()
+        input_text = str(decision.get("input_text") or "").strip()
+        speaker_name = str(decision.get("speaker_name") or "").strip()
+        user_id = str(decision.get("user_id") or "").strip()
+        captured_at = datetime.now().isoformat(timespec="seconds")
+        selected_id = _safe_instance_id(decision.get("target_bot_id") or "") if bool(decision.get("answer")) else ""
+        for instance in list(getattr(self, "_bridge_instances", []) or []):
+            local = getattr(instance, 'settings', {}).get('_local_room_session')
+            if selected_id and instance.instance_id == selected_id and not local:
+                continue
+            server = getattr(instance, "runtime_server", None)
+            if server is None or not hasattr(server, "record_user_turn"):
+                continue
+            listener = next((p for p in (participants or []) if p.get('id') == instance.instance_id
+                             and p.get('connected', True)), {})
+            if local and not listener:
+                continue
+            try:
+                server.record_user_turn(
+                    {
+                        "route_key": route_key,
+                        "context_input_text": context_text,
+                        "input_text": input_text,
+                        "speaker_name": speaker_name,
+                        "user_id": user_id,
+                        "captured_at": captured_at,
+                        **({'local_room_admission_id': listener.get('admission_id', ''),
+                            'local_room_conversation_id': instance.settings.get('_local_room_conversation_id', '')}
+                           if local else {}),
+                    }
+                )
+            except Exception:
+                continue
+
+    @staticmethod
+    def _maybe_stop_tiny_mvp_playback_for_user_speech(tiny_url: str, settings: dict[str, Any], duration_seconds: float) -> None:
+        playback = settings.get("playback") if isinstance(settings.get("playback"), dict) else {}
+        capture = settings.get("capture") if isinstance(settings.get("capture"), dict) else {}
+        min_turn = _float_setting(capture.get("min_turn_seconds"), 0.6)
+        interrupt_after = _float_setting(playback.get("interrupt_after_seconds"), 4.0)
+        if not _bool_setting(playback.get("interrupt_reply_on_user_speech"), True):
+            return
+        if duration_seconds < max(min_turn, interrupt_after):
+            return
+        _http_json("POST", f"{tiny_url}/stop", {"reason": f"nc microphone user speech {duration_seconds:.1f}s"})
+
+    @staticmethod
+    def _maybe_recover_tiny_mvp_dead_air(tiny_url: str, settings: dict[str, Any], reason: str, *, decision=None, runtime=None) -> None:
+        router = settings.get("room_router") if isinstance(settings.get("room_router"), dict) else {}
+        recovery = router.get("dead_air_recovery") if isinstance(router.get("dead_air_recovery"), dict) else {}
+        if not _bool_setting(recovery.get("enabled"), False):
+            return
+        trigger_mode = str(recovery.get("trigger_mode") or "no_route_after_bot_speech").strip().lower()
+        if trigger_mode not in {"no_route_after_any_speech", "any_speech", "bot_or_human"}:
+            return
+        silence_timeout = _float_setting(recovery.get("silence_timeout_seconds"), 10.0)
+        payload = Addon._tiny_mvp_dead_air_payload(settings, reason)
+        if settings.get('_local_room_session'):
+            behavior = router.get('local_room_behavior') or {}
+            if payload['action_mode'] == 'silent_call_next' and behavior.get('speaker_selection') == 'ai' and runtime is not None:
+                state = _http_json('GET', f'{tiny_url}/state')
+                participants = list(state.get('participants') or [])
+                choice = runtime.route_turn({
+                    'route_key': 'local_room_silent_recovery_' + secrets.token_hex(16),
+                    'user_id': 'dead_air_recovery', 'speaker_name': 'Room',
+                    'input_text': 'The discussion has no next speaker. Choose the single best eligible room participant to continue the current conversation.',
+                    'duration_seconds': 0.0, 'participants': participants,
+                    'room_context': _tiny_mvp_room_context(participants, state=state,
+                        limit=_int_setting(_get(settings, 'chat.context_entries', 20), 20)),
+                })
+                target = str(choice.get('target_bot_id') or '') if choice.get('answer') else ''
+                if target.startswith('human:'):
+                    target = target.split(':', 1)[1]
+                if any(str(p.get('id') or '') == target for p in participants):
+                    payload['preferred_target'] = target
+            payload.update(_local_room_decision_markers(decision) if decision is not None else {
+                'local_room_behavior': router.get('local_room_behavior'),
+                'local_room_behavior_revision': router.get('local_room_behavior_revision', '')})
+            payload['playback_delay_seconds'] = silence_timeout
+            _http_json('POST', f'{tiny_url}/dead-air', payload)
+            return
+        if silence_timeout > 0:
+            threading.Thread(
+                target=Addon._recover_tiny_mvp_dead_air_after_quiet_delay,
+                args=(tiny_url, payload, silence_timeout),
+                name="TinyMVP NC mic dead-air recovery",
+                daemon=True,
+            ).start()
+            return
+        _http_json("POST", f"{tiny_url}/dead-air", payload)
+
+    @staticmethod
+    def _tiny_mvp_dead_air_payload(settings: dict[str, Any], reason: str) -> dict[str, Any]:
+        router = settings.get("room_router") if isinstance(settings.get("room_router"), dict) else {}
+        recovery = router.get("dead_air_recovery") if isinstance(router.get("dead_air_recovery"), dict) else {}
+        tiny = settings.get("tiny_mvp") if isinstance(settings.get("tiny_mvp"), dict) else {}
+        payload = {
+            "reason": f"dead_air_recovery:{reason}",
+            "source_id": str(tiny.get("mic_user_id") or "").strip(),
+            "source_name": str(tiny.get("mic_user_name") or "").strip(),
+            "action_mode": str(recovery.get("action_mode") or "moderator_speaks_and_calls_next").strip(),
+            "strategy": str(recovery.get("next_speaker_strategy") or "llm_choose").strip(),
+            "fallback_target": str(recovery.get("selected_fallback_target") or "").strip(),
+        }
+        if settings.get('_local_room_session'):
+            payload['cooldown_seconds'] = _float_setting(recovery.get('cooldown_seconds'), 0.0)
+        return payload
+
+    @staticmethod
+    def _recover_tiny_mvp_dead_air_after_quiet_delay(tiny_url: str, payload: dict[str, Any], silence_timeout: float) -> None:
+        timeout = max(0.0, float(silence_timeout))
+        poll_interval = min(0.25, max(0.02, timeout / 2.0 if timeout else 0.02))
+        deadline = time.time() + max(30.0, timeout + 5.0)
+        quiet_since: float | None = None
+        while time.time() < deadline:
+            try:
+                state = _http_json("GET", f"{tiny_url}/state", timeout=1.0)
+            except Exception:
+                return
+            if _tiny_mvp_room_has_active_or_pending_speaker(state):
+                quiet_since = None
+                time.sleep(poll_interval)
+                continue
+            now = time.time()
+            if quiet_since is None:
+                quiet_since = now
+            if now - quiet_since >= timeout:
+                _http_json("POST", f"{tiny_url}/dead-air", payload)
+                return
+            time.sleep(poll_interval)
+
+    @staticmethod
+    def _cleanup_tiny_mvp_local_mic_wav(wav_path: Path, settings: dict[str, Any]) -> None:
+        capture = settings.get("capture") if isinstance(settings.get("capture"), dict) else {}
+        if _bool_setting(capture.get("save_captures"), True):
+            return
+        try:
+            wav_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _local_room_decision_markers(decision):
+    if not isinstance(decision, dict) or 'local_room_behavior' not in decision:
+        return {}
+    return {key: decision[key] for key in ('local_room_behavior', 'local_room_behavior_revision') if key in decision}
+
+
+def _should_start_bridge(settings):
+    if not isinstance(settings, dict):
+        return False
+    return bool(settings.get("start_on_nc_launch") or settings.get("auto_start_bridge"))
+
+
+def _bridge_instances_from_settings(settings: dict[str, Any], *, force: bool = False) -> list[BridgeInstance]:
+    if not isinstance(settings, dict):
+        return []
+    bots = settings.get("bots")
+    if isinstance(bots, list):
+        # Idle account-pool entries must not replace the legacy single-bot fallback.
+        bots = [bot for bot in bots if not (isinstance(bot, dict)
+                and bot.get("discord_account") is True
+                and not bot.get("_room_participant_id")
+                and not bot.get("local_room_persona_id"))]
+    if isinstance(bots, list) and bots:
+        if not settings.get("_local_room_session"):
+            bots = [item for item in bots if not isinstance(item, dict) or not item.get("local_room_role")]
+        base = copy.deepcopy(settings)
+        base.pop("bots", None)
+        # Publish the endpoints actually assigned during runtime normalization,
+        # including inherited/default ports, rather than the raw bot overrides.
+        router_candidates = _room_router_candidates_from_bots([
+            item for _instance_id, item, _index in _effective_bridge_settings(settings, force=force)
+        ])
+        instances: list[BridgeInstance] = []
+        for index, bot_settings in enumerate(bots):
+            if not isinstance(bot_settings, dict):
+                continue
+            if bot_settings.get("enabled") is False:
+                continue
+            merged = _deep_merge(base, bot_settings)
+            if settings.get('_local_room_session') or settings.get('_discord_room_session'):
+                merged['_room_anonymous'] = settings.get('_room_anonymous', False)
+            if settings.get('_local_room_session'):
+                apply_behavior(merged, behavior_from_settings(settings),
+                    revision=(settings.get('room_router') or {}).get('local_room_behavior_revision'))
+            if not force and not _should_start_bridge(merged):
+                continue
+            instance_id = _safe_instance_id(bot_settings.get("id") or bot_settings.get("name") or f"bot_{index + 1}")
+            _normalize_discord_settings(merged)
+            _normalize_instance_runtime(merged, index, force_port_offset=not _bot_has_explicit_port(bot_settings))
+            _attach_room_router_candidates(merged, router_candidates)
+            settings_path = _write_instance_settings(instance_id, merged)
+            instances.append(
+                BridgeInstance(
+                    instance_id=instance_id,
+                    settings=merged,
+                    settings_path=settings_path,
+                    bridge_token=secrets.token_urlsafe(32),
+                )
+            )
+        return instances
+
+    if not force and not _should_start_bridge(settings):
+        return []
+    merged = copy.deepcopy(settings)
+    _normalize_discord_settings(merged)
+    _normalize_instance_runtime(merged, 0, force_port_offset=False)
+    settings_path = _write_instance_settings("default", merged)
+    return [
+        BridgeInstance(
+            instance_id="default",
+            settings=merged,
+            settings_path=settings_path,
+            bridge_token=secrets.token_urlsafe(32),
+        )
+    ]
+
+
+def _effective_bridge_settings(settings: dict[str, Any], *, force: bool = False) -> list[tuple[str, dict[str, Any], int]]:
+    if not isinstance(settings, dict):
+        return []
+    bots = settings.get("bots")
+    if isinstance(bots, list):
+        # Idle account-pool entries must not replace the legacy single-bot fallback.
+        bots = [bot for bot in bots if not (isinstance(bot, dict)
+                and bot.get("discord_account") is True
+                and not bot.get("_room_participant_id")
+                and not bot.get("local_room_persona_id"))]
+    if isinstance(bots, list) and bots:
+        if not settings.get("_local_room_session"):
+            bots = [item for item in bots if not isinstance(item, dict) or not item.get("local_room_role")]
+        base = copy.deepcopy(settings)
+        base.pop("bots", None)
+        results: list[tuple[str, dict[str, Any], int]] = []
+        for index, bot_settings in enumerate(bots):
+            if not isinstance(bot_settings, dict):
+                continue
+            if bot_settings.get("enabled") is False:
+                continue
+            merged = _deep_merge(base, bot_settings)
+            if settings.get('_local_room_session') or settings.get('_discord_room_session'):
+                merged['_room_anonymous'] = settings.get('_room_anonymous', False)
+            if settings.get('_local_room_session'):
+                apply_behavior(merged, behavior_from_settings(settings),
+                    revision=(settings.get('room_router') or {}).get('local_room_behavior_revision'))
+            if not force and not _should_start_bridge(merged):
+                continue
+            instance_id = _safe_instance_id(bot_settings.get("id") or bot_settings.get("name") or f"bot_{index + 1}")
+            _normalize_discord_settings(merged)
+            _normalize_instance_runtime(merged, index, force_port_offset=not _bot_has_explicit_port(bot_settings))
+            results.append((instance_id, merged, index))
+        router_candidates = _room_router_candidates_from_bots([item for _instance_id, item, _index in results])
+        for _instance_id, item, _index in results:
+            _attach_room_router_candidates(item, router_candidates)
+        return results
+    if not force and not _should_start_bridge(settings):
+        return []
+    merged = copy.deepcopy(settings)
+    _normalize_discord_settings(merged)
+    _normalize_instance_runtime(merged, 0, force_port_offset=False)
+    return [("default", merged, 0)]
+
+
+def _room_router_candidates_from_bots(bots: list[Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for index, bot_settings in enumerate(bots):
+        if not isinstance(bot_settings, dict) or bot_settings.get("enabled") is False or bot_settings.get('local_room_error'):
+            continue
+        instance_id = _safe_instance_id(bot_settings.get("id") or bot_settings.get("name") or f"bot_{index + 1}")
+        persona = bot_settings.get("persona") if isinstance(bot_settings.get("persona"), dict) else {}
+        response_filter = bot_settings.get("response_filter") if isinstance(bot_settings.get("response_filter"), dict) else {}
+        call_names = str(bot_settings.get("call_names") or response_filter.get("bot_names") or bot_settings.get("name") or instance_id).strip()
+        nc_runtime = bot_settings.get("nc_runtime") if isinstance(bot_settings.get("nc_runtime"), dict) else {}
+        host = str(nc_runtime.get("host") or "127.0.0.1").strip() or "127.0.0.1"
+        try:
+            port = int(nc_runtime.get("port") or 0)
+        except (TypeError, ValueError):
+            port = 0
+        http_endpoint = str(nc_runtime.get("http_endpoint") or "").strip()
+        if not http_endpoint and port > 0:
+            http_endpoint = f"http://{host}:{port}/turn"
+        candidates.append(
+            {
+                "id": instance_id,
+                "name": str(bot_settings.get("name") or instance_id).strip() or instance_id,
+                "call_names": call_names,
+                "persona_hint": _compact_router_persona_hint(str(persona.get("system_prompt") or "")),
+                "nc_runtime": {
+                    "host": host,
+                    "port": port,
+                    "http_endpoint": http_endpoint,
+                },
+            }
+        )
+    return candidates
+
+
+def _attach_room_router_candidates(settings: dict[str, Any], candidates: list[dict[str, Any]]) -> None:
+    room_router = settings.setdefault("room_router", {})
+    if not isinstance(room_router, dict):
+        room_router = {}
+        settings["room_router"] = room_router
+    room_router["candidate_bots"] = copy.deepcopy(candidates)
+
+
+def _compact_router_persona_hint(text: str, *, limit: int = 500) -> str:
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _validate_bridge_settings(settings: dict[str, Any], *, force: bool = False) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    effective = _effective_bridge_settings(settings, force=force)
+    if not effective:
+        issues.append({"severity": "warning", "scope": "general", "message": "No enabled Discord bot instances are configured to start."})
+        return issues
+
+    ports: dict[str, str] = {}
+    instance_ids: dict[str, int] = {}
+    for instance_id, item, _index in effective:
+        tiny_mode = _bridge_mode(item) == "tiny_mvp"
+        instance_ids[instance_id] = instance_ids.get(instance_id, 0) + 1
+        if instance_ids[instance_id] > 1:
+            issues.append(
+                {
+                    "severity": "error",
+                    "scope": instance_id,
+                    "message": f"{instance_id}: duplicate bot instance ID after normalization. Each enabled bot needs a unique Bot ID or name.",
+                }
+            )
+
+        discord = item.get("discord") if isinstance(item.get("discord"), dict) else {}
+        runtime = item.get("nc_runtime") if isinstance(item.get("nc_runtime"), dict) else {}
+        if not tiny_mode:
+            token = str(discord.get("token") or "").strip()
+            token_env_var = str(discord.get("token_env_var") or "DISCORD_TOKEN").strip() or "DISCORD_TOKEN"
+            if not token and not os.environ.get(token_env_var):
+                issues.append(
+                    {
+                        "severity": "error",
+                        "scope": instance_id,
+                        "message": f"{instance_id}: Discord token not found. Set environment variable {token_env_var} or enter a local test token.",
+                    }
+                )
+            if not str(discord.get("guild_id") or "").strip():
+                issues.append({"severity": "error", "scope": instance_id, "message": f"{instance_id}: Discord guild/server ID is required."})
+            if not str(discord.get("voice_channel_id") or "").strip():
+                issues.append({"severity": "error", "scope": instance_id, "message": f"{instance_id}: Discord voice channel ID is required."})
+
+        host = str(runtime.get("host") or "127.0.0.1").strip() or "127.0.0.1"
+        allow_non_localhost = bool(runtime.get("allow_non_localhost"))
+        if not _runtime_host_is_loopback(host):
+            severity = "warning" if allow_non_localhost else "error"
+            suffix = "localhost is recommended for security." if allow_non_localhost else "enable the advanced non-localhost override only on a trusted private network."
+            issues.append(
+                {
+                    "severity": severity,
+                    "scope": instance_id,
+                    "message": f"{instance_id}: runtime host is {host!r}; {suffix}",
+                }
+            )
+        try:
+            port = int(runtime.get("port"))
+        except (TypeError, ValueError):
+            issues.append({"severity": "error", "scope": instance_id, "message": f"{instance_id}: runtime port is invalid."})
+            continue
+        if port < 1 or port > 65535:
+            issues.append({"severity": "error", "scope": instance_id, "message": f"{instance_id}: runtime port must be between 1 and 65535."})
+        port_key = f"{host}:{port}"
+        if port_key in ports:
+            issues.append(
+                {
+                    "severity": "error",
+                    "scope": instance_id,
+                    "message": f"{instance_id}: runtime port {port_key} is already used by {ports[port_key]}.",
+                }
+            )
+        ports[port_key] = instance_id
+
+        persona = item.get("persona") if isinstance(item.get("persona"), dict) else {}
+        voice_clone_wav = str(persona.get("voice_clone_wav") or "").strip() if isinstance(persona, dict) else ""
+        issues.extend(_voice_clone_wav_issues(voice_clone_wav, scope=instance_id))
+    return issues
+
+
+def _bridge_mode(settings: dict[str, Any] | None) -> str:
+    return str((settings or {}).get("bridge_mode") or "mock").strip().lower()
+
+
+def _tiny_mvp_room_script(settings: dict[str, Any] | None = None) -> Path:
+    tiny_mvp = (settings or {}).get("tiny_mvp") if isinstance(settings, dict) else {}
+    configured = ""
+    if isinstance(tiny_mvp, dict):
+        configured = str(tiny_mvp.get("room_script") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return DEFAULT_TINY_MVP_ROOM_SCRIPT
+
+
+def _tiny_mvp_room_command(settings: dict[str, Any] | None, host: str, port: int) -> list[str]:
+    return [str(sys.executable), str(_tiny_mvp_room_script(settings)), "--host", str(host), "--port", str(port)]
+
+
+def _tiny_mvp_monitor_command(settings: dict[str, Any] | None, monitor_url: str) -> list[str]:
+    return [str(sys.executable), str(_tiny_mvp_room_script(settings)), "--gui", "--monitor-url", str(monitor_url)]
+
+
+def _tiny_mvp_mic_identity(settings: dict[str, Any] | None) -> tuple[str, str]:
+    tiny_mvp = (settings or {}).get("tiny_mvp") if isinstance(settings, dict) else {}
+    if not isinstance(tiny_mvp, dict):
+        tiny_mvp = {}
+    user_id = _safe_instance_id(tiny_mvp.get("mic_user_id") or "human")
+    if not user_id:
+        user_id = "human"
+    user_name = str(tiny_mvp.get("mic_user_name") or "").strip() or ("Human" if user_id == "human" else user_id)
+    return user_id, user_name
+
+
+def _tiny_mvp_bridge_script(settings: dict[str, Any] | None = None) -> Path:
+    tiny_mvp = (settings or {}).get("tiny_mvp") if isinstance(settings, dict) else {}
+    configured = ""
+    if isinstance(tiny_mvp, dict):
+        configured = str(tiny_mvp.get("bridge_script") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    for candidate in (
+        DEFAULT_TINY_MVP_BRIDGE_SCRIPT,
+    ):
+        if candidate.exists():
+            return candidate
+    return DEFAULT_TINY_MVP_BRIDGE_SCRIPT
+
+
+def _tiny_mvp_host_port(tiny_url: str) -> tuple[str, int]:
+    url = str(tiny_url or "").strip() or "http://127.0.0.1:8788"
+    if "://" not in url:
+        url = f"http://{url}"
+    parsed = urllib.parse.urlparse(url)
+    return parsed.hostname or "127.0.0.1", parsed.port or 8788
+
+
+def _tiny_mvp_room_reachable(tiny_url: str) -> bool:
+    try:
+        _http_json("GET", f"{str(tiny_url or '').rstrip('/')}/state", timeout=0.75)
+        return True
+    except Exception:
+        return False
+
+
+def _transport_environment_issues(
+    settings: dict[str, Any],
+    *,
+    require_install: bool = False,
+) -> list[dict[str, str]]:
+    if _bridge_mode(settings) != "tiny_mvp":
+        return _node_bridge_environment_issues(require_install=require_install)
+    issues: list[dict[str, str]] = []
+    room_script = _tiny_mvp_room_script(settings)
+    if not room_script.exists():
+        issues.append(
+            {
+                "severity": "error",
+                "scope": "tiny_mvp",
+                "message": f"TinyMVP room server script is missing: {room_script}",
+            }
+        )
+    script = _tiny_mvp_bridge_script(settings)
+    if not script.exists():
+        issues.append(
+            {
+                "severity": "error",
+                "scope": "tiny_mvp",
+                "message": f"TinyMVP bridge script is missing: {script}",
+            }
+        )
+    if not shutil.which("python") and not Path(sys.executable).exists():
+        issues.append(
+            {
+                "severity": "error",
+                "scope": "tiny_mvp",
+                "message": "Python was not found for TinyMVP bridge launch.",
+            }
+        )
+    return issues
+
+
+def _voice_clone_wav_issues(
+    configured: str,
+    *,
+    scope: str,
+    app_root: Path | None = None,
+) -> list[dict[str, str]]:
+    value = str(configured or "").strip()
+    if not value:
+        return []
+    root = (app_root or ADDON_DIR.parent.parent).resolve()
+    voices_root = (root / "voices").resolve()
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute():
+        resolved = candidate.resolve()
+        location_hint = str(resolved)
+    else:
+        resolved = (voices_root / candidate).resolve()
+        location_hint = f"{value} in {voices_root}"
+        try:
+            if not resolved.is_relative_to(voices_root):
+                return [
+                    {
+                        "severity": "warning",
+                        "scope": scope,
+                        "message": f"{scope}: voice clone WAV path should stay inside the root voices folder for relative names: {value}",
+                    }
+                ]
+        except AttributeError:
+            if os.path.commonpath([str(resolved), str(voices_root)]) != str(voices_root):
+                return [
+                    {
+                        "severity": "warning",
+                        "scope": scope,
+                        "message": f"{scope}: voice clone WAV path should stay inside the root voices folder for relative names: {value}",
+                    }
+                ]
+    if resolved.suffix.lower() != ".wav":
+        return [
+            {
+                "severity": "warning",
+                "scope": scope,
+                "message": f"{scope}: voice clone file should be a .wav file: {value}",
+            }
+        ]
+    if not resolved.is_file():
+        return [
+            {
+                "severity": "warning",
+                "scope": scope,
+                "message": f"{scope}: voice clone WAV was not found ({location_hint}); the selected NC Persona voice will be used instead.",
+            }
+        ]
+    return []
+
+
+def _node_bridge_environment_issues(
+    *,
+    bridge_dir: Path = NODE_BRIDGE_DIR,
+    require_install: bool = False,
+) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    if not shutil.which("node"):
+        issues.append(
+            {
+                "severity": "error",
+                "scope": "node_bridge",
+                "message": "Node.js was not found on PATH. Install Node.js or add node.exe to PATH before starting the Discord bridge.",
+            }
+        )
+
+    script = bridge_dir / "src" / "index.js"
+    if not script.exists():
+        issues.append(
+            {
+                "severity": "error",
+                "scope": "node_bridge",
+                "message": f"Node bridge script is missing: {script}",
+            }
+        )
+
+    package_json = bridge_dir / "package.json"
+    if not package_json.exists():
+        issues.append(
+            {
+                "severity": "error",
+                "scope": "node_bridge",
+                "message": f"Node bridge package.json is missing: {package_json}",
+            }
+        )
+        return issues
+
+    dependency_severity = "error" if require_install else "warning"
+    node_modules = bridge_dir / "node_modules"
+    install_hint = f"Run npm install in {bridge_dir}."
+    if not node_modules.exists():
+        issues.append(
+            {
+                "severity": dependency_severity,
+                "scope": "node_bridge",
+                "message": f"Node bridge dependencies are not installed. {install_hint}",
+            }
+        )
+        return issues
+
+    missing = [
+        package
+        for package in NODE_BRIDGE_REQUIRED_PACKAGES
+        if not (node_modules / Path(*package.split("/"))).exists()
+    ]
+    if missing:
+        issues.append(
+            {
+                "severity": dependency_severity,
+                "scope": "node_bridge",
+                "message": f"Node bridge dependencies are incomplete ({', '.join(missing)} missing). {install_hint}",
+            }
+        )
+    return issues
+
+
+def _write_instance_settings(instance_id: str, settings: dict[str, Any]) -> Path:
+    INSTANCE_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    from addons.discord_voice_bridge.linked_personas import instance_settings
+    payload = instance_settings(settings)
+    payload.pop("bots", None)
+    discord = payload.get("discord")
+    if isinstance(discord, dict):
+        discord.pop("token", None)
+    path = INSTANCE_SETTINGS_DIR / f"{_safe_instance_id(instance_id)}.settings.json"
+    temporary_path = path.with_name(path.name + '.' + secrets.token_hex(8) + '.tmp')
+    try:
+        with temporary_path.open("x", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=True)
+            handle.write("\n")
+        for attempt in range(6):
+            try:
+                os.replace(temporary_path, path)
+                break
+            except PermissionError as error:
+                if getattr(error, 'winerror', None) not in (5, 32, 33) or attempt == 5:
+                    raise
+                time.sleep(.01 * (2 ** attempt))
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return path
+
+
+def _read_instance_status(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _runtime_server_status(instance: BridgeInstance) -> dict[str, Any]:
+    server = getattr(instance, "runtime_server", None)
+    if server is None or not hasattr(server, "status_snapshot"):
+        return {}
+    try:
+        status = server.status_snapshot()
+    except Exception:
+        return {}
+    return status if isinstance(status, dict) else {}
+
+
+def _bridge_instance_is_running(instance: BridgeInstance) -> bool:
+    process = getattr(instance, "process", None)
+    if process is not None and process.poll() is None:
+        return True
+    server = getattr(instance, "runtime_server", None)
+    return bool(server is not None and getattr(server, "running", False))
+
+
+def _terminate_process_tree(process: subprocess.Popen, *, timeout: float = 5.0) -> None:
+    if process is None or process.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+                check=False,
+            )
+            process.wait(timeout=1)
+            return
+        except Exception:
+            pass
+    try:
+        process.terminate()
+        process.wait(timeout=timeout)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
+def _delete_instance_history_file(instance_id: str) -> None:
+    safe_id = _safe_instance_id(instance_id)
+    for history_path in (
+        INSTANCE_SETTINGS_DIR / f"{safe_id}.history.json",
+        *INSTANCE_SETTINGS_DIR.glob(f"{safe_id}__channel_*.history.json"),
+    ):
+        history_path.unlink(missing_ok=True)
+
+
+def _normalize_instance_runtime(settings: dict[str, Any], index: int, *, force_port_offset: bool) -> None:
+    nc_runtime = settings.setdefault("nc_runtime", {})
+    if not isinstance(nc_runtime, dict):
+        nc_runtime = {}
+        settings["nc_runtime"] = nc_runtime
+    host = str(nc_runtime.get("host") or "127.0.0.1").strip() or "127.0.0.1"
+    try:
+        raw_port = nc_runtime.get("port")
+        if raw_port in {None, ""}:
+            endpoint_text = str(nc_runtime.get("http_endpoint") or nc_runtime.get("endpoint") or "")
+            match = re.search(r":(\d+)(?:/|$)", endpoint_text)
+            raw_port = match.group(1) if match else 8768
+        base_port = int(raw_port)
+    except (TypeError, ValueError):
+        base_port = 8768
+    port = 8768 + int(index) if force_port_offset else base_port
+    nc_runtime["host"] = host
+    nc_runtime["port"] = port
+    nc_runtime["allow_non_localhost"] = bool(nc_runtime.get("allow_non_localhost"))
+    nc_runtime["http_endpoint"] = f"http://{host}:{port}/turn"
+    nc_runtime["endpoint"] = f"ws://{host}:{port}/discord-voice"
+    nc_runtime["session_mode"] = "isolated_discord"
+
+
+def _bot_has_explicit_port(bot_settings: dict[str, Any]) -> bool:
+    nc_runtime = bot_settings.get("nc_runtime")
+    return isinstance(nc_runtime, dict) and (
+        "port" in nc_runtime
+        or "http_endpoint" in nc_runtime
+        or "endpoint" in nc_runtime
+    )
+
+
+def _normalize_discord_settings(settings: dict[str, Any]) -> None:
+    discord = settings.get("discord")
+    if not isinstance(discord, dict):
+        return
+    token_env_var = str(discord.get("token_env_var") or "").strip()
+    token = str(discord.get("token") or "").strip()
+    if _looks_like_discord_token(token_env_var) and not token:
+        discord["token"] = token_env_var
+        discord["token_env_var"] = "DISCORD_TOKEN"
+
+
+def _safe_instance_id(value: Any) -> str:
+    text = re.sub(r"[^a-zA-Z0-9_.-]+", "_", str(value or "").strip()).strip("._-")
+    return text.lower() or "bot"
+
+
+def _looks_like_discord_token(value: str) -> bool:
+    text = str(value or "").strip()
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{20,}", text))
+
+
+def _runtime_host_is_loopback(value: str) -> bool:
+    host = str(value or "").strip()
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _redact_runtime_log_text(text: str) -> str:
+    value = str(text or "")
+    value = re.sub(
+        r"([A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,}\.)[A-Za-z0-9_-]{20,}",
+        r"\1<redacted>",
+        value,
+    )
+    value = re.sub(r'("token"\s*:\s*")[^"]+', r'\1<redacted>', value, flags=re.IGNORECASE)
+    value = re.sub(r"(authorization\s*:\s*bearer\s+)[^\s]+", r"\1<redacted>", value, flags=re.IGNORECASE)
+    return value
+
+
+def _http_json(method: str, url: str, payload: dict[str, Any] | None = None, *, timeout: float = 5.0) -> dict[str, Any]:
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(str(url), data=data, headers=headers, method=str(method or "GET").upper())
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read().decode("utf-8")
+    decoded = json.loads(raw or "{}")
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _wav_duration_seconds(path: Path) -> float:
+    try:
+        with wave.open(str(path), "rb") as handle:
+            rate = handle.getframerate()
+            frames = handle.getnframes()
+        return frames / float(rate) if rate else 0.0
+    except Exception:
+        return 0.0
+
+
+def _tiny_mvp_room_context(
+    participants: list[Any],
+    *,
+    state: dict[str, Any] | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    names = {
+        _safe_instance_id(item.get("id") or ""): str(item.get("name") or item.get("id") or "").strip()
+        for item in participants
+        if isinstance(item, dict) and _safe_instance_id(item.get("id") or "")
+    }
+    participant_parts: list[str] = []
+    for item in participants:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("id") or "").strip()
+        if not name:
+            continue
+        flags = []
+        if bool(item.get("current")):
+            flags.append("current")
+        if bool(item.get("next")):
+            flags.append("next")
+        if not bool(item.get("connected", True)):
+            flags.append("disconnected")
+        kind = "bot" if str(item.get("kind") or item.get("type") or "") == "bot" else "human"
+        suffix = f" ({kind}{'; ' + ', '.join(flags) if flags else ''})"
+        participant_parts.append(f"{name}{suffix}")
+
+    entries: list[dict[str, Any]] = []
+    if participant_parts:
+        entries.append({
+            "role": "system",
+            "content": "Current room participants: " + ", ".join(participant_parts),
+            "answer": False,
+            "reason": "participants",
+        })
+
+    flow = (state or {}).get("route_flow") if isinstance(state, dict) else []
+    try:
+        count = min(1000, max(1, int(limit or 20)))
+    except (TypeError, ValueError):
+        count = 20
+    if isinstance(flow, list):
+        for item in flow[-count:]:
+            if not isinstance(item, dict):
+                continue
+            message = " ".join(str(item.get("message") or "").split())
+            event_type = str(item.get("type") or "event").strip() or "event"
+            message = _tiny_mvp_flow_clean_model_message(message, event_type)
+            if not message:
+                continue
+            raw_source_id = str(item.get("source_id") or "").strip()
+            raw_target_id = str(item.get("target_id") or "").strip()
+            source_id = _safe_instance_id(raw_source_id) if raw_source_id else ""
+            target_id = _safe_instance_id(raw_target_id) if raw_target_id else ""
+            source_name = names.get(source_id, source_id) or "Room"
+            target_name = names.get(target_id, target_id) if target_id else ""
+            message = _tiny_mvp_strip_duplicate_source_label(message, source_name)
+            prefix = f"{source_name} -> {target_name}: " if target_name else f"{source_name}: "
+            entries.append({
+                "role": "user",
+                "content": f"{prefix}{message}",
+                "answer": bool(target_id),
+                "reason": event_type,
+            })
+    return entries
+
+
+def _tiny_mvp_flow_clean_model_message(message: str, event_type: str = "") -> str:
+    text = str(message or "").strip()
+    if not _tiny_mvp_flow_entry_is_model_relevant(text, event_type):
+        return ""
+    return text
+
+
+def _tiny_mvp_strip_duplicate_source_label(message: str, source_name: str) -> str:
+    text = str(message or "").strip()
+    source = str(source_name or "").strip()
+    if not text or not source:
+        return text
+    prefix = f"{source}:"
+    if text.lower().startswith(prefix.lower()):
+        return text[len(prefix):].strip()
+    return text
+
+
+def _tiny_mvp_flow_entry_is_model_relevant(message: str, event_type: str = "") -> bool:
+    text = str(message or "").strip()
+    if not text:
+        return False
+    event_key = str(event_type or "").strip().lower()
+    if event_key in {
+        "playback",
+        "current",
+        "capture",
+        "queue",
+        "render",
+        "moderator_updated",
+        "participant",
+        "system",
+        "status",
+        "route",
+        "dead_air",
+        "dead_air_recovery",
+        "human_moderator",
+        "bot_text_router",
+        "room_router",
+    }:
+        return False
+    internal_patterns = (
+        "Playback started as ",
+        "Playback stopped",
+        "Current cleared",
+        "Current -> ",
+        "Capture owner",
+        "Dead-air recovery chose",
+        "Next ->",
+        " -> no route | answer=",
+        " -> no route | ",
+        "queue_cleared",
+        "runtime_replies",
+        ".wav",
+    )
+    if any(pattern in text for pattern in internal_patterns):
+        return False
+    lower_text = text.lower()
+    lifecycle_patterns = (
+        "room initialized",
+        "human connected",
+        "bot connected",
+        " removed.",
+        "participant updated",
+    )
+    return not any(pattern in lower_text for pattern in lifecycle_patterns)
+
+
+def _tiny_mvp_room_has_active_or_pending_speaker(state: dict[str, Any]) -> bool:
+    if not isinstance(state, dict):
+        return False
+    return bool(
+        str(state.get("current_id") or "").strip()
+        or str(state.get("next_id") or "").strip()
+        or str(state.get("playback_owner_id") or "").strip()
+    )
+
+
+def _tiny_mvp_participant_is_muted(state: dict[str, Any], participant_id: str) -> bool:
+    participant_id = str(participant_id or "").strip()
+    if not participant_id or not isinstance(state, dict):
+        return False
+    moderator_state = state.get("moderator_state") if isinstance(state.get("moderator_state"), dict) else {}
+    participants = state.get("participants") if isinstance(state.get("participants"), list) else []
+    participant = next(
+        (item for item in participants if isinstance(item, dict) and str(item.get("id") or "").strip() == participant_id),
+        {},
+    )
+    is_human = str((participant or {}).get("kind") or "").strip().lower() == "human"
+    key = "muted_speaker_user_ids" if is_human else "muted_bot_ids"
+    muted = {str(item or "").strip() for item in moderator_state.get(key, []) if str(item or "").strip()}
+    return participant_id in muted
+
+
+def _tiny_mvp_current_speaker_blocks_user(state: dict[str, Any], participant_id: str) -> bool:
+    participant_id = str(participant_id or "").strip()
+    if not participant_id or not isinstance(state, dict):
+        return False
+    active_id = str(state.get("playback_owner_id") or state.get("current_id") or "").strip()
+    if not active_id or active_id == participant_id:
+        return False
+    moderator_state = state.get("moderator_state") if isinstance(state.get("moderator_state"), dict) else {}
+    if "allow_current_interruption" not in moderator_state:
+        return False
+    return not _bool_setting(moderator_state.get("allow_current_interruption"), False)
+
+
+def _bool_setting(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in {None, ""}:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _float_setting(value: Any, default: float = 0.0) -> float:
+    try:
+        if value in {None, ""}:
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _int_setting(value: Any, default: int = 0) -> int:
+    try:
+        if value in {None, ""}:
+            return int(default)
+        return int(float(value))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+_NATIVE_EXTRA_FIELDS: dict[str, dict[str, Any]] = {
+    "response_filter.enabled": {
+        "key": "response_filter.enabled",
+        "label": "Response filter enabled",
+        "type": "bool",
+        "default": False,
+    },
+    "response_filter.mode": {
+        "key": "response_filter.mode",
+        "label": "Response filter mode",
+        "type": "choice",
+        "choices": ["llm_sentinel", "llm_judge", "local_rules"],
+        "default": "llm_sentinel",
+    },
+    "response_filter.bot_names": {
+        "key": "response_filter.bot_names",
+        "label": "Response filter bot names",
+        "type": "text",
+        "default": "Neural Companion, NC, Companion",
+    },
+    "response_filter.default_when_uncertain": {
+        "key": "response_filter.default_when_uncertain",
+        "label": "Answer when response filter is uncertain",
+        "type": "bool",
+        "default": True,
+    },
+}
+
+
+def _native_settings_field(key: str) -> dict[str, Any] | None:
+    target = str(key or "").strip()
+    if target in _NATIVE_EXTRA_FIELDS:
+        return dict(_NATIVE_EXTRA_FIELDS[target])
+    for group in list(load_settings_schema().get("groups") or []):
+        for field in list(dict(group or {}).get("fields") or []):
+            if str(dict(field or {}).get("key") or "").strip() == target:
+                return dict(field)
+    return None
+
+
+def _normalize_native_setting(field: dict[str, Any], value: Any) -> Any:
+    kind = str(field.get("type") or "text").strip().lower()
+    label = str(field.get("label") or field.get("key") or "setting")
+    if kind == "bool":
+        if isinstance(value, str):
+            normalized: Any = value.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            normalized = bool(value)
+    elif kind == "int":
+        normalized = int(value)
+    elif kind == "float":
+        normalized = float(value)
+    elif kind == "choice":
+        choices = list(field.get("choices") or [])
+        match = next((item for item in choices if str(item) == str(value)), None)
+        if match is None:
+            raise ValueError(f"{value!r} is not valid for {label}.")
+        normalized = match
+    elif kind == "json":
+        if isinstance(value, str):
+            try:
+                normalized = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{label} must be valid JSON: {exc}") from exc
+        else:
+            normalized = copy.deepcopy(value)
+        expected = field.get("default")
+        if isinstance(expected, list) and not isinstance(normalized, list):
+            raise ValueError(f"{label} must be a JSON array.")
+        if isinstance(expected, dict) and not isinstance(normalized, dict):
+            raise ValueError(f"{label} must be a JSON object.")
+    else:
+        normalized = str(value or "")
+    if isinstance(normalized, (int, float)) and not isinstance(normalized, bool):
+        minimum = field.get("min")
+        maximum = field.get("max")
+        if minimum is not None and normalized < minimum:
+            raise ValueError(f"{label} is below its minimum of {minimum}.")
+        if maximum is not None and normalized > maximum:
+            raise ValueError(f"{label} exceeds its maximum of {maximum}.")
+    return normalized
+
+
+def _set(payload: dict[str, Any], dotted: str, value: Any) -> None:
+    parts = [part for part in str(dotted or "").split(".") if part]
+    if not parts:
+        raise KeyError("Discord Voice Bridge setting key is empty.")
+    current = payload
+    for part in parts[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    current[parts[-1]] = value
+
+
+def _get(payload: dict[str, Any], dotted: str, default: Any = None) -> Any:
+    current: Any = payload
+    for key in str(dotted or "").split("."):
+        if not isinstance(current, dict) or key not in current:
+            return default
+        current = current[key]
+    return current
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged

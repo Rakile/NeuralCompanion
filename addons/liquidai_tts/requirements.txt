@@ -1,0 +1,8 @@
+# Torch 2.11.0 is installed separately from the official CUDA 12.8 index.
+transformers==5.22.1
+accelerate==1.15.0
+librosa==1.0.0
+soundfile==0.14.0
+huggingface-hub==2.4.0
+safetensors==0.8.0
+peft==0.21.2

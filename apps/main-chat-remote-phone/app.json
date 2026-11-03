@@ -1,0 +1,94 @@
+{
+  "expo": {
+    "name": "NC Main Chat Remote",
+    "slug": "nc-main-chat-remote",
+    "version": "0.5.0",
+    "orientation": "portrait",
+    "scheme": "ncchatremotemerged",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow NC Main Chat Remote to send microphone replies to NeuralCompanion.",
+          "enableBackgroundPlayback": true,
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow NC Main Chat Remote to read Visual Reply images for sharing.",
+          "savePhotosPermission": "Allow NC Main Chat Remote to save Visual Reply images to your photo library.",
+          "granularPermissions": [
+            "photo"
+          ]
+        }
+      ],
+      "expo-secure-store",
+      "./plugins/with-ios-background-live",
+      "./plugins/with-android-cleartext",
+      "./plugins/with-phone-native-audio",
+      "expo-asset",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow NC Main Chat Remote to scan NeuralCompanion pairing QR codes.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow NC Main Chat Remote to choose chat photos and a private Live Fullscreen background."
+        }
+      ],
+      "expo-video",
+      "@config-plugins/react-native-webrtc"
+    ],
+    "ios": {
+      "bundleIdentifier": "com.neuralcompanion.mainchatremote",
+      "buildNumber": "17",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "NC Main Chat Remote connects to NeuralCompanion on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSAllowsLocalNetworking": true,
+          "NSExceptionDomains": {
+            "192.168.1.5": {
+              "NSExceptionAllowsInsecureHTTPLoads": true
+            },
+            "localhost": {
+              "NSExceptionAllowsInsecureHTTPLoads": true
+            }
+          }
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.neuralcompanion.mainchatremote",
+      "versionCode": 12,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#070A0E"
+      },
+      "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.CAMERA"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

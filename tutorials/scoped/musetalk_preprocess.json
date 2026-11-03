@@ -1,0 +1,368 @@
+{
+  "guides": [
+    {
+      "id": "overview_musetalk_preprocess",
+      "title": "MuseTalk Avatar Creator overview",
+      "description": "First-party MuseTalk preprocess/debug tab provided through the addon framework.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "First-party MuseTalk preprocess/debug tab provided through the addon framework.",
+        "Find focused guidance for Overview, Source, Metadata, Mask, Ranges, Overrides, Debug, Status."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_musetalk_preprocess_source",
+        "page_musetalk_preprocess_metadata",
+        "page_musetalk_preprocess_mask",
+        "page_musetalk_preprocess_ranges",
+        "page_musetalk_preprocess_overrides",
+        "page_musetalk_preprocess_debug",
+        "page_musetalk_preprocess_status",
+        "musetalk_preprocess"
+      ],
+      "steps": [
+        {
+          "title": "What MuseTalk Avatar Creator does",
+          "body": "First-party MuseTalk preprocess/debug tab provided through the addon framework. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Pick a pack and read the prepared avatar list",
+          "body": "In Overview, use Target avatar pack to choose the pack you intend to work in, then use Prepared avatar to view an existing entry. Read Source and prepared avatar to see which face is associated with it. If a pack is missing, confirm it exists before preparing anything here.",
+          "target": "tutorialControl_musetalk_source_description",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm you are in the creator card",
+          "body": "The MuseTalk Preprocess label heads the card stack and confirms you are in this creator rather than chat avatar settings. Changing the Target avatar pack here only changes what the creator displays; it does not convert an existing pack. Read each card heading before editing values.",
+          "target": "tutorialControl_musetalk_intro_label",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_musetalk_preprocess_source",
+        "page_musetalk_preprocess_metadata",
+        "page_musetalk_preprocess_mask",
+        "page_musetalk_preprocess_ranges",
+        "page_musetalk_preprocess_overrides",
+        "page_musetalk_preprocess_debug",
+        "page_musetalk_preprocess_status"
+      ],
+      "display_title": "Start tutorial · MuseTalk Avatar Creator",
+      "optional_chapters": [
+        "musetalk_preprocess"
+      ]
+    },
+    {
+      "id": "page_musetalk_preprocess_overview",
+      "title": "MuseTalk Avatar Creator · Overview",
+      "description": "Use Overview in MuseTalk Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Pick a pack and read the prepared avatar list",
+        "Confirm you are in the creator card"
+      ],
+      "steps": [
+        {
+          "title": "Pick a pack and read the prepared avatar list",
+          "body": "In Overview, use Target avatar pack to choose the pack you intend to work in, then use Prepared avatar to view an existing entry. Read Source and prepared avatar to see which face is associated with it. If a pack is missing, confirm it exists before preparing anything here.",
+          "target": "tutorialControl_musetalk_source_description",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm you are in the creator card",
+          "body": "The MuseTalk Preprocess label heads the card stack and confirms you are in this creator rather than chat avatar settings. Changing the Target avatar pack here only changes what the creator displays; it does not convert an existing pack. Read each card heading before editing values.",
+          "target": "tutorialControl_musetalk_intro_label",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_musetalk_preprocess",
+      "hidden": true
+    },
+    {
+      "id": "page_musetalk_preprocess_source",
+      "title": "MuseTalk Avatar Creator · Source",
+      "description": "Use Source in MuseTalk Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 211,
+      "topic": "Source",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Set the source path and avatar identity",
+        "Decide on recreation and optional startup cache"
+      ],
+      "steps": [
+        {
+          "title": "Set the source path and avatar identity",
+          "body": "In Source, set Source path to the input face file, then choose a clear Avatar ID you will recognize later. The Avatar destination label shows where prepared files will land. If you plan a separate test asset, use a distinct ID rather than reusing a live pack name.",
+          "target": "tutorialControl_musetalk_source_edit",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Decide on recreation and optional startup cache",
+          "body": "Enable Recreate existing folder only when you want to replace files at the destination; leaving it off preserves an existing folder. Faster avatar startup cache is optional and adds preparation work. Read Avatar destination again before proceeding, because recreation replaces existing files rather than reverting on cancellation.",
+          "target": "tutorialControl_musetalk_recreate_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_preprocess"
+    },
+    {
+      "id": "page_musetalk_preprocess_metadata",
+      "title": "MuseTalk Avatar Creator · Metadata",
+      "description": "Use Metadata in MuseTalk Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 212,
+      "topic": "Metadata",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review the emotion mapping",
+        "Check variants against the pack summary"
+      ],
+      "steps": [
+        {
+          "title": "Review the emotion mapping",
+          "body": "In Metadata, use Emotion tags to enter the labels this pack should expose, then read Emotion mapping to see what each label corresponds to. Pack emotion summary reflects the current pack, and Emotion variants lists prepared versions. Keep labels short and consistent with how chat references them.",
+          "target": "tutorialControl_musetalk_emotion_tags_edit",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check variants against the pack summary",
+          "body": "Compare the Emotion variants list with the Pack emotion summary. A variant shown in one but not the other points to a mapping mismatch rather than a mask problem. Correct the Emotion tags first; mask edits do not create or remove variants.",
+          "target": "tutorialControl_musetalk_emotion_tags_edit",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_preprocess"
+    },
+    {
+      "id": "page_musetalk_preprocess_mask",
+      "title": "MuseTalk Avatar Creator · Mask",
+      "description": "Use Mask in MuseTalk Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 213,
+      "topic": "Mask",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the mask profile before nudging values",
+        "Inspect overlay before keeping a mask change"
+      ],
+      "steps": [
+        {
+          "title": "Read the mask profile before nudging values",
+          "body": "In Mask, the Mask profile label identifies the current mouth mask. Use BBox shift and Parsing mode to reposition and reclassify the mouth region, and Extra margin, Left cheek width, Right cheek width to control how far the mask reaches. Enable Show mask overlay to see the effect on a frame.",
+          "target": "tutorialControl_unnamed_qlabel_qlabel#2",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Inspect overlay before keeping a mask change",
+          "body": "Turn on Show mask overlay, then adjust one control at a time so you can attribute any visible change to that value. If the overlay cuts into cheek or chin, reduce the relevant width first. Turning the overlay off returns a clean view without altering the underlying mask.",
+          "target": "tutorialControl_musetalk_debug_show_mask_overlay_quick_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_preprocess"
+    },
+    {
+      "id": "page_musetalk_preprocess_ranges",
+      "title": "MuseTalk Avatar Creator · Ranges",
+      "description": "Use Ranges in MuseTalk Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 214,
+      "topic": "Ranges",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Add a frame-specific mask range",
+        "Verify the interval matches the span you set"
+      ],
+      "steps": [
+        {
+          "title": "Add a frame-specific mask range",
+          "body": "In Ranges, read Frame-specific mask ranges, then set Range start and Range end to bound the span you want different behaviour on. Enable Passthrough / no mask when that span should not be masked at all. Use the Mask ranges table to review intervals and remove unintended ones.",
+          "target": "tutorialControl_unnamed_qlabel_qlabel#3",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Verify the interval matches the span you set",
+          "body": "Compare the new row in the Mask ranges table against Range start and Range end. A mismatch usually means the table holds an older interval. Delete that row rather than only altering the spins. Passthrough entries show no masking for their span, so confirm before relying on one.",
+          "target": "tutorialControl_unnamed_qlabel_qlabel#3",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_preprocess"
+    },
+    {
+      "id": "page_musetalk_preprocess_overrides",
+      "title": "MuseTalk Avatar Creator · Overrides",
+      "description": "Use Overrides in MuseTalk Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 215,
+      "topic": "Overrides",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read recorded mask overrides",
+        "Distinguish overrides from reusable settings"
+      ],
+      "steps": [
+        {
+          "title": "Read recorded mask overrides",
+          "body": "The Mask overrides table lists exact-frame edits that were stored as overrides. Read the rows to find which frames have a replacement mask. Note a frame before clearing any unwanted override so you can revisit it. This table reflects stored overrides, not a currently rendered preview.",
+          "target": "tutorialControl_musetalk_mask_overrides_table",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish overrides from reusable settings",
+          "body": "Edited mask overrides apply to individual frames, whereas mask profile and range settings describe reusable behaviour across a pack. Consult the overrides table when a single frame still looks wrong after a profile change. Fixing a common blend problem belongs in Mask, not in per-frame overrides.",
+          "target": "tutorialControl_musetalk_mask_override_description",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_preprocess"
+    },
+    {
+      "id": "page_musetalk_preprocess_debug",
+      "title": "MuseTalk Avatar Creator · Debug",
+      "description": "Use Debug in MuseTalk Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 216,
+      "topic": "Debug",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect a frame before rendering",
+        "Confirm the frame you read is the frame rendered"
+      ],
+      "steps": [
+        {
+          "title": "Inspect a frame before rendering",
+          "body": "In Debug, set Debug frame index to a frame you want to inspect, then enable Show mask overlay to see the mask on that frame. Read Frame indexing to confirm whether the spin counts from zero or one. Source frame info reports the actual loaded frame.",
+          "target": "tutorialControl_musetalk_debug_frame_index_spin",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm the frame you read is the frame rendered",
+          "body": "Compare Source frame info with the Debug frame index you set. A mismatch means the index was out of range or the source changed since load. Lower the index or reload the source, then re-enable overlay. Debug tools show but do not permanently store, so an inspected frame is not retained as an override.",
+          "target": "tutorialControl_unnamed_qlabel_qlabel#4",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_musetalk_preprocess"
+    },
+    {
+      "id": "page_musetalk_preprocess_status",
+      "title": "MuseTalk Avatar Creator · Status",
+      "description": "Use Status in MuseTalk Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.musetalk_preprocess",
+        "workspace": "addons",
+        "addon": "musetalk_preprocess_tab"
+      },
+      "category": "Addons / MuseTalk Avatar Creator",
+      "order": 217,
+      "topic": "Status",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the job outcome",
+        "Recover without repeating the whole job"
+      ],
+      "steps": [
+        {
+          "title": "Read the preparation stage and result",
+          "body": "If a preparation or render is running, wait for its reported completion and read the stage and result. A finished preview is not proof that every preparation step succeeded. If an error appears, identify its stage before retrying. The Overview guide separately explains how prepared assets relate to the pack.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover without repeating the whole job",
+          "body": "If a failure names a missing model or unreadable source, correct that specific input and retry once. Do not toggle Faster avatar startup cache or Recreate existing folder merely to clear an error. Only recreation replaces files at the destination; a successful job otherwise adds the prepared entry.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_musetalk_preprocess_overview"
+      ],
+      "course_id": "overview_musetalk_preprocess"
+    }
+  ]
+}

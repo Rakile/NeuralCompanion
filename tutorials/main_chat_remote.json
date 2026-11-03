@@ -1,0 +1,205 @@
+{
+  "id": "main_chat_remote",
+  "order": 18,
+  "title": "18. Main Chat Remote",
+  "description": "Pair a phone over LAN, verify a shared Main Chat exchange, and then explore optional Internet and media settings.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "workspace": "conversation"
+    },
+    {
+      "workspace": "addons",
+      "addon": "main_chat_remote_tab",
+      "section": "Internet",
+      "remote_tab": "internet"
+    },
+    {
+      "workspace": "addons",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "media"
+    },
+    {
+      "workspace": "addons",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "usage"
+    },
+    {
+      "workspace": "addons",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "advanced"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Begin with one LAN text exchange",
+      "body": "Open Connect in Main Chat Remote. LAN means your local network: use the same home network on the phone and desktop for this first exercise. A guest network can isolate devices even when its name looks related. Internet access through NC Relay is optional and comes after the local test.\n\nLocate the main Connect phone button, the Desktop bridge/Phone backend status lights and Pair your phone. The bridge connects NC to the phone backend, which serves the phone app. Neither a visible setup page nor a green service light proves a phone is connected. If this workspace is absent, enable the addon and restart if requested. Read aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "target": "remoteGetConnected",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Prepare the two local services",
+      "body": "Click Connect phone once. It prepares the backend and starts the desktop bridge and phone backend; first-time preparation may install required backend dependencies. Watch Connecting… change to Phone setup ready, with Desktop bridge Running and Phone backend Ready. Wait for this before trying to scan a QR.\n\nReady means the desktop services are prepared, not that pairing succeeded. Keep NC and the desktop awake. If readiness fails, read the connection message and Advanced service status to identify the failed component. Correct that reported problem before retrying Connect phone; repeatedly scanning cannot repair a backend that is not ready.",
+      "workspace": "addons",
+      "target": "remoteGetConnected",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Pair from inside the NC phone app",
+      "body": "In Pair your phone, choose Android or iPhone for matching setup help. Open the project’s NC app on that phone, scan this pairing QR from its connection screen, then tap Connect on the phone. Use the NC app’s scanner so it receives the connection information. The QR appears only once the backend is ready.\n\nConfirm Connected on the phone, then send “Hello from my phone.” Look for an assistant text reply before testing speech. If scanning is unavailable, expand Manual pairing and use its displayed setup details. Keep the QR/code private. If connection fails, check service readiness, the same local network and iPhone local-network permission where requested.",
+      "workspace": "addons",
+      "target": "remotePairPhone",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Verify the same turn on the desktop",
+      "body": "Open desktop Conversation → Main chat. Find “Hello from my phone” and the corresponding assistant reply. The phone is a remote view/controller of this conversation, not a separate chat history. Matching turns on both screens prove more than backend readiness alone.\n\nIf the phone shows Connected but no reply arrives, first verify the desktop runtime is ON and can answer an ordinary typed message. If a send is uncertain, check both transcripts before retrying to avoid duplicate turns. Loading context, changing Persona or resetting from the phone affects this shared session, so save first. Images and Visual Replies require their own configured providers and are optional after this text test.",
+      "workspace": "conversation",
+      "target": "conversationMessageList"
+    },
+    {
+      "title": "Optional: connect from another network",
+      "body": "After the LAN exchange works, open Internet. NC Relay helps the phone find your existing desktop bridge away from the home network; its encrypted peer connection still needs the desktop running. Follow the displayed account and connectivity instructions and use the same NC Relay account on both devices.\n\nCheck the phone’s live Internet connection and the desktop’s Active peer connections, then send another short text. A signed-in account or running LAN backend alone is not that test. If no peer appears, inspect relay readiness and account matching before troubleshooting the chat model. You can keep using LAN and return to this optional step later.",
+      "workspace": "addons",
+      "target": "remoteInternet",
+      "addon": "main_chat_remote_tab",
+      "section": "Internet",
+      "remote_tab": "internet"
+    },
+    {
+      "title": "Test speech before increasing media quality",
+      "body": "In Media, inspect Audio and video quality and keep the current preset for the first playback test. Play one short voice reply on the phone using a working desktop speech provider. Confirm you hear it before adding avatar video. Phone Pause, Resume and Stop affect shared playback, so use them deliberately.\n\nIf audio/video stutters, change one quality preset and reconnect the phone; quality changes do not interrupt current speech. Compare another short reply under the same network conditions. Idle animation caching stores reusable loops and needs a compatible native build and assets; it is optional. If text works but speech does not, check speech readiness and phone volume before changing video or cache settings.",
+      "workspace": "addons",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "media",
+      "target": "remoteMediaQuality"
+    },
+    {
+      "title": "Use traffic counters to understand a short test",
+      "body": "Open Data usage after your exchange. The counters combine traffic from all phones over LAN and Internet, with media/application totals and estimated transport overhead. Overhead is additional connection traffic beyond the content itself. These estimates are not a mobile operator’s bill.\n\nNote the totals, play one short reply, then compare again to see the effect of media. Reset statistics clears counters and leaves connections active; use it only if you want a fresh measurement. If traffic grows but nothing plays, inspect phone playback and Advanced service health. A nonzero counter alone does not prove a successful reply.",
+      "workspace": "addons",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "usage",
+      "target": "remoteDataUsage"
+    },
+    {
+      "title": "Stop or repair only the remote services you need",
+      "body": "Use Advanced for a problem that Connect cannot resolve. Expand Individual controls and read Service status for Desktop bridge and Phone backend. Identify the stopped or failed component before using its start/stop action. Keep the error visible long enough to understand it.\n\nThe main Stop button disconnects Internet and stops both remote services while keeping your account signed in; it is separate from Main Chat’s runtime power button. After a deliberate restart, wait for services to become ready and confirm Connected on the phone again. If just one component still fails, use its reported error rather than restarting every NC provider.",
+      "workspace": "addons",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "advanced",
+      "target": "remoteServices"
+    },
+    {
+      "title": "Optional: choose the phone’s reading layout",
+      "body": "On the phone, open Settings → Look → Interface design. Classic uses your saved color theme; Editorial changes the layout and palette. This setting is on the phone, so the desktop guide remains on Connect while you inspect it.\n\nAfter the basic exchange works, choose the layout you find easier to read and confirm the same conversation remains visible and connected. Switching should preserve conversation and playback. If the choice will not persist, reconnect and check that the installed phone build supports that design. You do not need to change the layout to complete pairing.",
+      "workspace": "addons",
+      "target": "remoteGetConnected",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Choose which device handles speech",
+      "body": "Phone Settings offers Backend HQ Audio and, on supported Android builds, Phone Native. HQ sends speech work through the desktop’s recognition and voices. Native performs recognition and speech on the phone; the desktop still generates the chat reply. This choice changes where speech runs, not which shared chat you use.\n\nKeep Backend HQ for a first test with your prepared desktop speech providers. Try one short spoken turn and check recognized text, reply and audible playback separately. Native requires explicit phone-model setup; read any unavailable reason before choosing it. If Native is unavailable, use HQ or finish that setup. Desktop reference voices need HQ and a compatible desktop engine.",
+      "workspace": "addons",
+      "target": "remoteCheck",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Plan a story without starting it",
+      "body": "On the phone, type /story_refine followed by an idea to open a private editable draft; an empty Editorial Story Plan also offers Refine a story. Try \"A missing lighthouse signal during a storm\" and review premise, constraints, opening cue, and beats.\n\nSend to Chat submits the draft as a normal message. Create Story Plan saves it without starting the story, which is how you plan without committing. Start story separately sends the opening cue when you are ready.\n\nSuccess: the draft is saved or sent exactly as intended, and no spoken opening played unless you chose Start story. Recovery: if a draft appears without your request, close it without saving and check the phone build version.",
+      "workspace": "addons",
+      "target": "remoteCheck",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Control story pace and continuation",
+      "body": "Story Plan supports automatic or manual progression, beat correction, and Slow, Medium, or Fast pace; expand More for additional controls. The reply double-tap menu also offers Next beat and pace without opening the plan.\n\nAdd beats opens a continuation draft; Add beats saves it, and Add & continue also requests continuation when available. Review the draft before either action, since continuation changes the shared conversation. Main Chat plans are separate from MPRC Play.\n\nSuccess: the plan advances as expected and a saved continuation shows up in the beats list. Recovery: if a beat is skipped, switch to manual progression, correct the beat, and re-open the continuation draft.",
+      "workspace": "addons",
+      "target": "remoteCheck",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Save and reopen named stories",
+      "body": "In phone Story Library, Classic uses Save Story As and Save; Editorial uses Save current story, then Save as new or Save version, then Save to library. Choose the form that matches your current interface design.\n\nSaved versions include chat, images, plan progress, cast assets, and enabled continuity memory. Open or Open paused replaces shared chat and stops playback without generating a reply, so save current work first. Quick Save and Quick Load are separate features and do not create named entries.\n\nSuccess: the library lists the new named version and Open paused restores it. Recovery: if a save is missing, confirm you pressed Save to library in Editorial or Save in Classic, then reopen the library.",
+      "workspace": "addons",
+      "target": "remoteCheck",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Use Continuous Mode deliberately",
+      "body": "On a compatible phone, Continuous Mode offers Off, Simple, and AI Guided plus a manual queue. Start after a normal turn with Main Chat running, Backend HQ selected, and a connected foreground phone; unsupported builds hide the option.\n\nReview delay and cycle limit before pressing Start. New turns wait for whole-reply playback completion, which is why a foreground phone and stable connection matter. Lost connection, live capture, or a changed session can pause it; Resume is explicit.\n\nSuccess: the mode produces a new turn only after the previous reply finishes playing. Recovery: if it pauses, read the reason on the phone, restore the foreground connection, and choose Resume deliberately.",
+      "workspace": "addons",
+      "target": "remoteCheck",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Add optional Soundscape",
+      "body": "Connect includes Import files and Import folder / AudioFX. The goal is background music, ambience, and optional effects attached to your stories. Inspect the scan selection before importing a small batch; originals stay in place.\n\nOn the phone, use Soundscape to enable them. Story matches saved tagged sounds rather than generating audio. Preview and edit tags before enabling it for a longer story, since untagged files rarely match.\n\nSuccess: a previewed sound plays where expected during a story. Recovery: if nothing matches, open the sound's tags, add the missing mood or scene labels, and retest a short scene.",
+      "workspace": "addons",
+      "target": "remoteGetConnected",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Review the phone chat cast",
+      "body": "In phone Tools → Chat characters, add a saved card to the current conversation and review its Character, Voice, and Portrait tabs. The goal is a cast that generates and speaks as intended in the shared chat.\n\nCharacter voices and Allow new characters are separate switches. Distinct voices need Backend HQ and a reference-capable desktop engine. Automatic add characters additionally creates descriptions, ElevenLabs voices, and portraits using generation credits; leave it off until providers and costs are understood.\n\nSuccess: each added character replies in its own voice and portrait. Recovery: if voices are identical, confirm Backend HQ is selected and the desktop engine supports voice references, then retest one character.",
+      "workspace": "addons",
+      "target": "remoteCheck",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    },
+    {
+      "title": "Tune spoken narration",
+      "body": "Phone Settings → Voice offers Original or Storyteller narration. Storyteller keeps natural speed and adds light punctuation pauses from the next ordinary audio segment, including Replay; avatar-synchronized replies keep their original timing.\n\nThe goal is narration that suits a long story. Compare one short reply before a long story so timing problems do not compound. This setting is separate from Soundscape, which mixes background music, ambience, and effects.\n\nSuccess: the narrated reply has the pace and pauses you chose. Recovery: if timing seems off, switch back to Original, retest the same reply, and only then try Storyteller again.",
+      "workspace": "addons",
+      "target": "remoteCheck",
+      "addon": "main_chat_remote_tab",
+      "section": "LAN",
+      "remote_tab": "connect"
+    }
+  ],
+  "before_you_start": "Enable Main Chat Remote in Addon Manager and restart NC if requested. Install a compatible project phone app and put the phone and desktop on the same local network for the first exercise. First get a desktop Main Chat reply working and save any conversation you care about: the phone uses that same conversation. Grant the phone permissions it requests for the features you use. The first goal is one typed phone message and a matching desktop reply; microphone, video and Internet access can follow. Reading never starts services or pairs a device.",
+  "category": "Workflows",
+  "learning_outcomes": [
+    "Start the backing service and pair a phone over LAN.",
+    "Control the shared Main Chat conversation and media safely.",
+    "Plan and save stories, and use optional continuous or soundscape features."
+  ],
+  "contextual_guides": [
+    "overview_main_chat_remote"
+  ]
+}

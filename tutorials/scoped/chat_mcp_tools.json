@@ -1,0 +1,81 @@
+{
+  "guides": [
+    {
+      "id": "overview_chat_mcp_tools",
+      "title": "Chat MCP Tools overview",
+      "description": "Persona-selected MCP tools for ordinary chat through MCP Core.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chat_mcp_tools",
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "mcp"
+      },
+      "category": "Addons / Chat MCP Tools",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Persona-selected MCP tools for ordinary chat through MCP Core.",
+        "Find focused guidance for Persona tools."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_chat_mcp_tools_persona_tools"
+      ],
+      "steps": [
+        {
+          "title": "What Chat MCP Tools does",
+          "body": "Persona-selected MCP tools for ordinary chat through MCP Core. This integration uses the host page shown here rather than a separate settings tab.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "page_chat_mcp_tools_persona_tools"
+      ],
+      "display_title": "Start tutorial · Chat MCP Tools"
+    },
+    {
+      "id": "page_chat_mcp_tools_persona_tools",
+      "title": "Chat MCP Tools · Persona tools",
+      "description": "Use Persona tools in Chat MCP Tools.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_mcp_tools",
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "mcp"
+      },
+      "category": "Addons / Chat MCP Tools",
+      "order": 210,
+      "topic": "Persona tools",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Understand who supplies tool access",
+        "Verify a permitted tool stays opt-in"
+      ],
+      "steps": [
+        {
+          "title": "Understand who supplies tool access",
+          "body": "Chat MCP Tools exposes tools chosen for a Persona through MCP Core. Selection and permissions originate in Persona MCP, not here. This page explains readiness: a tool appears for a chat only when the Persona allows it and MCP Core permits it. Opening this page never grants or runs a tool.",
+          "target": "personaWorkspace",
+          "fallback_target": "personaWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish tool selection from execution",
+          "body": "Read this Persona's selected tools and their availability. Selection, MCP Core approval and a running server are separate requirements. A later chat request can test an allowed tool, but opening this guide executes nothing. Use the related Persona MCP or MCP Core guides when you need to inspect another permission layer.",
+          "target": "personaWorkspace",
+          "fallback_target": "personaWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_persona_mcp",
+        "page_mcp_core_permissions"
+      ],
+      "course_id": "overview_chat_mcp_tools"
+    }
+  ]
+}

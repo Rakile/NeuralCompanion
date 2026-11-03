@@ -1,0 +1,209 @@
+{
+  "guides": [
+    {
+      "id": "overview_web_intelligence",
+      "title": "Web Search overview",
+      "description": "Grounded MCP web evidence for normal chat with addon-local SearXNG and DuckDuckGo server installation and controls.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.web_intelligence",
+        "workspace": "addons",
+        "addon": "web_intelligence_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Web Search",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Grounded MCP web evidence for normal chat with addon-local SearXNG and DuckDuckGo server installation and controls.",
+        "Find focused guidance for Overview, Servers, Test."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_web_intelligence_servers",
+        "page_web_intelligence_test",
+        "web_search"
+      ],
+      "steps": [
+        {
+          "title": "What Web Search does",
+          "body": "Grounded MCP web evidence for normal chat with addon-local SearXNG and DuckDuckGo server installation and controls. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Understand the three separate search choices",
+          "body": "In Overview, Enable web search is the master switch, which blocks searches including tests when off. Conversation search mode decides when normal chat searches. The separate Servers section has its own running state. Read these states on this page before making changes.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose when chat should search",
+          "body": "Pick Conversation search mode for future use. Automatic uses freshness matching, while every turn retrieves even when a question may not need the web. Start with small Maximum search results and Pages to read. Read the reported mode rather than assuming a command started servers.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Clear cache only with a reason",
+          "body": "Clear search cache removes stored evidence when you need a fresh retrieval. It does not change provider settings. Clear only for a reason, then rerun a small query and inspect its diagnostic and cache status to confirm new evidence was fetched.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_web_intelligence_servers",
+        "page_web_intelligence_test"
+      ],
+      "display_title": "Start tutorial · Web Search",
+      "optional_chapters": [
+        "web_search"
+      ]
+    },
+    {
+      "id": "page_web_intelligence_overview",
+      "title": "Web Search · Overview",
+      "description": "Use Overview in Web Search.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.web_intelligence",
+        "workspace": "addons",
+        "addon": "web_intelligence_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Web Search",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Understand the three separate search choices",
+        "Choose when chat should search",
+        "Clear cache only with a reason"
+      ],
+      "steps": [
+        {
+          "title": "Understand the three separate search choices",
+          "body": "In Overview, Enable web search is the master switch, which blocks searches including tests when off. Conversation search mode decides when normal chat searches. The separate Servers section has its own running state. Read these states on this page before making changes.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose when chat should search",
+          "body": "Pick Conversation search mode for future use. Automatic uses freshness matching, while every turn retrieves even when a question may not need the web. Start with small Maximum search results and Pages to read. Read the reported mode rather than assuming a command started servers.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Clear cache only with a reason",
+          "body": "Clear search cache removes stored evidence when you need a fresh retrieval. It does not change provider settings. Clear only for a reason, then rerun a small query and inspect its diagnostic and cache status to confirm new evidence was fetched.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_web_intelligence",
+      "hidden": true
+    },
+    {
+      "id": "page_web_intelligence_servers",
+      "title": "Web Search · Servers",
+      "description": "Use Servers in Web Search.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.web_intelligence",
+        "workspace": "addons",
+        "addon": "web_intelligence_tab",
+        "section": "Servers"
+      },
+      "category": "Addons / Web Search",
+      "order": 211,
+      "topic": "Servers",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Check endpoints without starting servers",
+        "Install and start NC-managed servers",
+        "Using an external endpoint"
+      ],
+      "steps": [
+        {
+          "title": "Check endpoints without starting servers",
+          "body": "Open Servers and read Server installation status and the SearXNG MCP and DuckDuckGo MCP endpoints. Check endpoints probes what is already running; it does not start servers. Use it when you are not sure whether a backend is live.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Install and start NC-managed servers",
+          "body": "For NC-managed local servers that are not installed, use Install / repair search servers and wait for completion. Then Start local search servers and Check endpoints. Look for a responding endpoint before continuing. If startup fails, check the configured endpoint instead of reinstalling repeatedly.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Using an external endpoint",
+          "body": "When you rely on an existing external endpoint, confirm the address and readiness with the service that runs it. NC's install and start controls apply to NC-managed local servers. Checking endpoints does not validate that external service for you.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_web_intelligence"
+    },
+    {
+      "id": "page_web_intelligence_test",
+      "title": "Web Search · Test",
+      "description": "Use Test in Web Search.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.web_intelligence",
+        "workspace": "addons",
+        "addon": "web_intelligence_tab",
+        "section": "Test"
+      },
+      "category": "Addons / Web Search",
+      "order": 212,
+      "topic": "Test",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Run one query without a chat turn",
+        "Endpoint success is not retrieval success",
+        "Optional followup: check a chat source"
+      ],
+      "steps": [
+        {
+          "title": "Run one deliberate search test",
+          "body": "Enter a small Search query, such as Python official documentation, and choose Run test search when you intend to contact the configured search backend. Read Diagnostic result and any returned evidence. If the master switch or servers are unavailable, keep the error and use their separate setup guides after this section.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Endpoint success is not retrieval success",
+          "body": "A responding endpoint probe alone does not prove results can be retrieved. Read the test result for the provider and at least one relevant result. If unavailable or failed, return to Servers and Check endpoints before continuing to chat.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Optional followup: check a chat source",
+          "body": "Once a test returns usable evidence, you can optionally send a later chat question with search enabled. If you do, optionally open a supplied source and compare its claim and date, since retrieved pages can be incomplete or wrong. Treat that chat step as an optional follow-up, not part of this test.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_web_intelligence_overview",
+        "page_web_intelligence_servers"
+      ],
+      "course_id": "overview_web_intelligence"
+    }
+  ]
+}

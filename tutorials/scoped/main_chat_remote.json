@@ -1,0 +1,249 @@
+{
+  "guides": [
+    {
+      "id": "overview_main_chat_remote",
+      "title": "Main Chat Remote overview",
+      "description": "LAN phone bridge with an optional secure Internet gateway for the real NeuralCompanion main chat runtime.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.main_chat_remote",
+        "workspace": "addons",
+        "addon": "main_chat_remote_tab",
+        "remote_tab": "connect"
+      },
+      "category": "Addons / Main Chat Remote",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "LAN phone bridge with an optional secure Internet gateway for the real NeuralCompanion main chat runtime.",
+        "Find focused guidance for connect, internet, media, usage, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_main_chat_remote_connect",
+        "page_main_chat_remote_internet",
+        "page_main_chat_remote_media",
+        "page_main_chat_remote_usage",
+        "page_main_chat_remote_advanced",
+        "main_chat_remote"
+      ],
+      "steps": [
+        {
+          "title": "What Main Chat Remote does",
+          "body": "LAN phone bridge with an optional secure Internet gateway for the real NeuralCompanion main chat runtime. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "page_main_chat_remote_connect",
+        "page_main_chat_remote_internet",
+        "page_main_chat_remote_media",
+        "page_main_chat_remote_usage",
+        "page_main_chat_remote_advanced"
+      ],
+      "display_title": "Start tutorial · Main Chat Remote",
+      "optional_chapters": [
+        "main_chat_remote"
+      ]
+    },
+    {
+      "id": "page_main_chat_remote_connect",
+      "title": "Main Chat Remote · connect",
+      "description": "Use connect in Main Chat Remote.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.main_chat_remote",
+        "workspace": "addons",
+        "addon": "main_chat_remote_tab",
+        "remote_tab": "connect"
+      },
+      "category": "Addons / Main Chat Remote",
+      "order": 210,
+      "topic": "connect",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Prepare the bridge before scanning",
+        "Pair from the phone app",
+        "Verify the exchange, not the indicator"
+      ],
+      "steps": [
+        {
+          "title": "Prepare the bridge before scanning",
+          "body": "In Connect, click the main Connect phone button once. Wait for Phone setup ready and for Desktop bridge and Phone backend to report Running and Ready. Scannable QR codes appear only after that. Read the connection message on failure; rescanning cannot fix a backend that never became ready.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Pair from the phone app",
+          "body": "Choose Android or iPhone under Pair your phone, open the phone app, and scan the QR from inside the app. Tap Connect on the phone. Confirm Connected on the phone, then send 'Hello from my phone' and wait for a text reply. Keep the QR private; if scanning fails, use Manual pairing for displayed setup details.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Verify the exchange, not the indicator",
+          "body": "A green service light means the desktop services are prepared; it does not prove a phone is connected. The real success check is the assistant text reply in the phone app. If the phone shows Connected but no reply arrives, confirm the same local network before retrying.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_main_chat_remote"
+    },
+    {
+      "id": "page_main_chat_remote_internet",
+      "title": "Main Chat Remote · internet",
+      "description": "Use internet in Main Chat Remote.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.main_chat_remote",
+        "workspace": "addons",
+        "addon": "main_chat_remote_tab",
+        "remote_tab": "internet"
+      },
+      "category": "Addons / Main Chat Remote",
+      "order": 211,
+      "topic": "internet",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Add the optional Internet relay",
+        "Recognize a working relay test"
+      ],
+      "steps": [
+        {
+          "title": "Add the optional Internet relay",
+          "body": "After a working LAN exchange, open Internet. Follow the displayed instructions to sign in to the NC Relay account on both desktop and phone. The encrypted peer path still relies on the desktop being running. Record the phone’s live connection state and Active peer connections, then send another short text.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recognize a working relay test",
+          "body": "A signed-in account alone is not the test. Successful relay traffic requires a live peer shown in Active peer connections and a text reply arriving on the phone away from the LAN. If no peer appears, check relay readiness and matching accounts. You can keep using LAN in the meantime.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_main_chat_remote"
+    },
+    {
+      "id": "page_main_chat_remote_media",
+      "title": "Main Chat Remote · media",
+      "description": "Use media in Main Chat Remote.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.main_chat_remote",
+        "workspace": "addons",
+        "addon": "main_chat_remote_tab",
+        "remote_tab": "media"
+      },
+      "category": "Addons / Main Chat Remote",
+      "order": 212,
+      "topic": "media",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Test speech before raising quality",
+        "Know which quality control you changed"
+      ],
+      "steps": [
+        {
+          "title": "Test speech before raising quality",
+          "body": "In Media, note the current Quality preset and leave it unchanged for the first playback test. Request one short voice reply and confirm you hear it in the phone app. If it stutters, change one quality setting and reconnect the phone. Keep settings modest to avoid unnecessary data.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Know which quality control you changed",
+          "body": "The Quality preset bundles Opus (kbit/s), H.264 target (kbit/s), Video maximum width (px) and Video frames per second. Editing a bundle value directly changes only that field; the preset label may not follow. Cache idle animations on phone is optional and needs a compatible native build.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_main_chat_remote"
+    },
+    {
+      "id": "page_main_chat_remote_usage",
+      "title": "Main Chat Remote · usage",
+      "description": "Use usage in Main Chat Remote.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.main_chat_remote",
+        "workspace": "addons",
+        "addon": "main_chat_remote_tab",
+        "remote_tab": "usage"
+      },
+      "category": "Addons / Main Chat Remote",
+      "order": 213,
+      "topic": "usage",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read traffic after one short exchange",
+        "Reset without expecting a disconnect"
+      ],
+      "steps": [
+        {
+          "title": "Read traffic after one short exchange",
+          "body": "Open Data usage after a text exchange. Counters combine traffic from all phones over LAN and Internet, with media and application totals plus estimated transport overhead. Overhead is extra connection traffic beyond content. These are estimates, not a mobile operator bill. Note totals, play a short reply, then compare again.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Reset without expecting a disconnect",
+          "body": "Reset statistics clears counters but leaves connections active. Use it when you want a fresh measurement for a single playback test. If numbers grow but nothing plays, inspect phone playback and Advanced service health before resetting again. A nonzero counter alone does not prove a successful reply.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_main_chat_remote"
+    },
+    {
+      "id": "page_main_chat_remote_advanced",
+      "title": "Main Chat Remote · advanced",
+      "description": "Use advanced in Main Chat Remote.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.main_chat_remote",
+        "workspace": "addons",
+        "addon": "main_chat_remote_tab",
+        "remote_tab": "advanced"
+      },
+      "category": "Addons / Main Chat Remote",
+      "order": 214,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Fix one component at a time",
+        "Distinguish main Stop from NC power"
+      ],
+      "steps": [
+        {
+          "title": "Fix one component at a time",
+          "body": "In Advanced, expand Individual controls and read Service status for Desktop bridge and Phone backend. Identify the stopped or failed component before using its start or stop action. Keep the error visible while you read it, and fix that reported problem rather than restarting every NC provider.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish main Stop from NC power",
+          "body": "The main Stop button disconnects Internet and stops both remote services while keeping your account signed in. It is separate from Main Chat’s runtime power button. After a deliberate restart, wait for services to become ready and confirm Connected on the phone again before resuming tests.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_main_chat_remote"
+    }
+  ]
+}

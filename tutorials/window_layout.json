@@ -1,0 +1,74 @@
+{
+  "id": "window_layout",
+  "order": 35,
+  "title": "35. Views and Floating Windows",
+  "description": "Show or hide views, arrange panels, and simplify an Avatar Preview window.",
+  "category": "Workflows",
+  "estimated_minutes": 5,
+  "speech_backend": "chatterbox",
+  "before_you_start": "You can read this guide without changing your layout. Follow a step only when you want to try its controls; Reset layout asks for confirmation. Guide narration needs Chatterbox selected and loaded with the top-right power button OFF → ON; Windows TTS is the fallback. The guide never detaches windows or moves panels for you.",
+  "learning_outcomes": [
+    "Restore hidden views from the application header.",
+    "Dock or float panels and choose Always on top.",
+    "Use Avatar only and restore the normal preview and layout."
+  ],
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "conversation"
+    },
+    {
+      "workspace": "musetalk"
+    }
+  ],
+  "global_targets": [
+    "mainNavigationMenuButton"
+  ],
+  "steps": [
+    {
+      "title": "Find the layout menu",
+      "body": "Click or right-click the NeuralCompanion logo and name at the top left to open Views & Tabs.\n\nThis is your way back when view buttons are hidden. Use Read aloud for automatic narration, or Hear step for only this instruction.\n\nSuccess check: the Views & Tabs menu lists your main views and their tab buttons.",
+      "workspace": "conversation",
+      "target": "mainNavigationMenuButton"
+    },
+    {
+      "title": "Choose which views are visible",
+      "body": "The menu controls both each main view and its tab button. Clear a view to hide it; select it again to restore it. Show all views and tabs restores the complete set.\n\nFor example, keep Conversation visible while hiding workspaces you seldom use, then restore Runtime from this same menu when configuring providers.\n\nSuccess check: hidden views disappear and restored views return as tab buttons.",
+      "workspace": "conversation",
+      "target": "mainNavigationMenuButton"
+    },
+    {
+      "title": "Arrange panels without changing your providers",
+      "body": "Right-click a workspace tab to choose Left, Right, Above, Below, Tabbed in main workspace, or Detach to floating window. Unlock panel positions in the header menu before rearranging.\n\nLock panel positions locks docking and main-panel splitters; floating windows can still be moved or closed. These changes affect layout only.\n\nSuccess check: the panel moves where you chose and feels locked when you re-lock positions.",
+      "workspace": "conversation",
+      "target": "mainNavigationMenuButton"
+    },
+    {
+      "title": "Keep a floating window above other apps",
+      "body": "In a floating workspace, toggle Always on top in its header. This applies to that floating window and is remembered with its layout.\n\nTurn it off to restore normal window stacking. Use Dock or its tab context menu to bring the workspace back into the main window.\n\nSuccess check: the floating window stays above other apps, then docks again when you choose Dock.",
+      "workspace": "conversation",
+      "target": "mainNavigationMenuButton"
+    },
+    {
+      "title": "Show only the avatar",
+      "body": "In Avatar Preview, choose Float preview to detach it. In that floating window, choose Avatar only to remove the surrounding NC controls and padding while keeping the Windows title bar.\n\nHover to find the restore control, or press Esc, to return to the normal window. Avatar-only mode and the window size are remembered between restarts.\n\nSuccess check: only the avatar image remains in the floating window, and Esc restores the normal view.",
+      "workspace": "musetalk",
+      "target": "floatMusetalkPreviewButton",
+      "fallback_target": "mainNavigationMenuButton",
+      "target_hint": "Restore Avatar Preview from the NeuralCompanion header menu if its view is hidden. The guide does not detach windows automatically."
+    },
+    {
+      "title": "Restore the standard layout",
+      "body": "Choose Reset layout… from the NeuralCompanion header menu. The confirmation explains that it shows all main tabs, unlocks panel positions, and restores default docking positions and sizes.\n\nCancel leaves your layout as it is. Conversation also has its own Controls menu for showing or hiding Save, Save as…, Load…, Memory, and other chat controls.\n\nSuccess check: after confirming, all tabs are visible and panels return to their default positions.",
+      "workspace": "conversation",
+      "target": "mainNavigationMenuButton"
+    }
+  ],
+  "contextual_guides": [
+    "page_conversation_overview",
+    "page_avatar_preview_overview",
+    "page_visuals_overview",
+    "page_addons_overview",
+    "runtime_session_overview"
+  ]
+}

@@ -1,0 +1,169 @@
+{
+  "guides": [
+    {
+      "id": "overview_lmstudio_sdk_provider",
+      "title": "LM Studio Chat Provider overview",
+      "description": "Default LM Studio provider using the Python SDK and NC's standard chat and persona MCP contracts.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chat_provider_lmstudio_sdk",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "lmstudio_sdk"
+      },
+      "category": "Runtime / LLM / LM Studio Chat Provider",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Default LM Studio provider using the Python SDK and NC's standard chat and persona MCP contracts.",
+        "Find focused guidance for Connection, Model, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_lmstudio_sdk_provider_connection",
+        "page_lmstudio_sdk_provider_model",
+        "page_lmstudio_sdk_provider_generation",
+        "language_providers"
+      ],
+      "steps": [
+        {
+          "title": "What LM Studio Chat Provider does",
+          "body": "Default LM Studio provider using the Python SDK and NC's standard chat and persona MCP contracts. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_lmstudio_sdk_provider_connection",
+        "page_lmstudio_sdk_provider_model",
+        "page_lmstudio_sdk_provider_generation"
+      ],
+      "display_title": "Start tutorial · LM Studio Chat Provider",
+      "optional_chapters": [
+        "language_providers"
+      ]
+    },
+    {
+      "id": "page_lmstudio_sdk_provider_connection",
+      "title": "LM Studio Chat Provider · Connection",
+      "description": "Use Connection in LM Studio Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_lmstudio_sdk",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "lmstudio_sdk"
+      },
+      "category": "Runtime / LLM / LM Studio Chat Provider",
+      "order": 210,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Check the local endpoint settings",
+        "Required setup before testing"
+      ],
+      "steps": [
+        {
+          "title": "Check the local endpoint settings",
+          "body": "Read the endpoint details this provider expects in Connection. They should point at the local LM Studio server. If LM Studio is not running, connection attempts fail even with correct settings, so start the app before testing.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Required setup before testing",
+          "body": "This provider uses the Python SDK, so the environment must be able to import it. Read the requirements shown in Connection. If a requirement is missing, correct it before the test rather than assuming the model selector is wrong.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_lmstudio_sdk_provider"
+    },
+    {
+      "id": "page_lmstudio_sdk_provider_model",
+      "title": "LM Studio Chat Provider · Model",
+      "description": "Use Model in LM Studio Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_lmstudio_sdk",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "lmstudio_sdk"
+      },
+      "category": "Runtime / LLM / LM Studio Chat Provider",
+      "order": 211,
+      "topic": "Model",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Select an exposed model",
+        "Test connection explicitly"
+      ],
+      "steps": [
+        {
+          "title": "Read models reported by LM Studio",
+          "body": "Open the chat-model selector and inspect the models reported by the connected LM Studio service. A downloaded model and a model ready to answer are different states. If the expected model is missing, inspect the provider's connection and refresh result before entering an unverified name.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Test connection explicitly",
+          "body": "Use the Test connection control to confirm the SDK, endpoint and loaded model all work together. Reading selected state is not verification. On failure, check whether LM Studio is running, whether a model is loaded, then whether the Python SDK requirement is met.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_lmstudio_sdk_provider"
+    },
+    {
+      "id": "page_lmstudio_sdk_provider_generation",
+      "title": "LM Studio Chat Provider · Generation",
+      "description": "Use Generation in LM Studio Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_lmstudio_sdk",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "lmstudio_sdk"
+      },
+      "category": "Runtime / LLM / LM Studio Chat Provider",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Adjust reply shaping",
+        "Watch load and context limits"
+      ],
+      "steps": [
+        {
+          "title": "Adjust reply shaping",
+          "body": "Generation controls response behavior such as length or creativity. Change one value and send a short chat message to compare. Local models can respond slowly, so wait for the reply before deciding a setting had no effect.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Watch load and context limits",
+          "body": "Local models are limited by memory and context window. If generate settings cause the model to fail or truncate, reduce the demand rather than repeatedly raising values. Note which change preceded the failure so you can restore a working state.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_lmstudio_sdk_provider"
+    }
+  ]
+}

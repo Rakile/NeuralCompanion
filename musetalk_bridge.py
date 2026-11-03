@@ -1,0 +1,614 @@
+import json
+import os
+import queue
+import re
+import subprocess
+import threading
+import uuid
+from collections import deque
+
+from core import worker_runtime
+
+MUSE_BRIDGE_DIAGNOSTIC_ECHO = False
+MUSE_BRIDGE_WORKER_LOG = str(os.environ.get("NC_MUSETALK_WORKER_LOG", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+MUSE_BRIDGE_ALLOW_UNSUPPORTED_CUDA = str(os.environ.get("NC_MUSETALK_ALLOW_UNSUPPORTED_CUDA", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+MUSE_BRIDGE_STRICT_CUDA_CHECK = str(os.environ.get("NC_MUSETALK_STRICT_CUDA_COMPAT_CHECK", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+MUSE_BRIDGE_CPU_THREAD_LIMITS = {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "TORCH_NUM_THREADS": "1",
+    "TORCH_NUM_INTEROP_THREADS": "1",
+}
+_PROGRESS_LINE_RE = re.compile(r"^\s*\d+%\|.*\|\s*\d+/\d+\s*\[")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _is_progress_noise_line(line):
+    text = str(line or "").strip()
+    if not text:
+        return False
+    if _PROGRESS_LINE_RE.match(text) and "it/s" in text:
+        return True
+    return False
+
+
+def _strip_ansi_escape_codes(text):
+    return _ANSI_ESCAPE_RE.sub("", str(text or ""))
+
+
+def _format_image_read_error_message(payload):
+    path = str((payload or {}).get("path", "") or "")
+    context = str((payload or {}).get("context", "") or "image").strip() or "image"
+    basename = os.path.basename(path) if path else "<unknown>"
+    exists = (payload or {}).get("exists")
+    size_bytes = (payload or {}).get("size_bytes")
+    chunk_id = str((payload or {}).get("chunk_id", "") or "").strip()
+    details = [
+        f"[MuseTalkImage] Could not read {context}: {basename}",
+        f"path={path or '<unknown>'}",
+    ]
+    if exists is not None:
+        details.append(f"exists={bool(exists)}")
+    if size_bytes is not None:
+        details.append(f"size={size_bytes}")
+    if chunk_id:
+        details.append(f"chunk={chunk_id}")
+    return " ".join(details)
+
+
+def _torch_compatibility_timeout_seconds():
+    try:
+        return max(5.0, min(300.0, float(os.environ.get("NC_MUSETALK_CUDA_CHECK_TIMEOUT_SECONDS", "30") or "30")))
+    except Exception:
+        return 30.0
+
+
+def _parse_torch_cuda_compatibility_output(stdout):
+    cleaned = _strip_ansi_escape_codes(stdout)
+    decoder = json.JSONDecoder()
+    payload = None
+    for index, char in enumerate(cleaned):
+        if char != "{":
+            continue
+        try:
+            candidate, _end = decoder.raw_decode(cleaned[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            payload = candidate
+    if payload is None:
+        raise json.JSONDecodeError("No JSON object found in MuseTalk torch compatibility output", cleaned, 0)
+    return payload
+
+
+class MuseTalkBridge:
+    def __init__(
+        self,
+        root_dir="MuseTalk",
+        worker_options=None,
+        *,
+        worker_supervisor=None,
+        worker_lease_factory=None,
+    ):
+        self.root_dir = os.path.abspath(root_dir)
+        self.python_exe = os.path.join(self.root_dir, ".venv", "Scripts", "python.exe")
+        self.worker_script = os.path.join(self.root_dir, "musetalk_worker.py")
+        self.runtime_dir = os.path.join(self.root_dir, "runtime")
+        self.log_path = os.path.join(self.runtime_dir, "musetalk_worker.log")
+        self.worker_options = dict(worker_options or {})
+        self.log_worker_output = bool(self.worker_options.get("log_worker_output", MUSE_BRIDGE_WORKER_LOG))
+        self.process = None
+        self.pending = {}
+        self._reader_thread = None
+        self._reader_handle = None
+        self._process_handle = None
+        self._lock = threading.Lock()
+        self._write_lock = threading.Lock()
+        self._pending_lock = threading.Lock()
+        self._stopping = False
+        self._starting = False
+        self._start_generation = 0
+        self._startup_done = threading.Event()
+        self._startup_done.set()
+        self._stop_done = threading.Event()
+        self._stop_done.set()
+        self._stop_error = None
+        try:
+            self._shutdown_timeout_seconds = max(
+                0.05,
+                min(
+                    30.0,
+                    float(self.worker_options.get("shutdown_timeout_seconds", 5.0) or 5.0),
+                ),
+            )
+        except (TypeError, ValueError):
+            self._shutdown_timeout_seconds = 5.0
+        self._recent_output = deque(maxlen=12)
+        self._torch_compat_checked = False
+        self._worker_supervisor = worker_supervisor or worker_runtime.create_supervisor()
+        self._worker_lease_factory = worker_lease_factory or (
+            worker_runtime.detached_lease
+        )
+
+    def _validate_torch_cuda_compatibility(self, logger=print):
+        if self._torch_compat_checked or MUSE_BRIDGE_ALLOW_UNSUPPORTED_CUDA:
+            self._torch_compat_checked = True
+            return
+        script = r"""
+import json
+payload = {"ok": True, "cuda_available": False}
+try:
+    import torch
+    payload["torch"] = str(getattr(torch, "__version__", "") or "")
+    payload["torch_cuda"] = str(getattr(torch.version, "cuda", "") or "")
+    payload["cuda_available"] = bool(torch.cuda.is_available())
+    payload["arch_list"] = list(torch.cuda.get_arch_list()) if payload["cuda_available"] else []
+    if payload["cuda_available"]:
+        name = torch.cuda.get_device_name(0)
+        capability = torch.cuda.get_device_capability(0)
+        sm = f"sm_{int(capability[0])}{int(capability[1])}"
+        payload["device_name"] = str(name)
+        payload["capability"] = [int(capability[0]), int(capability[1])]
+        payload["sm"] = sm
+        if int(capability[0]) >= 12 and sm not in payload["arch_list"]:
+            payload["ok"] = False
+            payload["error"] = (
+                f"MuseTalk isolated runtime uses torch {payload['torch']} / CUDA {payload['torch_cuda']}, "
+                f"which does not include {sm} support for {name}. "
+                "RTX 50 / Blackwell cards need the MuseTalk CUDA 12.8 runtime path "
+                "(for example torch==2.10.0 from the cu128 PyTorch index)."
+            )
+except Exception as exc:
+    payload["ok"] = False
+    payload["error"] = str(exc)
+print(json.dumps(payload))
+"""
+        check_env = dict(os.environ)
+        check_env.setdefault("PYTHONUTF8", "1")
+        check_env.setdefault("PYTHONIOENCODING", "utf-8")
+        for key, value in MUSE_BRIDGE_CPU_THREAD_LIMITS.items():
+            check_env.setdefault(key, value)
+        timeout_seconds = _torch_compatibility_timeout_seconds()
+        try:
+            result = subprocess.run(
+                [self.python_exe, "-c", script],
+                cwd=self.root_dir,
+                env=check_env,
+                text=True,
+                capture_output=True,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            message = (
+                f"[MuseTalkBridge] Torch CUDA compatibility check timed out after {timeout_seconds:.1f}s. "
+                "Continuing startup; the MuseTalk worker will perform the real Torch initialization."
+            )
+            try:
+                logger(message)
+            except Exception:
+                pass
+            self._torch_compat_checked = True
+            if MUSE_BRIDGE_STRICT_CUDA_CHECK:
+                raise RuntimeError(f"Could not validate MuseTalk torch CUDA compatibility: {exc}") from exc
+            return
+        except Exception as exc:
+            raise RuntimeError(f"Could not validate MuseTalk torch CUDA compatibility: {exc}") from exc
+        try:
+            payload = _parse_torch_cuda_compatibility_output(result.stdout)
+        except Exception as exc:
+            combined = _strip_ansi_escape_codes(" ".join(part.strip() for part in [result.stdout, result.stderr] if part))
+            raise RuntimeError(f"Could not parse MuseTalk torch CUDA compatibility check: {combined}") from exc
+        if result.returncode != 0:
+            combined = " ".join(part.strip() for part in [result.stdout, result.stderr] if part)
+            raise RuntimeError(f"MuseTalk torch CUDA compatibility check failed: {combined}")
+        if not payload.get("ok", False):
+            raise RuntimeError(str(payload.get("error") or "MuseTalk torch CUDA compatibility check failed."))
+        self._torch_compat_checked = True
+
+    def _fail_pending_requests(self, error):
+        payload = {"ok": False, "error": str(error or "MuseTalk worker stopped.")}
+        with self._pending_lock:
+            queues = list(self.pending.values())
+        for response_queue in queues:
+            try:
+                response_queue.put_nowait(dict(payload))
+            except Exception:
+                pass
+
+    def start(self):
+        with self._lock:
+            if self._stopping:
+                raise RuntimeError("MuseTalk worker is stopping.")
+            active_process = self.process
+            if self._starting:
+                raise RuntimeError("MuseTalk worker startup is already in progress.")
+        if active_process is not None and active_process.poll() is None:
+            return
+        with self._lock:
+            if self._stopping:
+                raise RuntimeError("MuseTalk worker is stopping.")
+            if self.process is not active_process:
+                raise RuntimeError("MuseTalk worker ownership changed during startup.")
+            if self._starting:
+                raise RuntimeError("MuseTalk worker startup is already in progress.")
+            self._start_generation += 1
+            start_generation = self._start_generation
+            startup_done = threading.Event()
+            self._startup_done = startup_done
+            self._starting = True
+        process = None
+        process_handle = None
+        reader_handle = None
+        committed = False
+        try:
+            if not os.path.exists(self.python_exe):
+                raise FileNotFoundError(f"MuseTalk Python not found: {self.python_exe}")
+            if not os.path.exists(self.worker_script):
+                raise FileNotFoundError(f"MuseTalk worker not found: {self.worker_script}")
+            os.makedirs(self.runtime_dir, exist_ok=True)
+            self._validate_torch_cuda_compatibility()
+            with self._lock:
+                startup_cancelled = (
+                    self._stopping
+                    or self._start_generation != start_generation
+                )
+            if startup_cancelled:
+                raise RuntimeError("MuseTalk worker stopped during startup.")
+
+            command = [self.python_exe, self.worker_script]
+            vram_mode = str(self.worker_options.get("vram_mode", "") or "").strip()
+            if vram_mode:
+                command.extend(["--vram-mode", vram_mode])
+
+            worker_env = dict(os.environ)
+            worker_env.setdefault("PYTHONUTF8", "1")
+            worker_env.setdefault("PYTHONIOENCODING", "utf-8")
+            for key, value in MUSE_BRIDGE_CPU_THREAD_LIMITS.items():
+                worker_env.setdefault(key, value)
+
+            process = subprocess.Popen(
+                command,
+                cwd=self.root_dir,
+                env=worker_env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+            lease = self._worker_lease_factory()
+            process_handle = self._worker_supervisor.register_process(
+                name="musetalk-worker-process",
+                process=process,
+                lease=lease,
+                graceful_stop=lambda owned=process: self._stop_process_instance(owned),
+            )
+            reader_handle = self._worker_supervisor.spawn(
+                name="musetalk-worker-stdout",
+                lease=lease,
+                target=lambda token, owned=process: self._read_stdout(owned, token),
+                identity=self,
+            )
+            with self._lock:
+                if (
+                    not self._stopping
+                    and self._start_generation == start_generation
+                ):
+                    self.process = process
+                    self._process_handle = process_handle
+                    self._reader_handle = reader_handle
+                    self._reader_thread = reader_handle.thread
+                    self._recent_output.clear()
+                    committed = True
+            if not committed:
+                raise RuntimeError("MuseTalk worker stopped during startup.")
+            print(f"[MuseTalkBridge] Worker process started: pid={process.pid}, command={os.path.basename(self.python_exe)} {os.path.basename(self.worker_script)}")
+        except BaseException:
+            cleanup_incomplete = False
+            try:
+                if reader_handle is not None:
+                    self._worker_supervisor.cancel_handles(
+                        (reader_handle,),
+                        "musetalk_start_cancelled",
+                    )
+                if process is not None:
+                    self._stop_process_instance(process)
+                if reader_handle is not None:
+                    self._worker_supervisor.join_handles((reader_handle,))
+                if process_handle is not None:
+                    self._worker_supervisor.active_for(
+                        lambda lease: lease == process_handle.lease
+                    )
+                cleanup_incomplete = (
+                    process is not None and process.poll() is None
+                    or reader_handle is not None and reader_handle.is_alive()
+                )
+            except BaseException:
+                cleanup_incomplete = True
+            with self._lock:
+                if cleanup_incomplete:
+                    self.process = process
+                    self._process_handle = process_handle
+                    self._reader_handle = reader_handle
+                    self._reader_thread = reader_handle.thread if reader_handle is not None else None
+                elif self.process is process:
+                    self.process = None
+                    self._process_handle = None
+                    self._reader_handle = None
+                    self._reader_thread = None
+            raise
+        finally:
+            with self._lock:
+                if self._start_generation == start_generation:
+                    self._starting = False
+                    if self._stop_error is not None and self.process is None:
+                        self._stopping = False
+            startup_done.set()
+
+    def stop(self):
+        return self._stop(strict=False)
+
+    def stop_strict(self):
+        """Confirm this bridge's process and reader exit before releasing ownership."""
+        return self._stop(strict=True)
+
+    def _stop(self, *, strict):
+        with self._lock:
+            if self._stopping:
+                stop_done = self._stop_done
+                owns_stop = False
+            else:
+                self._stopping = True
+                self._stop_error = None
+                stop_done = threading.Event()
+                self._stop_done = stop_done
+                owns_stop = True
+            starting = self._starting
+            startup_done = self._startup_done
+        if not owns_stop:
+            if not stop_done.wait(self._shutdown_timeout_seconds):
+                raise RuntimeError("MuseTalk worker stop did not finish within its shutdown bound.")
+            with self._lock:
+                stop_error = self._stop_error
+            if stop_error is not None:
+                raise RuntimeError(str(stop_error))
+            return
+        try:
+            return self._finish_stop(starting, startup_done, stop_done, strict=strict)
+        except BaseException as error:
+            if strict:
+                with self._lock:
+                    self._stopping = False
+                    self._stop_error = error
+                stop_done.set()
+            raise
+
+    def _finish_stop(self, starting, startup_done, stop_done, *, strict):
+        if starting and not startup_done.wait(self._shutdown_timeout_seconds):
+            error = RuntimeError(
+                "MuseTalk worker startup did not stop within its shutdown bound."
+            )
+            with self._lock:
+                self._stop_error = error
+            stop_done.set()
+            raise error
+        with self._lock:
+            process = self.process
+            reader_handle = self._reader_handle
+            process_handle = self._process_handle
+        if process is None:
+            with self._lock:
+                self._stopping = False
+                self._stop_error = None
+            stop_done.set()
+            return
+        self._fail_pending_requests("MuseTalk worker stopping.")
+        try:
+            with self._write_lock:
+                if process.poll() is None and process.stdin:
+                    process.stdin.write(json.dumps({"action": "shutdown", "request_id": str(uuid.uuid4())}) + "\n")
+                    process.stdin.flush()
+        except Exception:
+            pass
+        if reader_handle is not None:
+            self._worker_supervisor.cancel_handles(
+                (reader_handle,),
+                "musetalk_bridge_stop",
+            )
+        self._stop_process_instance(process)
+        if reader_handle is not None:
+            self._worker_supervisor.join_handles((reader_handle,))
+        if strict:
+            error = None
+            if process.poll() is None:
+                error = RuntimeError("MuseTalk worker did not exit after cleanup.")
+            elif reader_handle is not None and reader_handle.is_alive():
+                error = RuntimeError("MuseTalk reader did not exit after cleanup.")
+            if error is not None:
+                with self._lock:
+                    self._stopping = False
+                    self._stop_error = error
+                stop_done.set()
+                raise error
+        self._close_process_pipes(process)
+        self._fail_pending_requests("MuseTalk worker stopped.")
+        if process_handle is not None:
+            self._worker_supervisor.active_for(
+                lambda lease: lease == process_handle.lease
+            )
+        with self._lock:
+            if self.process is process:
+                self.process = None
+                self._reader_thread = None
+                self._reader_handle = None
+                self._process_handle = None
+            self._stopping = False
+            self._stop_error = None
+        stop_done.set()
+
+    def _stop_process_instance(self, process):
+        timeout_seconds = self._shutdown_timeout_seconds
+        terminate_timeout = max(0.05, timeout_seconds / 2.0)
+        kill_timeout = max(0.05, timeout_seconds - terminate_timeout)
+        try:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=terminate_timeout)
+        except Exception:
+            pass
+        try:
+            if process.poll() is None and os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=kill_timeout,
+                )
+        except Exception:
+            pass
+        try:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=kill_timeout)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _close_process_pipes(process):
+        try:
+            if process.stdin:
+                process.stdin.close()
+        except Exception:
+            pass
+        try:
+            if process.stdout:
+                process.stdout.close()
+        except Exception:
+            pass
+
+    def request(self, payload, timeout=120):
+        self.start()
+        request_id = str(uuid.uuid4())
+        response_queue = queue.Queue(maxsize=1)
+        with self._pending_lock:
+            self.pending[request_id] = response_queue
+        message = dict(payload)
+        message["request_id"] = request_id
+
+        with self._lock:
+            if self._stopping:
+                raise RuntimeError("MuseTalk worker is stopping.")
+            process = self.process
+        if process is None or process.poll() is not None:
+            raise RuntimeError("MuseTalk worker is not running.")
+        with self._write_lock:
+            if process.poll() is not None or process.stdin is None:
+                raise RuntimeError("MuseTalk worker is not running.")
+            process.stdin.write(json.dumps(message) + "\n")
+            process.stdin.flush()
+
+        try:
+            if timeout is None:
+                response = response_queue.get()
+            else:
+                timeout = max(0.0, float(timeout))
+                import time
+
+                end_at = time.time() + timeout
+                while True:
+                    remaining = end_at - time.time()
+                    if remaining <= 0:
+                        raise queue.Empty()
+                    try:
+                        response = response_queue.get(timeout=min(0.1, remaining))
+                        break
+                    except queue.Empty:
+                        if not self.process or self.process.poll() is not None:
+                            raise RuntimeError(self._worker_stopped_message("MuseTalk worker stopped before responding."))
+        except queue.Empty:
+            raise TimeoutError(f"MuseTalk worker request timed out after {timeout:.1f}s: {payload.get('action')}")
+        finally:
+            with self._pending_lock:
+                self.pending.pop(request_id, None)
+        if not response.get("ok", False):
+            raise RuntimeError(response.get("error", "Unknown MuseTalk worker error"))
+        return response
+
+    def _worker_stopped_message(self, prefix):
+        process = self.process
+        code = None
+        try:
+            code = process.poll() if process is not None else None
+        except Exception:
+            code = None
+        details = [str(prefix or "MuseTalk worker stopped.")]
+        if code is not None:
+            details.append(f"exit_code={code}")
+        recent = [str(line or "").strip() for line in list(self._recent_output) if str(line or "").strip()]
+        if recent:
+            details.append("recent_output=" + " | ".join(recent[-5:]))
+            recent_text = "\n".join(recent).lower()
+            if "defaultcpuallocator" in recent_text or "not enough memory" in recent_text:
+                details.append(
+                    "hint=PyTorch could not allocate system RAM. On Windows this is often caused by "
+                    "low/fragmented RAM or a full system drive/pagefile; close memory-heavy apps, free "
+                    "space on C:, or reboot before starting MuseTalk again."
+                )
+        return " ".join(details)
+
+    def _read_stdout(self, process=None, token=None):
+        process = process or self.process
+        stdout = process.stdout if process is not None else None
+        while (
+            process
+            and process.poll() is None
+            and stdout
+            and not bool(token is not None and token.cancelled)
+        ):
+            line = stdout.readline()
+            if not line:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            if _is_progress_noise_line(line):
+                continue
+            self._recent_output.append(line)
+            if self.log_worker_output:
+                try:
+                    with open(self.log_path, "a", encoding="utf-8") as log_file:
+                        log_file.write(line + "\n")
+                except Exception:
+                    pass
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("worker_info") == "musetalk_vram_profile" and MUSE_BRIDGE_DIAGNOSTIC_ECHO:
+                print(
+                    "[MuseTalkBridge] Worker profile: "
+                    f"pid={payload.get('pid')} mode={payload.get('mode')} "
+                    f"batch_size={payload.get('batch_size')} whisper_device={payload.get('whisper_device')} "
+                    f"vae_slicing={payload.get('vae_slicing')} preload_face_parsing={payload.get('preload_face_parsing')} "
+                    f"gpu={payload.get('gpu')}"
+                )
+            elif payload.get("worker_info") == "image_read_error":
+                print(_format_image_read_error_message(payload))
+            elif payload.get("worker_info") == "checkpoint" and MUSE_BRIDGE_DIAGNOSTIC_ECHO:
+                print(
+                    "[MuseTalkBridge] Worker checkpoint: "
+                    f"pid={payload.get('pid')} label={payload.get('label')} "
+                    f"gpu={payload.get('gpu')}"
+                )
+            request_id = payload.get("request_id")
+            with self._pending_lock:
+                response_queue = self.pending.get(request_id)
+            if response_queue is not None:
+                try:
+                    response_queue.put_nowait(payload)
+                except Exception:
+                    pass

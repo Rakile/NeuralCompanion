@@ -1,0 +1,5 @@
+*.tar.gz
+sdk/
+__pycache__/
+.device-test-classes/
+tests/generated-synthetic-av.json

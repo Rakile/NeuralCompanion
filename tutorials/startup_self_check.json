@@ -1,0 +1,78 @@
+{
+  "id": "startup_self_check",
+  "order": 3,
+  "title": "3. Startup Self-Check",
+  "description": "Verify the configured runtime and diagnose startup without changing unrelated settings.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "workspace": "conversation"
+    }
+  ],
+  "global_targets": [
+    "runtimeSessionButton"
+  ],
+  "steps": [
+    {
+      "title": "Start with status",
+      "body": "Open Runtime and read the status chips before initializing. They summarize your selected LLM, text-to-speech, speech input, visual and avatar stacks, so you know each part's condition rather than guessing from a single failure.\n\nExample: a chip may show the LLM selected while TTS is not loaded—that predicts text replies but silence. Success check: you can list which chips are ready and which are not. Use Read aloud for automatic narration or Hear step for only this instruction; for the better voice, select and load Chatterbox first, otherwise NC tries Windows TTS.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Start with the top-right OFF/ON power button",
+      "body": "The large power-symbol button at the top-right is Initialize and Terminate in one control. If it shows OFF, click it once and wait for startup to finish; it displays loading progress. If it already shows ON, leave it on. There is no separate Initialize button to find.\n\nExample: a failed launch usually stays OFF or shows an error—click once, then read the console. Success check: the button settles on ON without an error. If startup stalls, use Cancel while initializing rather than clicking repeatedly; clicking a ready ON button stops NC, which is not a refresh.",
+      "workspace": "runtime",
+      "target": "runtimeSessionButton",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Read the console",
+      "body": "The System console shows startup and runtime messages. It sits left of the chat behind a narrow dotted handle. Drag the handle right to reveal a hidden console, or use Controls → Split console and conversation. Autoscroll and Clear are above the log.\n\nExample: after a failed start, look for the last error line rather than the first. Success check: you find a message naming the missing server, model or key. If no console appears, open Controls and enable the split view; the next step shows the handle's demonstration.",
+      "workspace": "conversation",
+      "target": "conversationConsoleArea",
+      "fallback_target": "conversationControlsButton",
+      "target_hint": "Open Controls and enable Split console and conversation to show the console."
+    },
+    {
+      "title": "See the console handle slide left",
+      "body": "The highlighted dotted handle separates the System console from the conversation. Click Show me below to watch the actual handle travel fully left to hide the console, then return to its starting position; your saved layout and console setting stay unchanged.\n\nTo do it yourself afterward, drag the handle left to keep the console hidden; drag right or double-click to reopen, or focus it and press Space or Enter. Success check: the console hides and reappears while the handle stays reachable. If the demonstration does not run, do it manually; it is a visual aid, not a required action.",
+      "workspace": "conversation",
+      "target": "conversationSplitHandle",
+      "demonstration": "console_split"
+    },
+    {
+      "title": "Test the conversation path",
+      "body": "Send a short message, such as “Reply with a short greeting,” and check each enabled part separately. Text arriving tests the chat path; audible speech tests TTS and playback; avatar frames test the selected avatar route. Text Only, None for speech input, or No Avatar can deliberately leave parts unused.\n\nSuccess check: a visible assistant text reply appears, and only that text proves chat works. A text reply alone does not prove audio or the avatar. If no reply comes, recheck the power button is ON and the provider connection test succeeds before touching other settings.",
+      "workspace": "conversation",
+      "target": "conversationComposer"
+    },
+    {
+      "title": "Stop cleanly",
+      "body": "Use the same top-right power button ON → OFF to stop—the action previously called Terminate. Wait for resource cleanup before starting again with OFF → ON. The conversation stays visible, so save it to keep changes for the next launch.\n\nExample: after testing, stop NC, let it finish releasing resources, then relaunch and confirm your saved chat loads. Success check: shutdown completes without an error and the chat is present after restart. External model servers and separately running services (such as an Ollama server or a VoiceStudio service) have their own controls and keep running.",
+      "workspace": "runtime",
+      "target": "runtimeSessionButton",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Use this when NC will not start or a feature stays silent. Reading the guide does not initialize NC, change layout, or send a message. Higher-quality narration needs Chatterbox selected and loaded via the top-right power button OFF → ON; Windows TTS is the fallback attempt. If NC is already running, keep it ON while you read.",
+  "learning_outcomes": [
+    "Read the Runtime status chips and the top-right power button correctly.",
+    "Use the System console and its handle to diagnose startup.",
+    "Test text, audio, and avatar paths separately and stop NC cleanly."
+  ],
+  "contextual_guides": [
+    "runtime_session_overview"
+  ]
+}

@@ -1,0 +1,321 @@
+{
+  "guides": [
+    {
+      "id": "overview_ditto_avatar",
+      "title": "Ditto Avatar overview",
+      "description": "Ditto avatar engine with its own Python environment and local desktop playback.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.ditto_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "ditto"
+      },
+      "category": "Runtime / Avatar / Ditto Avatar",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Ditto avatar engine with its own Python environment and local desktop playback.",
+        "Find focused guidance for Advanced, Runtime, Preview, Avatar, Animation, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_ditto_avatar_advanced",
+        "page_ditto_avatar_runtime",
+        "page_ditto_avatar_preview",
+        "page_ditto_avatar_avatar",
+        "page_ditto_avatar_animation",
+        "page_ditto_avatar_generation",
+        "page_ditto_avatar_package_emotions",
+        "ditto_avatar"
+      ],
+      "steps": [
+        {
+          "title": "What Ditto Avatar does",
+          "body": "Ditto avatar engine with its own Python environment and local desktop playback. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_ditto_avatar_advanced",
+        "page_ditto_avatar_runtime",
+        "page_ditto_avatar_preview",
+        "page_ditto_avatar_avatar",
+        "page_ditto_avatar_animation",
+        "page_ditto_avatar_generation",
+        "page_ditto_avatar_package_emotions"
+      ],
+      "display_title": "Start tutorial · Ditto Avatar",
+      "optional_chapters": [
+        "ditto_avatar"
+      ]
+    },
+    {
+      "id": "page_ditto_avatar_advanced",
+      "title": "Ditto Avatar · Advanced",
+      "description": "Use Advanced in Ditto Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "ditto"
+      },
+      "category": "Runtime / Avatar / Ditto Avatar",
+      "order": 210,
+      "topic": "Advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Point to the Ditto installation",
+        "Prepare the avatar separately"
+      ],
+      "steps": [
+        {
+          "title": "Point to the Ditto installation",
+          "body": "In Advanced, set Ditto installation to the folder where Ditto lives and Ditto Python executable to that environment's interpreter. These are prerequisites for Runtime loading. If loading later fails with a path error, return here and confirm both values point at real locations.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_repo_path",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Prepare the avatar separately",
+          "body": "Advanced also holds Prepared Ditto avatar when you already have a rendering-ready file. Use it when you do not want to prepare a package through the Avatar section. Confirm the path opens the intended file before activating it from the Avatar card.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_avatar_path",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_avatar"
+    },
+    {
+      "id": "page_ditto_avatar_runtime",
+      "title": "Ditto Avatar · Runtime",
+      "description": "Use Runtime in Ditto Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "ditto"
+      },
+      "category": "Runtime / Avatar / Ditto Avatar",
+      "order": 211,
+      "topic": "Runtime",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Load models and watch progress",
+        "Unload to free resources"
+      ],
+      "steps": [
+        {
+          "title": "Load models and watch progress",
+          "body": "In Runtime, choose Load models and watch Progress and Ditto status until Model state reports loaded. Cancel and unload stops an in-flight load. If loading stalls, read Ditto status for the reason before retrying; repeated loads without checking status rarely help.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_load",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Unload to free resources",
+          "body": "Use Unload models when you are done, or Cancel and unload if a load is running. Confirm Model state changes accordingly. Unloading does not delete avatars or packages; it only releases the loaded models so other work can use the desktop resources.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_load",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_avatar"
+    },
+    {
+      "id": "page_ditto_avatar_preview",
+      "title": "Ditto Avatar · Preview",
+      "description": "Use Preview in Ditto Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "ditto"
+      },
+      "category": "Runtime / Avatar / Ditto Avatar",
+      "order": 212,
+      "topic": "Preview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect the preview and latest result"
+      ],
+      "steps": [
+        {
+          "title": "Inspect the preview and latest result",
+          "body": "Avatar preview shows the rendered avatar, and Latest result describes the most recent output. After loading a model and activating an avatar, look at both. If the preview is empty, verify Model state in Runtime and the avatar selection in Avatar before changing animation settings.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_preview",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_avatar"
+    },
+    {
+      "id": "page_ditto_avatar_avatar",
+      "title": "Ditto Avatar · Avatar",
+      "description": "Use Avatar in Ditto Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "ditto"
+      },
+      "category": "Runtime / Avatar / Ditto Avatar",
+      "order": 213,
+      "topic": "Avatar",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose a package and activate",
+        "Source selection is distinct from active avatar"
+      ],
+      "steps": [
+        {
+          "title": "Choose a package and activate",
+          "body": "In the Avatar card, pick an Avatar package, then a Fixed avatar if variants are offered, and activate it with the selection control. Delete package removes a package, so choose deliberately. Confirm the preview updates after activation, indicating the new avatar is the active one.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_pack_id",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Source selection is distinct from active avatar",
+          "body": "Source avatar selection and the Avatar package picker serve different roles: one chooses the prepared source, the other the shipped package. Confirm which control feeds what when an unexpected avatar renders. Activate, then re-check Preview.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_pack_id",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_avatar"
+    },
+    {
+      "id": "page_ditto_avatar_animation",
+      "title": "Ditto Avatar · Animation",
+      "description": "Use Animation in Ditto Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "ditto"
+      },
+      "category": "Runtime / Avatar / Ditto Avatar",
+      "order": 214,
+      "topic": "Animation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Tune motion for the current avatar",
+        "Manage eye animation"
+      ],
+      "steps": [
+        {
+          "title": "Tune motion for the current avatar",
+          "body": "Animation holds Emotion, Expression strength, Pitch, Yaw, Roll and Translation strengths plus Motion mode, Relative motion and Motion conditioning. Adjust one value at a time and observe Avatar preview. Motion conditioning and Relative motion change how input maps to movement, so watch their effect separately.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_emotion",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Manage eye animation",
+          "body": "Eye animation, Eye motion source and Open-eye frames control blinking, while Use first-frame eye conditioning anchors the starting eyes. Offset fields shift pitch, yaw and roll without changing the target. Adjust one and check Preview before stacking more changes, so you can tell which one is responsible.",
+          "target": "tutorialControl_ditto_avatar_tab::ditto_eyes",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_avatar"
+    },
+    {
+      "id": "page_ditto_avatar_generation",
+      "title": "Ditto Avatar · Generation",
+      "description": "Use Generation in Ditto Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "ditto"
+      },
+      "category": "Runtime / Avatar / Ditto Avatar",
+      "order": 215,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Use Animation and generation settings scope",
+        "Confirm the last generation result"
+      ],
+      "steps": [
+        {
+          "title": "Use Animation and generation settings scope",
+          "body": "Animation and generation settings selects which tuning profile is displayed. Compare controls shown under it with the current avatar package, then adjust only the fields relevant to your test. Switching scope does not activate a different avatar; revisit Avatar to change the active one.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm the last generation result",
+          "body": "Latest result reports the most recent generated output. After tuning, run a short generation and read that field alongside Avatar preview. If a setting seems ignored, confirm the animation scope matches the active avatar before assuming the control is broken.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_avatar"
+    },
+    {
+      "id": "page_ditto_avatar_package_emotions",
+      "title": "Ditto Avatar · Package emotions",
+      "description": "Inspect emotion variants supplied by the selected Ditto package.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "ditto"
+      },
+      "category": "Runtime / Avatar / Ditto Avatar",
+      "order": 230,
+      "topic": "Package emotions",
+      "steps": [
+        {
+          "title": "Inspect available package emotions",
+          "body": "Package emotions appears when the selected package supplies emotion variants. Read the available variants and enabled-emotion choices before changing them. A plain prepared avatar may have no package mapping; that is expected. Keep the current package selected while learning how its variants are exposed.",
+          "target": "providerSettingsSection_Package emotions",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        },
+        {
+          "title": "Separate mapping from a rendered result",
+          "body": "Enabled emotion choices determine which package variants are available to the avatar route. They do not generate missing loops or prove that a particular emotion has rendered. Compare a later controlled preview with the selected mapping. If a variant is absent, inspect the package contents before changing generation settings.",
+          "target": "providerSettingsSection_Package emotions",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        }
+      ],
+      "course_id": "overview_ditto_avatar"
+    }
+  ]
+}

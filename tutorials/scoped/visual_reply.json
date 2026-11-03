@@ -1,0 +1,121 @@
+{
+  "guides": [
+    {
+      "id": "overview_visual_reply",
+      "title": "Visual Reply overview",
+      "description": "Addon-owned Visuals host tab for visual reply runtime settings.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.visual_reply",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "visual"
+      },
+      "category": "Runtime / Visual reply / Visual Reply",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Addon-owned Visuals host tab for visual reply runtime settings.",
+        "Find focused guidance for Generation, Display."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_visual_reply_generation",
+        "page_visual_reply_display",
+        "visual_reply_controls"
+      ],
+      "steps": [
+        {
+          "title": "What Visual Reply does",
+          "body": "Addon-owned Visuals host tab for visual reply runtime settings. The overview introduces this area without opening its other sections.",
+          "target": "runtimeResponsibilityStack",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_visual_reply_generation",
+        "page_visual_reply_display"
+      ],
+      "display_title": "Start tutorial · Visual Reply",
+      "optional_chapters": [
+        "visual_reply_controls"
+      ]
+    },
+    {
+      "id": "page_visual_reply_generation",
+      "title": "Visual Reply · Generation",
+      "description": "Use Generation in Visual Reply.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.visual_reply",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "visual"
+      },
+      "category": "Runtime / Visual reply / Visual Reply",
+      "order": 210,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Confirm the image model and key",
+        "Recover a generation failure without reshuffling display"
+      ],
+      "steps": [
+        {
+          "title": "Confirm the image model and key",
+          "body": "In Generation read Image model and API key. Confirm the selected model is the one you intend and the key field holds the expected state. Keep a record before editing either. A saved model names an option; it does not prove generation, so a real image request is still needed.",
+          "target": "tutorialControl_visual_reply_model",
+          "fallback_target": "runtimeResponsibilityStack",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover a generation failure without reshuffling display",
+          "body": "If an image request fails, check the model name and API key before changing Display. Display settings do not repair missing credentials or an unavailable model. Return to this area to confirm the values persisted after any deliberate change.",
+          "target": "tutorialControl_visual_reply_api_key",
+          "fallback_target": "runtimeResponsibilityStack",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_visual_reply"
+    },
+    {
+      "id": "page_visual_reply_display",
+      "title": "Visual Reply · Display",
+      "description": "Use Display in Visual Reply.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.visual_reply",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "visual"
+      },
+      "category": "Runtime / Visual reply / Visual Reply",
+      "order": 211,
+      "topic": "Display",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose whether completed replies come forward",
+        "Verify display separately from generation"
+      ],
+      "steps": [
+        {
+          "title": "Choose whether completed replies come forward",
+          "body": "Automatically show a completed visual reply controls whether a finished image is brought to the front. Turn it on if you want that behavior and off if it disrupts other work. Changing display does not generate an image or select a model, so test it with a real completed reply.",
+          "target": "tutorialControl_visual_reply_auto_show_dock",
+          "fallback_target": "runtimeResponsibilityStack",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Verify display separately from generation",
+          "body": "A completion that appears automatically confirms Display; a generated image without that behavior confirms Generation. If no image arrives, troubleshoot the model and key in Generation first. Keep the display option in the state you actually want for routine use.",
+          "target": "runtimeResponsibilityStack",
+          "fallback_target": "runtimeResponsibilityStack",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_visual_reply"
+    }
+  ]
+}

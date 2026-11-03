@@ -1,0 +1,13 @@
+{
+  "id": "nc.mcp_core",
+  "name": "MCP Core",
+  "category": "tools",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Shared, opt-in HTTP MCP connections and per-addon tool permissions.",
+  "permissions": ["services.register", "storage.read", "storage.write"],
+  "execution_lanes": {"ui": true, "worker": true},
+  "services": [{"id": "mcp.core.v1", "version": 1}],
+  "native_qml": true,
+  "enabled": true
+}

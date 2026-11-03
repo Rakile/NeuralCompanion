@@ -1,0 +1,189 @@
+{
+  "id": "companion_chess",
+  "order": 38,
+  "title": "38. Companion Chess",
+  "description": "Connect a saved Persona to the local board, play one legal move, and verify its reply before optional hardware or online play.",
+  "category": "Workflows",
+  "estimated_minutes": 25,
+  "speech_backend": "chatterbox",
+  "before_you_start": "Complete Get Started: Your First Chat and save a Persona with a working chat provider and tool-capable model. Enable Companion Chess and Chat MCP Tools in Addon Manager and restart if requested. MCP Core is a Runtime page with an Allow MCP access switch, not another addon load switch. A mouse is enough; voice, Launchpad and online play are optional. The first exercise is one White pawn move and one confirmed companion reply. Reading never starts the server or grants tool access.",
+  "learning_outcomes": [
+    "Connect the local chess server and understand the separate addon and Persona tool permissions.",
+    "Play a mouse game, choose a promotion piece, and understand results and End game.",
+    "Choose optional scene, sound and Launchpad settings without losing your local game.",
+    "Connect online through NC Relay and distinguish private commentary from playing a move."
+  ],
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "mcp"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "mcp"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Understand the parts of a local Persona game",
+      "body": "Open Companion Chess and return to Local if an online page is showing; disconnect online hardware first if Local is disabled. This lesson builds one mouse game. The chess server stores the board and checks legal moves, the chess engine evaluates positions, and your saved Persona chooses and comments through its permitted move tool. These are separate parts, so a working chat model alone is not a ready board.\n\nIn Game, locate Your saved persona but leave New game for later. If the list is empty, create and save a Persona first. We will connect the server, grant the chess addon access, then assign the Persona’s move tool before playing. Read aloud narrates the guide; Hear step reads this instruction. You can read silently.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Start the local chess server",
+      "body": "Click Setup in Companion Chess. Under Chess connection, click Start Companion Chess Server once, then wait for the operation to finish and read the status. This local service keeps the board position and validates moves; it is separate from the chat model. Merely opening the tutorial does not start it.\n\nIf startup reports an error, read that message before trying again. Check that the addons are enabled and that this NC installation has its chess dependencies; the updated main installer includes them. A port already used by another service may require choosing another Server port under Advanced connection details. Do not copy another computer's address or credential.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Find this installation's endpoint and credential",
+      "body": "Still in Setup, open Advanced connection details. Read the displayed endpoint and Server port. The usual endpoint is http://127.0.0.1:8766/mcp, but use the value shown here if your port differs. Click Show setup credential and copy the locally generated credential. Keep it private; it belongs in the server connection's authentication field, not in a chat message or Persona prompt.\n\nIf Show setup credential is disabled, finish starting the local server first. These details let MCP Core connect to the correct local service. The next step opens MCP Core; keep the endpoint and credential available while you enter them yourself.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Register and connect the server in MCP Core",
+      "body": "In Runtime → MCP Core, deliberately turn on Allow MCP access if you want to use MCP connections. Click New server, enter a recognizable Server name such as Companion Chess, and paste the endpoint into HTTP MCP endpoint. Choose Bearer authentication and enter the copied credential in its protected secret field. Click Save server, then Connect and Refresh tools.\n\nCheck that the intended connection is selected and its chess tools are discovered. If Connect is disabled, check Allow MCP access and that the server was saved. If connection or discovery fails, compare the endpoint, port and credential with Chess Setup. Do not substitute an API provider key for this local credential.",
+      "workspace": "runtime",
+      "runtime_section": "mcp",
+      "target": "mcpEndpoint",
+      "fallback_target": "runtimeWorkspace",
+      "target_hint": "Open Runtime → MCP Core and enable Allow MCP access there. MCP Core does not need a separate Addon Manager load switch."
+    },
+    {
+      "title": "Request access for the chess addon",
+      "body": "Return to Companion Chess → Setup. Click Refresh so the Chess MCP connection list reflects the server you saved. Choose your Companion Chess connection, then click Request access. This asks MCP Core for permission; it does not approve the request.\n\nIf the list is empty, confirm that you saved the connection in MCP Core and refresh again. If Request access is disabled, check that a connection is selected and NC has finished the current operation. The next step approves the chess addon separately from the Persona's chat-tool bridge. Keeping those permissions separate explains why a connected server alone does not make New game ready.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Approve Companion Chess and its seven tools",
+      "body": "In MCP Core, inspect the request from Companion Chess and choose Approve addon when its purpose and connection are the ones you intended. In the access-management controls, choose Companion Chess and your chess server, then check each of its seven tool permission boxes: chess_get_state, chess_game_control, chess_prepare_turn, chess_get_candidates, chess_choose_move, chess_finalize_move and chess_get_operation.\n\nApproval alone does not select tools. These permissions let the addon read and update its game through the server. If there is no request, return to Chess Setup and use Request access. If the expected tools are absent, check the selected server and use Refresh tools. Do not approve an unrelated addon or connection simply to clear a warning.",
+      "workspace": "runtime",
+      "runtime_section": "mcp",
+      "target": "mcpAddonSelector",
+      "fallback_target": "runtimeWorkspace"
+    },
+    {
+      "title": "Ask for the Persona's move-tool bridge",
+      "body": "In Persona, select your intended saved opponent and open MCP. Choose the chess connection, enter chess_choose_move in the optional requested-tool field, then Request bridge access. This asks for Chat MCP Tools permission: the bridge that carries a model’s tool call to the chess server. It is separate from the chess addon’s board-management access.\n\nA tool call is a structured model action, not merely text saying a move happened. Read the provider-support message: your provider and model must support it. If the bridge is unavailable, enable Chat MCP Tools and restart if requested. If the connection is absent, check MCP Core. This request is still pending; approve it next before assigning the tool to this Persona.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "mcp",
+      "target": "personaMcpToolsCard",
+      "fallback_target": "personaWorkspace",
+      "target_hint": "Select a saved Persona and open MCP. If the tool bridge is unavailable, enable Chat MCP Tools and restart NC if requested."
+    },
+    {
+      "title": "Approve Chat MCP Tools for the move tool",
+      "body": "Return to Runtime → MCP Core. Review the Chat MCP Tools request and click Approve addon, then select Chat MCP Tools and the chess server in the permission controls. Check the chess_choose_move tool permission box for that bridge. You do not need to grant it every tool on every server.\n\nThis is the second approval: Companion Chess manages the game, while Chat MCP Tools exposes the move-choice tool to an assigned Persona. If the request is missing, revisit Persona → MCP and Request bridge access. If approval already exists, inspect its selected server and tool permissions instead of creating a duplicate connection.",
+      "workspace": "runtime",
+      "runtime_section": "mcp",
+      "target": "mcpAddonSelector",
+      "fallback_target": "runtimeWorkspace"
+    },
+    {
+      "title": "Assign chess_choose_move to the saved Persona",
+      "body": "Back in Persona → MCP, keep the intended saved Persona and chess connection selected. Click Refresh. In the granted-tool list, check chess_choose_move. Read Saved for this persona and confirm that the move tool is included. This checkbox assigns an already-approved tool to this Persona; selecting the Persona on the chess page does not do it for you.\n\nIf no tools are listed, check both the MCP Core bridge approval and its tool selection. If the provider-support message says native tools are unavailable, use a supported provider and tool-capable model before expecting persona turns to work. Leave unrelated tool assignments unchanged.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "mcp",
+      "target": "personaMcpToolsCard",
+      "fallback_target": "personaWorkspace"
+    },
+    {
+      "title": "Distinguish the chess engine from the chat model",
+      "body": "Back in Companion Chess → Setup, Refresh and check connection readiness. Under Engine, Stockfish evaluates chess positions; it is not the Persona’s language model. Stockfish is optional and is not installed by the NC main installer. New setups use the basic engine.\n\nChoose Install Stockfish… on Windows to download and verify it into a Stockfish subfolder of a folder you choose, or Select existing engine… to browse to an executable you already have. The installer keeps its license and source files; unrelated content is preserved. You can cancel an installation, and failed or cancelled installs keep your engine selection. Clearing the path selects the basic engine; Engine strength applies to Stockfish. Start New game after changing engines. Existing custom paths and legacy bundled selections are preserved. Engine selection does not replace the earlier tool permissions.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Choose White and start a board deliberately",
+      "body": "Open Game and choose the saved Persona whose move tool you assigned. Select White under Your side so you move first; choose a modest Engine strength if using Stockfish. Leave Use persona voice off for a text-first test. Comment on my moves is optional and controls the reaction to your move.\n\nWait for settings and current operations to finish, then click New game. If moves already exist, read the replacement confirmation before accepting. Look for the starting board, No moves yet and your turn status. If disabled, check the Persona, connection, pending settings and unfinished physical move; Setup → Refresh can clarify readiness. Do not replace an existing game merely to finish reading.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Move the e-pawn and verify the board reply",
+      "body": "With White at the bottom, e2 is the square in front of your king; e4 is two ranks toward the centre. Use the board’s letters and numbers to locate them. On your turn, left-click the pawn on e2, then its highlighted legal destination e4. This is a two-click move. More generally, select your piece and one of its highlighted legal squares.\n\nConfirm your pawn moved and the Moves list updated, then wait for the companion’s move and board update. Commentary alone is not proof that a move committed. If Retry persona appears, fix the reported model/tool connection and retry. An explicitly labelled engine fallback differs from a successful Persona choice. If an operation’s outcome is uncertain, Refresh before submitting the move again.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Know what to do when a pawn promotes",
+      "body": "A pawn reaching the farthest rank promotes into another piece. The promotion popup offers Queen, Rook, Bishop and Knight; click the labelled picture you want. A queen is the usual choice, but the rules allow all four. Confirm the pawn is replaced and play can continue.\n\nYou do not need to reach promotion in this first exercise. If you close a pending picker, Choose promotion reopens it. If the command is rejected, the picker stays open: read the status and resolve that problem before choosing again. The same picture picker is used in local, online and fullscreen play.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Understand the result, End game and Resign",
+      "body": "At checkmate or another completed local result, the result window names the winner or explains the draw. Close keeps the final board visible; New game explicitly starts another game. While a local game is unfinished, Game offers Pause and Resume, which let you interrupt play without declaring a result.\n\nEnd game in the status strip ends a local session without a winner, including while the Persona is thinking. It keeps committed moves and cancels an unfinished move. Resign is different: it awards the opponent a win. Both deliberate endings ask for confirmation. If End game is unavailable, check the connection and whether the game has already finished. Save New game for when you actually want another board.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Optional: make the board comfortable to view",
+      "body": "Use 2D for a flat board, or 3D and Fullscreen 3D for the scene. In 3D, right-drag changes orbit and tilt; the wheel changes distance, and Ctrl plus the wheel changes field of view. A normal left-click still selects a chess square. Reset camera restores the camera defaults.\n\nIn Scene, try one style or lighting change at a time. Continuous camera movement keeps moving until switched off; choose its pattern and speed. Hidden views pause it. Reduced detail is available if rendering feels slow. In Sounds, persona voice and game sounds are separate controls; preview an assigned sound before raising the volume. These appearance and audio choices are optional and do not change the rules.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Optional: connect the correct Launchpad ports",
+      "body": "A mouse game does not need MIDI. For a physical board, open Game and click Connect / Activate hardware. Select your actual Launchpad model and its matching input and output ports, then Connect ports. The model choice is locked while connected; disconnect before changing it. Connect ports also needs a ready local chess connection and no settings still being saved.\n\nUse Test corner LEDs to check orientation. Match the physical pieces to the displayed board, then press Physical board matches. Pads confirm your actions; they do not sense pieces. Follow each displayed source, destination and special-move instruction. After an unplug or mismatch, restore the shown position before reconciling. Continue on screen is available when you deliberately want to finish an announced move digitally.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Optional: prepare online play through NC Relay",
+      "body": "Online play is a separate mode and preserves your saved local game. First open Main Chat Remote → Internet, sign in with your NC account and connect NC Relay. A running LAN phone backend by itself is not an Internet chess connection. Return to Companion Chess, choose Online and press Refresh / synchronize.\n\nUse Find players to browse availability or Private invite to create or join an invitation. Review the confirmation before pausing the local game and entering a match. You can start by checking that the lobby connects; you do not have to invite anyone to complete this guide. If it still asks for NC Relay, check the Internet connection in Main Chat Remote and refresh here again.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    },
+    {
+      "title": "Play online deliberately and return to Local",
+      "body": "In an online match, you and your opponent make the moves. Your own companion can comment privately on confirmed moves; it does not choose or play for either side, and its commentary is not sent to the opponent. My match holds the match controls. After a disconnect, Refresh / synchronize retrieves the authoritative position; a disconnect is not an automatic forfeit.\n\nDisconnect an online Launchpad before using Local if that button is disabled. Returning to Local can ask for confirmation and does not end an active online match: your opponent may still be waiting. Finish the match or agree with your friend before leaving it. Your first local test succeeded if your legal move and a companion reply appeared. Reading this final step alone does not prove a match was played.",
+      "workspace": "addons",
+      "addon": "companion_chess_tab",
+      "section": "Play",
+      "target": "companionChessWorkspace"
+    }
+  ],
+  "contextual_guides": [
+    "overview_companion_chess"
+  ]
+}

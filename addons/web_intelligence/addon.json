@@ -1,0 +1,25 @@
+{
+  "id": "nc.web_intelligence",
+  "name": "Web Search",
+  "category": "chat",
+  "version": "0.4.0",
+  "entry_point": "main.py",
+  "description": "Grounded MCP web evidence for normal chat with addon-local SearXNG and DuckDuckGo server installation and controls.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "web_intelligence_tab",
+      "title": "Web Search",
+      "area": "top_level",
+      "order": 129,
+      "tooltip": "Activate grounded web search and manage the local MCP search servers.",
+      "icon_path": "../../ui_icons/side_tabs/web_search.svg",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "enabled": true
+}

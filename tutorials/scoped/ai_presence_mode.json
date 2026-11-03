@@ -1,0 +1,301 @@
+{
+  "guides": [
+    {
+      "id": "overview_ai_presence_mode",
+      "title": "AI Presence Mode",
+      "description": "Configure the native fullscreen and floating AI Presence visualizer for thinking and spoken audio.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.ai_presence_mode",
+        "workspace": "addons",
+        "addon": "ai_presence_mode_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / AI Presence Mode",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Configure the native fullscreen and floating AI Presence visualizer for thinking and spoken audio.",
+        "Find focused guidance for Overview, Display, Visual style, Silk Threads, Mood & color, Advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "ai_presence_and_overlays",
+        "page_ai_presence_mode_display",
+        "page_ai_presence_mode_visual_style",
+        "page_ai_presence_mode_silk_threads",
+        "page_ai_presence_mode_mood_color",
+        "page_ai_presence_mode_advanced"
+      ],
+      "steps": [
+        {
+          "title": "What AI Presence Mode does",
+          "body": "Configure the native fullscreen and floating AI Presence visualizer for thinking and spoken audio. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Start one visible thread",
+          "body": "In Overview, find Status, Use AI Presence, and Start and show Presence. Leave your existing style alone for this step; the next action selects the thread style directly. If the overlay does not appear, confirm Use AI Presence enables it before searching elsewhere for engine controls.",
+          "target": "tutorialControl_ai_presence_summary",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Activate Silk Threads once",
+          "body": "Click Activate Silk Threads in Overview. This shortcut enables and shows the thread style, so you do not need a second overlay start. Look for the animated thread and read Status. Seeing it is the first successful test, even before any speech.",
+          "target": "tutorialControl_ai_presence_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read visibility status",
+          "body": "Compare Status with the presence window you can actually see. A running status does not guarantee the window is on the expected screen. Display has separate placement and screen-mode guidance you can follow after this guide. Keep the current style while diagnosing visibility.",
+          "target": "tutorialControl_ai_presence_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "ai_presence_and_overlays"
+      ],
+      "display_title": "Start tutorial · AI Presence Mode",
+      "optional_chapters": [
+        "page_ai_presence_mode_display",
+        "page_ai_presence_mode_visual_style",
+        "page_ai_presence_mode_silk_threads",
+        "page_ai_presence_mode_mood_color",
+        "page_ai_presence_mode_advanced"
+      ]
+    },
+    {
+      "id": "page_ai_presence_mode_overview",
+      "title": "AI Presence Mode · Overview",
+      "description": "Use Overview in AI Presence Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ai_presence_mode",
+        "workspace": "addons",
+        "addon": "ai_presence_mode_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / AI Presence Mode",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Start one visible thread",
+        "Activate Silk Threads once",
+        "Read visibility status"
+      ],
+      "steps": [
+        {
+          "title": "Start one visible thread",
+          "body": "In Overview, find Status, Use AI Presence, and Start and show Presence. Leave your existing style alone for this step; the next action selects the thread style directly. If the overlay does not appear, confirm Use AI Presence enables it before searching elsewhere for engine controls.",
+          "target": "tutorialControl_ai_presence_summary",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Activate Silk Threads once",
+          "body": "Click Activate Silk Threads in Overview. This shortcut enables and shows the thread style, so you do not need a second overlay start. Look for the animated thread and read Status. Seeing it is the first successful test, even before any speech.",
+          "target": "tutorialControl_ai_presence_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read visibility status",
+          "body": "Compare Status with the presence window you can actually see. A running status does not guarantee the window is on the expected screen. Display has separate placement and screen-mode guidance you can follow after this guide. Keep the current style while diagnosing visibility.",
+          "target": "tutorialControl_ai_presence_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_ai_presence_mode",
+      "hidden": true
+    },
+    {
+      "id": "page_ai_presence_mode_display",
+      "title": "AI Presence Mode · Display",
+      "description": "Use Display in AI Presence Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ai_presence_mode",
+        "workspace": "addons",
+        "addon": "ai_presence_mode_tab",
+        "section": "Display"
+      },
+      "category": "Addons / AI Presence Mode",
+      "order": 211,
+      "topic": "Display",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose a screen mode",
+        "Explicit display actions"
+      ],
+      "steps": [
+        {
+          "title": "Choose a screen mode",
+          "body": "Screen mode chooses Off, Fullscreen, Floating Window, or Both. Try Floating Window if you want the thread beside your work. Always on top controls whether it stays above other windows. Screen mode Off hides the visuals but does not stop your chat runtime.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Explicit display actions",
+          "body": "Preview Fullscreen and Open Floating Window are explicit display actions; use them only when you want that view. Center Floating Window repositions a floating window you cannot find. After you can locate and use the overlay, return to your preferred mode rather than leaving a test mode active.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ai_presence_mode"
+    },
+    {
+      "id": "page_ai_presence_mode_visual_style",
+      "title": "AI Presence Mode · Visual style",
+      "description": "Use Visual style in AI Presence Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ai_presence_mode",
+        "workspace": "addons",
+        "addon": "ai_presence_mode_tab",
+        "section": "Visual style"
+      },
+      "category": "Addons / AI Presence Mode",
+      "order": 212,
+      "topic": "Visual style",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Select a thread style"
+      ],
+      "steps": [
+        {
+          "title": "Select a thread style",
+          "body": "Presence style selects the visual style, such as Living Voice Thread or Silk Drift, and Rendering engine chooses how it is drawn. Keep one style selected during sound comparisons so motion changes are attributable. If nothing reacts, confirm a thread style is still chosen and the overlay is visible before adjusting more controls.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ai_presence_mode"
+    },
+    {
+      "id": "page_ai_presence_mode_silk_threads",
+      "title": "AI Presence Mode · Silk Threads",
+      "description": "Use Silk Threads in AI Presence Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ai_presence_mode",
+        "workspace": "addons",
+        "addon": "ai_presence_mode_tab",
+        "section": "Silk Threads"
+      },
+      "category": "Addons / AI Presence Mode",
+      "order": 213,
+      "topic": "Silk Threads",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Separate voice energy from desktop audio",
+        "Make one visible shape change",
+        "Save a look and prove you can restore it"
+      ],
+      "steps": [
+        {
+          "title": "Separate voice energy from desktop audio",
+          "body": "Read Sync default output audio before comparing motion. With it enabled, desktop audio can influence the thread as well as NC speech. Audio analysis rate controls sound measurements and Thread FPS controls drawing. Keep their existing values while learning the difference; a later spoken reply can verify the visual reaction.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Make one visible shape change",
+          "body": "Note Overall thread size, raise it a little, watch the thread grow, then restore the original value. Horizontal span spreads it across the screen; Strand count multiplier adds strands; End gravity affects hanging ends. Test one next, using the same short spoken reply for later sound comparisons.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Save a look and prove you can restore it",
+          "body": "Animation preset selects a stored look and Load preset applies it, which can replace current tuning. Save a look you want to keep with Save current and a recognizable name such as Quiet thread, select it, change Overall thread size temporarily, then load it and check the size returns. Delete custom removes custom presets only.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ai_presence_mode"
+    },
+    {
+      "id": "page_ai_presence_mode_mood_color",
+      "title": "AI Presence Mode · Mood & color",
+      "description": "Use Mood & color in AI Presence Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ai_presence_mode",
+        "workspace": "addons",
+        "addon": "ai_presence_mode_tab",
+        "section": "Mood & color"
+      },
+      "category": "Addons / AI Presence Mode",
+      "order": 214,
+      "topic": "Mood & color",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Compare mood colors, then stop",
+        "Compare palette with the chosen mood"
+      ],
+      "steps": [
+        {
+          "title": "Compare mood colors, then stop",
+          "body": "Mood & color changes palette independently of thread shape. With Use mood colors on, note Mode, choose Manual and a Manual mood such as Calm, then compare with Happy before restoring your original mode. If the palette ignores your choice, inspect Story mood override and Persona mood override before changing color strength.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Compare palette with the chosen mood",
+          "body": "Keep the original palette and mood mode noted while comparing colors. A manual mood is useful for a repeatable visual comparison; automatic mood follows runtime state. Restore the mode you want afterward. If no palette change appears, check the mood-color enablement and selected mode before adjusting thread shape.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ai_presence_mode"
+    },
+    {
+      "id": "page_ai_presence_mode_advanced",
+      "title": "AI Presence Mode · Advanced",
+      "description": "Use Advanced in AI Presence Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ai_presence_mode",
+        "workspace": "addons",
+        "addon": "ai_presence_mode_tab",
+        "section": "Advanced"
+      },
+      "category": "Addons / AI Presence Mode",
+      "order": 215,
+      "topic": "Advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect before changing advanced options"
+      ],
+      "steps": [
+        {
+          "title": "Inspect before changing advanced options",
+          "body": "Advanced holds less common visual tuning. Read the available options before changing them, and change one at a time while the thread is visible so you can attribute the effect. Any explicit toggle you set is a user action; opening this guide never alters these settings on its own.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ai_presence_mode"
+    }
+  ]
+}

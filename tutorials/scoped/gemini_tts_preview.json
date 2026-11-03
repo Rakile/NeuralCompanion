@@ -1,0 +1,228 @@
+{
+  "guides": [
+    {
+      "id": "overview_gemini_tts_preview",
+      "title": "Gemini TTS Preview overview",
+      "description": "Gemini preview TTS backend addon for Neural Companion.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.gemini_tts_preview",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "gemini_tts_preview",
+        "subsection": "Provider settings"
+      },
+      "category": "Runtime / Text-to-speech / Gemini TTS Preview",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Gemini preview TTS backend addon for Neural Companion.",
+        "Find focused guidance for Overview, Connection, Voice."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_gemini_tts_preview_connection",
+        "page_gemini_tts_preview_voice",
+        "page_gemini_tts_preview_voice_tag_rules",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "What Gemini TTS Preview does",
+          "body": "Gemini preview TTS backend addon for Neural Companion. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Read the preview status first",
+          "body": "Open Overview and read Status before configuring anything else. It reports whether the preview backend is ready or needs connection details. Use the intro text to note this is a preview. If status names a missing key or endpoint, use Connection rather than retrying speech repeatedly in chat.",
+          "target": "providerSettingsSection_Provider settings",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Treat this as a preview backend",
+          "body": "Gemini TTS Preview is labeled a preview, so treat behavior as subject to change and verify speech with a short phrase rather than a long session. Status reflects configuration readiness, not guaranteed voice quality. Keep changes small and record what you set so you can revert easily.",
+          "target": "providerSettingsSection_Provider settings",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_gemini_tts_preview_connection",
+        "page_gemini_tts_preview_voice",
+        "page_gemini_tts_preview_voice_tag_rules"
+      ],
+      "display_title": "Start tutorial · Gemini TTS Preview",
+      "optional_chapters": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_gemini_tts_preview_overview",
+      "title": "Gemini TTS Preview · Overview",
+      "description": "Use Overview in Gemini TTS Preview.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.gemini_tts_preview",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "gemini_tts_preview",
+        "subsection": "Provider settings"
+      },
+      "category": "Runtime / Text-to-speech / Gemini TTS Preview",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the preview status first",
+        "Treat this as a preview backend"
+      ],
+      "steps": [
+        {
+          "title": "Read the preview status first",
+          "body": "Open Overview and read Status before configuring anything else. It reports whether the preview backend is ready or needs connection details. Use the intro text to note this is a preview. If status names a missing key or endpoint, use Connection rather than retrying speech repeatedly in chat.",
+          "target": "providerSettingsSection_Provider settings",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Treat this as a preview backend",
+          "body": "Gemini TTS Preview is labeled a preview, so treat behavior as subject to change and verify speech with a short phrase rather than a long session. Status reflects configuration readiness, not guaranteed voice quality. Keep changes small and record what you set so you can revert easily.",
+          "target": "providerSettingsSection_Provider settings",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_gemini_tts_preview",
+      "hidden": true
+    },
+    {
+      "id": "page_gemini_tts_preview_connection",
+      "title": "Gemini TTS Preview · Connection",
+      "description": "Use Connection in Gemini TTS Preview.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.gemini_tts_preview",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "gemini_tts_preview",
+        "subsection": "Connection"
+      },
+      "category": "Runtime / Text-to-speech / Gemini TTS Preview",
+      "order": 211,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Enter connection fields and test",
+        "Choose a model from the refreshed list",
+        "Distinguish a saved setting from a working connection"
+      ],
+      "steps": [
+        {
+          "title": "Enter connection fields and test",
+          "body": "In Connection, enter API key, Base URL, and Model. Use Refresh model list or Refresh models if you need to load available models, then choose one. Press Check connection and read its result. A failed result usually points to the key, endpoint, or model name; correct that one field and retest.",
+          "target": "providerSettingsSection_Connection",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose a model from the refreshed list",
+          "body": "After refreshing models, select a model from the list rather than typing an uncertain name. The model determines which speech options this preview can offer. If the list stays empty, check the Base URL and key before refreshing again. Check connection after a new model is chosen.",
+          "target": "providerSettingsSection_Connection",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish a saved setting from a working connection",
+          "body": "Entering fields stores configuration; Check connection reports whether the backend responded. Read its message rather than assuming success from a filled form. If connection fails, keep the error text so you can match it to the key, endpoint, or model that needs correction.",
+          "target": "providerSettingsSection_Connection",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_gemini_tts_preview"
+    },
+    {
+      "id": "page_gemini_tts_preview_voice",
+      "title": "Gemini TTS Preview · Voice",
+      "description": "Use Voice in Gemini TTS Preview.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.gemini_tts_preview",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "gemini_tts_preview",
+        "subsection": "Voice"
+      },
+      "category": "Runtime / Text-to-speech / Gemini TTS Preview",
+      "order": 212,
+      "topic": "Voice",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Set voice and language",
+        "Add a style prompt deliberately"
+      ],
+      "steps": [
+        {
+          "title": "Set voice and language",
+          "body": "In Voice, choose Voice and set Language code so pronunciation matches your text. Voice and language should agree; a mismatch often produces unexpected speech. After choosing, test a short phrase and listen before applying it to a longer project. Recheck the selected values if the output surprises you.",
+          "target": "providerSettingsSection_Voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Add a style prompt deliberately",
+          "body": "Style prompt guides delivery without changing the underlying voice. Keep it short and descriptive, then test a phrase to judge the effect. If the style dominates or the speech sounds unintelligible, simplify or clear the prompt. Style is optional, so an empty field is a valid choice.",
+          "target": "providerSettingsSection_Voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_gemini_tts_preview"
+    },
+    {
+      "id": "page_gemini_tts_preview_voice_tag_rules",
+      "title": "Gemini TTS Preview · Voice tag rules",
+      "description": "Understand the shared voice-tag rules alongside this TTS provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.gemini_tts_preview",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "gemini_tts_preview",
+        "subsection": "voice-tag-rules"
+      },
+      "category": "Runtime / Text-to-speech / Gemini TTS Preview",
+      "order": 240,
+      "steps": [
+        {
+          "title": "Read the default voice guidance",
+          "body": "Voice tag rules describe how NC interprets voice tags alongside this backend. Read the default guidance before changing it; backend selection and reference-audio selection are separate choices. Keeping the existing rules gives you a known baseline for later speech comparisons.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        },
+        {
+          "title": "Distinguish rules from actual playback",
+          "body": "A saved rule expresses how voice tags should be interpreted, not proof that a backend accepted the reference or produced audio. A later controlled spoken reply is needed to verify routing. If output changes unexpectedly, compare the rules with their previous text before changing provider settings.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        }
+      ],
+      "course_id": "overview_gemini_tts_preview"
+    }
+  ]
+}

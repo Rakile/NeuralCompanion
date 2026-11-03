@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "lighthouse_demo",
+  "revision": 1,
+  "enabled": true,
+  "opening": "A storm gathers over the harbour. Through the rain, the old lighthouse blinks twice and falls dark. Your guide waits beside the harbour gate. What do you do?",
+  "instructions": "Let the player decide their actions. Keep the mystery grounded in the harbour and lighthouse. The keeper is helpful, but worried about the storm.",
+  "initial_scene_id": "harbour",
+  "roles": [],
+  "scenes": [
+    {"id":"harbour","title":"Harbour","description":"Fishing boats strain against their ropes in the gathering storm.","location":"Harbour gate","effects":[]},
+    {"id":"lighthouse","title":"Lighthouse","description":"A locked door and a rusted keypad stand beneath the dark tower.","location":"Lighthouse steps","effects":[{"id":"arrival_narration","action_id":"mprc.story.narrate","arguments":{"text":"You reach the lighthouse. Rain runs over a small keypad beside the door. A light moves behind the frosted glass."}}]}
+  ],
+  "lorebooks": [{"id":"harbour_facts","title":"Harbour facts","enabled":true,"entries":[
+    {"id":"door_code","title":"Lighthouse access","text":"The lighthouse door code is 7314.","keywords":["lighthouse","door","code"],"enabled":true,"pinned":false,"priority":1,"order":0,"scene_ids":[]},
+    {"id":"keeper","title":"The keeper","text":"The lighthouse keeper is Mira. She knows the harbour and wants to protect its boats.","keywords":["keeper","Mira"],"enabled":true,"pinned":false,"priority":0,"order":1,"scene_ids":[]},
+    {"id":"storm","title":"Storm","text":"A severe storm is approaching the harbour. The lighthouse has gone dark.","keywords":[],"enabled":true,"pinned":true,"priority":5,"order":2,"scene_ids":[]}
+  ]}],
+  "variables": [{"id":"visited","type":"boolean","initial":false,"enum":[]}],
+  "allowed_actions": ["mprc.scenario.set_state","mprc.scenario.change_scene","mprc.story.narrate"],
+  "events": [{"id":"mark_visit","title":"Remember the visit","trigger":"choice_clicked","condition":null,"effects":[{"id":"set_visited","action_id":"mprc.scenario.set_state","arguments":{"variable_id":"visited","value":true}}],"once":true}],
+  "choices": [{"id":"enter","label":"Go to the lighthouse","condition":{"op":"eq","variable_id":"visited","value":false},"effect":{"id":"enter_effect","action_id":"mprc.scenario.change_scene","arguments":{"scene_id":"lighthouse"}}}]
+}

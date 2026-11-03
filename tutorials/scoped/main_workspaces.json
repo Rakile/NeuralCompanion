@@ -1,0 +1,1238 @@
+{
+  "guides": [
+    {
+      "title": "Conversation and chat",
+      "steps": [
+        {
+          "title": "Find history and the composer",
+          "body": "The history contains your conversation; the message field at the bottom prepares the next turn. Read the current chat name before making changes. Enter sends a message and Shift+Enter adds a line. Opening this overview sends nothing; keep any draft you are already composing.",
+          "target": "conversationWorkspace",
+          "fallback_target": "conversationWorkspace"
+        },
+        {
+          "title": "Locate the conversation tools",
+          "body": "Save, Load, Memory and Controls sit around the history. Controls can show tools hidden on compact layouts. This course continues into the Conversation and Chat walkthrough, where you can practice sending a message, reply playback, editing and saving. Exercises wait for Continue, and setup elsewhere remains optional.",
+          "target": "conversationWorkspace",
+          "fallback_target": "conversationWorkspace"
+        }
+      ],
+      "id": "page_conversation_overview",
+      "scope": {
+        "workspace": "conversation"
+      },
+      "kind": "overview",
+      "category": "Conversation",
+      "description": "Learn the Conversation workspace, then practice sending, replaying, editing and saving a chat.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [
+        "conversation"
+      ],
+      "children": [
+        "conversation",
+        "conversation_memory",
+        "window_layout"
+      ],
+      "display_title": "Start tutorial · Conversation and chat",
+      "learning_outcomes": [
+        "Find the history, composer and conversation controls",
+        "Practice a short chat using the existing Conversation and Chat walkthrough",
+        "Replay, edit and save a reply, with each exercise waiting for Continue"
+      ],
+      "optional_chapters": [
+        "conversation_memory",
+        "window_layout"
+      ]
+    },
+    {
+      "title": "Visual Reply Preview Overview",
+      "steps": [
+        {
+          "title": "Inspect an existing picture",
+          "body": "Visual Reply displays generated pictures and can load an existing file. Use Load Image only when you want to display a saved copy; loading does not request another generation. If there is no picture yet, the empty preview is expected. Image-provider configuration belongs to Runtime.",
+          "target": "visualReplyToolbar",
+          "fallback_target": "visualReplyToolbar"
+        },
+        {
+          "title": "Read the image toolbar",
+          "body": "Previous and Next browse available history. Tools reveals actions hidden by compact layouts; Float opens a separate display. Clear affects the display, while Delete Image and Delete All remove stored files after confirmation. Leave deletion unused during this introduction.",
+          "target": "visualReplyToolbar",
+          "fallback_target": "visualReplyToolbar"
+        }
+      ],
+      "id": "page_visuals_overview",
+      "scope": {
+        "workspace": "visuals"
+      },
+      "kind": "overview",
+      "category": "Visual Reply",
+      "description": "Visual Reply displays generated pictures and can load an existing file. Use Load Image only when you want to display a saved copy; loading does not request another generation. If there is no picture yet, the empty preview is expected. Image-provider configuration belongs to Runtime.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [],
+      "children": [
+        "visual_reply_controls",
+        "window_layout"
+      ],
+      "display_title": "Start tutorial · Visual Reply Preview",
+      "optional_chapters": [
+        "visual_reply_controls",
+        "window_layout"
+      ]
+    },
+    {
+      "title": "Avatar Preview Overview",
+      "steps": [
+        {
+          "title": "Understand the preview",
+          "body": "Avatar Preview displays output from the configured avatar backend. It does not select or initialize that backend. If there is no active avatar output, an empty display can be expected. Runtime Session → Avatar has separate setup guides for the provider and its assets.",
+          "target": "avatarPreviewWorkspace",
+          "fallback_target": "avatarPreviewWorkspace"
+        },
+        {
+          "title": "Keep display and configuration separate",
+          "body": "Floating or resizing the preview changes where you see output. It does not prepare an avatar pack or repair missing runtime files. When diagnosing missing animation, note the selected backend and its status before changing the display. This overview leaves your docking and provider settings alone.",
+          "target": "avatarPreviewWorkspace",
+          "fallback_target": "avatarPreviewWorkspace"
+        }
+      ],
+      "id": "page_avatar_preview_overview",
+      "scope": {
+        "workspace": "musetalk"
+      },
+      "kind": "overview",
+      "category": "Avatar Preview",
+      "description": "Avatar Preview displays output from the configured avatar backend. It does not select or initialize that backend. If there is no active avatar output, an empty display can be expected. Runtime Session → Avatar has separate setup guides for the provider and its assets.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [],
+      "children": [
+        "avatars_and_musetalk",
+        "window_layout"
+      ],
+      "display_title": "Start tutorial · Avatar Preview",
+      "optional_chapters": [
+        "avatars_and_musetalk",
+        "window_layout"
+      ]
+    },
+    {
+      "title": "Addons Workspace Overview",
+      "steps": [
+        {
+          "title": "Use the addon navigator",
+          "body": "The rail lists available addon destinations alongside core tools such as Persona, Addon Manager and Tutorials. Selecting an icon opens its page. Right-clicking an icon offers that destination's tutorials, even when another addon is selected. Hidden icons can be restored through the existing Unhide action.",
+          "target": "addonSectionRail",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Choose a page-level guide",
+          "body": "Larger addons have several sections; simple integrations may have one page. Use the visible Tutorial button for the current page, or right-click its section. Provider addons appear under their Runtime category. The complete Tutorials library also lists broader exercises as workflows.",
+          "target": "addonSectionRail",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_addons_overview",
+      "scope": {
+        "workspace": "addons"
+      },
+      "kind": "overview",
+      "category": "Addons / Core tools",
+      "description": "The rail lists available addon destinations alongside core tools such as Persona, Addon Manager and Tutorials. Selecting an icon opens its page. Right-clicking an icon offers that destination's tutorials, even when another addon is selected. Hidden icons can be restored through the existing Unhide action.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [],
+      "children": [
+        "getting_started",
+        "window_layout"
+      ],
+      "display_title": "Start tutorial · Addons Workspace",
+      "optional_chapters": [
+        "getting_started",
+        "window_layout"
+      ]
+    },
+    {
+      "title": "Addon Manager",
+      "steps": [
+        {
+          "title": "Read installation and load status",
+          "body": "Find an addon by name and compare its enabled setting with its current load status. Installed, enabled and loaded describe different states; enabling an addon may require a restart. Read any reported failure before retrying. Viewing this page does not enable an integration.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Inspect before changing an addon",
+          "body": "Read the selected addon's description and available actions before enabling, disabling or importing it. Changes can affect the next startup and existing integrations. Service-only addons are explained here even when they have no separate settings page. Preserve the current state during a read-only tour.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_addon_manager",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.addons"
+      },
+      "kind": "section",
+      "category": "Addons / Core tools",
+      "description": "Find an addon by name and compare its enabled setting with its current load status. Installed, enabled and loaded describe different states; enabling an addon may require a restart. Read any reported failure before retrying. Viewing this page does not enable an integration.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [],
+      "optional_chapters": [
+        "getting_started"
+      ],
+      "children": [
+        "getting_started"
+      ]
+    },
+    {
+      "title": "Speech Timing Settings",
+      "steps": [
+        {
+          "title": "Understand chunk sizes",
+          "body": "Speech Timing divides reply text into pieces for synthesis. Smaller chunks can begin sooner but add joins; larger chunks may be smoother but take longer to prepare. Inspect the normal and streaming settings separately. Timing adjustments cannot fix a missing TTS backend or an incorrect output device.",
+          "target": "operationsWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Compare one value at a time",
+          "body": "Note the existing value before changing a chunk or buffering setting. A later reply using the same text and provider gives a useful comparison of first sound and pauses. Restore the previous value if it worsens. Saved timing profiles and the active runtime configuration are separate choices.",
+          "target": "operationsWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_speech_timing",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.speech_timing"
+      },
+      "kind": "section",
+      "category": "Addons / Core tools",
+      "description": "Speech Timing divides reply text into pieces for synthesis. Smaller chunks can begin sooner but add joins; larger chunks may be smoother but take longer to prepare. Inspect the normal and streaming settings separately. Timing adjustments cannot fix a missing TTS backend or an incorrect output device.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [],
+      "optional_chapters": [
+        "speech_and_streaming"
+      ],
+      "children": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "title": "Performance Check",
+      "steps": [
+        {
+          "title": "Understand what Start check measures",
+          "body": "Read Reply samples and Generate automatic sample replies before Start check. Starting arms a real measurement; visiting this page does not. With automatic samples off, you supply the replies separately. The result describes the tested provider, voice, avatar and streaming combination on this computer.",
+          "target": "operationsWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Review recommendations before applying",
+          "body": "Read the sample count, measured reasons and proposed tradeoffs. Earlier first sound, smoother speech and lower memory use can conflict. Apply latest recommendation changes the recommended settings together; Load profile is separate. Keep the current values recorded if you decide to apply anything.",
+          "target": "operationsWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_performance_check",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.performance"
+      },
+      "kind": "section",
+      "category": "Addons / Core tools",
+      "description": "Read Reply samples and Generate automatic sample replies before Start check. Starting arms a real measurement; visiting this page does not. With automatic samples off, you supply the replies separately. The result describes the tested provider, voice, avatar and streaming combination on this computer.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [],
+      "optional_chapters": [
+        "dry_run_optimization"
+      ],
+      "children": [
+        "dry_run_optimization"
+      ]
+    },
+    {
+      "title": "Tutorial Library",
+      "steps": [
+        {
+          "title": "Find guidance for the current area",
+          "body": "Choose the Desktop audience for NC pages, then browse the navigation-based categories or search by name. An overview explains relationships; a section guide stays on one page. Workflows are labelled because they may visit several areas. Your first chat remains the starting exercise.",
+          "target": "tutorialsWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Read prerequisites before starting",
+          "body": "A guide preview lists what it covers and what is needed. You can read unavailable-provider guidance without enabling it. During a scoped guide, leaving its page pauses it; Return to tutorial restores the same step and End tutorial closes it. Remote-app guides retain their separate reader.",
+          "target": "tutorialsWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_tutorial_library",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.tutorials"
+      },
+      "kind": "section",
+      "category": "Addons / Core tools",
+      "description": "Choose the Desktop audience for NC pages, then browse the navigation-based categories or search by name. An overview explains relationships; a section guide stays on one page. Workflows are labelled because they may visit several areas. Your first chat remains the starting exercise.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [],
+      "optional_chapters": [
+        "getting_started"
+      ],
+      "children": [
+        "getting_started"
+      ]
+    },
+    {
+      "title": "Persona Tab",
+      "steps": [
+        {
+          "title": "Describe the companion",
+          "body": "Describe the persona holds your own concise identity instructions. Apply description as system prompt uses that text directly. Refine is optional and proposes a draft; inspect it before applying. These actions change instructions, so keep your current persona description if you only want to learn the controls.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Check the active instructions",
+          "body": "Read Active persona system prompt after any deliberate apply. Generated draft text and the active prompt are different states. Save a reusable Persona when you want to keep its identity for later selection. If the result differs from your description, inspect the active field before asking the model to correct itself.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_persona",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "persona"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "Describe the persona holds your own concise identity instructions. Apply description as system prompt uses that text directly. Refine is optional and proposes a draft; inspect it before applying. These actions change instructions, so keep your current persona description if you only want to learn the controls.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "Voice Tab",
+      "steps": [
+        {
+          "title": "Inspect the voice reference",
+          "body": "Read the selected voice reference and its available preview. A stored reference file does not prove a speech backend can use it. Check which Persona is selected before assigning a reference. If there is no sample, retaining the inherited voice is a valid choice.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Apply to the intended Persona",
+          "body": "Use the explicit voice-apply action only when you want to change this Persona's reference. Backend compatibility and loaded TTS still determine how a later reply sounds. Auditioning a sample and assigning it are separate actions; compare the selected profile afterward.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_voice",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "voice"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "Read the selected voice reference and its available preview. A stored reference file does not prove a speech backend can use it. Check which Persona is selected before assigning a reference. If there is no sample, retaining the inherited voice is a valid choice.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "MCP Tab",
+      "steps": [
+        {
+          "title": "Read this Persona's tool access",
+          "body": "The MCP page controls which available tools this Persona may use. Review selections and descriptions before granting anything. Persona selection and MCP Core permission are separate layers; a checked tool here does not make a stopped server available or approve every request.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Check effective availability",
+          "body": "Compare the intended selections with the status shown here. If a tool is absent, its server or registry may be unavailable. Review MCP Core separately after finishing this guide. Opening the tutorial selects no tools and executes no commands.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_mcp",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "mcp"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "The MCP page controls which available tools this Persona may use. Review selections and descriptions before granting anything. Persona selection and MCP Core permission are separate layers; a checked tool here does not make a stopped server available or approve every request.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "Overrides Tab",
+      "steps": [
+        {
+          "title": "Inspect override categories",
+          "body": "Overrides separates Visual avatar tags, TTS voice provider tags, Language model and Conversation memory. An inherited value follows the shared configuration; an override changes this Persona's choice. Read the effective setting and any validation message before editing.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Resolve drafts deliberately",
+          "body": "Keep track of unsaved override edits before switching categories. Review validation, then use the page's save or discard action as appropriate. Overrides need compatible providers and assets. A saved override records intent; a later controlled reply is the behavior check.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_overrides",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "overrides"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "Overrides separates Visual avatar tags, TTS voice provider tags, Language model and Conversation memory. An inherited value follows the shared configuration; an override changes this Persona's choice. Read the effective setting and any validation message before editing.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "Visual Tab",
+      "steps": [
+        {
+          "title": "Separate identity text from reference images",
+          "body": "A stable visual identity prompt describes lasting traits. A neutral reference image supplies reusable visual evidence. Importing a reference and generating a portrait are different actions; generation needs a working image provider. Inspect the accepted reference before creating a full mood set.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Choose how references are used",
+          "body": "Read the controls governing self-images and mood portraits. These affect how later requests use the saved identity. Review one accepted image before generating many variations. If a preview is missing, check the selected Persona and reference status rather than repeatedly generating.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_visual",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "visual"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "A stable visual identity prompt describes lasting traits. A neutral reference image supplies reusable visual evidence. Importing a reference and generating a portrait are different actions; generation needs a working image provider. Inspect the accepted reference before creating a full mood set.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "Replies Tab",
+      "steps": [
+        {
+          "title": "Choose generation behavior",
+          "body": "Visual Reply behavior determines when this Persona may request generated images. Generate when asked differs from broader automatic behavior. Read the current choice before editing. Provider configuration and the Persona's generation policy both need to allow the intended later request.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Separate generation from display",
+          "body": "Automatically showing a completed image controls presentation after generation. It does not cause an image to be generated or configure a provider. Keep the two choices distinct when troubleshooting: no generated picture and a picture that did not open automatically are different outcomes.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_replies",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "replies"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "Visual Reply behavior determines when this Persona may request generated images. Generate when asked differs from broader automatic behavior. Read the current choice before editing. Provider configuration and the Persona's generation policy both need to allow the intended later request.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "Library Tab",
+      "steps": [
+        {
+          "title": "Distinguish saved prompts from Personas",
+          "body": "The prompt library stores reusable prompt material. Selecting a library entry for inspection is different from applying it to the active Persona. Read its name and contents before using an apply action, especially when an existing prompt is already working.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Review before replacing instructions",
+          "body": "Check a draft or imported prompt for unwanted claims and behavior before applying it. Keep a reusable copy of instructions you want to retain. If the active prompt changes unexpectedly, compare the selected library entry with the active Persona rather than assuming the model changed the saved text.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_library",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "library"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "The prompt library stores reusable prompt material. Selecting a library entry for inspection is different from applying it to the active Persona. Read its name and contents before using an apply action, especially when an existing prompt is already working.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "Relay Tab",
+      "steps": [
+        {
+          "title": "Inspect imported identity material",
+          "body": "Identity Relay keeps imported companion material separate from your active instructions. Read the available artifact or staged content before applying it. A file being present does not mean it has replaced your Persona. The dedicated NC Identity Relay guides explain export and import operations.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Keep application deliberate",
+          "body": "Review what an apply operation would change and which Persona it affects. Retain the existing profile if you only want to inspect the import. If expected material is absent, check the selected artifact and its status; do not repeatedly import unrelated files.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_relay",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "relay"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "Identity Relay keeps imported companion material separate from your active instructions. Read the available artifact or staged content before applying it. A file being present does not mean it has replaced your Persona. The dedicated NC Identity Relay guides explain export and import operations.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "Advanced Tab",
+      "steps": [
+        {
+          "title": "Read advanced Persona options",
+          "body": "Advanced contains options beyond the basic identity, reference and reply-policy setup. Note the current value and its explanation before changing it. Keep a working Persona as your baseline; advanced settings should address a specific behavior you can describe.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Keep changes attributable",
+          "body": "Change one relevant option rather than several categories at once. A later short reply can help compare behavior, while the active prompt and effective overrides identify what was configured. Restore the previous value if a comparison worsens. This page tour does not send that reply.",
+          "target": "personaWorkspace",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "id": "page_persona_advanced",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "advanced"
+      },
+      "kind": "section",
+      "category": "Addons / Persona",
+      "description": "Advanced contains options beyond the basic identity, reference and reply-policy setup. Note the current value and its explanation before changing it. Keep a working Persona as your baseline; advanced settings should address a specific behavior you can describe.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_persona_workspace"
+    },
+    {
+      "title": "Chat Behavior Conversation Tab",
+      "steps": [
+        {
+          "title": "Inspect the context settings",
+          "body": "Conversation settings affect how recent dialogue is supplied to the model. Read the context-related limits and explanations before changing them. A shorter context can reduce how much earlier conversation is available; it does not delete the saved conversation file.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Separate behavior from history tools",
+          "body": "These settings shape future turns. Editing or loading a chat happens in Conversation, and stored older messages have their own Memory controls. Keep the existing limits for this tour; later comparisons should use the same saved conversation and provider.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_chat_conversation",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "chat",
+        "chat_tab": "conversation"
+      },
+      "kind": "section",
+      "category": "Runtime / Chat Behavior",
+      "description": "Conversation settings affect how recent dialogue is supplied to the model. Read the context-related limits and explanations before changing them. A shorter context can reduce how much earlier conversation is available; it does not delete the saved conversation file.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_chat_behavior"
+    },
+    {
+      "title": "Chat Behavior Writing Tab",
+      "steps": [
+        {
+          "title": "Inspect writing assistance",
+          "body": "Read the writing-related switches and prompt text on this page. They shape the writing assistance requested from NC rather than editing your saved messages automatically. Keep a copy of custom guidance before replacing it.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Compare guidance with later output",
+          "body": "A setting or instruction is not proof of a particular writing result. After a deliberate change, a later short example using the same request is a useful comparison. If it becomes too restrictive or verbose, restore the earlier text before changing unrelated model settings.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_chat_writing",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "chat",
+        "chat_tab": "writing"
+      },
+      "kind": "section",
+      "category": "Runtime / Chat Behavior",
+      "description": "Read the writing-related switches and prompt text on this page. They shape the writing assistance requested from NC rather than editing your saved messages automatically. Keep a copy of custom guidance before replacing it.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_chat_behavior"
+    },
+    {
+      "title": "Chat Behavior Proactive Tab",
+      "steps": [
+        {
+          "title": "Read when proactive replies are allowed",
+          "body": "Inspect the enablement, timing and instruction controls for proactive behavior. These determine when NC may initiate a reply during eligible runtime activity. Read their explanations before enabling anything; a stopped or busy runtime may not produce a proactive turn.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Keep the first adjustment small",
+          "body": "Note the existing values before changing an interval or rule. Shorter intervals can make an enabled feature more frequent; they do not fix an unavailable provider. Use the displayed status and a later controlled observation to distinguish scheduling from generation failures.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_chat_proactive",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "chat",
+        "chat_tab": "proactive"
+      },
+      "kind": "section",
+      "category": "Runtime / Chat Behavior",
+      "description": "Inspect the enablement, timing and instruction controls for proactive behavior. These determine when NC may initiate a reply during eligible runtime activity. Read their explanations before enabling anything; a stopped or busy runtime may not produce a proactive turn.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_chat_behavior"
+    },
+    {
+      "title": "Chat Behavior Memory Tab",
+      "steps": [
+        {
+          "title": "Separate summary from older messages",
+          "body": "Conversation summary keeps compact notes; Older messages stores past turns for later lookup. Their use-in-replies controls are separate from maintaining the data. A named saved conversation is needed for the associated memory tools. An empty summary does not mean the chat file was lost.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Read search readiness before repair",
+          "body": "Compare saved, indexed and waiting counts. Waiting for an incomplete batch is different from an indexing error. Use repair or rebuild actions only for an identified problem. Keyword search and optional meaning-based search have different setup; inspect the current route before changing a model.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_chat_memory",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "chat",
+        "chat_tab": "memory"
+      },
+      "kind": "section",
+      "category": "Runtime / Chat Behavior",
+      "description": "Conversation summary keeps compact notes; Older messages stores past turns for later lookup. Their use-in-replies controls are separate from maintaining the data. A named saved conversation is needed for the associated memory tools. An empty summary does not mean the chat file was lost.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_id": "overview_chat_behavior"
+    },
+    {
+      "title": "Appearance Themes",
+      "steps": [
+        {
+          "title": "Inspect the selected appearance",
+          "body": "Read the current theme and appearance controls. Their changes affect interface presentation rather than Persona instructions or provider settings. Note the current selection before comparing another look so you can restore it.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Check readability in the current page",
+          "body": "After a deliberate appearance change, compare text, focus outlines and selected controls on this page. Keep a theme that remains readable at your normal window size. A display preference does not require loading a model or restarting a conversation.",
+          "target": "coreSettingsWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_appearance_themes",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "themes"
+      },
+      "kind": "section",
+      "category": "Runtime / Settings",
+      "description": "Read the current theme and appearance controls. Their changes affect interface presentation rather than Persona instructions or provider settings. Note the current selection before comparing another look so you can restore it.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Vision Sensors Overview",
+      "steps": [
+        {
+          "title": "Distinguish a source from its policy",
+          "body": "Screen, webcam, clipboard and other sources provide sensory context. Their setup differs from the shared awareness rules controlling background reviews and replies. A source being listed does not mean it is capturing or that background use is permitted.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Find the relevant source guide",
+          "body": "Choose the source you need and use its Setup, Prompts or Advanced tutorial. Orb vision and Spotify awareness have dedicated hosted tabs here. Inspect which sources and shared permissions are enabled before changing them; this overview does not start capture or grant background use.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_vision_overview",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "shared_awareness"
+      },
+      "kind": "overview",
+      "category": "Runtime / Settings",
+      "description": "Screen, webcam, clipboard and other sources provide sensory context. Their setup differs from the shared awareness rules controlling background reviews and replies. A source being listed does not mean it is capturing or that background use is permitted.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": [],
+      "children": [
+        "vision_supervisors_overview",
+        "screen_and_clipboard",
+        "presence_sources"
+      ],
+      "display_title": "Start tutorial · Vision Sensors",
+      "optional_chapters": [
+        "vision_supervisors_overview",
+        "screen_and_clipboard",
+        "presence_sources"
+      ]
+    },
+    {
+      "title": "Orb Setup Tab",
+      "steps": [
+        {
+          "title": "Read the capture target and model route",
+          "body": "Setup describes what the Orb can see and how its vision requests are handled. Compare the selected window, region or screen with the target you intend. Read the provider and model availability before enabling an auxiliary model; a selected name alone is not a connection test.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Check readiness without widening capture",
+          "body": "Use the displayed setup state to identify missing requirements. An unavailable window should be reselected deliberately rather than replaced with broader screen capture. Viewing this page does not register a watch or grant shared background permissions.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_orb_setup",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "companion_orb_target",
+        "owner_addon": "nc.companion_orb_overlay",
+        "sensory_tab": "setup"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Companion Orb",
+      "description": "Setup describes what the Orb can see and how its vision requests are handled. Compare the selected window, region or screen with the target you intend. Read the provider and model availability before enabling an auxiliary model; a selected name alone is not a connection test.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Orb Watches Tab",
+      "steps": [
+        {
+          "title": "Read registered watches",
+          "body": "Inspect the active-watch list and each watch's target and status. Registered does not necessarily mean running: an unavailable window or runtime can pause it. A visible Orb alone does not prove a watch is active.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Manage only the intended watch",
+          "body": "Remove a test watch through its own control when it is no longer wanted, then confirm its row disappears. Hiding the overlay is different from stopping a watch. A new watch request belongs to a separate explicit interaction; this guide does not submit one.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_orb_watches",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "companion_orb_target",
+        "owner_addon": "nc.companion_orb_overlay",
+        "sensory_tab": "watches"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Companion Orb",
+      "description": "Inspect the active-watch list and each watch's target and status. Registered does not necessarily mean running: an unavailable window or runtime can pause it. A visible Orb alone does not prove a watch is active.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Orb Behavior Tab",
+      "steps": [
+        {
+          "title": "Inspect the Orb's behavior guidance",
+          "body": "Read the personality and reaction rules used for visual awareness. They shape how the Orb responds to context, separately from its cosmetic motion settings. Keep the current prompt while checking what target and provider supply that context.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Make a controlled rule change",
+          "body": "If you need a different response style, record the earlier guidance and edit one clear rule. Avoid conflicting instructions across several fields. A later observed reaction is the behavior test; merely saving a rule does not prove a watch matched it.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_orb_behavior",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "companion_orb_target",
+        "owner_addon": "nc.companion_orb_overlay",
+        "sensory_tab": "behavior"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Companion Orb",
+      "description": "Read the personality and reaction rules used for visual awareness. They shape how the Orb responds to context, separately from its cosmetic motion settings. Keep the current prompt while checking what target and provider supply that context.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Orb Prompts Tab",
+      "steps": [
+        {
+          "title": "Read the prompt used with visual context",
+          "body": "Inspect the visual prompt guidance and any preview offered. Distinguish instructions describing how to interpret an image from the image itself and the capture target. Preserve custom text before restoring a default.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Check wording against the task",
+          "body": "Keep instructions specific to what the source can show. If guidance names information outside the chosen window or region, correct the expectation rather than widening capture automatically. A later explicit request can test the wording; this guide sends none.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_orb_prompts",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "companion_orb_target",
+        "owner_addon": "nc.companion_orb_overlay",
+        "sensory_tab": "prompts"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Companion Orb",
+      "description": "Inspect the visual prompt guidance and any preview offered. Distinguish instructions describing how to interpret an image from the image itself and the capture target. Preserve custom text before restoring a default.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Orb Desktop Map Tab",
+      "steps": [
+        {
+          "title": "Inspect the desktop-map information",
+          "body": "The desktop map represents detected desktop regions and controls used by Orb guidance. Read its displayed freshness and availability information. A stale or incomplete map is not proof that an application control is absent.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Recognize map and capture limits",
+          "body": "Compare the mapped region with the selected capture scope and current windows. Changes on the desktop can invalidate earlier locations. Read the map's refresh and diagnostic controls before using them; this tutorial performs no clicks on mapped applications.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_orb_desktop_map",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "companion_orb_target",
+        "owner_addon": "nc.companion_orb_overlay",
+        "sensory_tab": "desktop_map"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Companion Orb",
+      "description": "The desktop map represents detected desktop regions and controls used by Orb guidance. Read its displayed freshness and availability information. A stale or incomplete map is not proof that an application control is absent.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Orb Actions Tab",
+      "steps": [
+        {
+          "title": "Read click and guidance configuration",
+          "body": "Inspect the controls for confirmed clicks and visual guidance. Read the required confirmation method and verification behavior before enabling an action path. An available target is not confirmation to click it; this tutorial enables and executes no action.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Distinguish a proposed action from success",
+          "body": "A target description or guidance beam identifies an intended location. Successful execution also requires the existing confirmation and verification path. If the result is uncertain, inspect the reported state before retrying. Keep your existing action permissions unchanged during this tour.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_orb_actions",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "companion_orb_target",
+        "owner_addon": "nc.companion_orb_overlay",
+        "sensory_tab": "actions"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Companion Orb",
+      "description": "Inspect the controls for confirmed clicks and visual guidance. Read the required confirmation method and verification behavior before enabling an action path. An available target is not confirmation to click it; this tutorial enables and executes no action.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Orb Advanced Tab",
+      "steps": [
+        {
+          "title": "Read the vision-runtime details",
+          "body": "Advanced separates the auxiliary vision runtime, model tuning and capture details. Read the current endpoint and model-handling choices before editing them. These are distinct from the main chat provider and should address a specific vision setup problem.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Use diagnostics before retuning",
+          "body": "Compare the displayed setup or diagnostic information with the failing stage: target capture, model availability or response interpretation. Keep the prior values recorded. Adjusting confidence or timing cannot repair a missing model, and raising several limits at once makes comparisons harder.",
+          "target": "orbSensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_orb_advanced",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "companion_orb_target",
+        "owner_addon": "nc.companion_orb_overlay",
+        "sensory_tab": "advanced"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Companion Orb",
+      "description": "Advanced separates the auxiliary vision runtime, model tuning and capture details. Read the current endpoint and model-handling choices before editing them. These are distinct from the main chat provider and should address a specific vision setup problem.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Spotify Awareness Music Tab",
+      "steps": [
+        {
+          "title": "Read how music enters awareness",
+          "body": "Awareness controls how the currently playing Spotify track contributes context to NC. It is separate from authorizing the account and choosing a playback device. A configured awareness rule cannot supply track information if the Spotify link is unavailable.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Inspect response permissions",
+          "body": "Read which awareness responses are allowed before enabling them. Background awareness and permission to control music are different choices. Keep the existing settings while learning; a later matching track and response provide the actual behavior check.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_spotify_awareness_music",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "spotify_sense",
+        "owner_addon": "nc.spotify_sense",
+        "sensory_tab": "awareness_music"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Spotify Sense",
+      "description": "Awareness controls how the currently playing Spotify track contributes context to NC. It is separate from authorizing the account and choosing a playback device. A configured awareness rule cannot supply track information if the Spotify link is unavailable.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Spotify Song Changes Tab",
+      "steps": [
+        {
+          "title": "Inspect song-change behavior",
+          "body": "Read the settings controlling reactions when the track changes. Distinguish receiving a new track from choosing whether NC should respond. Keep current repeat or timing settings noted before adjusting them.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Compare events before tuning frequency",
+          "body": "A repeated or absent reaction may depend on whether a genuine track change was observed. Check the displayed track information first. A later controlled song change is the useful comparison; changing several awareness and playback permissions together obscures the cause.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_spotify_awareness_song_changes",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "spotify_sense",
+        "owner_addon": "nc.spotify_sense",
+        "sensory_tab": "awareness_song_changes"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Spotify Sense",
+      "description": "Read the settings controlling reactions when the track changes. Distinguish receiving a new track from choosing whether NC should respond. Keep current repeat or timing settings noted before adjusting them.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Spotify Hidden Presets Tab",
+      "steps": [
+        {
+          "title": "Understand what a preset replaces",
+          "body": "Presets collect awareness guidance into a reusable starting point. Read the selected preset and its explanation before applying one, since applying can replace current tuning. Preserve custom guidance you want to keep.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Compare the resulting settings",
+          "body": "After a deliberate apply, inspect the resulting guidance rather than assuming every option changed. A preset describes intended behavior; live awareness still needs track context and the relevant permissions. Restore your earlier settings if the preset does not fit.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_spotify_hidden_presets",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "spotify_sense",
+        "owner_addon": "nc.spotify_sense",
+        "sensory_tab": "hidden_presets"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Spotify Sense",
+      "description": "Presets collect awareness guidance into a reusable starting point. Read the selected preset and its explanation before applying one, since applying can replace current tuning. Preserve custom guidance you want to keep.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Spotify Hidden Quick Styles Tab",
+      "steps": [
+        {
+          "title": "Choose a response style deliberately",
+          "body": "Quick styles offer concise choices for how music-related responses should sound. Read the current style alongside any custom guidance. Keep one style while comparing behavior so changes can be attributed to it.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Separate style from frequency",
+          "body": "A style changes response character, not account authorization, playback availability or how often events are observed. If nothing arrives, inspect awareness readiness before cycling through styles. Preserve custom wording before replacing it.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_spotify_hidden_quick_styles",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "spotify_sense",
+        "owner_addon": "nc.spotify_sense",
+        "sensory_tab": "hidden_quick_styles"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Spotify Sense",
+      "description": "Quick styles offer concise choices for how music-related responses should sound. Read the current style alongside any custom guidance. Keep one style while comparing behavior so changes can be attributed to it.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Spotify Hidden Response Prompts Tab",
+      "steps": [
+        {
+          "title": "Inspect the response instructions",
+          "body": "Read the prompt text used for music-awareness responses. It should describe the kind of reply you want, while the actual track context is supplied separately. Keep a copy of custom instructions before applying a preset or restoring defaults.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Remove conflicting guidance",
+          "body": "Look for incompatible requests, such as both very brief and exhaustive responses. Edit one instruction at a time. A later observed reply can test the change; changing the prompt alone does not connect Spotify or enable autonomous playback.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_spotify_hidden_response_prompts",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "spotify_sense",
+        "owner_addon": "nc.spotify_sense",
+        "sensory_tab": "hidden_response_prompts"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Spotify Sense",
+      "description": "Read the prompt text used for music-awareness responses. It should describe the kind of reply you want, while the actual track context is supplied separately. Keep a copy of custom instructions before applying a preset or restoring defaults.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "title": "Spotify Hidden Source Guidance Tab",
+      "steps": [
+        {
+          "title": "Read how source context is interpreted",
+          "body": "Source guidance explains how available Spotify information should be used. Distinguish track metadata from facts the source does not supply. Keep the instructions grounded in the context visible to NC rather than assuming an entire listening history.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Keep source and response roles separate",
+          "body": "Source guidance interprets incoming context; response prompts shape the reply. If the wrong song is identified, inspect the source data before rewriting response style. Preserve the previous guidance when experimenting so the interpretation can be restored.",
+          "target": "spotifySensorySettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "id": "page_spotify_hidden_source_guidance",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "spotify_sense",
+        "owner_addon": "nc.spotify_sense",
+        "sensory_tab": "hidden_source_guidance"
+      },
+      "kind": "section",
+      "category": "Runtime / Vision Sensors / Spotify Sense",
+      "description": "Source guidance explains how available Spotify information should be used. Distinguish track metadata from facts the source does not supply. Keep the instructions grounded in the context visible to NC rather than assuming an entire listening history.",
+      "order": 90,
+      "before_you_start": "Read the existing values first. This guide opens the owning page without applying settings, starting services or performing tests.",
+      "course_chapters": []
+    },
+    {
+      "id": "overview_persona_workspace",
+      "title": "Persona",
+      "description": "Persona brings identity, voice, tools, overrides and presentation together. Start with the Persona tab, then use the focused chapters for the other tabs. Opening the tour does not select a different persona or apply overrides.",
+      "kind": "overview",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "persona"
+      },
+      "category": "Addons / Persona",
+      "order": 190,
+      "display_title": "Start tutorial · Persona",
+      "course_chapters": [
+        "personas_and_chat"
+      ],
+      "children": [
+        "personas_and_chat",
+        "page_persona_persona",
+        "page_persona_voice",
+        "page_persona_mcp",
+        "page_persona_overrides",
+        "page_persona_visual",
+        "page_persona_replies",
+        "page_persona_library",
+        "page_persona_relay",
+        "page_persona_advanced"
+      ],
+      "steps": [
+        {
+          "title": "Persona overview",
+          "body": "Persona brings identity, voice, tools, overrides and presentation together. Start with the Persona tab, then use the focused chapters for the other tabs. Opening the tour does not select a different persona or apply overrides.",
+          "target": "personaWorkspace"
+        }
+      ],
+      "optional_chapters": [
+        "page_persona_persona",
+        "page_persona_voice",
+        "page_persona_mcp",
+        "page_persona_overrides",
+        "page_persona_visual",
+        "page_persona_replies",
+        "page_persona_library",
+        "page_persona_relay",
+        "page_persona_advanced"
+      ]
+    },
+    {
+      "id": "overview_chat_behavior",
+      "title": "Chat Behavior overview",
+      "description": "Chat Behavior separates conversation, writing, proactive behavior and memory settings. Each chapter stays with its own settings tab. Read the current values before making an optional change; the tutorial does not change them.",
+      "kind": "overview",
+      "scope": {
+        "workspace": "runtime",
+        "runtime_section": "chat",
+        "chat_tab": "conversation"
+      },
+      "category": "Runtime / Chat Behavior",
+      "order": 190,
+      "display_title": "Start tutorial · Chat Behavior",
+      "course_chapters": [
+        "page_chat_conversation",
+        "page_chat_writing",
+        "page_chat_proactive",
+        "page_chat_memory"
+      ],
+      "children": [
+        "page_chat_conversation",
+        "page_chat_writing",
+        "page_chat_proactive",
+        "page_chat_memory",
+        "conversation_memory"
+      ],
+      "steps": [
+        {
+          "title": "Chat Behavior overview",
+          "body": "Chat Behavior separates conversation, writing, proactive behavior and memory settings. Each chapter stays with its own settings tab. Read the current values before making an optional change; the tutorial does not change them.",
+          "target": "coreSettingsWorkspace"
+        }
+      ],
+      "optional_chapters": [
+        "conversation_memory"
+      ]
+    }
+  ]
+}

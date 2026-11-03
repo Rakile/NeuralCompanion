@@ -1,0 +1,96 @@
+{
+  "id": "web_search",
+  "order": 28,
+  "title": "28. Web Search",
+  "description": "Check the search backend, run one small query and verify a source in chat before choosing automatic search.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "web_intelligence_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "addons",
+      "addon": "web_intelligence_tab",
+      "section": "Servers"
+    },
+    {
+      "workspace": "addons",
+      "addon": "web_intelligence_tab",
+      "section": "Test"
+    },
+    {
+      "workspace": "conversation"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Understand the three separate search choices",
+      "body": "In Overview, Enable web search is the master switch: off blocks searches, including tests. Conversation search mode decides when normal chat searches: Off, Automatically when current information is needed, or Every normal chat turn. Servers have their own running state.\n\nFor our first exercise, inspect the current states and leave automatic chat changes until a backend test works. Turn the master switch on when you are ready to run that test; this does not itself verify an endpoint. If the addon is absent, enable it in Addon Manager. Read aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "web_intelligence_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Prepare and check the search endpoints",
+      "body": "Open Servers and read Server installation status and the SearXNG MCP/DuckDuckGo MCP endpoints. Check endpoints probes what is already running; it does not start servers. If you use an existing external endpoint, check that service’s address and readiness.\n\nFor NC-managed local servers that are not installed, use Install / repair search servers and wait for completion. Then Start local search servers and Check endpoints. Look for a responding endpoint before continuing. If startup fails, read the installation/start result and check the configured endpoint instead of reinstalling repeatedly.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "web_intelligence_tab",
+      "section": "Servers"
+    },
+    {
+      "title": "Run one query without sending a chat message",
+      "body": "Open Test and enter a small Search query, such as “Python official documentation”. Choose Run test search. This sends the query to the backend without creating a chat turn.\n\nRead Diagnostic result for the provider and at least one relevant result. If blocked, check Enable web search in Overview; if unavailable or failed, return to Servers and Check endpoints. A successful endpoint probe alone does not prove results can be retrieved. Continue to chat only after the test returns usable evidence.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "web_intelligence_tab",
+      "section": "Test"
+    },
+    {
+      "title": "Verify one source in a chat reply",
+      "body": "In Conversation, show Web Search from Controls if hidden, then turn its switch on. It starts installed NC-managed servers and enables chat search; if servers are not installed, NC offers setup instead.\n\nWith Main Chat ready, send “/web Find the official Python documentation”. Read the reply and open a relevant source link to verify it matches the request. If no evidence appears, check the master switch, Conversation search mode and backend test result. A fluent reply without a checked source is not a completed search test.",
+      "workspace": "conversation",
+      "target": "conversationWebSearchControl",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. Show the Web Search control from Controls if it is hidden."
+    },
+    {
+      "title": "Stop the local search work after your test",
+      "body": "Turn the Conversation Web Search switch off. This disables chat search and stops NC-managed servers. Check the off state and Servers status; Servers → Stop NC-managed servers is the explicit stop action if needed.\n\nExternally managed endpoints keep their own lifecycle. Also note that turning off Enable web search in Overview blocks queries but keeps running servers; it is not the same as the Conversation stop action. If an outside service is still running, use that service’s controls. Leave search off now unless you want it available for later chats.",
+      "workspace": "conversation",
+      "target": "conversationWebSearchSwitch",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. Show the Web Search control from Controls if it is hidden."
+    },
+    {
+      "title": "Later: choose when chat should search",
+      "body": "In Overview, choose Conversation search mode for future use. Automatic uses freshness matching; Use LLM for context intent adds a model call per incoming turn when a backend is available. Every normal chat turn retrieves even when your question may not need the web.\n\nStart with small Maximum search results and Pages to read. With search enabled, /web <question> requests evidence for that reply; /web status reports state, and /web auto, /web always or /web off change chat mode. Off blocks normal-chat searches, so enable a mode again before testing another forced query. Read the reported state instead of assuming a mode command started servers.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "web_intelligence_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Review dates and clear stale evidence when needed",
+      "body": "A retrieved page can be incomplete, outdated or wrong. Open a source relevant to your answer and compare its claim and date. Search result instructions guides presentation; fetched pages remain source material rather than trusted instructions.\n\nClear search cache removes stored evidence when you need a fresh retrieval, without changing provider settings. Clear only for a reason, then rerun a small query with search enabled and inspect its diagnostic/cache status. Image and video search permissions are separate optional choices. Finish when you have checked one backend result and one chat source; leave the mode and server state as intended.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "web_intelligence_tab",
+      "section": "Overview"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Enable Web Search in Addon Manager and restart if requested. Search supplies external evidence to your existing chat model; it does not replace that model. Begin with one harmless query. Installing addon-local packages, launching servers and running searches require your actions; reading does none of them. Main Chat must already work for the chat test. Queries go to the configured search services. Narration prefers loaded Chatterbox, with Windows TTS as fallback.",
+  "learning_outcomes": [
+    "Distinguish the search master switch, chat mode and running servers.",
+    "Install/start only what is needed and verify one backend test query.",
+    "Check a cited chat source and stop NC-managed servers after testing."
+  ],
+  "contextual_guides": [
+    "overview_web_intelligence"
+  ]
+}

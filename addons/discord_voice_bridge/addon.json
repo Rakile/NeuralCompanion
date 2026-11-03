@@ -1,0 +1,28 @@
+{
+  "id": "nc.discord_voice_bridge",
+  "name": "Discord Voice Bridge",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Discord voice-channel bridge for isolated NC voice bot turns.",
+  "permissions": [
+    "ui.tabs",
+    "services.register"
+  ],
+  "ui": [
+    {
+      "id": "discord_voice_bridge_tab",
+      "title": "Discord Voice",
+      "area": "top_level",
+      "order": 128,
+      "tooltip": "Configure Discord voice bots, capture, playback, response filtering, and bridge diagnostics.",
+      "icon_path": "../../ui_icons/side_tabs/discord_chatt.png",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "services": [],
+  "host_services": [],
+  "enabled": true
+}

@@ -1,0 +1,103 @@
+{
+  "guides": [
+    {
+      "id": "overview_companion_chess",
+      "title": "Companion Chess overview",
+      "description": "Local persona chess or online NC Relay matches in 2D/3D, with private companion commentary and optional Launchpad controls.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.companion_chess",
+        "workspace": "addons",
+        "addon": "companion_chess_tab",
+        "section": "Play"
+      },
+      "category": "Addons / Companion Chess",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Local persona chess or online NC Relay matches in 2D/3D, with private companion commentary and optional Launchpad controls.",
+        "Find focused guidance for Play."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_companion_chess_play",
+        "companion_chess"
+      ],
+      "steps": [
+        {
+          "title": "What Companion Chess does",
+          "body": "Local persona chess or online NC Relay matches in 2D/3D, with private companion commentary and optional Launchpad controls. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "page_companion_chess_play"
+      ],
+      "display_title": "Start tutorial · Companion Chess",
+      "optional_chapters": [
+        "companion_chess"
+      ]
+    },
+    {
+      "id": "page_companion_chess_play",
+      "title": "Companion Chess · Play",
+      "description": "Use Play in Companion Chess.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.companion_chess",
+        "workspace": "addons",
+        "addon": "companion_chess_tab",
+        "section": "Play"
+      },
+      "category": "Addons / Companion Chess",
+      "order": 210,
+      "topic": "Play",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Start the local chess server first",
+        "Capture the endpoint and credential",
+        "Confirm MCP access before starting a game"
+      ],
+      "steps": [
+        {
+          "title": "Start the local chess server first",
+          "body": "On Play, open Setup and click Start Companion Chess Server once. Wait for the operation to finish and read the status. The server stores the board and validates moves; it is distinct from the chat model. If startup fails, read the message before retrying, and check whether the port is already in use.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Capture the endpoint and credential",
+          "body": "Under Advanced connection details, read the displayed endpoint and Server port, then click Show setup credential to copy the locally generated credential. Keep it private; it belongs in the server connection's authentication field, not in a chat message. If Show setup credential is disabled, finish starting the server first.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm MCP access before starting a game",
+          "body": "Return to Setup, click Refresh and select your Companion Chess connection, then click Request access. Approve that request yourself in MCP Core; the addon cannot approve it. Confirm readiness again before starting a board, because a granted permission and a running server are separate states.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose an engine knowingly",
+          "body": "Stockfish is optional and is not bundled with the main installer. Use Install Stockfish… on Windows, or Select existing engine… to point at an executable already present. Clearing the path falls back to the basic engine. Changing the engine after a game starts does not migrate the existing board.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Set White and start the first board",
+          "body": "In Game, choose your saved Persona whose move tool you assigned. Under Your side pick White; set a modest Engine strength if Stockfish is chosen. Leave Use persona voice off for the first text pass. Wait for settings to settle, then click New game. Replace an existing game only after reading the confirmation prompt.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_companion_chess"
+    }
+  ]
+}

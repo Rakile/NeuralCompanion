@@ -1,0 +1,155 @@
+{
+  "id": "local_room",
+  "order": 34,
+  "title": "34. Local Room",
+  "description": "Start a two-Persona local discussion, send one request, and practise turn-taking and room memory.",
+  "speech_backend": "chatterbox",
+  "before_you_start": "Enable Discord Voice Bridge in Addon Manager and restart if requested; its visible tab is Discord Voice. Save two Persona profiles and prepare working chat and text-to-speech providers. Local transport needs no Discord account. Start with typed input to test the room before adding microphone recognition. Save Main Chat first: starting a room can ask to stop Main Chat and save its conversation. Reading the guide never starts a room or clears history.",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Choose Local transport for a first group chat",
+      "body": "Open Addons → Discord Voice → Local room. While stopped, choose Room transport → Local. This runs on the desktop without a Discord bot. A room is a separate conversation with a moderator, other Personas and you; it has its own transcript and participant histories.\n\nFor this exercise, use two saved Personas and a short topic such as planning a rainy-day walk. We will send one typed request and then choose who speaks next. Check the room state and existing cast first. If this section is missing, enable Discord Voice Bridge and restart if requested. Read aloud narrates the guide; Hear step reads only this instruction.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Add two Personas and appoint the moderator",
+      "body": "Choose + Add Personas, then Add beside two saved profiles, or drag them into the room. Try a patient guide and a curious traveller. Select one and choose Make moderator. A new room needs exactly one moderator and at least one other AI Persona before it can start.\n\nCheck the participant tiles and moderator label. These characters stay linked to their saved names, prompts, portraits and voice references; adding one does not copy Main Chat history. If a profile is missing, save it in Persona first. If Start room is disabled, check the moderator and second Persona before troubleshooting model settings.",
+      "workspace": "addons",
+      "target": "localRoomAddPersonas",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Give your human participant a recognizable name",
+      "body": "Right-click your human participant tile, or open your name button above the room. Enter Alex in Your name in this room and choose Save name. This is the identity used for your room turns; it does not rename an AI Persona. You can use your preferred name instead.\n\nCheck the As label beside the composer. It should show the saved name before you send your first message. Earlier messages keep their original recorded name. If the label has not changed, confirm you selected the human tile and pressed Save name rather than merely editing the field.",
+      "workspace": "addons",
+      "target": "localRoomSelfMenuButton",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Start or continue without erasing saved discussion",
+      "body": "Use Start room for the configured room, or Continue conversation when saved history exists. Continuing restores participant histories and the saved handoff. If prompted to switch from Main Chat, review the stop confirmation and then Save, Don’t Save or Cancel for its unsaved chat. Cancelling the save prompt leaves Main Chat stopped and does not start the room.\n\nNew conversation is a separate reset: it confirms before clearing all room histories, including removed participants, and the topic, then starts fresh. It cannot be undone, so do not use it merely to test startup. Read the room status after starting; if it fails, inspect the reported provider/cast issue. Stop room later preserves this discussion.",
+      "workspace": "addons",
+      "target": "localRoomNewConversation",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Save one focused topic",
+      "body": "Open Conversation details or Set topic. Enter “Plan a rainy-day walk with one indoor backup,” then Save topic. A topic gives the participants a common focus without replacing their individual prompts.\n\nCheck the topic banner above the room for your wording. Saving it keeps existing history; it does not start a fresh conversation or force the next reply. If the old topic remains, reopen the editor and confirm Save topic. You can keep a saved discussion’s current topic if you are continuing it intentionally.",
+      "workspace": "addons",
+      "target": "localRoomConversationDetails",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Join and ask for one practical suggestion",
+      "body": "Use Session setup → Input and profile → Text Only for the first test. Once the room is running, open your name button above the room and choose Join conversation if needed, type “Please suggest one short walk and an indoor backup,” and send it. Your saved name and text should appear in the room Conversation, followed by a participant reply.\n\nIf no reply follows, check room status, the moderator/cast, current floor and chat-provider readiness. A manual speaker rule may be waiting for you to choose Speak next. Typed input works without microphone recognition. Later, Push-to-Talk needs its configured hotkey and a ready speech-to-text provider; Voice Activation also needs a working microphone path.",
+      "workspace": "addons",
+      "target": "localRoomSelfMenuButton",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Understand what a participant actually heard",
+      "body": "Room memory follows presence. A Persona hears turns while it is in the room; a removed Persona receives no catch-up for time away. Re-adding it preserves its own earlier room history, not everything in the shared transcript.\n\nAfter your first exchange, use the Memory lesson below to compare one participant’s entries with delivered turns. An optional later experiment is to remove a non-moderator, exchange one distinctive line, and re-add it: that missed line should be absent from its memory. Do not remove a participant just to finish reading. If its knowledge seems incomplete, check presence and delivered speech before treating it as a model failure.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Choose who speaks next",
+      "body": "Select a participant or right-click its tile and choose Speak next. This queues that participant after the current turn; watch UP NEXT and then Speaking to see the handoff. Invite now is available when the floor is free. Open your own participant menu and choose Let me speak next to request your turn when joined and eligible.\n\nRoom actions → Clear next speaker cancels a queued choice. If your intended participant never gets a turn, check that it is present and unmuted and review the speaking rule in Room controls. A queued choice is not an immediate interruption, so wait for the current speaker to finish before retrying.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Make a Persona a listener without removing it",
+      "body": "Choose a non-moderator and Mute participant. The member stays present and hears the room but receives no new speaking turns until unmuted. If it is already speaking, that reply finishes first. Watch the tile settle to listener state, then Unmute when you want it to speak again.\n\nThis is different from Remove from room, which ends presence and future hearing. Mute mic controls your microphone instead. The moderator cannot be muted; Make moderator on a muted Persona unmutes it. If a member remains silent after unmuting, inspect the next-speaker choice and speaking rule.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Choose an automatic or manual speaking rule",
+      "body": "Open Room controls to see the Conversation behavior dialog and read the three speaking-rule choices. NC chooses from the conversation uses automatic selection; Follow names and questions favors addressed turns; I choose each speaker waits for your choices. For a controlled comparison, choose I choose each speaker, Save behavior, then use Speak next for one participant.\n\nAfter saving, reopen Room controls to verify the selected rule. Manual mode disables automatic moderator recovery, so a quiet room can simply be waiting for you. For automatic use, Seconds before stepping in adds a pause before moderator help; preparation may happen during the wait. Leave the other behavior settings unchanged until a basic handoff works. Save behavior applies only to this Local room.",
+      "workspace": "addons",
+      "target": "localRoomControls",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Give the moderator private direction",
+      "body": "Right-click the moderator and choose Guide bot…. Draft “Ask the traveller for one concrete indoor backup,” then choose Prepare reply & speak next. This privately asks the moderator to generate a response; it does not post your draft as a public user turn or edit the saved Persona prompt.\n\nWatch queued, preparing or delivering status. The moderator should follow your direction after the current speaker finishes; pending next-speaker work is replaced. If the line has not played, check whether current speech is still finishing or the directive failed. Wait for delivered, failed or cancelled status before submitting another direction.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Have the moderator speak your exact words",
+      "body": "Right-click the moderator and choose Speak through bot…. Draft “Let us take a short break,” then choose Prepare speech & speak next. This sends the exact draft as public moderator speech. Guide bot instead asks the selected bot to create its own line from private direction. Both menu choices also work on other AI participants.\n\nListen for the words and check delivered status. Both actions wait for current speech and allow only one pending directive, so do not click repeatedly while queued. If it fails, read the directive status and speech-provider error before trying again. Use a harmless sentence because everyone present hears it.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Read and write in the full Conversation view",
+      "body": "Choose Open conversation. In the main Conversation tab, confirm Local room is selected before sending anything. Main chat is a separate conversation; changing this selector changes the displayed source, not the active room runtime.\n\nScroll back through a few turns, then use Back to latest to return to new messages. Send a short room follow-up and check its name and reply. Reading position and drafts survive tab switches. Room controls takes you back to room setup; participant menus provide guidance and exact speech. If a message seems missing, first check the selected conversation and scroll position rather than resending it.",
+      "workspace": "addons",
+      "target": "localRoomOpenConversation",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Compare one Persona’s memory with delivered turns",
+      "body": "Select a Persona, open Memory and choose Refresh. Find your first request and a reply it heard while present. This checks that participant’s room history; the shared transcript may include turns it missed. Stop speech & hold interrupts delivery, so unheard text is not counted as heard. Skip speech instead preserves the complete generated reply and adds it to the context of participants present, as if it had been fully spoken.\n\nContext details shows which stored entries fit the configured context window—the amount of history sent with a new request. More may be stored than the model receives. If History unavailable appears, read the error and retry Refresh; it is not an empty-memory result. Use a known delivered line for the comparison before drawing conclusions.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Inspect reply settings before editing a shared Persona",
+      "body": "Select a linked Persona and expand Reply settings → Settings and sources. Read the effective language model, context limit and Document Memory package, including whether each comes from the Persona, room or runtime defaults. A context limit controls how much history is sent; document recall can add relevant excerpts from a ready package.\n\nFor this first exercise, inspect rather than change. Edit Persona overrides opens the shared editor without selecting that Persona for Main Chat, but Save overrides changes the saved Persona wherever used and affects new requests. If replies use the wrong model, inspect the source before editing global defaults. Missing/unready document packages warn and supply no excerpts.",
+      "workspace": "addons",
+      "target": "localRoomWorkspace",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    },
+    {
+      "title": "Pause after a turn, then resume the saved handoff",
+      "body": "Use Pause room during a short exchange. The current speaker finishes, then the room holds its next speaker and any prepared reply. Use Resume room to continue that handoff. Stop speech & hold is the immediate interruption control, so use it only when you want to cut playback short.\n\nFor a longer break, Stop room finishes the current turn, saves history and next speaker, then shuts down and unloads idle speech models. Continue conversation restores them later, including after restarting NC; speech is prepared again. If stopping stalls, read the error/current speaker before restarting. New conversation clears histories and is not a routine recovery action. The first exercise succeeds when your request received a reply and a deliberate handoff worked.",
+      "workspace": "addons",
+      "target": "localRoomPause",
+      "addon": "discord_voice_bridge_tab",
+      "section": "Local room"
+    }
+  ],
+  "category": "Workflows",
+  "learning_outcomes": [
+    "Bring saved Personas into a local moderated conversation.",
+    "Set a topic, join, and guide turns deliberately.",
+    "Understand participant memory and pause or stop recovery."
+  ],
+  "contextual_guides": [
+    "overview_discord_voice_bridge"
+  ]
+}

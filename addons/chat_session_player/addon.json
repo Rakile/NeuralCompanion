@@ -1,0 +1,27 @@
+{
+  "id": "nc.chat_session_player",
+  "name": "Conversation Replay",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Dedicated conversation replay and context loading tools.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "chat_session_player_tab",
+      "title": "Conversation Replay",
+      "area": "top_level",
+      "placeholder": "chat_player_tab",
+      "icon_path": "ui/icons/chat_player.png",
+      "order": 920,
+      "tooltip": "Standalone conversation replay and context loading tools.",
+      "metadata": {
+        "native_qml": true,
+        "runtime_role": "chat_replay"
+      }
+    }
+  ],
+  "enabled": true
+}

@@ -1,0 +1,47 @@
+{
+  "id": "runtime_session_setup",
+  "title": "Session Setup",
+  "description": "Read how the session's input mode, input role, and stream mode selectors are currently configured, and understand what they control before changing anything.",
+  "kind": "section",
+  "scope": {
+    "workspace": "runtime",
+    "runtime_section": "runtime",
+    "runtime_responsibility": "session"
+  },
+  "category": "Runtime / Runtime Session",
+  "order": 41,
+  "before_you_start": "You can read this guide with the engine stopped. It opens settings pages and highlights controls; changes and tests are explicit user actions.",
+  "learning_outcomes": [
+    "Identify the input mode, input role, and stream mode selectors",
+    "Explain what each selector governs",
+    "Know that a change applies only when you make it yourself and save where offered"
+  ],
+  "steps": [
+    {
+      "title": "Choose how input is captured",
+      "body": "Read Input mode. Text Only disables microphone recognition while keeping typing available. Voice Activation listens for speech, Push-to-Talk records while its hotkey is held, and Always On uses continuous input. Open the list to compare choices; keep the current value for a read-only tour. Microphone modes require configured speech recognition.",
+      "target": "sessionInputModeSelector",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Understand the submitted role",
+      "body": "Read Input role. It determines the conversation role used for submitted input; it does not rename a Discord account or change your persona. Keep the ordinary user role unless your workflow needs another role. Selecting a value applies an actual setting, so note the previous value before experimenting.",
+      "target": "sessionInputRoleSelector",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Decide whether replies stream",
+      "body": "Read Stream mode. On requests streamed replies where the selected language provider supports them. Off requests a complete response. This setting does not switch provider or model. You can compare the choices without starting the engine; a live response is needed to verify streaming behavior.",
+      "target": "sessionStreamModeSelector",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Find the session shortcuts",
+      "body": "Look below the selectors for preset and workspace actions. Pinning keeps a compact Session setup summary above other Runtime Session pages. Read the displayed Push-to-Talk shortcut before using voice. Your configuration tour is complete when you can identify input mode, role and streaming without leaving this page.",
+      "target": "sessionSetupWorkspace",
+      "fallback_target": "runtimeResponsibilityStack"
+    }
+  ],
+  "estimated_minutes": 3,
+  "course_id": "runtime_session_overview"
+}

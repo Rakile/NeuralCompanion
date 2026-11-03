@@ -1,0 +1,152 @@
+{
+  "guides": [
+    {
+      "id": "page_persona_override_avatar",
+      "title": "Persona overrides · Visual avatar tags",
+      "description": "Inspect Visual avatar tags overrides for the selected Persona.",
+      "kind": "section",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "overrides",
+        "persona_override": "avatar"
+      },
+      "category": "Addons / Persona / Overrides",
+      "order": 95,
+      "steps": [
+        {
+          "title": "Read Visual avatar tags",
+          "body": "Read how visual avatar tags map to the available avatar choices. Inherited choices follow the shared setup; a Persona override can select different assets where supported. Check the effective value and validation before saving. A mapping does not prepare missing avatar files.",
+          "target": "personaOverrideTabs",
+          "fallback_target": "personaWorkspace"
+        },
+        {
+          "title": "Resolve the override draft",
+          "body": "Review any validation message and compare the draft with the effective settings before saving or discarding. Keep the selected Persona in view. A saved value records the configuration; successful behavior needs a later controlled exercise with the required providers ready.",
+          "target": "personaOverrideTabs",
+          "fallback_target": "personaWorkspace"
+        }
+      ],
+      "course_chapters": []
+    },
+    {
+      "id": "page_persona_override_tts",
+      "title": "Persona overrides · TTS voice provider tags",
+      "description": "Inspect TTS voice provider tags overrides for the selected Persona.",
+      "kind": "section",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "overrides",
+        "persona_override": "tts"
+      },
+      "category": "Addons / Persona / Overrides",
+      "order": 95,
+      "steps": [
+        {
+          "title": "Read TTS voice provider tags",
+          "body": "Read the voice-provider and reference routing for this Persona's tags. A configured mapping needs a compatible speech backend and available reference. Distinguish inherited settings from an override. Preserve the current draft before comparing another route; a later spoken reply is the routing test.",
+          "target": "personaOverrideTabs",
+          "fallback_target": "personaWorkspace"
+        },
+        {
+          "title": "Resolve the override draft",
+          "body": "Review any validation message and compare the draft with the effective settings before saving or discarding. Keep the selected Persona in view. A saved value records the configuration; successful behavior needs a later controlled exercise with the required providers ready.",
+          "target": "personaOverrideTabs",
+          "fallback_target": "personaWorkspace"
+        }
+      ],
+      "course_chapters": []
+    },
+    {
+      "id": "page_persona_override_language",
+      "title": "Persona overrides · Language model",
+      "description": "Inspect Language model overrides for the selected Persona.",
+      "kind": "section",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "overrides",
+        "persona_override": "language"
+      },
+      "category": "Addons / Persona / Overrides",
+      "order": 95,
+      "steps": [
+        {
+          "title": "Read Language model",
+          "body": "Read this Persona's language-model override and the effective provider/model. An override differs from changing the shared active provider. Check connection prerequisites and validation before saving. If the intended model is unavailable, keep inheritance while repairing that setup separately.",
+          "target": "personaOverrideTabs",
+          "fallback_target": "personaWorkspace"
+        },
+        {
+          "title": "Resolve the override draft",
+          "body": "Review any validation message and compare the draft with the effective settings before saving or discarding. Keep the selected Persona in view. A saved value records the configuration; successful behavior needs a later controlled exercise with the required providers ready.",
+          "target": "personaOverrideTabs",
+          "fallback_target": "personaWorkspace"
+        }
+      ],
+      "course_chapters": []
+    },
+    {
+      "id": "page_persona_override_memory",
+      "title": "Persona overrides · Conversation memory",
+      "description": "Inspect Conversation memory overrides for the selected Persona.",
+      "kind": "section",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "overrides",
+        "persona_override": "memory"
+      },
+      "category": "Addons / Persona / Overrides",
+      "order": 95,
+      "steps": [
+        {
+          "title": "Read Conversation memory",
+          "body": "Read the Persona's memory override alongside the inherited configuration. This controls how memory is used for the Persona; it does not edit the saved chat or import Document Memory files. Keep the current values noted before changing a limit or retrieval choice.",
+          "target": "personaOverrideTabs",
+          "fallback_target": "personaWorkspace"
+        },
+        {
+          "title": "Resolve the override draft",
+          "body": "Review any validation message and compare the draft with the effective settings before saving or discarding. Keep the selected Persona in view. A saved value records the configuration; successful behavior needs a later controlled exercise with the required providers ready.",
+          "target": "personaOverrideTabs",
+          "fallback_target": "personaWorkspace"
+        }
+      ],
+      "course_chapters": []
+    },
+    {
+      "id": "page_core_persona_overview",
+      "title": "Persona overview",
+      "description": "Identity instructions, voice references, visual identity and per-Persona overrides.",
+      "kind": "overview",
+      "scope": {
+        "workspace": "addons",
+        "addon": "core.persona",
+        "persona_tab": "persona"
+      },
+      "category": "Addons / Persona",
+      "order": 80,
+      "children": [],
+      "steps": [
+        {
+          "title": "Understand a saved Persona",
+          "body": "A Persona brings together identity instructions, voice references and visual identity. The active prompt determines the current instructions; a generated draft or library entry remains separate until applied. This overview stays on the identity page and introduces the related categories.",
+          "target": "personaTabs",
+          "fallback_target": "personaWorkspace"
+        },
+        {
+          "title": "Choose one category to learn",
+          "body": "Voice handles references, MCP handles tool selections, Overrides handles Persona-specific runtime choices, and Visual identity and Visual replies cover appearance and image policy. Prompt library and Identity Relay keep reusable or imported material. Choose a focused guide after finishing; none starts automatically.",
+          "target": "personaTabs",
+          "fallback_target": "personaWorkspace"
+        }
+      ],
+      "course_chapters": [],
+      "display_title": "Start tutorial · Persona",
+      "redirect_to": "overview_persona_workspace",
+      "hidden": true
+    }
+  ]
+}

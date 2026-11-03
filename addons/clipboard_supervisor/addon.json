@@ -1,0 +1,32 @@
+{
+  "id": "nc.clipboard_supervisor",
+  "name": "Clipboard Supervisor",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Persona-driven clipboard image reactions for newly copied reference images.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "services": [
+    {
+      "id": "sensory_prompt_contributor",
+      "provider_id": "clipboard"
+    }
+  ],
+  "ui": [
+    {
+      "id": "clipboard_supervisor_tab",
+      "title": "Supervisor",
+      "area": "vision_source",
+      "parent_tab_id": "clipboard",
+      "order": 210,
+      "tooltip": "Persona-driven clipboard-image reactions for newly copied images.",
+      "metadata": {
+        "checkable": true
+      }
+    }
+  ],
+  "native_qml": true,
+  "enabled": true
+}

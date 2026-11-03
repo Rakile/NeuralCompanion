@@ -1,0 +1,442 @@
+{
+  "guides": [
+    {
+      "id": "overview_discord_voice_bridge",
+      "title": "Discord Voice Bridge",
+      "description": "Discord voice-channel bridge for isolated NC voice bot turns.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Local room"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Discord voice-channel bridge for isolated NC voice bot turns.",
+        "Find focused guidance for Local room, General, Discord, Capture, Playback, Filter, Persona, Runtime, Status, Moderator."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "discord_voice_bridge",
+        "page_discord_voice_bridge_local_room",
+        "page_discord_voice_bridge_general",
+        "page_discord_voice_bridge_discord",
+        "page_discord_voice_bridge_capture",
+        "page_discord_voice_bridge_playback",
+        "page_discord_voice_bridge_filter",
+        "page_discord_voice_bridge_persona",
+        "page_discord_voice_bridge_runtime",
+        "page_discord_voice_bridge_status",
+        "page_discord_voice_bridge_moderator",
+        "local_room"
+      ],
+      "steps": [
+        {
+          "title": "What Discord Voice Bridge does",
+          "body": "Discord voice-channel bridge for isolated NC voice bot turns. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "discord_voice_bridge"
+      ],
+      "display_title": "Start tutorial · Discord Voice Bridge",
+      "optional_chapters": [
+        "page_discord_voice_bridge_local_room",
+        "page_discord_voice_bridge_general",
+        "page_discord_voice_bridge_discord",
+        "page_discord_voice_bridge_capture",
+        "page_discord_voice_bridge_playback",
+        "page_discord_voice_bridge_filter",
+        "page_discord_voice_bridge_persona",
+        "page_discord_voice_bridge_runtime",
+        "page_discord_voice_bridge_status",
+        "page_discord_voice_bridge_moderator",
+        "local_room"
+      ]
+    },
+    {
+      "id": "page_discord_voice_bridge_local_room",
+      "title": "Discord Voice Bridge · Local room",
+      "description": "Use Local room in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Local room"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 210,
+      "topic": "Local room",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose the desktop transport",
+        "Add a small cast and moderator",
+        "Understand Start and Continue"
+      ],
+      "steps": [
+        {
+          "title": "Choose the desktop transport",
+          "body": "While the room is stopped, read Room transport and choose Local for a desktop room without Discord bot credentials. A room has its own transcript and participant histories. Read the current room status and cast before starting; a running Discord transport should be stopped deliberately before changing it.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Add a small cast and moderator",
+          "body": "Use + Add Personas to add two saved profiles, then select one and choose Make moderator. A new local room needs one moderator and at least one other AI Persona. Check the participant tiles and moderator label. Prepared Discord bot accounts are not needed for Local transport.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand Start and Continue",
+          "body": "Start room begins the configured room; Continue conversation restores saved discussion when available. Read any Main Chat stop/save prompts before accepting. New conversation resets room history after confirmation and is unnecessary for this tour. Stop room preserves the discussion for later.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_general",
+      "title": "Discord Voice Bridge · General",
+      "description": "Use General in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "General"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 211,
+      "topic": "General",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Enable the addon and find the Discord workspace",
+        "Reading the intro instead of acting"
+      ],
+      "steps": [
+        {
+          "title": "Enable the addon and find the Discord workspace",
+          "body": "Confirm Discord Voice Bridge is enabled; if asked to restart, follow the prompt. Then open its Discord workspace and note that it presents as one Discord Voice tab set with sections, not separate chat tabs. If the workspace is absent entirely, treat that as an enablement question rather than a broken room setup.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Reading the intro instead of acting",
+          "body": "The Discord tab opens with a Discord Voice Bridge Intro label and a Discord Bridge Status label. Read these to understand what the addon does and whether the bridge is currently active. They inform your setup; they do not join a voice channel or start the room on their own.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_discord",
+      "title": "Discord Voice Bridge · Discord",
+      "description": "Use Discord in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Discord"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 212,
+      "topic": "Discord",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Check bot accounts without changing tokens",
+        "Add a bot token and label",
+        "Identify the server and voice channel"
+      ],
+      "steps": [
+        {
+          "title": "Check bot accounts without changing tokens",
+          "body": "Open the Discord tab and read the Bot accounts view. Each saved account is a separate bot identity used later as a Prepared bot. Published token values identify a bot but do not invite it or prove channel access. Leave existing tokens untouched for now and note which accounts exist before adding any.",
+          "target": "tutorialControl_discord_accounts_view",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Add a bot token and label",
+          "body": "In Bot accounts, choose Add account, enter a Bot token and an optional Account label, then choose Add account to save and check it. The token field is the protected place for the secret; never place tokens in chat. A verified token means the credential works, not that the bot can reach your channel.",
+          "target": "tutorialControl_discord_accounts_view",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Identify the server and voice channel",
+          "body": "Enter the shared Server ID and Voice channel ID for the room. These identify the server and its voice channel, not your user account or a text channel. A bot that checks out here still needs an invitation and View Channel, Connect, and Speak permission on that channel before it can join.",
+          "target": "tutorialControl_discord_voice_channel_id_edit",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Advanced connection settings",
+          "body": "The Advanced connection settings toggle expands extra connection options for the bridge. Leave it closed for a first test. Open it only if you have a specific connection problem to inspect, and revert anything you do not understand before starting the room.",
+          "target": "tutorialControl_discord_connection_advanced_toggle",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_capture",
+      "title": "Discord Voice Bridge · Capture",
+      "description": "Use Capture in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Capture"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 213,
+      "topic": "Capture",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Understand what capture controls govern",
+        "Restrict accepted speakers deliberately"
+      ],
+      "steps": [
+        {
+          "title": "Understand what capture controls govern",
+          "body": "Capture splits incoming Discord audio into utterances for speech recognition; Playback sends generated speech back to the channel. Leave advanced thresholds default for a first test and use one short human question. Return here only after the room runs and you know whether capture or playback is the failing layer.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Restrict accepted speakers deliberately",
+          "body": "Listed users accepts Discord user IDs and an empty list accepts everyone, so restricting requires entering your actual Discord user ID and saving. Changed acceptance settings need the room or bridge restarted. Choose one behavior, restart, then test — and diagnose recognition and playback separately from audible output.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_playback",
+      "title": "Discord Voice Bridge · Playback",
+      "description": "Use Playback in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Playback"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 214,
+      "topic": "Playback",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Where generated speech goes"
+      ],
+      "steps": [
+        {
+          "title": "Where generated speech goes",
+          "body": "Playback covers how synthesized speech is sent back into the Discord voice channel. It depends on your selected speech provider, not on the bot account alone. After the room starts, treat hearing a coherent reply as playback success; if you see a transcript but hear nothing, inspect this layer before capture.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_filter",
+      "title": "Discord Voice Bridge · Filter",
+      "description": "Use Filter in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Filter"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 215,
+      "topic": "Filter",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Filter behavior on incoming audio"
+      ],
+      "steps": [
+        {
+          "title": "Filter behavior on incoming audio",
+          "body": "Filter settings shape incoming Discord audio before utterances reach recognition. For a first test, leave them unchanged so a failure is easier to trace. If you later adjust anything here, follow up with the same one-sentence spoken question and compare capture results rather than assuming a fix.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_persona",
+      "title": "Discord Voice Bridge · Persona",
+      "description": "Use Persona in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Persona"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 216,
+      "topic": "Persona",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Separate characters from accounts"
+      ],
+      "steps": [
+        {
+          "title": "Separate characters from accounts",
+          "body": "This Persona section configures the standalone bridge prompt and voice reference. Room characters instead use saved Persona profiles you prepare elsewhere, and those linked profiles supply prompts and voices. Do not expect this field to assign every room character; distinct voices also need valid references and a backend that supports them.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_runtime",
+      "title": "Discord Voice Bridge · Runtime",
+      "description": "Use Runtime in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Runtime"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 217,
+      "topic": "Runtime",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Stop before changing startup settings"
+      ],
+      "steps": [
+        {
+          "title": "Stop before changing startup settings",
+          "body": "Runtime settings affect how the bridge starts and how the room behaves while running. Use Stop room before changing anything that influences startup, then start or continue and repeat one short question. Read the current values first so you can attribute any change to a single startup setting.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_status",
+      "title": "Discord Voice Bridge · Status",
+      "description": "Use Status in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Status"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 218,
+      "topic": "Status",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read validation, service state, and errors",
+        "Copy a redacted support bundle"
+      ],
+      "steps": [
+        {
+          "title": "Read validation, service state, and errors",
+          "body": "Open Status and read validation, service state, and the latest error together. A bot joining proves only the Discord connection; recognition, model generation, and playback each need their own success. If setup reports missing Node dependencies, stop bridges before using Install / Update Node Deps.",
+          "target": "tutorialControl_discord_install_node_deps_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Copy a redacted support bundle",
+          "body": "Copy Diagnostics produces a redacted support bundle for troubleshooting. Prefer it over sharing raw credential settings or tokens. Use it after you have reproduced the failure once, and record whether the bot joined, whether it spoke, and whether you heard audio, since those separate layers.",
+          "target": "tutorialControl_discord_copy_diagnostics_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    },
+    {
+      "id": "page_discord_voice_bridge_moderator",
+      "title": "Discord Voice Bridge · Moderator",
+      "description": "Use Moderator in Discord Voice Bridge.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.discord_voice_bridge",
+        "workspace": "addons",
+        "addon": "discord_voice_bridge_tab",
+        "section": "Moderator"
+      },
+      "category": "Addons / Discord Voice Bridge",
+      "order": 219,
+      "topic": "Moderator",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Queue a speaker without interrupting",
+        "Recover a stuck handoff",
+        "Pick and clear a moderator bot"
+      ],
+      "steps": [
+        {
+          "title": "Queue a speaker without interrupting",
+          "body": "With the room running, inspect Moderator and its Current/Next information, which describe who holds the floor and who is queued. Select a participant, choose Set Next Speaker, then watch Speaking and UP NEXT. The queued participant should speak after the current turn rather than cutting it off.",
+          "target": "tutorialControl_discord_moderator_route_next_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover a stuck handoff",
+          "body": "If the wrong participant remains locked, use Clear Speaker Locks; Clear Pending removes an unwanted queued choice. Leave recovery and interruption options unchanged while learning the first handoff. If a chosen bot never speaks, check that it is present, connected, and eligible instead of queuing it repeatedly.",
+          "target": "tutorialControl_discord_moderator_clear_pending_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Pick and clear a moderator bot",
+          "body": "Discord Moderator Target and Use Selected As Moderator Bot choose which account enforces the room, and Clear Moderator Bot returns moderation to none. The moderator state label reflects the current choice. Assign one deliberately so moderator actions trace to a known bot.",
+          "target": "tutorialControl_discord_moderator_target_combo",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_discord_voice_bridge"
+    }
+  ]
+}

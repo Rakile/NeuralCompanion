@@ -1,0 +1,3 @@
+# Optional Internet-mode worker dependencies. LAN does not require these.
+aiortc==1.15.0
+websockets>=14,<18

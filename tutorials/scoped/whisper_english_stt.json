@@ -1,0 +1,85 @@
+{
+  "guides": [
+    {
+      "id": "overview_whisper_english_stt",
+      "title": "Whisper English STT overview",
+      "description": "Current local faster-whisper STT backend optimized for English speech.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.whisper_english_stt",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "speech",
+        "provider_kind": "stt",
+        "provider_id": "whisper_english"
+      },
+      "category": "Runtime / Speech-to-text / Whisper English STT",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Current local faster-whisper STT backend optimized for English speech.",
+        "Find focused guidance for Recognition."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_whisper_english_stt_recognition",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "What Whisper English STT does",
+          "body": "Current local faster-whisper STT backend optimized for English speech. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_whisper_english_stt_recognition"
+      ],
+      "display_title": "Start tutorial · Whisper English STT",
+      "optional_chapters": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_whisper_english_stt_recognition",
+      "title": "Whisper English STT · Recognition",
+      "description": "Use Recognition in Whisper English STT.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.whisper_english_stt",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "speech",
+        "provider_kind": "stt",
+        "provider_id": "whisper_english"
+      },
+      "category": "Runtime / Speech-to-text / Whisper English STT",
+      "order": 210,
+      "topic": "Recognition",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Check recognition readiness",
+        "Confirm with a short captured phrase"
+      ],
+      "steps": [
+        {
+          "title": "Check recognition readiness",
+          "body": "Read Recognition for the installed faster-whisper backend state. Confirm the runtime’s speech-to-text is set to this backend and a working microphone is selected. This backend is local and English-optimized. Recognition settings report readiness; they do not start a recording, so a captured transcript is still required.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm with a short captured phrase",
+          "body": "With push-to-talk or voice input ready, say a short harmless English phrase and check the recognized text. If nothing is transcribed, confirm the backend selection, microphone device and speech-to-text runtime before changing settings. Local recognition does not depend on a network sign-in.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_whisper_english_stt"
+    }
+  ]
+}

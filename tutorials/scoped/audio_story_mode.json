@@ -1,0 +1,384 @@
+{
+  "guides": [
+    {
+      "id": "overview_audio_story_mode",
+      "title": "Audio Story Mode",
+      "description": "Import story audio, turn JSON chatlogs into resumable novels, or narrate Markdown chapters with local-first Audio Story tools.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.audio_story_mode",
+        "workspace": "addons",
+        "addon": "audio_story_mode_runtime",
+        "section": "Project"
+      },
+      "category": "Addons / Audio Story Mode",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Import story audio, turn JSON chatlogs into resumable novels, or narrate Markdown chapters with local-first Audio Story tools.",
+        "Find focused guidance for Project, Audio, Novel, Story, Images, Review, Play / Cast."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "audio_story_mode",
+        "page_audio_story_mode_project",
+        "page_audio_story_mode_audio",
+        "page_audio_story_mode_novel",
+        "page_audio_story_mode_story",
+        "page_audio_story_mode_images",
+        "page_audio_story_mode_review",
+        "page_audio_story_mode_play_cast"
+      ],
+      "steps": [
+        {
+          "title": "What Audio Story Mode does",
+          "body": "Import story audio, turn JSON chatlogs into resumable novels, or narrate Markdown chapters with local-first Audio Story tools. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "audio_story_mode"
+      ],
+      "display_title": "Start tutorial · Audio Story Mode",
+      "optional_chapters": [
+        "page_audio_story_mode_project",
+        "page_audio_story_mode_audio",
+        "page_audio_story_mode_novel",
+        "page_audio_story_mode_story",
+        "page_audio_story_mode_images",
+        "page_audio_story_mode_review",
+        "page_audio_story_mode_play_cast"
+      ]
+    },
+    {
+      "id": "page_audio_story_mode_project",
+      "title": "Audio Story Mode · Project",
+      "description": "Use Project in Audio Story Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.audio_story_mode",
+        "workspace": "addons",
+        "addon": "audio_story_mode_runtime",
+        "section": "Project"
+      },
+      "category": "Addons / Audio Story Mode",
+      "order": 210,
+      "topic": "Project",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Create or open the project you will test",
+        "Separate the three source routes",
+        "Confirm the project autosave setting"
+      ],
+      "steps": [
+        {
+          "title": "Create or open the project you will test",
+          "body": "In Project & chapters, create a New Project or select a saved project and use Open. Select the chapter you intend to work on and read its status. Confirm the chapter appears with the expected title before importing audio or narration, and reopen the project if it does not load.",
+          "target": "tutorialControl_audio_story_project_new_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Separate the three source routes",
+          "body": "Audio import, chatlog adaptation, and Markdown narration are distinct starting routes, so choose one for a short first test rather than mixing them. Project holds the chapter container; Audio, Novel, and Story hold the route-specific work. Keep the first source small so each later step stays checkable, and confirm the chapter before adding source.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm the project autosave setting",
+          "body": "Read Audio Story Project Autosave in Project. It reports whether project changes are saved automatically between edits. Treat it as a setting to inspect, not a guarantee for any individual change. Read the current state before closing or switching projects, and check the status label for whether the current chapter has unsaved work.",
+          "target": "tutorialControl_audio_story_project_autosave_label",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_audio_story_mode"
+    },
+    {
+      "id": "page_audio_story_mode_audio",
+      "title": "Audio Story Mode · Audio",
+      "description": "Use Audio in Audio Story Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.audio_story_mode",
+        "workspace": "addons",
+        "addon": "audio_story_mode_runtime",
+        "section": "Audio"
+      },
+      "category": "Addons / Audio Story Mode",
+      "order": 211,
+      "topic": "Audio",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Import files and set their order",
+        "Transcribe a short selected range",
+        "Verify the story timeline"
+      ],
+      "steps": [
+        {
+          "title": "Import files and set their order",
+          "body": "In Audio, use Import Audio Files, then Move Up and Move Down to place the source files in reading order. The console lists activity and errors; Copy and Clear affect only that log. Confirm the expected files appear in the intended sequence before transcribing a whole book, since order is what the transcript follows.",
+          "target": "tutorialControl_audio_story_import_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Transcribe a short selected range",
+          "body": "Test a Selected Range before running a whole audiobook. Select a small span, start Transcribe Audio, and wait for progress to finish, since this uses local Whisper. Read the transcript result in Scene review, not only the console. If the range fails, read the reported error in the console before retrying.",
+          "target": "tutorialControl_audio_story_selected_range_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Verify the story timeline",
+          "body": "After transcription completes, read Audio Story Summary and the scene status shown in Review. They should reflect the transcript you just produced. An imported chapter with no summary suggests transcription did not finish or was not linked to this chapter. Resolve that link before moving on to voice or images.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_audio_story_mode"
+    },
+    {
+      "id": "page_audio_story_mode_novel",
+      "title": "Audio Story Mode · Novel",
+      "description": "Use Novel in Audio Story Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.audio_story_mode",
+        "workspace": "addons",
+        "addon": "audio_story_mode_runtime",
+        "section": "Novel"
+      },
+      "category": "Addons / Audio Story Mode",
+      "order": 212,
+      "topic": "Novel",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Adapt a small chatlog export",
+        "Start Markdown narration without adaptation",
+        "Inspect and map a chatlog before importing"
+      ],
+      "steps": [
+        {
+          "title": "Adapt a small chatlog export",
+          "body": "In Novel, use New Novel Project and Choose Chatlog JSON. Chatlogs need source inspection and confirmation before adaptation; the mapping steps cover that. To keep the first test safe, use a small export with one clear conversation and confirm only after the preview matches what you expect.",
+          "target": "tutorialControl_unnamed_qpushbutton_new_novel_project",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Start Markdown narration without adaptation",
+          "body": "Choose Choose Markdown for direct chapter narration, which skips chatlog adaptation. Use a file with one or two chapter headings so the result is easy to check. Read the resulting chapter list before narrating, and confirm headings appear as intended; unclear headings usually need correcting in the source file.",
+          "target": "tutorialControl_unnamed_qpushbutton_choose_markdown",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Inspect and map a chatlog before importing",
+          "body": "Create the novel project and use Choose Chatlog JSON, then inspect detected messages before Import Confirmed Source. If detection is wrong, map Message collection, Speaker field, and Text field, with role, timestamp, or thread fields when needed, and use Inspect with this mapping again. Confirm only when the preview holds the intended conversation.",
+          "target": "tutorialControl_unnamed_qpushbutton_choose_chatlog_json",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_audio_story_mode"
+    },
+    {
+      "id": "page_audio_story_mode_story",
+      "title": "Audio Story Mode · Story",
+      "description": "Use Story in Audio Story Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.audio_story_mode",
+        "workspace": "addons",
+        "addon": "audio_story_mode_runtime",
+        "section": "Story"
+      },
+      "category": "Addons / Audio Story Mode",
+      "order": 213,
+      "topic": "Story",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Set image cadence before planning",
+        "Check the planner changes were saved",
+        "Understand Scene Only and Story Bible"
+      ],
+      "steps": [
+        {
+          "title": "Set image cadence before planning",
+          "body": "In Story, set image cadence, then optionally enable Use LLM scene planner. If enabled, choose Planner provider and Planner model, press Apply Planner Changes, and wait for Saved. Begin with the default Story Bible depth and a short source before processing a long project; the planner drives scene boundaries only.",
+          "target": "tutorialControl_audio_story_llm_analysis_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check the planner changes were saved",
+          "body": "After pressing Apply Planner Changes, read the Saved indicator before playing or importing more source. It confirms the planner settings were stored for this project. If it never appears, recheck provider and model choices and apply again; a selected model alone does not mean planning is active for the current run.",
+          "target": "tutorialControl_audio_story_planner_apply_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand Scene Only and Story Bible",
+          "body": "Scene Only keeps planning per scene, while Story Bible persists character, location, prop, and style memory across the story for continuity. Choose based on whether later chapters need remembered details. The planner model here is separate from the visual reply model used for final images, so changing one does not change the other.",
+          "target": "tutorialControl_audio_story_analysis_model_combo",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_audio_story_mode"
+    },
+    {
+      "id": "page_audio_story_mode_images",
+      "title": "Audio Story Mode · Images",
+      "description": "Use Images in Audio Story Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.audio_story_mode",
+        "workspace": "addons",
+        "addon": "audio_story_mode_runtime",
+        "section": "Images"
+      },
+      "category": "Addons / Audio Story Mode",
+      "order": 214,
+      "topic": "Images",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Apply a visual style and confirm it",
+        "Confirm the runtime provider used for images",
+        "Distinguish style from provider settings"
+      ],
+      "steps": [
+        {
+          "title": "Apply a visual style and confirm it",
+          "body": "In Images, choose a direction such as Cartoon and use Apply Style Changes. Read Saved before playing so the choice applies to new generations. Existing images are already rendered; re-generating scenes is what picks up the new style. If Saved does not appear, reapply and read the reported error.",
+          "target": "tutorialControl_audio_story_style_apply_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm the runtime provider used for images",
+          "body": "Final images use the active Runtime > Visual reply provider, model, and workflow, independently of the scene-planning model. The xAI output controls apply only to xAI / Grok. For a first test, keep generate-ahead small and verify one scene before a long playback, so a misconfigured provider surfaces early.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish style from provider settings",
+          "body": "Image style decides the visual direction applied to prompts. Runtime provider and model decide which service renders the image. Changing style does not change the provider, and changing the provider does not reset the chosen style. Check both when a generated scene looks wrong rather than adjusting one repeatedly.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_audio_story_mode"
+    },
+    {
+      "id": "page_audio_story_mode_review",
+      "title": "Audio Story Mode · Review",
+      "description": "Use Review in Audio Story Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.audio_story_mode",
+        "workspace": "addons",
+        "addon": "audio_story_mode_runtime",
+        "section": "Review"
+      },
+      "category": "Addons / Audio Story Mode",
+      "order": 215,
+      "topic": "Review",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Correct image focus and avoid list",
+        "Use overrides for a wrong scene boundary",
+        "Read scene status before and after edits"
+      ],
+      "steps": [
+        {
+          "title": "Correct image focus and avoid list",
+          "body": "In Scene review, read the transcript and check the current scene. Edit its Image focus or Avoid in the image fields, then use Apply image focus or Apply avoid list. The status should reflect the applied value; inspect the next generated image to confirm the correction carried into visual continuity.",
+          "target": "tutorialControl_audio_story_scene_anchor_apply_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Use overrides for a wrong scene boundary",
+          "body": "Pin Location, Force Fresh Scene, and Force Continuation are optional overrides for a mistaken scene boundary. Use them only when the automatic split is clearly wrong for your story. Read Audio Story Scene Hint and Audio Story Scene Status afterward to confirm the scene changed as intended; otherwise undo the override.",
+          "target": "tutorialControl_audio_story_scene_status_label",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read scene status before and after edits",
+          "body": "Audio Story Scene Status summarizes the current scene and its state. Read it before editing so you know the starting point, then again after an apply action to confirm the change. A status that does not update suggests the apply step did not complete, so recheck the field value and the console before continuing.",
+          "target": "tutorialControl_audio_story_scene_status_label",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_audio_story_mode"
+    },
+    {
+      "id": "page_audio_story_mode_play_cast",
+      "title": "Audio Story Mode · Play / Cast",
+      "description": "Use Play / Cast in Audio Story Mode.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.audio_story_mode",
+        "workspace": "addons",
+        "addon": "audio_story_mode_runtime",
+        "section": "Play / Cast"
+      },
+      "category": "Addons / Audio Story Mode",
+      "order": 216,
+      "topic": "Play / Cast",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Run a short local playback test",
+        "Tune the startup buffer and render ahead",
+        "Cast to a Chromecast and stop cleanly"
+      ],
+      "steps": [
+        {
+          "title": "Run a short local playback test",
+          "body": "In Play & cast, press Play for a short local test: audio should advance and images should follow the story timeline. Use Pause or Stop before changing playback settings. Voice rendering shows buffer progress through Audio Story Tts State and offers Retry for failed speech. Read Audio Story Status to confirm playback state.",
+          "target": "tutorialControl_audio_story_tts_state_label",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Tune the startup buffer and render ahead",
+          "body": "Startup buffer and Render ahead control how much speech is prepared before playback and how far ahead rendering continues. Larger values add latency but smooth playback on slow hardware; smaller values start quickly. Adjust one at a time and start playback again to hear the difference. Clear Cache discards prepared speech if a render is stuck.",
+          "target": "tutorialControl_audio_story_tts_startup_buffer_spin",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Cast to a Chromecast and stop cleanly",
+          "body": "Use Find Casts, choose a device in Audio Story Cast Device, then Cast To. Audio Story Cast Status reports the cast connection; Show prompt on cast screen controls an optional overlay. Inspect the status, then use Stop Cast when finished. If no device appears, use Find Casts again before pressing Cast To repeatedly.",
+          "target": "tutorialControl_audio_story_stop_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand what LAN stream sharing exposes",
+          "body": "Share visual stream on LAN and Audio Story Stream Port expose the visual stream to other devices on your local network. Enable only when that exposure is intended; the port is the entry point. Read Audio Story Cast Status to confirm whether sharing is active, and disable sharing when the session ends so the stream is not left open.",
+          "target": "tutorialControl_audio_story_stream_enabled_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_audio_story_mode"
+    }
+  ]
+}

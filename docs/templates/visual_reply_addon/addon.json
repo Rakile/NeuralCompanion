@@ -1,0 +1,12 @@
+{
+  "id": "nc.my_visual_reply_extension",
+  "name": "My Visual Reply Extension",
+  "category": "visuals",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Template Visual Reply extension addon.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "enabled": true
+}

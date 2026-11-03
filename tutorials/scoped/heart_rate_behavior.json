@@ -1,0 +1,123 @@
+{
+  "guides": [
+    {
+      "id": "overview_heart_rate_behavior",
+      "title": "Heart Rate Behavior overview",
+      "description": "Heart Rate Behavior profiles map recognized heart-rate changes to speaking style and emotion overrides. Cards on one page include Overview, Reaction Profiles, Reaction Rules, and Advanced Prompt. Read the active profile before editing rules; a saved rule is configuration, and real heart-rate data with its match conditions is the actual trigger.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.heart_rate_behavior",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "heart_rate",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Heart Rate Behavior",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Heart Rate Behavior profiles map recognized heart-rate changes to speaking style and emotion overrides. Cards on one page include Overview, Reaction Profiles, Reaction Rules, and Advanced Prompt. Read the active profile before editing rules; a saved rule is configuration, and real heart-rate data with its match conditions is the actual trigger.",
+        "Find focused guidance for prompts, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_heart_rate_behavior_prompts",
+        "page_heart_rate_behavior_advanced"
+      ],
+      "steps": [
+        {
+          "title": "What Heart Rate Behavior does",
+          "body": "Heart Rate Behavior profiles map recognized heart-rate changes to speaking style and emotion overrides. Cards on one page include Overview, Reaction Profiles, Reaction Rules, and Advanced Prompt. Read the active profile before editing rules; a saved rule is configuration, and real heart-rate data with its match conditions is the actual trigger. The overview introduces this area without opening its other sections.",
+          "target": "visionSourceSettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_heart_rate_behavior_prompts",
+        "page_heart_rate_behavior_advanced"
+      ],
+      "display_title": "Start tutorial · Heart Rate Behavior"
+    },
+    {
+      "id": "page_heart_rate_behavior_prompts",
+      "title": "Heart Rate Behavior · prompts",
+      "description": "Use prompts in Heart Rate Behavior.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.heart_rate_behavior",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "heart_rate",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Heart Rate Behavior",
+      "order": 210,
+      "topic": "prompts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the active profile before adding rules",
+        "Inspect one rule from match to action"
+      ],
+      "steps": [
+        {
+          "title": "Read the active profile before adding rules",
+          "body": "In Reaction Profiles read Active Reaction Profile and Speaking style. Change the active profile only when you intend its rules and style to govern reactions. Add Profile creates a separate set; Rename and Delete change that profile. Confirm the selected profile when you return to the page.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Inspect one rule from match to action",
+          "body": "In Reaction Rules open one rule and read Reaction rule, Enabled, Action, Strictness and Emotion override. Repeat mode and Nth match interval decide how often a matching change may fire. Use Add Rule for a new one and Remove Rule only for the selected rule. A saved rule is configuration; the Advanced Prompt preview is the readable check.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_heart_rate_behavior"
+    },
+    {
+      "id": "page_heart_rate_behavior_advanced",
+      "title": "Heart Rate Behavior · advanced",
+      "description": "Use advanced in Heart Rate Behavior.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.heart_rate_behavior",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "heart_rate",
+        "sensory_tab": "advanced"
+      },
+      "category": "Runtime / Vision Sensors / Heart Rate Behavior",
+      "order": 211,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the prompt preview before trusting a rule",
+        "Keep a recoverable prompt state"
+      ],
+      "steps": [
+        {
+          "title": "Read the prompt preview before trusting a rule",
+          "body": "Open Advanced Prompt and use Review Prompt Preview to read what the active profile and rules supply. This preview does not trigger a reaction. If wording conflicts with your intended rule, return to Reaction Rules rather than editing the template first. Restore recommended prompt returns the shared text to the recommended version.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Keep a recoverable prompt state",
+          "body": "Note customized prompt text before using Restore recommended prompt, and inspect the preview afterward. The recommended prompt is a baseline, not proof that a rule fires. A rule with Enabled on still depends on real heart-rate data and its match conditions.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_heart_rate_behavior"
+    }
+  ]
+}

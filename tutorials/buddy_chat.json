@@ -1,0 +1,108 @@
+{
+  "id": "buddy_chat",
+  "order": 31,
+  "title": "31. Buddy Chat",
+  "description": "Apply a small buddy group and get one clear text exchange before adding voices, portraits or provider overrides.",
+  "speech_backend": "chatterbox",
+  "before_you_start": "First confirm Main Chat can answer a typed message. Enable Buddy Chat in Addon Manager and restart if requested. This exercise applies a staged group, so review any existing buddies before replacing them. Voice references and Visual Reply are optional later additions. Reading never applies a group, enables the addon’s conversation mode or sends a request. Read aloud and Hear step prefer loaded Chatterbox; Windows TTS is the fallback.",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Setup"
+    },
+    {
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Buddies"
+    },
+    {
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Voices"
+    },
+    {
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Providers"
+    },
+    {
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Advanced"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Preview and apply a small group",
+      "body": "Buddy Chat adds named participants to Main Chat. In Setup, choose Supportive Duo - 2 buddies to preview a small group. Alternatively, use Build my group, choose two buddies and Preview guided group. We will give them distinct teacher and beginner roles.\n\nRead the staged names and prompts. This is a proposal until Apply group; that action writes the group and can replace an existing setup. Apply only the group you intend to use, then confirm its buddies appear in Buddies. If the preview is wrong, Cancel preview and rebuild it before applying.\n\nRead aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Setup",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Give each buddy a recognizable job",
+      "body": "In Buddies, check each buddy’s active switch, name, role and system prompt. For our example, give one the role “Teacher” and the instruction “Explain one idea briefly”; give the other “Beginner” and “Ask one short follow-up question.”\n\nUse the actual names shown later when addressing them. Save from Overview after edits. Return to Buddies and verify the prompts. If the list is empty, go Back and Apply group first. Turning a buddy inactive retains its configuration but removes it from the active cast.",
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Buddies",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Optional: prepare voice references for later",
+      "body": "Voices can give recognized buddy speech segments different sounds. You can leave these options off until the text exchange works.\n\nIf you already have references, enable a buddy’s use voice sample and use Choose voice sample for that name. Check that its voice sample field names the intended file, then Save in Overview. A reference-capable desktop TTS backend is required; a selected filename does not prove routing works. After the text test in Step 5, listen for distinct voices. If all sound alike, check backend reference support before changing buddy prompts.",
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Voices",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Keep the working chat provider for your first test",
+      "body": "Providers contains optional Shared provider, model, URL and key fields. You do not need a second connection for this exercise: in Overview, set LLM provider mode to Use Main LLM Runtime and keep your already-working Main Chat provider.\n\nUse Buddy Provider or Use Per-Persona Providers only when you want separate connections. Configure their matching fields in Providers, then inspect Refresh shared models or Test Buddy provider results as appropriate. A refresh lists models; it is not a successful generation test. If an override fails, return to Main runtime while you check its endpoint, credentials and model.",
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Providers",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Get one recognizable buddy exchange",
+      "body": "In Overview, choose Natural main conversation - recommended, keep Force buddy every N replies at 0 for this test, and set Max buddies per reply to 2 if you want both roles. Turn on Enable Buddy Chat and Save.\n\nWith NC ON, go to Conversation and ask your actual buddies by name: “Teacher, explain a rainbow briefly; Beginner, ask one question.” Look for those distinct contributions. Natural mode lets the main model render the exchange, so every buddy is not guaranteed to speak. If only the main Persona replies, check enabled/active states, saved prompts and the speaker limit. Test text before judging optional voices.",
+      "workspace": "addons",
+      "addon": "buddy_chat_tab",
+      "section": "Overview",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Later: ask the LLM to refine one buddy",
+      "body": "After your basic exchange works, return to Setup. Refine scope can target Entire group, One buddy or One field. Choose one buddy and enter a small Refinement instruction such as “Keep this buddy’s explanations to two sentences.”\n\nRefine with LLM sends a request using the configured provider. Inspect the staged prompt before Apply group; refinement is not automatically accepted. Cancel preview discards the proposal, and Undo last setup can restore the previous applied setup. If refinement fails, keep the working group and check its provider rather than applying an incomplete result.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "buddy_chat_tab",
+      "section": "Setup"
+    },
+    {
+      "title": "Later: add portraits or adjust the shared instructions",
+      "body": "Advanced contains Override main persona instructions while Buddy Chat is enabled and the Buddy system override. Read these only after a text exchange works; changing them can alter how the whole group behaves. Keep the current values unless you have identified a specific conflict.\n\nFor portraits, open Avatars and inspect one buddy’s avatar prompt before Generate avatar for that name. Generation needs Visual Reply configured. Verify that buddy’s preview appears before generating the rest. If it fails, check image-provider readiness; the text group can still work. Finish with the tested group and optional features in the states you chose.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "buddy_chat_tab",
+      "section": "Advanced"
+    }
+  ],
+  "category": "Workflows",
+  "learning_outcomes": [
+    "Review and apply a staged buddy group with distinct speaking roles.",
+    "Enable and verify one buddy conversation using Main LLM Runtime.",
+    "Add optional voice references, refinement and portraits after text works."
+  ],
+  "contextual_guides": [
+    "overview_buddy_chat"
+  ]
+}

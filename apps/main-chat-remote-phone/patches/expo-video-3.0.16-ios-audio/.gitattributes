@@ -1,0 +1,3 @@
+# Keep maintained native before/after artifacts portable across Git checkouts.
+ios/*.swift text eol=lf
+upstream/ios/*.swift text eol=lf

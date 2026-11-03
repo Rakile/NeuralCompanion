@@ -1,0 +1,153 @@
+{
+  "guides": [
+    {
+      "id": "overview_clipboard_source",
+      "title": "Clipboard Source overview",
+      "description": "Clipboard-backed Vision source for manually or automatically attaching copied images to chat turns or the hidden loop.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.clipboard_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "clipboard",
+        "sensory_tab": "setup"
+      },
+      "category": "Runtime / Vision Sensors / Clipboard Source",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Clipboard-backed Vision source for manually or automatically attaching copied images to chat turns or the hidden loop.",
+        "Find focused guidance for setup, prompts, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_clipboard_source_setup",
+        "page_clipboard_source_prompts",
+        "page_clipboard_source_advanced",
+        "screen_and_clipboard"
+      ],
+      "steps": [
+        {
+          "title": "What Clipboard Source does",
+          "body": "Clipboard-backed Vision source for manually or automatically attaching copied images to chat turns or the hidden loop. The overview introduces this area without opening its other sections.",
+          "target": "visionSourceSettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_clipboard_source_setup",
+        "page_clipboard_source_prompts",
+        "page_clipboard_source_advanced"
+      ],
+      "display_title": "Start tutorial · Clipboard Source",
+      "optional_chapters": [
+        "screen_and_clipboard"
+      ]
+    },
+    {
+      "id": "page_clipboard_source_setup",
+      "title": "Clipboard Source · setup",
+      "description": "Use setup in Clipboard Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.clipboard_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "clipboard",
+        "sensory_tab": "setup"
+      },
+      "category": "Runtime / Vision Sensors / Clipboard Source",
+      "order": 210,
+      "topic": "setup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read clipboard delivery choices",
+        "Copy an image before attaching"
+      ],
+      "steps": [
+        {
+          "title": "Read clipboard delivery choices",
+          "body": "Find the clipboard delivery controls and distinguish manual attachment from repeated background use. Check the current selection before copying a harmless image. Clipboard content can change between turns, so verify the image you intend to use. Reading this page does not capture or send it.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Copy an image before attaching",
+          "body": "Copy an image to the system clipboard from another application, then use the setup controls here to have it attached to a chat turn. Clipboard content is transient; recopy before a turn if you need to rely on it. Observe the next chat turn to see whether the attached image arrived as expected.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_clipboard_source"
+    },
+    {
+      "id": "page_clipboard_source_prompts",
+      "title": "Clipboard Source · prompts",
+      "description": "Use prompts in Clipboard Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.clipboard_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "clipboard",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Clipboard Source",
+      "order": 211,
+      "topic": "prompts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Describe how the image is interpreted"
+      ],
+      "steps": [
+        {
+          "title": "Describe how the image is interpreted",
+          "body": "The prompts tab holds wording that shapes how attached images are described or used in chat. Read the existing prompt before editing. Text you save here changes what the model receives with an image, so check one turn after a change to see whether the description matches your intent.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_clipboard_source"
+    },
+    {
+      "id": "page_clipboard_source_advanced",
+      "title": "Clipboard Source · advanced",
+      "description": "Use advanced in Clipboard Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.clipboard_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "clipboard",
+        "sensory_tab": "advanced"
+      },
+      "category": "Runtime / Vision Sensors / Clipboard Source",
+      "order": 212,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read advanced options first"
+      ],
+      "steps": [
+        {
+          "title": "Read advanced options first",
+          "body": "The advanced tab holds less common Clipboard Source settings. Inspect the options in place rather than assuming names. Change one at a time and test with a fresh copied image, since clipboard behavior depends on what was copied immediately before the turn.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_clipboard_source"
+    }
+  ]
+}

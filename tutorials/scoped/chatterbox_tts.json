@@ -1,0 +1,207 @@
+{
+  "guides": [
+    {
+      "id": "overview_chatterbox_tts",
+      "title": "Chatterbox TTS overview",
+      "description": "Built-in Chatterbox TTS backend exposed as an addon.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chatterbox_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox",
+        "subsection": "Generation"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox TTS",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Built-in Chatterbox TTS backend exposed as an addon.",
+        "Find focused guidance for Generation, Voice, Startup."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_chatterbox_tts_generation",
+        "page_chatterbox_tts_voice",
+        "page_chatterbox_tts_startup",
+        "page_chatterbox_tts_voice_tag_rules",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "What Chatterbox TTS does",
+          "body": "Built-in Chatterbox TTS backend exposed as an addon. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_chatterbox_tts_generation",
+        "page_chatterbox_tts_voice",
+        "page_chatterbox_tts_startup",
+        "page_chatterbox_tts_voice_tag_rules"
+      ],
+      "display_title": "Start tutorial · Chatterbox TTS",
+      "optional_chapters": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_chatterbox_tts_generation",
+      "title": "Chatterbox TTS · Generation",
+      "description": "Use Generation in Chatterbox TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox",
+        "subsection": "Generation"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox TTS",
+      "order": 210,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Adjust generation settings",
+        "Compare repeated output"
+      ],
+      "steps": [
+        {
+          "title": "Adjust generation settings",
+          "body": "Open the Generation tab and review the text and audio controls available there. Change one setting at a time and make a short speech test to hear the difference. If output is clipped or unintelligible, revert the last change before trying another.",
+          "target": "providerSettingsSection_Generation",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Compare repeated output",
+          "body": "Use short, identical text to compare two generation settings. This isolates the setting's effect from text differences. If results seem inconsistent between runs, note whether any randomness or chunking control varies, rather than assuming the backend failed.",
+          "target": "providerSettingsSection_Generation",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chatterbox_tts"
+    },
+    {
+      "id": "page_chatterbox_tts_voice",
+      "title": "Chatterbox TTS · Voice",
+      "description": "Use Voice in Chatterbox TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox",
+        "subsection": "Voice"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox TTS",
+      "order": 211,
+      "topic": "Voice",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Select and confirm the voice",
+        "Understand reference-audio routing"
+      ],
+      "steps": [
+        {
+          "title": "Select and confirm the voice",
+          "body": "Open Voice and choose the voice or reference material this backend should use. Confirm selection persists after returning to the tab. Other features that inherit voices, such as Multi Persona Roleplay, follow the main TTS selection, so a mismatch there may explain unexpected narration.",
+          "target": "providerSettingsSection_Voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand reference-audio routing",
+          "body": "Read the reference-audio and cloned-voice controls. A selected file is a stored reference, not proof that speech has been generated with it. Use a compatible reference and keep its previous selection noted. Hearing a later reply is the routing test; complete silence requires checking backend readiness and output as well.",
+          "target": "providerSettingsSection_Voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chatterbox_tts"
+    },
+    {
+      "id": "page_chatterbox_tts_startup",
+      "title": "Chatterbox TTS · Startup",
+      "description": "Use Startup in Chatterbox TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox",
+        "subsection": "Startup"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox TTS",
+      "order": 212,
+      "topic": "Startup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review startup settings",
+        "Recover from a failed start"
+      ],
+      "steps": [
+        {
+          "title": "Review startup settings",
+          "body": "Startup controls how and when the backend loads. Read the options and pick a load policy that matches your workflow. If speech is unavailable shortly after launch, confirm the backend has finished starting instead of retyping text repeatedly.",
+          "target": "providerSettingsSection_Startup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover from a failed start",
+          "body": "If the backend does not start, note the reported startup state before changing options. Restoring a previously working startup setting is usually faster than testing several changes. Verify with a short spoken line once it starts again.",
+          "target": "providerSettingsSection_Startup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chatterbox_tts"
+    },
+    {
+      "id": "page_chatterbox_tts_voice_tag_rules",
+      "title": "Chatterbox TTS · Voice tag rules",
+      "description": "Understand the shared voice-tag rules alongside this TTS provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox",
+        "subsection": "voice-tag-rules"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox TTS",
+      "order": 240,
+      "steps": [
+        {
+          "title": "Read the default voice guidance",
+          "body": "Voice tag rules describe how NC interprets voice tags alongside this backend. Read the default guidance before changing it; backend selection and reference-audio selection are separate choices. Keeping the existing rules gives you a known baseline for later speech comparisons.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        },
+        {
+          "title": "Distinguish rules from actual playback",
+          "body": "A saved rule expresses how voice tags should be interpreted, not proof that a backend accepted the reference or produced audio. A later controlled spoken reply is needed to verify routing. If output changes unexpectedly, compare the rules with their previous text before changing provider settings.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        }
+      ],
+      "course_id": "overview_chatterbox_tts"
+    }
+  ]
+}

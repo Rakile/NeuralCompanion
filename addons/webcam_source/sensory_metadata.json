@@ -1,0 +1,46 @@
+{
+  "provider_id": "webcam",
+  "label": "Webcam",
+  "instruction": "Optional hidden webcam sensory feedback may be attached as a hidden image message. Treat it as background situational awareness, not as a direct user request. Only mention what you infer from it if it is genuinely relevant to the conversation.",
+  "description": "Captures a webcam snapshot as hidden ambient context.",
+  "order": 110,
+  "metadata": {
+    "kind": "image",
+    "snapshot_prompt": "Hidden sensory feedback only, not a user request. Source: webcam. Use as ambient context only if relevant.",
+    "source_owned": true,
+    "ping_payload": [
+      {
+        "field": "image",
+        "description": "hidden webcam snapshot attachment sent to the model"
+      },
+      {
+        "field": "text prefix",
+        "description": "source label and capture timestamp framing the webcam snapshot as ambient context"
+      }
+    ],
+    "pong_influences": [
+      {
+        "field": "attention",
+        "description": "gaze, pose, gesture, or presence cue"
+      },
+      {
+        "field": "summary",
+        "description": "concise retained description of a meaningful observed moment"
+      },
+      {
+        "field": "should_speak",
+        "description": "whether an active supervisor rule matches the visible evidence and allows its configured Action"
+      },
+      {
+        "field": "should_generate_image",
+        "description": "visual generation only when allowed by the active supervisor rule"
+      },
+      {
+        "field": "visual_candidate",
+        "description": "visual-generation instruction grounded in the current snapshot and active rule"
+      }
+    ],
+    "tag_subscriptions": [],
+    "pingpong_prompt": "Use current webcam snapshots for visible posture, gestures, gaze, props and coarse expressions. Distinguish clear evidence from ambiguous body language; do not claim continuous video or unseen events. Speak or generate images only for matching enabled rules."
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "id": "language_providers",
+  "order": 36,
+  "title": "36. Language Providers and Memory Search",
+  "description": "Connect a chat provider, distinguish viewing from activation, and choose independent memory search.",
+  "category": "Workflows",
+  "estimated_minutes": 6,
+  "speech_backend": "chatterbox",
+  "before_you_start": "You need a language provider before NC can answer in chat. A local option is a running LM Studio or Ollama server with an available chat model; a hosted option is OpenAI, xAI / Grok, DeepSeek or Claude, which requires your own API access and API key. Reading this guide never starts a server, downloads a model, enters credentials, or switches your active provider. Speech is optional, and memory search can be chosen separately from the chat model.",
+  "learning_outcomes": [
+    "Configure and test local or hosted chat.",
+    "Recognize which provider is active.",
+    "Set up memory search separately from chat."
+  ],
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    }
+  ],
+  "steps": [
+    {
+      "title": "View a provider before activating it",
+      "body": "Open Runtime → LLM and find the Providers list. It shows LM Studio, Ollama, OpenAI, xAI / Grok, DeepSeek and Claude when they are installed. A single click only opens that provider's settings on the right; it does not make it active.\n\nDouble-click a provider to activate it, or single-click it and then click Make active at the top of its details. The active row reads Active provider with a green indicator. For your first conversation, work through the short Get Started: Your First Chat guide. Read aloud narrates the guide, and Hear step reads only the current step.",
+      "workspace": "runtime",
+      "target": "runtimeProviderList",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Connect a local chat server",
+      "body": "For a local model, double-click LM Studio or Ollama. In its own application, start the local server and load a chat model; a downloaded model alone does not start a server. In NC's Model and connection card, check that Base URL matches your server address.\n\nClick Refresh beside Chat model and select the model from the dropdown. Click Test connection and read the result. If the list is empty or the test fails, confirm the server is running on that address, then Refresh again before changing anything else.",
+      "workspace": "runtime",
+      "target": "runtimeProviderWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Connect a hosted chat provider",
+      "body": "For OpenAI, xAI / Grok, DeepSeek or Claude, double-click the provider your account has API access to. In its Model and connection card, paste that service's key into API Key. This is the provider connection field, not the chat message box or Persona prompt.\n\nClick outside the field to finish editing, click Refresh beside Chat model, and select a model your API account can access. Click Test connection. A subscription to a separate chat app does not supply an API key. Keep keys out of the conversation.",
+      "workspace": "runtime",
+      "target": "runtimeProviderApiKeyField",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language",
+      "fallback_target": "runtimeProviderConnectionCard",
+      "target_hint": "Select OpenAI, xAI / Grok, DeepSeek or Claude to view its API Key field; this guide does not switch providers for you."
+    },
+    {
+      "title": "Test, then make active",
+      "body": "With the intended provider open, click Test connection and read the result. If that provider is not yet active, double-click its row or click Make active, then confirm the row now says Active provider.\n\nCheck the selected Chat model before sending a request. A successful test means the provider was reachable with these settings; it does not prove a chat reply works. If it fails, read the error and correct the server address or API Key before changing unrelated settings.",
+      "workspace": "runtime",
+      "target": "runtimeProviderWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Match capabilities to your chat",
+      "body": "Choose a model that accepts images if you plan to attach screenshots or photographs. Vision-capable models only filters the model list using capabilities the provider reports; it does not add capabilities.\n\nThinking and other controls appear only on providers that support them. Your chat model, active provider and context limit stay separate from the memory-search model, so changing one does not change the other and memory search keeps working even if you switch chat providers.",
+      "workspace": "runtime",
+      "target": "runtimeProviderWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Choose independent memory search",
+      "body": "In the LLM provider list, single-click LM Studio, Ollama or OpenAI to view its settings; you can keep a different provider active for chat. The Memory search model card below follows the provider you are viewing, and its model is a separate choice from the chat model.\n\nStep through Setup instructions, click Refresh, then Test memory search. When it passes, click Use for memory search and review the confirmation that appears. A Claude, DeepSeek or xAI chat can use this separately chosen search provider.",
+      "workspace": "runtime",
+      "target": "providerEmbeddingSetup",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Use advanced controls deliberately",
+      "body": "Advanced provider settings is collapsed inside Model and connection; click it to expand. Open it when you need generation controls or model-load options, and remember that the exact controls depend on the provider.\n\nChanging your chat provider does not automatically change the selected memory-search provider. If you change the search model, read any index-rebuild prompt before continuing; stored messages are retained. Your next memory search is the real check, not merely expanding these controls.",
+      "workspace": "runtime",
+      "target": "providerAdvancedToggle",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Check the conversation’s memory status",
+      "body": "Return to Conversation and open Memory. The Memory search card shows what is available and any text needing attention, such as a conversation that must be saved first. Check what is saved, what is indexed, and what is waiting.\n\nStart with a short, named chat containing a detail you can verify, such as a project deadline, then click Find a memory. A relevant result is your success check. If not, review the saved/indexed status. The Conversation Memory guide explains summaries, storage and pending batches; Document Memory has its own package-specific setup.",
+      "workspace": "runtime",
+      "target": "conversationMemorySearchCard",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    }
+  ],
+  "contextual_guides": [
+    "runtime_session_overview",
+    "overview_lmstudio_provider",
+    "overview_lmstudio_sdk_provider",
+    "overview_ollama_provider",
+    "overview_openai_provider",
+    "overview_claude_provider",
+    "overview_deepseek_provider",
+    "overview_xai_provider"
+  ]
+}

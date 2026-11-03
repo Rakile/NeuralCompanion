@@ -1,0 +1,88 @@
+{
+  "guides": [
+    {
+      "id": "overview_no_stt",
+      "title": "No STT overview",
+      "description": "Disables microphone speech-to-text while keeping manually typed chat available.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.no_stt",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "speech",
+        "provider_kind": "stt",
+        "provider_id": "none"
+      },
+      "category": "Runtime / Speech-to-text / No STT",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Disables microphone speech-to-text while keeping manually typed chat available.",
+        "Find focused guidance for Recognition."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_no_stt_recognition",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "What No STT does",
+          "body": "Disables microphone speech-to-text while keeping manually typed chat available. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_no_stt_recognition"
+      ],
+      "display_title": "Start tutorial · No STT",
+      "optional_chapters": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_no_stt_recognition",
+      "title": "No STT · Recognition",
+      "description": "Use Recognition in No STT.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.no_stt",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "speech",
+        "provider_kind": "stt",
+        "provider_id": "none"
+      },
+      "category": "Runtime / Speech-to-text / No STT",
+      "order": 210,
+      "topic": "Recognition",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Recognize the None option",
+        "Choose a transcription backend only when needed"
+      ],
+      "steps": [
+        {
+          "title": "Recognize the None option",
+          "body": "None intentionally disables microphone speech recognition. Typed chat and configured spoken replies can still work. This option has no recognition model to configure or load. Read the active-backend indicator to distinguish viewing None from selecting it for the session.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish viewed and active backends",
+          "body": "Viewing None does not make it the active STT backend. Read the active indicator before diagnosing microphone activity. When None is active, this transcription route is disabled; other features may still capture audio independently. If you later want transcription, follow the separate STT setup guide.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "runtime_stt"
+      ],
+      "course_id": "overview_no_stt"
+    }
+  ]
+}

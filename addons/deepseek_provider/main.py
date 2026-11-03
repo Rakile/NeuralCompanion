@@ -1,0 +1,381 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Iterable
+
+from openai import OpenAI
+
+from core import chat_providers
+from core.conversation_tools import TOOL_OPTION, encode_tool_round
+from core.native_tool_calls import build_payload, extract_round
+from core.addons.base import BaseAddon
+
+
+PROVIDER_ID = "deepseek"
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+
+FALLBACK_MODELS = [
+    {
+        "id": "deepseek-v4-flash",
+        "label": "DeepSeek V4 Flash",
+        "supports_images": False,
+        "source": "deepseek_fallback",
+    },
+    {
+        "id": "deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
+        "supports_images": False,
+        "source": "deepseek_fallback",
+    },
+]
+
+
+def _extract_text(response: Any) -> str:
+    if isinstance(response, str):
+        return str(response)
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return ""
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", None) if message is not None else None
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            text_value = getattr(item, "text", None)
+            if text_value:
+                parts.append(str(text_value))
+                continue
+            if isinstance(item, dict):
+                dict_text = item.get("text")
+                if dict_text:
+                    parts.append(str(dict_text))
+        return "".join(parts).strip()
+    return str(content or "").strip()
+
+
+def _stream_text(stream: Iterable[Any]):
+    for event in stream:
+        choices = getattr(event, "choices", None) or []
+        if not choices:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        content = getattr(delta, "content", None) if delta is not None else None
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, str) and item:
+                    yield item
+                    continue
+                text_value = getattr(item, "text", None)
+                if text_value:
+                    yield str(text_value)
+                    continue
+                if isinstance(item, dict):
+                    dict_text = item.get("text")
+                    if dict_text:
+                        yield str(dict_text)
+        elif content:
+            yield str(content)
+
+
+def _coerce_frozen_float(value: Any, default: float, minimum: float, maximum: float) -> float:
+    try:
+        return min(maximum, max(minimum, float(value)))
+    except Exception:
+        return default
+
+
+def _coerce_frozen_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        return min(maximum, max(minimum, int(float(value))))
+    except Exception:
+        return default
+
+
+def _frozen_request_params(
+    binding,
+    params: dict[str, Any],
+    *,
+    output_budget_override: Any = None,
+) -> dict[str, Any]:
+    request = dict(params or {})
+    generation = binding._generation_fields_copy()
+    request["model"] = binding.model_name
+
+    if "thinking_mode" in generation:
+        request["thinking_mode"] = generation["thinking_mode"]
+    if "reasoning_effort" in generation:
+        request.pop("reasoning_effort", None)
+        reasoning_effort = str(generation["reasoning_effort"] or "")
+        if reasoning_effort:
+            request["reasoning_effort"] = reasoning_effort
+    if "temperature" in generation:
+        request["temperature"] = _coerce_frozen_float(
+            generation["temperature"], 1.0, 0.0, 2.0
+        )
+    if "top_p" in generation:
+        request["top_p"] = _coerce_frozen_float(generation["top_p"], 1.0, 0.0, 1.0)
+    for field_name in ("frequency_penalty", "presence_penalty"):
+        if field_name not in generation:
+            continue
+        request.pop(field_name, None)
+        value = _coerce_frozen_float(generation[field_name], 0.0, -2.0, 2.0)
+        if value != 0.0:
+            request[field_name] = value
+    if "max_tokens" in generation:
+        request.pop("max_tokens", None)
+        max_tokens = _coerce_frozen_int(generation["max_tokens"], -1, -1, 393216)
+        if max_tokens != -1:
+            request["max_tokens"] = max_tokens
+    if output_budget_override is not None:
+        request.pop("max_completion_tokens", None)
+        max_tokens = _coerce_frozen_int(output_budget_override, -1, -1, 393216)
+        if max_tokens > 0:
+            request["max_tokens"] = max_tokens
+    return request
+
+
+def _frozen_client(request):
+    binding = getattr(request.context, "_binding", None)
+    if binding is None or binding.provider_name != PROVIDER_ID:
+        raise RuntimeError("DeepSeek frozen request binding is unavailable.")
+    config = binding._provider_config_copy()
+    return OpenAI(
+        api_key=str(config.get("api_key") or "").strip(),
+        base_url=str(config.get("base_url") or DEFAULT_BASE_URL).strip(),
+    )
+
+
+class Addon(BaseAddon):
+    def initialize(self, context):
+        super().initialize(context)
+        self._chat_service = context.capabilities.providers
+        if self._chat_service is None:
+            context.logger.warning("DeepSeek provider addon could not find qt.chat_providers service.")
+            return None
+
+        self._chat_service.register_provider(
+            provider_id=PROVIDER_ID,
+            label="DeepSeek",
+            description="Hosted DeepSeek V4 models through the OpenAI-compatible API.",
+            order=350,
+            client_factory=self._client,
+            model_list_handler=self._list_models,
+            completion_handler=self._complete_chat,
+            stream_handler=self._stream_chat,
+            connection_check_handler=self._check_connection,
+            api_key_getter=self._api_key,
+            base_url_getter=self._base_url,
+            frozen_execution_version=1,
+            frozen_prepare_handler=self._prepare_frozen_chat,
+            frozen_completion_handler=self._complete_frozen_chat,
+            frozen_stream_handler=self._stream_frozen_chat,
+            frozen_private_config_getter=self._frozen_private_config,
+            frozen_public_config_fields=("base_url", "provider_is_remote"),
+            metadata={
+                "native_tool_protocol_v1": "chat_completions",
+                "native_tool_streaming_v1": True,
+                "config_fields": [
+                    {"id": "api_key", "label": "API Key"},
+                    {"id": "base_url", "label": "Base URL", "default": DEFAULT_BASE_URL, "env": ["NC_CHAT_DEEPSEEK_BASE_URL"]},
+                ],
+                "generation_fields": [
+                    {
+                        "id": "thinking_mode",
+                        "label": "Thinking",
+                        "kind": "select",
+                        "default": "enabled",
+                        "request_location": "params",
+                        "description": "DeepSeek V4 supports thinking and non-thinking modes. Thinking is enabled by default.",
+                        "options": [
+                            {"label": "Enabled", "value": "enabled"},
+                            {"label": "Disabled", "value": "disabled"},
+                        ],
+                    },
+                    {
+                        "id": "reasoning_effort",
+                        "label": "Reasoning Effort",
+                        "kind": "select",
+                        "default": "",
+                        "omit_if": [""],
+                        "request_location": "params",
+                        "description": "Optional DeepSeek V4 reasoning effort. Leave blank for DeepSeek's default.",
+                        "options": [
+                            {"label": "Default", "value": ""},
+                            {"label": "High", "value": "high"},
+                            {"label": "Max", "value": "max"},
+                        ],
+                    },
+                    {"id": "temperature", "label": "Temperature", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.0, "request_location": "params"},
+                    {"id": "top_p", "label": "Top P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 1.0, "request_location": "params"},
+                    {"id": "frequency_penalty", "label": "Frequency Penalty", "kind": "float", "min": -2.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 0.0, "omit_if": [0.0, "0.0", "0"], "request_location": "params"},
+                    {"id": "presence_penalty", "label": "Presence Penalty", "kind": "float", "min": -2.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 0.0, "omit_if": [0.0, "0.0", "0"], "request_location": "params"},
+                    {
+                        "id": "max_tokens",
+                        "label": "Max Tokens (-1 = provider default)",
+                        "kind": "int",
+                        "min": -1,
+                        "max": 393216,
+                        "step": 1,
+                        "default": -1,
+                        "omit_if": [-1, "-1"],
+                        "request_location": "params",
+                        "description": "Use -1 to omit max_tokens and let the provider/model choose its own response cap.",
+                    },
+                ],
+                "hint": "Hosted DeepSeek provider. API key is required. Current V4 models are deepseek-v4-flash and deepseek-v4-pro.",
+                "supports_hosted_runtime": True,
+                "supports_streaming": True,
+                "supports_images": False,
+            },
+        )
+        context.logger.info("DeepSeek chat provider addon initialized.")
+        return None
+
+    def shutdown(self):
+        chat_service = getattr(self, "_chat_service", None)
+        if chat_service is not None:
+            try:
+                chat_service.unregister_provider(PROVIDER_ID)
+            except Exception:
+                pass
+        return None
+
+    def _setting(self, field_id: str) -> str:
+        chat_service = getattr(self, "_chat_service", None)
+        getter = getattr(chat_service, "get_provider_setting", None)
+        if callable(getter):
+            try:
+                return str(getter(PROVIDER_ID, field_id) or "").strip()
+            except Exception:
+                return ""
+        return ""
+
+    def _api_key(self) -> str:
+        return self._setting("api_key")
+
+    def _base_url(self) -> str:
+        return self._setting("base_url") or str(os.environ.get("NC_CHAT_DEEPSEEK_BASE_URL", "") or DEFAULT_BASE_URL).strip()
+
+    def _frozen_private_config(self) -> dict[str, bool]:
+        return {"provider_is_remote": True}
+
+    def _client(self) -> OpenAI:
+        return OpenAI(api_key=self._api_key(), base_url=self._base_url())
+
+    def _request_kwargs(self, params: dict[str, Any] | None, *, stream: bool = False) -> dict[str, Any]:
+        request_kwargs = dict(params or {})
+        thinking_mode = str(request_kwargs.pop("thinking_mode", "") or "").strip().lower()
+        if thinking_mode in {"enabled", "disabled"}:
+            extra_body = dict(request_kwargs.get("extra_body") or {})
+            extra_body["thinking"] = {"type": thinking_mode}
+            request_kwargs["extra_body"] = extra_body
+        if stream:
+            request_kwargs["stream"] = True
+        return request_kwargs
+
+    def _fallback_model_entries(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in FALLBACK_MODELS]
+
+    def _list_models(self, quiet: bool = False):
+        if not self._api_key():
+            return self._fallback_model_entries()
+        try:
+            client = self._client()
+            payload = client.models.list()
+            models = []
+            for model in list(getattr(payload, "data", []) or []):
+                model_id = str(getattr(model, "id", "") or "").strip()
+                if not model_id:
+                    continue
+                models.append(
+                    {
+                        "id": model_id,
+                        "supports_images": False,
+                        "source": "deepseek_models",
+                    }
+                )
+            return models or self._fallback_model_entries()
+        except Exception as exc:
+            if not quiet:
+                print(f"Error fetching DeepSeek models: {exc}")
+            return self._fallback_model_entries()
+
+    def _check_connection(self):
+        if not self._api_key():
+            return {"ok": False, "detail": "DeepSeek API key is required."}
+        try:
+            client = self._client()
+            payload = client.models.list()
+            count = len(list(getattr(payload, "data", []) or []))
+            return {
+                "ok": True,
+                "detail": f"Connected to DeepSeek ({count} model(s) available)",
+                "model_count": count,
+            }
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
+
+    def _complete_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
+        client = self._client()
+        response = client.chat.completions.create(**self._request_kwargs(params, stream=False))
+        return _extract_text(response)
+
+    def _stream_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
+        def _iter_stream():
+            client = self._client()
+            stream = client.chat.completions.create(**self._request_kwargs(params, stream=True))
+            yield from _stream_text(stream)
+
+        return _iter_stream()
+
+    def _prepare_frozen_chat(self, binding, params, additional_params):
+        extras = dict(additional_params or {})
+        output_budget_override = extras.pop(
+            chat_providers.FROZEN_OUTPUT_TOKEN_BUDGET_OVERRIDE,
+            None,
+        )
+        prepared = _frozen_request_params(
+            binding,
+            params,
+            output_budget_override=output_budget_override,
+        )
+        return self._request_kwargs(prepared, stream=False), extras
+
+    def _complete_frozen_chat(self, request, *, timeout=None, cancel_token=None) -> str:
+        del cancel_token
+        client = _frozen_client(request)
+        request_params = request.params_copy()
+        if timeout is not None:
+            request_params["timeout"] = timeout
+        if TOOL_OPTION in request.additional_params:
+            request_params = build_payload(request_params, request.additional_params_copy()[TOOL_OPTION], 'chat_completions')
+            response = client.chat.completions.create(**request_params)
+            return encode_tool_round(extract_round(response, 'chat_completions'))
+        response = client.chat.completions.create(**request_params)
+        return _extract_text(response)
+
+    def _stream_frozen_chat(self, request, *, timeout=None, cancel_token=None):
+        del cancel_token
+
+        def _iter_stream():
+            client = _frozen_client(request)
+            request_params = {**request.params_copy(), "stream": True}
+            if timeout is not None:
+                request_params["timeout"] = timeout
+            if TOOL_OPTION in request.additional_params:
+                from core.native_tool_stream import stream_events
+                request_params = build_payload(request_params, request.additional_params_copy()[TOOL_OPTION], 'chat_completions')
+                request_params['stream'] = True
+                stream = client.chat.completions.create(**request_params)
+                try:
+                    yield from stream_events(stream, 'chat_completions')
+                finally:
+                    if callable(getattr(stream, 'close', None)): stream.close()
+                return
+            stream = client.chat.completions.create(**request_params)
+            yield from _stream_text(stream)
+
+        return _iter_stream()

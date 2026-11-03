@@ -1,0 +1,39 @@
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.mp4 binary
+*.mov binary
+*.zip binary
+*.7z binary
+*.onnx binary
+*.pth binary
+*.ckpt binary
+*.safetensors binary
+avatar_packs/VSeeFace/Echo/Echo.vrm binary
+addons/corsair_visual_instrument/sdk/*.dll binary
+addons/corsair_visual_instrument/sdk/*.pdf binary
+
+# Keep the checksummed PocketTTS bundle byte-identical across checkouts.
+vendor/pockettts/LICENSE -text
+vendor/pockettts/*.whl binary
+
+# Preserve the exact source/payload bytes recorded by the VSeeFace bridge manifest.
+addons/vseeface_avatar/bridge_source/** -text
+addons/vseeface_avatar/bridge_payload/** -text

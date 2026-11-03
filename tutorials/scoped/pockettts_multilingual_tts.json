@@ -1,0 +1,207 @@
+{
+  "guides": [
+    {
+      "id": "overview_pockettts_multilingual_tts",
+      "title": "PocketTTS Multilingual overview",
+      "description": "PocketTTS multilingual backend exposed as a separate TTS addon.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.pockettts_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts_multilingual",
+        "subsection": "Language and voice"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS Multilingual",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "PocketTTS multilingual backend exposed as a separate TTS addon.",
+        "Find focused guidance for Language and voice, Startup, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_pockettts_multilingual_tts_language_and_voice",
+        "page_pockettts_multilingual_tts_startup",
+        "page_pockettts_multilingual_tts_generation",
+        "page_pockettts_multilingual_tts_voice_tag_rules",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "What PocketTTS Multilingual does",
+          "body": "PocketTTS multilingual backend exposed as a separate TTS addon. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_pockettts_multilingual_tts_language_and_voice",
+        "page_pockettts_multilingual_tts_startup",
+        "page_pockettts_multilingual_tts_generation",
+        "page_pockettts_multilingual_tts_voice_tag_rules"
+      ],
+      "display_title": "Start tutorial · PocketTTS Multilingual",
+      "optional_chapters": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_pockettts_multilingual_tts_language_and_voice",
+      "title": "PocketTTS Multilingual · Language and voice",
+      "description": "Use Language and voice in PocketTTS Multilingual.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts_multilingual",
+        "subsection": "Language and voice"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS Multilingual",
+      "order": 210,
+      "topic": "Language and voice",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Select language and voice",
+        "Reference routing differences"
+      ],
+      "steps": [
+        {
+          "title": "Choose the speech language and voice",
+          "body": "Use the language choices listed on this page and select the one matching the speech you intend to produce. Read the selected voice and reference-audio options separately. Confirm the displayed values after an intentional edit; changing generation settings will not correct the wrong language choice.",
+          "target": "providerSettingsSection_Language and voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Reference routing differences",
+          "body": "Some routes use reference audio; others do not. Read the controls shown for this backend and only supply samples where they are accepted. Mismatched reference and language settings explain many unexpected accents in output.",
+          "target": "providerSettingsSection_Language and voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_pockettts_multilingual_tts"
+    },
+    {
+      "id": "page_pockettts_multilingual_tts_startup",
+      "title": "PocketTTS Multilingual · Startup",
+      "description": "Use Startup in PocketTTS Multilingual.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts_multilingual",
+        "subsection": "Startup"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS Multilingual",
+      "order": 211,
+      "topic": "Startup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Load and confirm readiness",
+        "Recover a stalled startup"
+      ],
+      "steps": [
+        {
+          "title": "Load and confirm readiness",
+          "body": "Startup options decide how and when the multilingual backend loads. Pick a load policy that suits your workflow. If speech is unavailable straight after launch, wait for startup to finish and verify with a short spoken line before changing anything else.",
+          "target": "providerSettingsSection_Startup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover a stalled startup",
+          "body": "If startup does not complete, note the reported state and revert the last startup change. Repeated restarts with the same setting rarely help. Verify recovery by producing one short line in the chosen language.",
+          "target": "providerSettingsSection_Startup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_pockettts_multilingual_tts"
+    },
+    {
+      "id": "page_pockettts_multilingual_tts_generation",
+      "title": "PocketTTS Multilingual · Generation",
+      "description": "Use Generation in PocketTTS Multilingual.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts_multilingual",
+        "subsection": "Generation"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS Multilingual",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Adjust audio generation",
+        "Test multilingual output deliberately"
+      ],
+      "steps": [
+        {
+          "title": "Adjust audio generation",
+          "body": "Generation holds audio shaping controls such as speed or clarity. Change one value and generate a short sample in the chosen language. If intelligibility drops after a change, restore the previous value rather than stacking more edits.",
+          "target": "providerSettingsSection_Generation",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Compare speech in the selected language",
+          "body": "A later short phrase in the selected language is a useful synthesis check. Compare pronunciation and clarity using the same text and voice before changing another generation value. If the language sounds wrong, recheck the language selection and reference rather than assuming the backend auto-detects it.",
+          "target": "providerSettingsSection_Generation",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_pockettts_multilingual_tts"
+    },
+    {
+      "id": "page_pockettts_multilingual_tts_voice_tag_rules",
+      "title": "PocketTTS Multilingual · Voice tag rules",
+      "description": "Understand the shared voice-tag rules alongside this TTS provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.pockettts_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "pockettts_multilingual",
+        "subsection": "voice-tag-rules"
+      },
+      "category": "Runtime / Text-to-speech / PocketTTS Multilingual",
+      "order": 240,
+      "steps": [
+        {
+          "title": "Read the default voice guidance",
+          "body": "Voice tag rules describe how NC interprets voice tags alongside this backend. Read the default guidance before changing it; backend selection and reference-audio selection are separate choices. Keeping the existing rules gives you a known baseline for later speech comparisons.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        },
+        {
+          "title": "Distinguish rules from actual playback",
+          "body": "A saved rule expresses how voice tags should be interpreted, not proof that a backend accepted the reference or produced audio. A later controlled spoken reply is needed to verify routing. If output changes unexpectedly, compare the rules with their previous text before changing provider settings.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        }
+      ],
+      "course_id": "overview_pockettts_multilingual_tts"
+    }
+  ]
+}

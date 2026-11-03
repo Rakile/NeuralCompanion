@@ -1,0 +1,165 @@
+{
+  "guides": [
+    {
+      "id": "overview_hotkeys",
+      "title": "Hotkeys",
+      "description": "Configurable hotkeys for push-to-talk, control actions, and focused-window UI actions.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.hotkeys",
+        "workspace": "addons",
+        "addon": "hotkeys_tab",
+        "section": "Input"
+      },
+      "category": "Addons / Hotkeys",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Configurable hotkeys for push-to-talk, control actions, and focused-window UI actions.",
+        "Find focused guidance for Input, Conversation controls, Window controls."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "hotkeys",
+        "page_hotkeys_input",
+        "page_hotkeys_conversation_controls",
+        "page_hotkeys_window_controls"
+      ],
+      "steps": [
+        {
+          "title": "What Hotkeys does",
+          "body": "Configurable hotkeys for push-to-talk, control actions, and focused-window UI actions. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "hotkeys"
+      ],
+      "display_title": "Start tutorial · Hotkeys",
+      "optional_chapters": [
+        "page_hotkeys_input",
+        "page_hotkeys_conversation_controls",
+        "page_hotkeys_window_controls"
+      ]
+    },
+    {
+      "id": "page_hotkeys_input",
+      "title": "Hotkeys · Input",
+      "description": "Use Input in Hotkeys.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.hotkeys",
+        "workspace": "addons",
+        "addon": "hotkeys_tab",
+        "section": "Input"
+      },
+      "category": "Addons / Hotkeys",
+      "order": 210,
+      "topic": "Input",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the binding and its scope",
+        "Hold, speak, release"
+      ],
+      "steps": [
+        {
+          "title": "Read the binding and its scope",
+          "body": "Open Input and find Push-to-Talk. Read the displayed binding and group heading before editing. Right Ctrl is the default, but your saved value may differ. Global shortcuts work while another application has focus; application shortcuts require NC to have focus. If Input is absent, enable the addon.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand the Push-to-Talk exercise",
+          "body": "A microphone exercise requires a ready STT backend, the intended input device and Push-to-Talk session mode. If those are already ready, hold the displayed binding, say one short phrase and release; a transcript is the check. Otherwise finish this page and choose the related setup guides without changing the binding.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "runtime_stt",
+        "runtime_session_setup"
+      ],
+      "course_id": "overview_hotkeys"
+    },
+    {
+      "id": "page_hotkeys_conversation_controls",
+      "title": "Hotkeys · Conversation controls",
+      "description": "Use Conversation controls in Hotkeys.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.hotkeys",
+        "workspace": "addons",
+        "addon": "hotkeys_tab",
+        "section": "Conversation controls"
+      },
+      "category": "Addons / Hotkeys",
+      "order": 211,
+      "topic": "Conversation controls",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Test pause with real speech playing",
+        "Confirm any changed binding once"
+      ],
+      "steps": [
+        {
+          "title": "Test pause with real speech playing",
+          "body": "In Conversation controls read Pause or resume speech. While a normal spoken reply is playing, press its binding with NC focused: speech should pause, and pressing again resumes. With no active speech this action has nothing to pause. Avoid Regenerate response and Retry user input as idle key tests; they change the last turn.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm any changed binding once",
+          "body": "For each binding you edit, confirm the displayed value and test its intended action once. Test outside NC only when the group says Global shortcuts. Restore default hotkeys in Window controls resets all groups, so use it only when you want that wider reset.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_hotkeys"
+    },
+    {
+      "id": "page_hotkeys_window_controls",
+      "title": "Hotkeys · Window controls",
+      "description": "Use Window controls in Hotkeys.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.hotkeys",
+        "workspace": "addons",
+        "addon": "hotkeys_tab",
+        "section": "Window controls"
+      },
+      "category": "Addons / Hotkeys",
+      "order": 212,
+      "topic": "Window controls",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Try a feature-window shortcut with NC focused",
+        "Recover a shortcut that does nothing"
+      ],
+      "steps": [
+        {
+          "title": "Try a feature-window shortcut with NC focused",
+          "body": "Read the Show Visual Reply or Show MuseTalk Preview description. These bring forward an existing window; they do not create an image or load an avatar. Choose a feature you already have, click Record, press unused keys, release, and check the display. Escape cancels recording.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover a shortcut that does nothing",
+          "body": "If the keys do nothing, check NC focus, key collisions, and that content exists for that feature. Content for that feature is created through its own controls elsewhere in the app. Companion Orb shortcuts live in the Orb addon. Note any old value before a reset, and keep a way back for bindings you changed.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_hotkeys"
+    }
+  ]
+}

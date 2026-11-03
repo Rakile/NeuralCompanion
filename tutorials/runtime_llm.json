@@ -1,0 +1,47 @@
+{
+  "id": "runtime_llm",
+  "title": "Language Model",
+  "description": "Browse installed language model providers, read their connection details, and see the chat model choice without activating anything.",
+  "kind": "section",
+  "scope": {
+    "workspace": "runtime",
+    "runtime_section": "runtime",
+    "runtime_responsibility": "language"
+  },
+  "category": "Runtime / Runtime Session",
+  "order": 43,
+  "before_you_start": "You can read this guide with the engine stopped. It opens settings pages and highlights controls; changes and tests are explicit user actions.",
+  "learning_outcomes": [
+    "Browse providers without activating them",
+    "Read the connection card and model selector",
+    "Understand that Make active is an explicit user action"
+  ],
+  "steps": [
+    {
+      "title": "Browse language providers",
+      "body": "Single-click a provider to inspect its settings. The selected row is the viewed provider; the active indicator identifies the provider used for chat. Double-clicking can activate a provider, so use single clicks for inspection. Missing entries depend on which provider addons are available.",
+      "target": "runtimeProviderList",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Check connection requirements",
+      "body": "Inspect the connection card for the selected provider. Local providers need their service address and server; cloud providers may need an API key. Never paste credentials into a tutorial. When configured, use the page's explicit connection test and read its result; merely opening the card does not test a connection.",
+      "target": "runtimeProviderConnectionCard",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Identify the chat model",
+      "body": "Find the chat-model selector. The selected model must exist on the chosen service and support your intended inputs. If the model list is empty, check the connection and refresh options offered on the page. Changing the model is a real configuration edit; leave it unchanged for this tour.",
+      "target": "runtimeChatModelSelector",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Separate viewing from activation",
+      "body": "Find Make active, or the active-provider indicator if this provider is already selected. Activating is your decision and does not itself prove the model has loaded. A later chat exercise verifies a response. Finish here when you can identify the viewed provider, connection and model.",
+      "target": "runtimeProviderWorkspace",
+      "fallback_target": "runtimeResponsibilityStack"
+    }
+  ],
+  "estimated_minutes": 3,
+  "course_id": "runtime_session_overview"
+}

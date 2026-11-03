@@ -1,0 +1,102 @@
+{
+  "id": "identity_relay",
+  "order": 32,
+  "title": "32. NC Identity Relay",
+  "description": "Bring in one identity export, inspect its extracted records and deliberately review its use with a saved Persona.",
+  "speech_backend": "chatterbox",
+  "before_you_start": "Enable Identity Relay in Addon Manager and restart if requested. Use an export whose source and contents you understand and a saved Persona you intend to associate with it. Import, review, connection and per-conversation activation are separate actions. Reading does none of them. An export helps carry selected continuity records; it is not a transfer of an external model. Narration prefers loaded Chatterbox and otherwise tries Windows TTS.",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Create Identity Export"
+    },
+    {
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Import"
+    },
+    {
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Stored Artifacts"
+    },
+    {
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Privacy"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "relay"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Choose one continuity record to bring across",
+      "body": "Identity Relay stores exported information about an assistant identity so you can review its use with a Persona. Start with one small external session and a detail you can check, such as the assistant’s established role.\n\nIn Overview, identify why you want that continuity. Treat imported text as material to review, including its source and warnings. If you already have a complete NC_IDENTITY_EXPORT, keep it ready for Import; otherwise the next step prepares the protocol. Nothing is connected simply by opening this page.\n\nRead aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Overview",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Ask the external session for a complete export",
+      "body": "In Create Identity Export, use View Export Protocol or Copy Export Protocol. Read it, then send the complete protocol to the external LLM session you want to export from.\n\nReview that session’s response and retain the full NC_IDENTITY_EXPORT artifact, including warnings. Copying the protocol in NC does not contact the outside service or create the artifact. If the response is ordinary prose or incomplete, request the required complete format there before importing; a fragment cannot establish the same record.",
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Create Identity Export",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Import the artifact with a useful source name",
+      "body": "In Import, enter a Source label such as “Writing partner - October”. Paste the complete artifact and choose Import Pasted Artifact, or use Import From File for its JSON/text file.\n\nRead the import result and validation warnings. The next step should let you select this item in Stored Artifacts. If rejected, compare the full source artifact with your copy and the reported error. Importing stores the source; it does not approve every extracted statement or enable continuity in a chat.",
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Import",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Compare extracted facts with their source",
+      "body": "In Stored Artifacts, select your import. Read Raw Artifact, then Structured Extraction and Mechanical Warnings. Check the role, names and relationships against the original; for our exercise, locate the one detail you planned to carry across.\n\nIf a record is wrong or ambiguous, leave it unapproved during the later review rather than assuming import validated its meaning. Re-run Extraction recalculates the extraction; Delete Artifact removes the stored item. Use either only for a specific reason. Continue when you understand what was extracted and which warnings need attention.",
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Stored Artifacts",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Decide whether selected records may leave NC",
+      "body": "Open Privacy and read Owner Override: allow selected records to external providers. With a hosted chat provider, selected continuity records may require this explicit permission. Importing and inspecting an artifact do not require it.\n\nKeep it off unless you intend that exposure. Enabling opens a confirmation and removes the provider-exposure barrier; relevance, capacity, provenance, malformed-data and quarantine checks still apply. Review the provider and confirmation before accepting. The visible override status confirms the setting, not that every record will be sent. If later connection is blocked, read its reason before changing privacy.",
+      "workspace": "addons",
+      "addon": "identity_artifacts_tab",
+      "section": "Privacy",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Review the association and test the conversation state",
+      "body": "Open Persona → Identity Relay on the saved Persona. Choose Imported identity, wait for preparation, then Review identity. Inspect Identity subject and the decisions on proposed records; use Apply review only for the reviewed result you intend.\n\nCheck Connected or read the reported review/blocked reason. In Conversation, enable Identity Relay for this conversation if you want it active, then ask a question about your checked detail. A relevant reply is a useful behavioral check, not proof that every imported fact will be recalled. If it fails, inspect the connection, conversation switch and review decisions before relaxing privacy controls.",
+      "workspace": "addons",
+      "target": "personaIdentityRelayCard",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "relay"
+    }
+  ],
+  "category": "Workflows",
+  "learning_outcomes": [
+    "Create or obtain one complete export and inspect its stored extraction.",
+    "Review which provider may receive selected continuity records.",
+    "Associate an imported identity with a Persona and verify its conversation state."
+  ],
+  "contextual_guides": [
+    "overview_identity_artifacts"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "nc.corsair_visual_instrument",
+  "name": "Corsair Visual Instrument",
+  "category": "visuals",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Render NeuralCompanion state, mood, and speech energy on Corsair keyboards through iCUE.",
+  "permissions": [
+    "ui.tabs",
+    "storage.read",
+    "storage.write"
+  ],
+  "ui": [
+    {
+      "id": "corsair_visual_instrument_tab",
+      "title": "Corsair LEDs",
+      "area": "top_level",
+      "order": 127,
+      "tooltip": "Use Corsair keyboard lighting as NeuralCompanion visual feedback.",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "enabled": true
+}

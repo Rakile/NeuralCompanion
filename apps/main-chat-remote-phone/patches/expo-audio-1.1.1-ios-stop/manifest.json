@@ -1,0 +1,40 @@
+{
+  "format": 1,
+  "package": "expo-audio",
+  "version": "1.1.1",
+  "license": "MIT",
+  "licenseSource": "https://github.com/expo/expo/blob/sdk-54/LICENSE",
+  "files": [
+    {
+      "path": "ios/AudioModule.swift",
+      "license": "MIT",
+      "before": "8ed6bb11ebb4f7b37c38520d7c02fbe31702243559edddd28ec0354ae0c3f39d",
+      "after": "ceeae354d1d95a3c16a55a93030bc5a58f7010bfd5772047b16189320f2045a5"
+    },
+    {
+      "path": "ios/AudioPlayer.swift",
+      "license": "MIT",
+      "before": "551e81509191449d491d9a756eefce3102d213e02485cb39493788bcba8901c3",
+      "after": "6693c7c6f55d0eb36e10081081ec5e941b94e3a4653a5e6ec43834a2d2bd051a"
+    },
+    {
+      "path": "ios/MediaController.swift",
+      "license": "MIT",
+      "before": "b719b9063da5fadce68722d54b3623f1abb4152bcbba110ed0fe1ad0e96b1c1f",
+      "after": "3a6c5b8799494fb3c4a53e9fb45e2f7d01c8a6f2d13eb9cb99cbddb77c15615d"
+    },
+    {
+      "path": "ios/NCPlaybackGuard.swift",
+      "license": "MIT",
+      "before": null,
+      "after": "f785136ead836085ec041594852f0dfafa2dd04d537d4256a922accdf0c4ea3a",
+      "previousAfter": "3254c71a1ed57e62b3a668a84cb9888bba5756f7330f6122cf6cbe7af781bf26"
+    },
+    {
+      "path": "ios/ExpoAudio.podspec",
+      "license": "MIT",
+      "before": "7d61c18f1d9d872563c5c8a67044a0f357eb304772381863bd27309912833f73",
+      "after": "3253dc7bdd25118fe26c56c40be325ffae05a6427567a412c584cfc9b833b12f"
+    }
+  ]
+}

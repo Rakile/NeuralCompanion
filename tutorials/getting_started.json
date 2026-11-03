@@ -1,0 +1,99 @@
+{
+  "id": "getting_started",
+  "order": 4,
+  "title": "4. Main Window Tour",
+  "description": "After your first Main chat, find the other workspaces and everyday window controls.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.addons",
+      "section": "Overview"
+    },
+    {
+      "workspace": "conversation"
+    },
+    {
+      "workspace": "visuals"
+    },
+    {
+      "workspace": "musetalk"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "section": "Overview"
+    }
+  ],
+  "global_targets": [
+    "mainNavigationMenuButton"
+  ],
+  "steps": [
+    {
+      "title": "Runtime",
+      "body": "This tour assumes you finished 1. Get Started: Your First Chat and saw an assistant text reply. Now look at Runtime: Session setup builds how you chat, LLM connects language, Text-to-speech and speech input handle voice, and Visual and Avatar choose image and avatar providers. The Settings rail beside these groups opens the remaining settings pages. Nothing here changes because you are reading.\n\nYou can listen with Read aloud for the whole guide, or click Hear step to hear only this instruction. For the better voice, select Chatterbox in Runtime → Text-to-speech and load it with the top-right power button OFF → ON; if that is unavailable, NC tries Windows TTS. Ordinary chat speech still uses your selected speech provider.\n\nA small example: confirm an LLM row says Active provider so you know which group to interpret. Success check: you can name where session, speech and visual settings live. If a group is missing, enable its addon in Addon Manager and restart when asked.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Addons",
+      "body": "Addons is the rail holding core tools and the addons you installed. Click an icon to open that addon; its own pages appear in the center. Right-click an icon to hide it, use Unhide addon to bring one back, or press and hold an icon and drag to reorder.\n\nExample: open Tutorials once to confirm you can return to this catalog. This rail only lists what is installed; a missing tool means it is not installed or is hidden, not that clicking elsewhere installs it. Success check: the icon you opened shows its pages, and any icon you hid disappears without changing other saved state. If an icon will not open, check Addon Manager status and restart if it was recently enabled.",
+      "workspace": "addons",
+      "target": "addonSectionRail",
+      "addon": "core.addons",
+      "section": "Overview"
+    },
+    {
+      "title": "Conversation",
+      "body": "Conversation is Main chat and any rooms you have: messages, response controls, portraits, the composer, and an optional System console. Above the messages, Save, Save as, Load and Memory open saved conversations and memory directly. The Controls menu beside them can hide or restore each of those buttons.\n\nExample: send a short message here if NC is ON and your provider is connected; you should see your message and a reply. Success check: your message and an assistant reply appear, and Save finishes without error if you save. If the composer is disabled, the engine is not running—switch the top-right power button OFF → ON and wait for startup.",
+      "workspace": "conversation",
+      "target": "conversationWorkspace"
+    },
+    {
+      "title": "Visual Reply",
+      "body": "Visual Reply displays generated images. Its toolbar offers Previous, Next, save, caption, story-image, style and delete controls. It shows what the image provider produced; opening it does not generate an image.\n\nExample: after an image reply exists, Previous and Next step through stored images. Success check: the status chip above the toolbar reads something other than an error once your visual provider is configured. If the toolbar is empty, no image has been generated yet—enable Visual generation in Persona → Visual replies or ask for an image after configuring Runtime → Visual. Speech provider images belong to Main chat replies; Story Visuals covers its own workflow separately.",
+      "workspace": "visuals",
+      "target": "visualReplyToolbar"
+    },
+    {
+      "title": "Avatar Preview",
+      "body": "Avatar Preview shows frames from the selected avatar provider when it is available, and an idle message otherwise. Float preview detaches it into its own window offering Always on top and Avatar only. Opening the preview does not start an avatar model.\n\nSuccess check: either animated frames or a clear idle message appears. The highlighted control is Float preview; use it only if you want to detach the preview. If you expected frames, confirm Runtime → Avatar has an active provider whose model is loaded; otherwise the idle message is normal and no change is needed.",
+      "workspace": "musetalk",
+      "target": "floatMusetalkPreviewButton"
+    },
+    {
+      "title": "Tutorials",
+      "body": "Tutorials is this catalog. Return whenever a feature changes or you forget where a control lives. Each guide can navigate to its current page and highlight the relevant area, and several offer Read aloud or Hear step for narration.\n\nExample: open 3. Startup Self-Check when chat fails to start and read its status-first steps. Success check: selecting a guide shows its steps and highlights the described control. If highlighting stops, finish or close the active guide and reopen it; the catalog never applies changes for you.",
+      "workspace": "addons",
+      "target": "tutorialsWorkspace",
+      "addon": "core.tutorials",
+      "section": "Overview"
+    },
+    {
+      "title": "Recover hidden views and arrange windows",
+      "body": "Click or right-click the NeuralCompanion logo and name at the top to show or hide views and their tabs, unlock panel positions, or reset the layout. Right-click a workspace tab to dock or float it. These options change what you see, not what the providers do.\n\nExample: if the Avatar window vanished, open this menu and restore it rather than restarting NC. Success check: the view you brought back is visible and the others stayed where you left them. If the layout becomes confusing, choose Reset layout. The Views and Floating Windows guide explains the options in full.",
+      "workspace": "conversation",
+      "target": "mainNavigationMenuButton"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Finish 1. Get Started: Your First Chat first: choose and activate a chat provider, send a message, and receive a visible text reply. This tour only navigates and highlights areas of the main window; reading it never starts the engine, hides views, floats a panel, or changes settings. Keep NC ON if you want to hold a real conversation after reading. Higher-quality guide narration needs Chatterbox selected and loaded.",
+  "learning_outcomes": [
+    "Locate the Runtime groups that configure session, LLM, speech input, text-to-speech, visual and avatar providers.",
+    "Find the main workspaces—Addons, Conversation, Visual Reply, Avatar Preview and Tutorials—and what each holds.",
+    "Recover a hidden view or rearrange windows without losing your saved layout."
+  ],
+  "contextual_guides": [
+    "page_addons_overview",
+    "page_addon_manager",
+    "page_tutorial_library"
+  ]
+}

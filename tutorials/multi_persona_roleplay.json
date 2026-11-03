@@ -1,0 +1,166 @@
+{
+  "id": "multi_persona_roleplay",
+  "order": 15,
+  "title": "15. Multi Persona Roleplay",
+  "description": "Set up a cast, play scenes, and troubleshoot multi-persona stories.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Status"
+    },
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Registry"
+    },
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Play"
+    },
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Voice"
+    },
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Story Sounds"
+    },
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Story Health"
+    },
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Session"
+    },
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Master"
+    },
+    {
+      "workspace": "addons",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "AR"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Status and the story workflow",
+      "body": "Status shows the current persona and roleplay switches. The numbered workflow navigates Create story, Scenes & lore, Apply story, Voices & media, Check setup and Play; navigation alone does not complete setup. Use the workflow for a new story, or Registry for a single character. Use Read aloud for automatic narration, or Hear step for only the current instruction.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Status"
+    },
+    {
+      "title": "Build or edit a persona",
+      "body": "Use Registry to Add persona, Duplicate persona or import an existing profile. In Editor, review its name, role, description, system prompt, style and memory scope. For example, create a lighthouse keeper who answers cautiously and knows the harbour. Regular prompts and optional AlternativeReality prompt profiles serve different modes; inspect the one your session uses.",
+      "workspace": "addons",
+      "target": "mprcRoster",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Registry"
+    },
+    {
+      "title": "Start an isolated Play session",
+      "body": "After applying or loading a story, review the cast and choose Start Play yourself. The story starts or resumes in MPRC's dedicated feed; ordinary Main Chat replies do not advance this story memory. Enter an action such as \"Ask the keeper about the missing ship\" or choose an offered response. Check the feed for the expected narrator and characters.",
+      "workspace": "addons",
+      "target": "mprcPlayScroll",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Play"
+    },
+    {
+      "title": "Verify the voice being edited",
+      "body": "In Voice, check Currently editing and Follow active persona before saving a sample. Inherit follows the main TTS selection; a backend override needs an available compatible backend. Supported reference routes include Chatterbox and PocketTTS variants; Gemini preview does not use samples. Test short narration and dialogue and inspect routing before assuming each character has a distinct voice.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Voice"
+    },
+    {
+      "title": "Story sounds and images",
+      "body": "Story Sounds uses structured music, ambience, FX and stinger cues with configured audio resources; matching cue text is removed from spoken narration. Check files and preview sounds first. Story Images uses the separate Visual Reply service and persona visual profiles. Review its provider, limits and automatic-generation settings before enabling optional generation.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Story Sounds"
+    },
+    {
+      "title": "Check setup before a long story",
+      "body": "Story Health validates narrator setup, voices, images, memory and persona links. Use Check Story Setup and inspect specific warnings before choosing any repair action. Load Demo if Needed & Check can load a demo when no story is active, so use it only when intended. Troubleshooting exposes effective prompts and voice routing for diagnosis.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Story Health"
+    },
+    {
+      "title": "Choose the session mode",
+      "body": "Session supports Single active persona, Multi-character group chat, Narrator + characters, RPG / Game Master and AlternativeReality. Choose one that matches the task: test a character one-on-one first, or use a narrator-led mode for an interactive story. Master's story Mode is separate from Session's mode; verify both when building a story.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Session"
+    },
+    {
+      "title": "Create and review a Master draft",
+      "body": "In Master, try a premise such as \"A keeper and a traveller investigate a silent lighthouse.\" Review cast generation and scene/title/location/time/mood fields. Generate Story Setup uses the main chat model; optional refinement offers another configured provider. Refine & build complete draft prepares premise, cast, scenes and lore without activating a story. Inspect the editable draft before applying.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Master"
+    },
+    {
+      "title": "Apply the cast deliberately",
+      "body": "In the native interface, Apply Draft directly activates and saves the draft; review it beforehand. Check Auto-create missing personas, Update matching existing personas, voice assignment, avatar creation and Clean-start story memory on apply. Disable optional generation you do not want and note that clean-start can clear current story memory. Applying leaves the story paused; Start Play is separate.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Master"
+    },
+    {
+      "title": "Author scenes and lore",
+      "body": "Open Scenarios & Lore from the story workflow. Use Set field for text edits and Send to Master Draft to validate and copy them back; unsent edits remain separate. Try the lighthouse example only if you intend to replace the draft extension. Review conditions, variables and choices before Apply. Sending a draft does not execute authored actions.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Master"
+    },
+    {
+      "title": "Understand authored choices and progress",
+      "body": "After Apply and Start Play, Additional controls > Scenario Choices & Progress opens applied scenario controls. Authored choices can set variables, change scenes or narrate authored text; they are separate from generated reply choices. Stop saves scenario progress and Start Play resumes it. Restart Story begins a fresh session, so opening text and effects can run again.",
+      "workspace": "addons",
+      "target": "mprcPlayScroll",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Play"
+    },
+    {
+      "title": "Tune AlternativeReality",
+      "body": "AR offers pacing, interaction frequency and active character settings for narrator-led scenes. For an audiobook-like session, review Slow / Audiobook and Continue until important choice. Use AR persona prompts only when their profiles are filled and reviewed. Expect structured narration, character dialogue and choices, while model output and pacing can still need correction.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "AR"
+    },
+    {
+      "title": "Save, load and move stories",
+      "body": "Master's Story Library saves reusable setups and story memory; Load Story restores that story and leaves it paused. For a movable archive, use Story Library Export and choose sections and voice/image/audio files to include in the .mprcstory.zip package. A compact Story Health JSON bundle is different from a full package with copied assets. Review imports before resuming Play.",
+      "workspace": "addons",
+      "target": "mprcWorkspace",
+      "addon": "multi_persona_roleplay_tab",
+      "section": "Master"
+    }
+  ],
+  "before_you_start": "Enable the addon in Addon Manager and restart NC if requested. This guide only navigates and explains controls; any setup, generation or playback requires your own action. Start with a working chat provider. Voice playback needs an available TTS backend and valid samples; images and story sounds require their own configured resources. Review Apply, Load and Restart carefully because they change story state.",
+  "category": "Workflows",
+  "contextual_guides": [
+    "overview_multi_persona_roleplay"
+  ]
+}

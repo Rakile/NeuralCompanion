@@ -1,0 +1,17 @@
+{
+  "name": "Launchpad S",
+  "author": "NeuralCompanion original procedural geometry",
+  "grid_pads": 64,
+  "controls": 16,
+  "pad_top_y": 19,
+  "triangles": 9581,
+  "part_triangles": {
+    "housing": 108,
+    "controls": 1472,
+    "details": 745,
+    "accent": 216,
+    "pad": 110
+  },
+  "geometry": "Simplified visualization, not dimensional manufacturing CAD",
+  "reference": "https://support.novationmusic.com/hc/en-gb/articles/360000777685-Launchpad-Comparison"
+}

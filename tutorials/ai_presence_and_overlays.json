@@ -1,0 +1,98 @@
+{
+  "id": "ai_presence_and_overlays",
+  "order": 16,
+  "title": "16. AI Presence and Voice Silk Threads",
+  "description": "Show a voice thread, compare its motion during one spoken reply, and save a look you can restore.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "ai_presence_mode_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "addons",
+      "addon": "ai_presence_mode_tab",
+      "section": "Silk Threads"
+    },
+    {
+      "workspace": "addons",
+      "addon": "ai_presence_mode_tab",
+      "section": "Display"
+    },
+    {
+      "workspace": "addons",
+      "addon": "ai_presence_mode_tab",
+      "section": "Mood & color"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Begin with one visible thread",
+      "body": "AI Presence draws an animated overlay that can reflect NC activity and sound. Our first result will be a visible thread; later we will make it react to a short spoken reply. It does not give NC screen or microphone awareness.\n\nIn Overview, find Status, Use AI Presence and Start and show Presence. Leave your existing style alone for this step; the next action selects the thread style directly. If Overview is absent, check that the AI Presence addon is enabled before looking for its controls.\n\nRead aloud narrates the guide; Hear step reads only this step.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "ai_presence_mode_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Activate Silk Threads once",
+      "body": "Click Activate Silk Threads in Overview. This shortcut enables and shows the thread style, so you do not need to start a second overlay with Start and show Presence. Look for the animated thread and read Status. Seeing it is the first successful test, even before any speech.\n\nIf Status says it is running but you cannot see it, check Display → Screen mode and use Center Floating Window for a misplaced floating window. Once visible, you can compare Living Voice Thread and Silk Drift under Presence style in Visual style; keep one style while testing sound.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "ai_presence_mode_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Compare silence with one spoken reply",
+      "body": "In Silk Threads, turn Sync default output audio off for this comparison so desktop playback cannot drive the thread. With your working speech provider loaded, ask Main chat for a one-sentence greeting. Watch how motion changes while you hear the reply and settles afterward; idle motion can continue during silence.\n\nAudio analysis rate controls sound-measurement updates; Thread FPS controls drawing. Leave both unchanged until the reaction works. React to NC voice / TTS and React to desktop output govern sound-driven strand colors when Audio-reactive strand colors is on. If motion does not react, first confirm audible speech; increasing the rate cannot fix missing audio.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "ai_presence_mode_tab",
+      "section": "Silk Threads"
+    },
+    {
+      "title": "Make one visible shape change",
+      "body": "Return to the visible thread and note Overall thread size. Raise it a little, watch the thread grow, then restore the original value. This gives you a clear comparison before exploring the other controls.\n\nHorizontal span spreads it across the screen; Strand count multiplier adds strands; End gravity affects the hanging ends. Audio reactivity changes the response to sound. Try only one next, using the same short spoken reply for sound comparisons. If nothing changes, check that a thread style is still selected and the overlay is visible before adjusting more controls.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "ai_presence_mode_tab",
+      "section": "Silk Threads"
+    },
+    {
+      "title": "Save a look and prove you can restore it",
+      "body": "Animation preset selects a stored look; Load preset applies it. Loading can replace your current tuning, so save a look you want to keep with Save current and a recognizable name such as Quiet thread.\n\nSelect that saved preset, change Overall thread size temporarily, then click Load preset. Check that the size returns. This confirms the preset contains your settings rather than merely appearing in a list. Delete custom removes custom presets only; you do not need to delete anything to finish the exercise.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "ai_presence_mode_tab",
+      "section": "Silk Threads"
+    },
+    {
+      "title": "Place the overlay where you can use it",
+      "body": "In Display, Screen mode chooses Off, Fullscreen, Floating Window or Both. Try Floating Window if you want the thread beside your work. Use Center Floating Window if it is outside the visible desktop, then adjust its size and position. Always on top controls whether it stays above other windows.\n\nOff hides the visuals; it does not stop your chat runtime. Return to your preferred mode once you can find and use the overlay. Preview Fullscreen and Open Floating Window on Overview are explicit display actions, so use them only when you want that view.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "ai_presence_mode_tab",
+      "section": "Display"
+    },
+    {
+      "title": "Optional: compare mood colors, then stop",
+      "body": "Mood & color changes the palette independently of the thread shape. With Use mood colors on, note Mode, choose Manual and select a Manual mood such as Calm. Compare it with Happy while watching the overlay, then restore your original mode. Automatic follows available mood input; Off disables that mood coloring.\n\nIf the palette does not follow your manual choice, inspect Story mood override and Persona mood override before changing color strength. Finish by turning Use AI Presence off or choosing Screen mode Off. Confirm the overlay disappears; closing this guide alone does not stop it.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "ai_presence_mode_tab",
+      "section": "Mood & color"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Enable the AI Presence addon before opening its settings; apply a restart if addon enablement asks for one. You can test its appearance without chat. To test voice reaction, first get an audible Main chat reply from your chosen TTS provider. The guide opens panels only; activation and settings changes are yours. Read aloud and Hear step narrate the lesson, with loaded Chatterbox preferred and Windows TTS attempted as fallback.",
+  "learning_outcomes": [
+    "Show one visible thread and distinguish display activation from chat startup.",
+    "Compare voice reaction and one shape setting using a repeatable test.",
+    "Save and reload a preset, then stop the overlay."
+  ],
+  "contextual_guides": [
+    "overview_ai_presence_mode"
+  ]
+}

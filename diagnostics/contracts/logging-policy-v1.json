@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "levels": ["off", "errors", "state", "trace"],
+  "categories": ["acquisition", "encoding", "transfer", "buffering", "native_playback", "handoff", "ownership", "microphone", "lifecycle", "uncategorized"],
+  "default": {"version":1,"revision":"default-errors-v1","default_level":"errors","categories":{}},
+  "revision_pattern": "^[A-Za-z0-9_-]{1,64}$"
+}

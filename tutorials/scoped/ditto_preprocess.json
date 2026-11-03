@@ -1,0 +1,204 @@
+{
+  "guides": [
+    {
+      "id": "overview_ditto_preprocess",
+      "title": "Ditto Avatar Creator overview",
+      "description": "Prepare Ditto portraits and animation loops without duplicating reverse frames.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.ditto_preprocess",
+        "workspace": "addons",
+        "addon": "ditto_preprocess_tab"
+      },
+      "category": "Addons / Ditto Avatar Creator",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Prepare Ditto portraits and animation loops without duplicating reverse frames.",
+        "Find focused guidance for Source, Import, Test, Package."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_ditto_preprocess_source",
+        "page_ditto_preprocess_import",
+        "page_ditto_preprocess_test",
+        "page_ditto_preprocess_package",
+        "ditto_avatar"
+      ],
+      "steps": [
+        {
+          "title": "What Ditto Avatar Creator does",
+          "body": "Prepare Ditto portraits and animation loops without duplicating reverse frames. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "page_ditto_preprocess_source",
+        "page_ditto_preprocess_import",
+        "page_ditto_preprocess_test",
+        "page_ditto_preprocess_package"
+      ],
+      "display_title": "Start tutorial · Ditto Avatar Creator",
+      "optional_chapters": [
+        "ditto_avatar"
+      ]
+    },
+    {
+      "id": "page_ditto_preprocess_source",
+      "title": "Ditto Avatar Creator · Source",
+      "description": "Use Source in Ditto Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_preprocess",
+        "workspace": "addons",
+        "addon": "ditto_preprocess_tab"
+      },
+      "category": "Addons / Ditto Avatar Creator",
+      "order": 210,
+      "topic": "Source",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Stage a clear face source",
+        "Commit preparation once"
+      ],
+      "steps": [
+        {
+          "title": "Stage a clear face source",
+          "body": "Choose image or video with Choose image or video, or use Choose PNG frame folder for an existing sequence. Use one centered front-facing face with an unobstructed mouth. Source loop mode and Maximum source frames bound the input. Preview crop lets you check framing before Prepare avatar runs.",
+          "target": "tutorialControl_ditto_wizard_prepare",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Commit preparation once",
+          "body": "Enter a recognizable Avatar name and click Prepare avatar. Keep the source unchanged while progress is active. If preparation reports an error, read the stage text; a swapped file mid-job is wasted work. Discard unfinished emotion clears a partial entry; Back to Choose media returns you to source selection.",
+          "target": "tutorialControl_ditto_wizard_media",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_preprocess"
+    },
+    {
+      "id": "page_ditto_preprocess_import",
+      "title": "Ditto Avatar Creator · Import",
+      "description": "Use Import in Ditto Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_preprocess",
+        "workspace": "addons",
+        "addon": "ditto_preprocess_tab"
+      },
+      "category": "Addons / Ditto Avatar Creator",
+      "order": 211,
+      "topic": "Import",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Reuse an existing prepared avatar",
+        "Check the import landed in the right package"
+      ],
+      "steps": [
+        {
+          "title": "Reuse an existing prepared avatar",
+          "body": "In Import, use Choose prepared avatar to import to browse to an avatar you already prepared. Read Existing prepared avatar to confirm the path, then use Copy into selected package avatar to add it to the current package. Import copies; it does not move or overwrite the original file.",
+          "target": "tutorialControl_ditto_import_path",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check the import landed in the right package",
+          "body": "After importing, review the Package avatar list to confirm the entry appears under the intended package. An import into the wrong package is easy to miss because both files remain valid. If the entry is missing, check that Create new package or an Existing package was selected first.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_preprocess"
+    },
+    {
+      "id": "page_ditto_preprocess_test",
+      "title": "Ditto Avatar Creator · Test",
+      "description": "Use Test in Ditto Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_preprocess",
+        "workspace": "addons",
+        "addon": "ditto_preprocess_tab"
+      },
+      "category": "Addons / Ditto Avatar Creator",
+      "order": 212,
+      "topic": "Test",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Preview locally before chat use",
+        "Diagnose blocked chat selection"
+      ],
+      "steps": [
+        {
+          "title": "Preview locally before chat use",
+          "body": "In the Test section, confirm Avatar to preview names your new face, then click Preview speaking. Watch mouth motion and listen. Mute preview silences this local test while leaving animation visible; Stop preview ends it. Use in chat is a separate action from previewing.",
+          "target": "tutorialControl_ditto_stop_preview",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Diagnose blocked chat selection",
+          "body": "If Use in chat is blocked, resolve unfinished emotion entries by preparing or discarding them, then retry. Confirm Selected for chat appears before treating the package as live. A working preview does not guarantee chat selection; those are separate states requiring separate confirmation.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_preprocess"
+    },
+    {
+      "id": "page_ditto_preprocess_package",
+      "title": "Ditto Avatar Creator · Package",
+      "description": "Use Package in Ditto Avatar Creator.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ditto_preprocess",
+        "workspace": "addons",
+        "addon": "ditto_preprocess_tab"
+      },
+      "category": "Addons / Ditto Avatar Creator",
+      "order": 213,
+      "topic": "Package",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Name and group the package",
+        "Keep emotion labels consistent",
+        "Use the package in chat"
+      ],
+      "steps": [
+        {
+          "title": "Name and group the package",
+          "body": "In Package, read Existing package, enter a Package name and use Create new package when starting fresh. Add another avatar when the package should hold multiple faces. Reply emotions (comma separated) assigns labels this avatar answers to; Default avatar marks the fallback. Managed destination shows where the package is stored.",
+          "target": "tutorialControl_ditto_creator_pack",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Keep emotion labels consistent",
+          "body": "Compare Reply emotions with the label text used elsewhere in chat. Labels must match exactly; a stray space or capital can silently stop a label matching. Remove avatar discards an entry. Save package and emotion mapping and Save avatar entry must both succeed before the package is fully live for chat.",
+          "target": "tutorialControl_ditto_save_package",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Use the package in chat",
+          "body": "Click Use this package for chat and confirm the selection registers. Save and stop chat before returning to edit if you need to change a package already loaded. Test reply emotion lets you preview one label locally before chat uses it. Remove avatar removes only the entry you selected.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ditto_preprocess"
+    }
+  ]
+}

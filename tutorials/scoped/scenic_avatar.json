@@ -1,0 +1,121 @@
+{
+  "guides": [
+    {
+      "id": "overview_scenic_avatar",
+      "title": "Scenic Avatar overview",
+      "description": "Simple tag-to-image avatar engine using portable Scenic Packs.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.scenic_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "scenic"
+      },
+      "category": "Runtime / Avatar / Scenic Avatar",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Simple tag-to-image avatar engine using portable Scenic Packs.",
+        "Find focused guidance for Overview, Pack."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_scenic_avatar_pack"
+      ],
+      "steps": [
+        {
+          "title": "What Scenic Avatar does",
+          "body": "Simple tag-to-image avatar engine using portable Scenic Packs. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Read pack availability",
+          "body": "In Overview, read Pack availability. This tells whether a usable Scenic Pack is present for the engine. If no pack is available, the pack controls have nothing to act on yet; look for packs before blaming rendering. This page does not switch avatar providers for you.",
+          "target": "tutorialControl_scenic_avatar_tab::scenic_pack_status",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_scenic_avatar_pack"
+      ],
+      "display_title": "Start tutorial · Scenic Avatar"
+    },
+    {
+      "id": "page_scenic_avatar_overview",
+      "title": "Scenic Avatar · Overview",
+      "description": "Use Overview in Scenic Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.scenic_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "scenic"
+      },
+      "category": "Runtime / Avatar / Scenic Avatar",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read pack availability"
+      ],
+      "steps": [
+        {
+          "title": "Read pack availability",
+          "body": "In Overview, read Pack availability. This tells whether a usable Scenic Pack is present for the engine. If no pack is available, the pack controls have nothing to act on yet; look for packs before blaming rendering. This page does not switch avatar providers for you.",
+          "target": "tutorialControl_scenic_avatar_tab::scenic_pack_status",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_scenic_avatar",
+      "hidden": true
+    },
+    {
+      "id": "page_scenic_avatar_pack",
+      "title": "Scenic Avatar · Pack",
+      "description": "Use Pack in Scenic Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.scenic_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "scenic"
+      },
+      "category": "Runtime / Avatar / Scenic Avatar",
+      "order": 211,
+      "topic": "Pack",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Refresh and select a pack",
+        "Inspect preview and pack contents"
+      ],
+      "steps": [
+        {
+          "title": "Refresh and select a pack",
+          "body": "Refresh packs reloads the available list, then Scenic pack selects which pack the engine uses. Choose a pack that availability reports as usable. Selection prepares this engine; whether the avatar appears still depends on Scenic Avatar being the current avatar engine elsewhere.",
+          "target": "tutorialControl_scenic_avatar_tab::scenic_pack_id",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Inspect preview and pack contents",
+          "body": "Selected pack preview shows the chosen pack visually and Pack contents lists what it includes. Use both before expecting specific tags to map to images. If a tag renders unexpectedly, compare it with Pack contents; a missing entry is a pack gap, not necessarily a configuration error.",
+          "target": "tutorialControl_scenic_avatar_tab::scenic_pack_preview",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_scenic_avatar"
+    }
+  ]
+}

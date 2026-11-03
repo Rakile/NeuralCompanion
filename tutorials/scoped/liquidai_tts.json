@@ -1,0 +1,380 @@
+{
+  "guides": [
+    {
+      "id": "overview_liquidai_tts",
+      "title": "LiquidAI TTS overview",
+      "description": "Local LFM3 Audio text-to-speech in an isolated managed worker.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.liquidai_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "liquidai",
+        "subsection": "Provider settings"
+      },
+      "category": "Runtime / Text-to-speech / LiquidAI TTS",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Local LFM3 Audio text-to-speech in an isolated managed worker.",
+        "Find focused guidance for Overview, Voice, Generation, Setup, Advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_liquidai_tts_setup",
+        "page_liquidai_tts_voice",
+        "page_liquidai_tts_generation",
+        "page_liquidai_tts_advanced",
+        "page_liquidai_tts_voice_tag_rules",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "LiquidAI TTS overview",
+          "body": "LiquidAI turns text into local speech using LFM3 Audio. This overview explains the provider; Setup checks readiness, Voice chooses language and voice, and Generation controls variation and audio delivery. Follow the yellow outline around the control being explained. Reading the tutorial changes no values.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_intro",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        }
+      ],
+      "course_chapters": [
+        "page_liquidai_tts_setup",
+        "page_liquidai_tts_voice",
+        "page_liquidai_tts_generation"
+      ],
+      "display_title": "Start tutorial · LiquidAI TTS",
+      "optional_chapters": [
+        "page_liquidai_tts_advanced",
+        "page_liquidai_tts_voice_tag_rules",
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_liquidai_tts_overview",
+      "title": "LiquidAI TTS · Overview",
+      "description": "Use Overview in LiquidAI TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.liquidai_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "liquidai",
+        "subsection": "Provider settings"
+      },
+      "category": "Runtime / Text-to-speech / LiquidAI TTS",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read what the addon provides",
+        "Keep local worker expectations accurate"
+      ],
+      "steps": [
+        {
+          "title": "Read what the addon provides",
+          "body": "Overview introduces LiquidAI LFM3 Audio as an isolated managed worker. Read the description and note that setup, voice and generation are separate tabs. Start with Setup so the worker status is known before choosing voices or tuning generation values.",
+          "target": "providerSettingsSection_Provider settings",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish local readiness from speech output",
+          "body": "LiquidAI uses a local worker and managed model. Reading this page does not install or initialize them. Setup has separate status and repair guidance, available as a related tutorial after this section. A later spoken reply verifies output; a selected backend alone does not.",
+          "target": "providerSettingsSection_Provider settings",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_liquidai_tts_setup"
+      ],
+      "redirect_to": "overview_liquidai_tts",
+      "hidden": true
+    },
+    {
+      "id": "page_liquidai_tts_voice",
+      "title": "LiquidAI TTS · Voice",
+      "description": "Use Voice in LiquidAI TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.liquidai_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "liquidai",
+        "subsection": "Voice"
+      },
+      "category": "Runtime / Text-to-speech / LiquidAI TTS",
+      "order": 211,
+      "topic": "Voice",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose a language and voice",
+        "A selected voice is not a synthesis test"
+      ],
+      "steps": [
+        {
+          "title": "Speech language",
+          "body": "Speech language chooses the language or accent LiquidAI speaks; it does not translate text. Match it to your text and any installed voice adapter. You can keep the current value for this tour. If a voice sounds wrong, check this language first.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_language",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Voice selection",
+          "body": "Voice lists built-in Female and Male voices and installed compatible voice adapters. Choose a voice only if you want to change it. The shared reference-audio setting does not apply to this provider. A missing saved voice needs its adapter restored or another voice selected.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Refresh installed voices",
+          "body": "Refresh voices searches the models folder for added or removed adapters. Choose it after adding a compatible adapter; expect the Voice list to update. If it stays missing, check the adapter folder and language. Choose Continue to learn Generation.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_refresh_voices",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "continue"
+        }
+      ],
+      "course_id": "overview_liquidai_tts"
+    },
+    {
+      "id": "page_liquidai_tts_generation",
+      "title": "LiquidAI TTS · Generation",
+      "description": "Use Generation in LiquidAI TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.liquidai_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "liquidai",
+        "subsection": "Generation"
+      },
+      "category": "Runtime / Text-to-speech / LiquidAI TTS",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Leave generation values at defaults first",
+        "Understand prewarm and progressive audio"
+      ],
+      "steps": [
+        {
+          "title": "Seed and repeatability",
+          "body": "Seed zero selects a fresh seed for each speech chunk. A fixed seed makes variation more repeatable for the same text and setup. Leave it unchanged for now; changing the seed does not repair missing model files.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_seed",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Audio temperature",
+          "body": "Audio temperature controls variation. Lower values are steadier; higher values may reduce clarity. The suggested starting value is 1.0. If speech becomes unstable after tuning, return to your previous working value.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_temperature",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Audio top-k",
+          "body": "Audio top-k limits each audio choice to likely candidates. Zero disables the filter; the default is 128. Keep a known working value while comparing other settings. Change one setting at a time so you can hear its effect.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_top_k",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Audio repetition penalty",
+          "body": "Audio repetition penalty discourages repeating audio patterns. 1.0 disables it; the suggested starting value is 1.1. Excessive penalties can distort speech. If quality drops after changing it, restore the previous value.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_repetition_penalty",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Generation budget",
+          "body": "Generation budget limits generation slots for one NC speech chunk. A slot can hold a text token or about 80 milliseconds of audio. Reaching the limit reports an error; increase it only for unusually long chunks, then test with your own speech request.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_max_tokens",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Prewarm when chat starts",
+          "body": "Prewarm when chat starts loads the worker and model and runs discarded synthesis when you explicitly start chat. With it disabled, loading happens on the first request. Opening this tutorial does not start chat or prewarm anything.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_prewarm_on_start",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Experimental progressive audio",
+          "body": "Experimental progressive audio lets supported local output begin while generation continues. It is optional and disabled by default. Phone, Discord and file-based addon routes keep completed audio. If playback breaks after enabling it, turn it off and retry your own speech request.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_stream_audio",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Progressive startup audio",
+          "body": "Progressive startup audio is the amount of audio buffered before local progressive playback begins. More buffering can reduce underruns and increase startup latency. It applies only with progressive audio enabled. You have finished the main LiquidAI tour; Advanced and shared voice-tag rules are optional follow-ups.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_startup_buffer_seconds",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        }
+      ],
+      "course_id": "overview_liquidai_tts"
+    },
+    {
+      "id": "page_liquidai_tts_setup",
+      "title": "LiquidAI TTS · Setup",
+      "description": "Use Setup in LiquidAI TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.liquidai_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "liquidai",
+        "subsection": "Setup"
+      },
+      "category": "Runtime / Text-to-speech / LiquidAI TTS",
+      "order": 213,
+      "topic": "Setup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Confirm the managed worker is ready",
+        "Read status, not a guessed path"
+      ],
+      "steps": [
+        {
+          "title": "Read managed setup status",
+          "body": "Read Managed setup status. It describes the private environment and model readiness; it does not prove that speech playback is running. If status is unavailable, verify the addon is loaded before changing paths.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_setup_status",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Locate Check setup",
+          "body": "Check setup refreshes the environment and model status when you choose it. Use it if the status looks stale; expect the status above to refresh. If it reports a missing component, inspect Install / Repair next.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_check_setup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Install or repair only when needed",
+          "body": "Install / Repair creates the private LiquidAI environment and downloads the pinned model, about 4.2 GB. It requires Python 3.12 and internet. Choose it only if you want setup; the tutorial never clicks it. Wait for setup to finish before changing values. If already installed, leave it alone and choose Continue.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_install",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "continue"
+        },
+        {
+          "title": "Find Cancel setup",
+          "body": "Cancel setup stops an active installer and its owned processes. Use it only to cancel your installation; downloaded files can be reused by a later repair. A disabled Cancel button is normal when no installation is running. Choose Continue when ready for Voice.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_cancel_setup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "continue"
+        }
+      ],
+      "course_id": "overview_liquidai_tts"
+    },
+    {
+      "id": "page_liquidai_tts_advanced",
+      "title": "LiquidAI TTS · Advanced",
+      "description": "Use Advanced in LiquidAI TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.liquidai_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "liquidai",
+        "subsection": "Advanced"
+      },
+      "category": "Runtime / Text-to-speech / LiquidAI TTS",
+      "order": 214,
+      "topic": "Advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Use overrides only for occupied paths",
+        "Treat overrides as an error path"
+      ],
+      "steps": [
+        {
+          "title": "Python executable override",
+          "body": "Leave Python executable override blank to use the managed environment. Set it only for an environment with compatible LiquidAI dependencies. Install / Repair updates the managed environment and preserves external overrides. If an override fails, restore your previous value.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_python",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        },
+        {
+          "title": "Model folder override",
+          "body": "Leave Model folder override blank to use the managed pinned checkpoint. An override needs all model and codec files and the matching PINNED_REVISION marker. If loading fails after a change, restore your known working folder or managed setup.",
+          "target": "tutorialControl_liquidai_tts_tab::liquidai_tts_model_dir",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "If this control is unavailable, check that the LiquidAI addon is loaded. Keep this step open; use Show current step to return. The tutorial never installs or activates anything.",
+          "advance_mode": "audio_finish"
+        }
+      ],
+      "children": [
+        "page_liquidai_tts_setup"
+      ],
+      "course_id": "overview_liquidai_tts"
+    },
+    {
+      "id": "page_liquidai_tts_voice_tag_rules",
+      "title": "LiquidAI TTS · Voice tag rules",
+      "description": "Understand the shared voice-tag rules alongside this TTS provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.liquidai_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "liquidai",
+        "subsection": "voice-tag-rules"
+      },
+      "category": "Runtime / Text-to-speech / LiquidAI TTS",
+      "order": 240,
+      "steps": [
+        {
+          "title": "Read the default voice guidance",
+          "body": "Voice tag rules describe how NC interprets voice tags alongside this backend. Read the default guidance before changing it; backend selection and reference-audio selection are separate choices. Keeping the existing rules gives you a known baseline for later speech comparisons.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        },
+        {
+          "title": "Distinguish rules from actual playback",
+          "body": "A saved rule expresses how voice tags should be interpreted, not proof that a backend accepted the reference or produced audio. A later controlled spoken reply is needed to verify routing. If output changes unexpectedly, compare the rules with their previous text before changing provider settings.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        }
+      ],
+      "course_id": "overview_liquidai_tts"
+    }
+  ]
+}

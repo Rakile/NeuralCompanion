@@ -1,0 +1,169 @@
+{
+  "guides": [
+    {
+      "id": "overview_screen_source",
+      "title": "Screen Source overview",
+      "description": "Screen-backed hidden Vision source for attaching screenshots as ambient sensory context.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.screen_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "screen",
+        "sensory_tab": "setup"
+      },
+      "category": "Runtime / Vision Sensors / Screen Source",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Screen-backed hidden Vision source for attaching screenshots as ambient sensory context.",
+        "Find focused guidance for setup, prompts, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_screen_source_setup",
+        "page_screen_source_prompts",
+        "page_screen_source_advanced",
+        "screen_and_clipboard"
+      ],
+      "steps": [
+        {
+          "title": "What Screen Source does",
+          "body": "Screen-backed hidden Vision source for attaching screenshots as ambient sensory context. The overview introduces this area without opening its other sections.",
+          "target": "visionSourceSettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_screen_source_setup",
+        "page_screen_source_prompts",
+        "page_screen_source_advanced"
+      ],
+      "display_title": "Start tutorial · Screen Source",
+      "optional_chapters": [
+        "screen_and_clipboard"
+      ]
+    },
+    {
+      "id": "page_screen_source_setup",
+      "title": "Screen Source · setup",
+      "description": "Use setup in Screen Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.screen_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "screen",
+        "sensory_tab": "setup"
+      },
+      "category": "Runtime / Vision Sensors / Screen Source",
+      "order": 210,
+      "topic": "setup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose what region the capture covers",
+        "Confirm the capture is readable"
+      ],
+      "steps": [
+        {
+          "title": "Choose what region the capture covers",
+          "body": "On the Setup tab, set Capture area and, if you chose a specific display, Screen. Adjust Max width, Max height and JPEG quality under Image detail so the capture stays legible without wasting context. Larger images use more context; verify a capture looks readable before enabling repeated attachment.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm the capture is readable",
+          "body": "Take one capture and read the resulting image for legibility before turning on recurring actions. Increase JPEG quality if text is blurry; shrink Max width if the image is oversized for the model. A capture that looks fine at preview size can still be unreadable once downscaled.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_screen_source"
+    },
+    {
+      "id": "page_screen_source_prompts",
+      "title": "Screen Source · prompts",
+      "description": "Use prompts in Screen Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.screen_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "screen",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Screen Source",
+      "order": 211,
+      "topic": "prompts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Gate repeated attachment deliberately",
+        "Distinguish attachment from visibility"
+      ],
+      "steps": [
+        {
+          "title": "Gate repeated attachment deliberately",
+          "body": "On the Prompts tab, use Attach screen capture to every next user turn only while you want screenshots accompanying each turn. Leaving it on grows context quickly. Turn it off when the task ends. This control sets configuration as soon as you flip it, so treat it as an explicit switch.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Distinguish attachment from visibility",
+          "body": "Turning on repeated attachment means future turns carry screenshots; it does not guarantee the model mentions or uses them. If replies ignore the screen, describe what you want the model to look at in the same turn. Context presence and model attention are separate facts.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_screen_source"
+    },
+    {
+      "id": "page_screen_source_advanced",
+      "title": "Screen Source · advanced",
+      "description": "Use advanced in Screen Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.screen_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "screen",
+        "sensory_tab": "advanced"
+      },
+      "category": "Runtime / Vision Sensors / Screen Source",
+      "order": 212,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Select a region or square explicitly",
+        "Rebuild the region rather than fighting it"
+      ],
+      "steps": [
+        {
+          "title": "Select a region or square explicitly",
+          "body": "On the advanced tab, use Select region or Select square to define the capture bounds. Current region shows the current bounds. If the region is wrong, use Select region again rather than editing pixels blindly. Changing a selection does not by itself attach anything; attachment lives on the prompts tab.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Rebuild the region rather than fighting it",
+          "body": "A region that no longer matches its window is easier to re-select than to nudge. Click Select region again and draw the intended area. Current region reflects the new bounds after the picker closes. Attachment frequency and image-detail limits still apply as set on their own tabs.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_screen_source"
+    }
+  ]
+}

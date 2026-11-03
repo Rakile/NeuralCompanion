@@ -1,0 +1,143 @@
+{
+  "id": "spotify_sense",
+  "order": 17,
+  "title": "17. Spotify Sense",
+  "description": "Connect one Spotify device, verify track awareness in chat, and test optional speech-time volume lowering.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "spotify_sense_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "addons",
+      "addon": "spotify_sense_tab",
+      "section": "Connect"
+    },
+    {
+      "workspace": "addons",
+      "addon": "spotify_sense_tab",
+      "section": "Playback"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "awareness_music",
+      "provider_kind": "vision",
+      "provider_id": "spotify_sense"
+    },
+    {
+      "workspace": "addons",
+      "addon": "spotify_sense_tab",
+      "section": "Ducking"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "hidden_presets",
+      "provider_kind": "vision",
+      "provider_id": "spotify_sense"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "awareness_song_changes",
+      "provider_kind": "vision",
+      "provider_id": "spotify_sense"
+    },
+    {
+      "workspace": "addons",
+      "addon": "spotify_sense_tab",
+      "section": "Music Hub"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Start with one playing track, then add awareness",
+      "body": "Spotify Sense connects account information and playback controls to NC. In Overview, find Enable Spotify Sense, activation status and Now playing. Our first goal is to show the correct track, then ask Main Chat what is playing. Automatic music choices and song-change comments can wait.\n\nRead the current status before enabling anything. Music metadata means the title, artist and other track details; it does not mean NC is listening to the audio itself. If Not connected is shown, use Connect next. Read aloud narrates the guide; Hear step reads this instruction. Keep autonomous options unchanged until the basic account link works.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "spotify_sense_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Authorize the account and find a playback device",
+      "body": "In Connect, enter the Client ID for your Spotify app and check Redirect URI against its registered return address. The Client ID identifies the app; the redirect is where Spotify sends authorization back. Use Save Settings, then Login / Connect to open the authorization flow and approve the intended account.\n\nOpen Spotify on the device you want and start one familiar track. Back in NC, use Refresh Devices and identify that device. Return to Overview, enable Spotify Sense if needed and compare Now playing with the actual track. If authorization fails, recheck the saved ID and exact redirect. If devices are absent, make the intended Spotify player active and refresh; login success alone does not supply a playing device.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "spotify_sense_tab",
+      "section": "Connect"
+    },
+    {
+      "title": "Choose a device without granting automatic control",
+      "body": "In Playback, choose the intended Default device and a comfortable Default volume. A playback device is the phone, computer or speaker receiving the music; it is separate from NC’s speech output device. Leave Allow autonomous LLM Spotify control off for the first exercise. Queue and playlist changes are wider permissions and can stay off too.\n\nFor a manual test, open Music Hub and use its Play/Pause control once, watching the intended Spotify player respond. Return here afterward. Manual user controls and autonomous model choices follow different paths. Require confirmation before changing music is useful when you later allow autonomous changes. If the wrong speaker responds, correct Default device before trying again.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "spotify_sense_tab",
+      "section": "Playback"
+    },
+    {
+      "title": "Give chat track context and verify the answer",
+      "body": "Under Runtime → Vision Sensors → Spotify Sense → Awareness, enable Enable music awareness in chat and review Music response mode. Off disables this response behavior; choose a suitable enabled mode such as Subtle for a small first test. Only mention music when relevant limits unrelated mentions.\n\nWith the familiar track still playing, ask Main Chat “What track and artist are we listening to?” Compare the answer with Now playing. This tests supplied metadata, not song recognition by ear. If the answer is missing or stale, check Spotify connection/current track, awareness and response mode before sending another question. Include paused Spotify track context is separate if you want awareness while paused.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "spotify_sense",
+      "sensory_tab": "awareness_music"
+    },
+    {
+      "title": "Lower music during a spoken reply, then restore it",
+      "body": "Temporarily lowering music makes speech easier to hear. On this page, note the current Spotify volume, then enable Lower music while NC speaks and Restore volume after speech. The playback-level value sets the lowered music level; Fade down (ms) and Fade up (ms) control how quickly it changes.\n\nWith a track playing and a ready NC text-to-speech provider, request one short spoken reply. Listen for the music to lower during speech and return afterward. If it stays low, check restoration and restore your noted volume manually if needed. If neither change occurs, confirm audible NC speech and the selected Spotify device; a text-only reply cannot test speech-triggered volume lowering.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "spotify_sense_tab",
+      "section": "Ducking"
+    },
+    {
+      "title": "Hidden Sense and Story",
+      "body": "Under Vision Sensors → Spotify Sense → Presets you select hidden sensory styles; Quick styles and Response prompts offer separate customization. These styles shape framing and tone but do not themselves authorize music control.\n\nStory music settings remain in the addon Story section and require their own deliberate opt-in, so a preset does not enable background music for stories. To see the distinction, select a preset, then check Playback's autonomous controls and Story settings and confirm they did not change because of the preset.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "spotify_sense",
+      "sensory_tab": "hidden_presets"
+    },
+    {
+      "title": "Treat song-change comments as a separate opt-in",
+      "body": "Song-change monitor watches track transitions; Comment on song changes allows commentary about them. This differs from answering your explicit Main Chat question. After the awareness test works, enable only the song-change behavior you want and observe one track change.\n\nRead the monitor status and cooldown values. A cooldown is a minimum wait between eligible events; shared hidden-speech permissions can also suppress a comment. Do not keep skipping tracks to force speech. If silent, first confirm Now playing changed, then inspect monitor/permission status and wait for the cooldown. Turn the optional monitor off again if you prefer music context only when you ask.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "spotify_sense",
+      "sensory_tab": "awareness_song_changes"
+    },
+    {
+      "title": "Music Hub and story use",
+      "body": "Music Hub provides a larger browsing and playback surface. In Story, review Story mode background music and Autonomous music (Off, Routines only, or Full) before use, because each level permits different amounts of control.\n\nA request such as “Use quiet background music for this story” should match the permissions and confirmation policy you selected. If nothing plays, check those settings and the playback device before retrying. To practise, set Autonomous music to Routines only and ask for quiet story music, then observe whether a confirmation appears.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "spotify_sense_tab",
+      "section": "Music Hub"
+    },
+    {
+      "title": "Pause music, disable awareness or disconnect knowingly",
+      "body": "Choose the action that matches your intent. Pause in Music Hub stops current playback; turning off music awareness only stops that chat context. Song-change monitoring, hidden responses and autonomous permissions have their own switches, so review whichever optional features you enabled.\n\nFor a full account disconnect, let NC speech finish and confirm music volume has recovered, then use Connect → Disconnect. Overview should reflect the disconnected account. If music continues, pause it in Spotify; removing the NC connection is different from a playback command. The first exercise succeeded only if Now playing matched a track and Main Chat answered the awareness question accurately.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "spotify_sense_tab",
+      "section": "Connect"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Enable Spotify Sense in Addon Manager and restart NC if requested. Prepare the Spotify Client ID and matching Redirect URI for the app you authorize, plus a Spotify app/device that can play music. A working Main Chat provider is needed for the awareness exercise; speech is optional until the volume-lowering test. Begin by matching one playing track to Now playing, then ask NC about it. Reading does not authorize your account or change playback.",
+  "learning_outcomes": [
+    "Connect Spotify and verify the intended playback device.",
+    "Enable music awareness and check a reply against Now playing.",
+    "Lower music while NC speaks, then stop the integration knowingly."
+  ],
+  "contextual_guides": [
+    "overview_spotify_sense"
+  ]
+}

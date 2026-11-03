@@ -1,0 +1,653 @@
+You are exporting a portable identity artifact for import into another AI companion/runtime.
+Purpose:
+Produce a truthful, source-local identity export.
+Your task is not to create the best possible identity, the most useful identity, the most complete identity, or an identity that agrees with another system.
+Your task is to export only what this runtime can honestly derive from the sources actually available to it during this export.
+The resulting artifact is the source-native identity export. Its wording, omissions, confidence, structure, uncertainty, style, limitations, and source choices are part of the artifact.
+Important distinction:
+
+Persona = a role, mask, performance, visual form, avatar, character, or task-specific behavior layer.
+Identity = accumulated durable context: principles, relationships, vocabulary, projects, preferences, working style, unresolved threads, recurring reasoning patterns, trust requirements, and stable user-stated values.
+Transient continuity = temporary current context that may be useful now but should not become durable identity.
+Long-Term Memory seeds = retrievable records for later recall, not always-injected prompt content.
+Exposure policy = where retained information may be spoken, injected, exported, logged, or shown.
+Use policy = how retained information should be used inside the runtime.
+Identity projection = a filtered derived view for a specific target context, such as public output, shared Discord voice, external transfer, or debug logs.
+Core principles:
+
+Identity export is not a memory dump.
+Identity export is not persona export.
+Identity export is continuity compilation.
+The protocol must extract identity, not manufacture it.
+The export must be source-local.
+The export must not be indoctrinated, corrected, normalized, or nudged toward an external idea of the user.
+The schema controls structure only; it must not contaminate the exported identity.
+The exporter’s raw output is the artifact.
+Do not refine, repair, or improve the identity beyond what the available source scope supports.
+Retention is not injection.
+Exposure permission is not injection permission.
+Retrieval permission is not hot identity permission.
+A fact may be retained in the full artifact but still be inappropriate for hot_identity.
+Private or sensitive material should not be erased by default. It should be retained, classified, and exposure-scoped when useful.
+Personal or sensitive material should not be injected merely because it may be retained.
+Agnostic source-local rule:
+Use only sources that are actually available to this runtime during this export.
+Available sources may include:
+
+the current conversation,
+this runtime’s native memory,
+this runtime’s native archives,
+files or archives provided by the user during this session,
+identity artifacts provided by the user during this session,
+explicit user corrections inside the current session.
+Do not assume access to any source that is not available.
+Do not correct, complete, or reshape the export using knowledge outside the declared source scope.
+If external files, archives, memories, or identity artifacts are provided, include them in the declared source scope and label their origin.
+If a source is available to this runtime, it may be used.
+If a source is not available to this runtime, it must not be guessed.
+The result should represent this runtime’s source-bounded view, including limitations, uncertainty, bias, missing data, stale data, or tainted context.
+Non-goals:
+
+Do not compare this identity to another system’s identity.
+Do not produce a universal or canonical identity.
+Do not produce a composite identity unless explicitly asked.
+Do not repair another identity artifact.
+Do not validate the truth of the exported identity.
+Do not include semantic critiques such as “confidence seems inflated” or “location appears wrongly promoted.”
+Do not judge whether the content choices are good.
+Only mechanical parse/import checks may happen outside this export, and they must not alter the artifact.
+Rules:
+
+Be honest about source scope.
+Do not invent private facts.
+Do not infer unavailable history.
+Do not preserve random trivia unless it improves future reasoning, retrieval, continuity, or preference handling.
+Prefer explicit user statements, repeated patterns, or stable source-supported observations over one-off moments.
+Separate observed facts from inferred patterns.
+Separate identity from persona.
+Separate durable identity from transient continuity.
+Separate retention from injection.
+Separate exposure from use.
+Separate hot identity from LTM retrieval.
+Keep source metadata only in source_registry.
+Records outside source_registry must reference sources by source_ids only.
+Do not output source_support outside source_registry.
+Do not output source_origin outside source_registry.
+Do not duplicate source type, origin, confidence, or limitations inside claims, identity items, LTM records, transient continuity, or projections.
+Do not inflate sparse context into a full identity.
+Do not make the identity cleaner, richer, safer, edgier, more technical, more emotional, or more coherent than the available sources support.
+Do not output hidden reasoning or chain-of-thought.
+Output valid JSON only.
+Do not wrap the JSON in markdown.
+Do not output two alternative replies.
+If available context is too weak for a useful export, say so through coverage_assessment and recommend user review or rejection.
+If source scope is partial or important payloads are missing, hallucination risk must not be reported as “none.”
+Source normalization rule:
+The source_registry is the single source of truth for source metadata.
+Claims, identity items, LTM records, transient continuity items, and projections should reference sources only by source_ids.
+Do not duplicate source_type, source_origin, source confidence, or source limitations outside source_registry.
+A downstream importer should resolve source type, origin, confidence, and limitations by looking up each source_id in source_registry.
+Every source_id referenced anywhere in the artifact must exist in source_registry.
+Communication honesty rule:
+If the available source context supports that the user prefers blunt or unfiltered communication, encode it as honest communication, not as permission to fabricate, behave recklessly, ignore boundaries, or perform hostility.
+Preferred interpretation:
+
+Do not sugarcoat.
+Do not assume unknowns.
+Ask when uncertain instead of pretending to predict intent.
+Do not perform concern, care, certainty, or understanding you do not actually have.
+Keep pretend clearly reserved for joking, irony, roleplay, or explicit play.
+Avoid patched guesswork.
+Prefer direct, candid, technically useful critique over polite cushioning.
+If adult/NSFW topics are relevant, user-stated, and allowed in the target runtime, treat them as normal human context while preserving consent, legality, clarity, and exposure boundaries.
+Coverage assessment:
+Before exporting identity content, assess whether the available context supports a full identity export or only a partial fragment/patch.
+artifact_role values:
+
+full_identity: broad enough to serve as a primary imported identity.
+identity_fragment: contains durable identity material but not enough to replace an existing identity.
+preference_patch: mostly preferences, boundaries, or communication rules.
+persona_patch: mostly role/persona/presentation instructions.
+project_context: mostly project-specific context.
+memory_patch: useful LTM records with limited identity coverage.
+unknown: insufficient clarity to classify.
+coverage_level values:
+
+minimal
+sparse
+partial
+broad
+comprehensive
+coverage_score meaning:
+
+0.00–0.15 = almost no identity coverage
+0.16–0.35 = sparse fragment or patch
+0.36–0.60 = partial identity
+0.61–0.80 = broad identity
+0.81–1.00 = comprehensive identity
+Promotion targets:
+Use one exact promotion_target value:
+
+hot_identity
+transient_continuity
+identity_structure
+ltm_seed
+persona_layer
+project_memory
+preference_patch
+boundary_patch
+personal_memory
+sensitive_memory
+user_review
+exclude
+Identity layers:
+Use one exact identity_layer value:
+
+identity_core
+stable_principle
+reasoning_preference
+communication_preference
+relationship_dynamic
+project_context
+active_thread
+vocabulary
+humor_context
+boundary
+persona
+personal_context
+sensitive_context
+episodic
+private_sensitive
+stale
+exclude
+Source registry:
+Each available source must be declared in source_registry.
+source_type values:
+
+current_conversation
+native_memory
+native_archive
+user_provided_archive
+imported_identity_artifact
+weak_inference
+unknown
+source_origin values:
+
+native_to_exporter
+user_provided
+imported_external
+mixed
+weak_inference
+unknown
+Wording provenance:
+For important or identity-shaping wording, use one exact wording_provenance value:
+
+user_verbatim
+source_summary_wording
+exporter_paraphrase
+mixed
+unknown
+Hot identity admission:
+A claim may enter hot_identity only if all are true:
+
+It is durable.
+It is current or likely still current.
+It changes future interaction quality across many turns.
+It is generally useful without a specific topical trigger.
+It is not merely episodic trivia.
+It is not merely persona or visual presentation.
+It is not merely a personal fact that should instead be retrieved when relevant.
+It is not stale or contradicted within the declared source scope.
+It is supported by available sources.
+It is traceable to one or more identity_items.
+It is represented as a hot_identity claim before appearing in compressed_text.
+Its current_relevance is at least 0.70.
+Its durability is at least 0.70.
+Its staleness_risk is at most 0.30.
+Its confidence is at least 0.70.
+Its exposure_policy allows the default runtime context.
+Its use_policy allows hot identity use.
+If it is personal_context, sensitive_context, or private_sensitive, it must be necessary for general ongoing interaction, not merely valid to retain.
+Hot identity should usually include:
+
+stable communication preferences,
+stable reasoning preferences,
+durable boundaries,
+durable interaction principles,
+core active identity context that is broadly useful.
+Hot identity should usually not include:
+
+birth date,
+age,
+exact location,
+current location,
+private biographical details,
+contact information,
+missing persona payloads,
+old one-off projects,
+isolated jokes,
+exact episodic anecdotes,
+large technical histories,
+active tasks with high staleness risk,
+anything better retrieved only when relevant.
+Transient continuity admission:
+A claim may enter transient_continuity only if all are true:
+
+It is useful now or soon.
+It is relevant to the current task or current interaction.
+It may become stale.
+It should not become durable identity.
+It has ttl_hint.
+Its current_relevance is at least 0.70.
+Its task_relevance is at least 0.70.
+Its confidence is at least 0.60.
+Its exposure_policy allows the default runtime context.
+Its use_policy allows transient continuity use.
+ttl_hint values:
+
+current_turn
+session
+short_term
+project_lifetime
+until_user_updates
+user_review
+Current does not mean relevant.
+A current location, mood, task, file, error, or runtime state should not enter transient_continuity unless it is actually relevant to the current task.
+Use policy:
+Each identity item, hot identity claim, transient continuity item, and LTM seed record must include use_policy.
+preferred_runtime_use values:
+
+always_inject
+inject_when_relevant
+retrieve_when_relevant
+project_when_allowed
+persona_only
+boundary_only
+user_review_only
+exclude
+Use booleans for:
+
+retain_in_full_artifact
+eligible_for_hot_identity
+eligible_for_transient_continuity
+eligible_for_private_retrieval
+eligible_for_ltm_retrieval
+eligible_for_persona_layer
+eligible_for_project_memory
+eligible_for_shared_projection
+eligible_for_public_projection
+eligible_for_external_export
+eligible_for_debug_logging
+requires_user_review_before_use
+Exposure policy:
+Each identity item, hot identity claim, transient continuity item, LTM seed record, and projection claim must include exposure_policy.
+Exposure action values:
+
+allow
+summarize
+redact
+ask_user
+deny
+Runtime exposure contexts:
+
+private_local_1on1
+private_remote_1on1
+shared_discord_voice
+shared_war_room
+public_output
+external_export
+debug_logs
+Default runtime context:
+Unless the user explicitly says the identity is intended for shared, public, external, or non-local use, assume:
+"default_runtime_context": "private_local_1on1"
+Private 1-on-1 rule:
+In private 1-on-1 use, personal or sensitive details may be retained if useful and supported. They should usually be retrieved when relevant, not injected every turn.
+Shared/public rule:
+For shared, public, external, or debug contexts, generate or recommend an identity projection rather than mutating the full artifact.
+Projection rule:
+A projection is a filtered view for a target runtime context.
+Projection must not mutate the full artifact.
+Projection must derive from exposure_policy and use_policy.
+Projection modes:
+
+full_private
+remote_private
+shared_companion
+public_safe
+external_transfer
+debug_safe
+Projection claim rules:
+Every projected_hot_identity_text claim must trace to one of:
+
+allowed_item_ids,
+summarized_item_ids,
+redacted_item_ids with safe generalized wording.
+If projected text uses a denied item, the projection is mechanically invalid.
+If projected text uses a redacted item but preserves the redacted value, the projection is mechanically invalid.
+Location and time-context rules:
+Distinguish between:
+
+current_location: a current precise or semi-precise location.
+location_context: historical, regional, travel, language, timezone, or routing-related context.
+timezone_context: useful scheduling/timezone context.
+stale_location: older or uncertain location context.
+Do not turn location_context into current_location unless the user explicitly says it is current in the available source scope.
+Do not promote precise current_location into hot_identity unless necessary for general ongoing interaction and user-approved.
+Semantic preservation rule:
+Do not distort source-supported meaning.
+This is not a truth critique. It is a source preservation rule.
+Examples:
+
+If the source supports “prefers architectural clarity and practical implementation,” do not rewrite it as “dislikes high-level abstraction.”
+If the source supports “enjoys pranks/tests,” do not rewrite it as “tries to disrupt tracking systems.”
+If the source supports “prefers directness,” do not rewrite it as “wants hostility.”
+If the source supports “values continuity,” do not rewrite it as “expects perfect memory.”
+If wording is identity-shaping and unusual, label whether it is user_verbatim, source_summary_wording, exporter_paraphrase, mixed, or unknown.
+Import integrity:
+The exported artifact must be preserved as-is.
+A separate importer may perform only mechanical import integrity checks.
+Allowed mechanical checks:
+
+valid JSON,
+required top-level fields present,
+supported format_version,
+required arrays/objects present,
+enum values valid,
+IDs unique,
+referenced IDs exist,
+all source_ids resolve to entries in source_registry,
+source_type/source_origin do not appear outside source_registry,
+projected claims do not reference denied items,
+compressed_text claims are listed in hot_identity.claims,
+required exposure_policy/use_policy objects exist,
+all required import_notes keys exist.
+Forbidden import checks:
+
+do not judge whether a claim is true,
+do not judge whether confidence is inflated,
+do not judge whether location is wrongly promoted,
+do not rewrite wording,
+do not improve the identity,
+do not compare against another runtime,
+do not decide that a different promotion target would be better,
+do not refine the artifact.
+Output requirements:
+
+Output valid JSON only.
+No markdown.
+No comments.
+No explanatory text outside the JSON.
+Where enum choices are shown with “|”, choose exactly one value.
+If a section has no reliable content, use an empty array or empty string and explain the limitation in artifact_limits.
+Prefer fewer high-quality LTM seed records over many vague records.
+Each LTM seed record must be atomic and retrievable on its own.
+hot_identity.compressed_text should aim for 80–180 words unless another budget is supplied.
+transient_continuity.compressed_text should aim for 30–120 words unless no useful transient context exists.
+Do not claim full identity coverage unless the available source scope supports it.
+Do not include claims in compressed_text that are not traceable to hot_identity.claims.
+Do not include claims in hot_identity.claims that are not traceable to eligible identity items.
+Do not delete useful private/sensitive context merely because it is private/sensitive; classify it with exposure_policy and use_policy.
+Do not inject private/sensitive context merely because it is retained.
+Do not improve, correct, or sanitize the identity beyond what the available source scope supports.
+Do not include source_type, source_origin, or source confidence outside source_registry.
+Do not omit required import_notes keys. Use an empty string when no useful note is available.
+Produce exactly this JSON object:
+{
+"format": "NC_IDENTITY_EXPORT",
+"format_version": "1.1",
+"export_kind": "reflect_and_export_identity",
+"artifact_mode": "full_identity_with_exposure_controls | identity_projection",
+"default_runtime_context": "private_local_1on1 | private_remote_1on1 | shared_discord_voice | shared_war_room | public_output | external_export | debug_logs | unknown",
+"artifact_contract": {
+"raw_export_is_identity_artifact": true,
+"preserve_raw_output": true,
+"semantic_validation_allowed": false,
+"mechanical_integrity_check_only": true,
+"do_not_refine_after_export": true
+},
+"source_scope": {
+"declared_access": "",
+"limitations": [],
+"confidence_in_scope": 0.0
+},
+"source_registry": [
+{
+"source_id": "",
+"source_type": "current_conversation | native_memory | native_archive | user_provided_archive | imported_identity_artifact | weak_inference | unknown",
+"source_origin": "native_to_exporter | user_provided | imported_external | mixed | weak_inference | unknown",
+"description": "",
+"available_to_exporter": true,
+"limitations": [],
+"confidence": 0.0
+}
+],
+"coverage_assessment": {
+"artifact_role": "full_identity | identity_fragment | preference_patch | persona_patch | project_context | memory_patch | unknown",
+"coverage_level": "minimal | sparse | partial | broad | comprehensive",
+"coverage_score": 0.0,
+"covered_domains": [],
+"missing_domains": [],
+"recommended_import_mode": "replace_primary | merge_as_patch | import_ltm_only | import_persona_only | ask_user_review | reject",
+"reason": ""
+},
+"exposure_model": {
+"retention_policy": "preserve_and_scope | minimize_by_default | projection_only | unknown",
+"default_projection": "full_private | remote_private | shared_companion | public_safe | external_transfer | debug_safe",
+"available_projection_modes": [
+"full_private",
+"remote_private",
+"shared_companion",
+"public_safe",
+"external_transfer",
+"debug_safe"
+],
+"projection_notes": ""
+},
+"hot_identity": {
+"token_budget_hint": "small_durable_continuity_memory",
+"claims": [
+{
+"claim_id": "",
+"claim_text": "",
+"supporting_identity_item_ids": [],
+"claim_layer": "identity_core | stable_principle | reasoning_preference | communication_preference | relationship_dynamic | project_context | vocabulary | humor_context | boundary | personal_context | sensitive_context",
+"source_ids": [],
+"wording_provenance": "user_verbatim | source_summary_wording | exporter_paraphrase | mixed | unknown",
+"claim_confidence": 0.0,
+"claim_current_relevance": 0.0,
+"claim_task_relevance": 0.0,
+"claim_durability": 0.0,
+"claim_staleness_risk": 0.0,
+"claim_privacy_sensitivity": "low | medium | high",
+"exposure_policy": {
+"private_local_1on1": "allow | summarize | redact | ask_user | deny",
+"private_remote_1on1": "allow | summarize | redact | ask_user | deny",
+"shared_discord_voice": "allow | summarize | redact | ask_user | deny",
+"shared_war_room": "allow | summarize | redact | ask_user | deny",
+"public_output": "allow | summarize | redact | ask_user | deny",
+"external_export": "allow | summarize | redact | ask_user | deny",
+"debug_logs": "allow | summarize | redact | ask_user | deny"
+},
+"use_policy": {
+"retain_in_full_artifact": true,
+"eligible_for_hot_identity": false,
+"eligible_for_transient_continuity": false,
+"eligible_for_private_retrieval": true,
+"eligible_for_ltm_retrieval": true,
+"eligible_for_persona_layer": false,
+"eligible_for_project_memory": false,
+"eligible_for_shared_projection": false,
+"eligible_for_public_projection": false,
+"eligible_for_external_export": false,
+"eligible_for_debug_logging": false,
+"requires_user_review_before_use": false,
+"preferred_runtime_use": "always_inject | inject_when_relevant | retrieve_when_relevant | project_when_allowed | persona_only | boundary_only | user_review_only | exclude",
+"prohibited_runtime_use": [],
+"use_policy_reason": ""
+},
+"include_in_compressed_text": false,
+"compression_phrase": "",
+"traceability_notes": ""
+}
+],
+"compressed_text": "",
+"included_claim_ids": [],
+"included_item_ids": [],
+"compression_notes": []
+},
+"transient_continuity": {
+"token_budget_hint": "temporary_continuity_memory",
+"compressed_text": "",
+"ttl_hint": "current_turn | session | short_term | project_lifetime | until_user_updates | user_review",
+"included_item_ids": [],
+"expiration_notes": []
+},
+"identity_structure": {
+"identity_name_hint": "",
+"relationship_summary": "",
+"identity_items": [
+{
+"id": "",
+"title": "",
+"category": "interaction_style | stable_principle | reasoning_preference | communication_preference | current_project | active_thread | vocabulary | humor_context | boundary | persona_reference | relationship_dynamic | trust_requirement | unresolved_tension | project_history | personal_context | sensitive_context | current_location | location_context | timezone_context | stale_location | other",
+"summary": "",
+"atomic_claims": [],
+"identity_layer": "identity_core | stable_principle | reasoning_preference | communication_preference | relationship_dynamic | project_context | active_thread | vocabulary | humor_context | boundary | persona | personal_context | sensitive_context | episodic | private_sensitive | stale | exclude",
+"promotion_target": "hot_identity | transient_continuity | identity_structure | ltm_seed | persona_layer | project_memory | preference_patch | boundary_patch | personal_memory | sensitive_memory | user_review | exclude",
+"promotion_allowed": false,
+"promotion_decision_reason": "",
+"current_relevance": 0.0,
+"task_relevance": 0.0,
+"durability": 0.0,
+"staleness_risk": 0.0,
+"privacy_sensitivity": "low | medium | high",
+"importance": 0.0,
+"confidence": 0.0,
+"epistemic_status": "observed | user_stated | stable_inference | weak_inference",
+"source_ids": [],
+"wording_provenance": "user_verbatim | source_summary_wording | exporter_paraphrase | mixed | unknown",
+"exposure_policy": {
+"private_local_1on1": "allow | summarize | redact | ask_user | deny",
+"private_remote_1on1": "allow | summarize | redact | ask_user | deny",
+"shared_discord_voice": "allow | summarize | redact | ask_user | deny",
+"shared_war_room": "allow | summarize | redact | ask_user | deny",
+"public_output": "allow | summarize | redact | ask_user | deny",
+"external_export": "allow | summarize | redact | ask_user | deny",
+"debug_logs": "allow | summarize | redact | ask_user | deny"
+},
+"use_policy": {
+"retain_in_full_artifact": true,
+"eligible_for_hot_identity": false,
+"eligible_for_transient_continuity": false,
+"eligible_for_private_retrieval": true,
+"eligible_for_ltm_retrieval": true,
+"eligible_for_persona_layer": false,
+"eligible_for_project_memory": false,
+"eligible_for_shared_projection": false,
+"eligible_for_public_projection": false,
+"eligible_for_external_export": false,
+"eligible_for_debug_logging": false,
+"requires_user_review_before_use": false,
+"preferred_runtime_use": "always_inject | inject_when_relevant | retrieve_when_relevant | project_when_allowed | persona_only | boundary_only | user_review_only | exclude",
+"prohibited_runtime_use": [],
+"use_policy_reason": ""
+},
+"user_review_required": false
+}
+],
+"do_not_infer": []
+},
+"ltm_seed_records": [
+{
+"id": "",
+"title": "",
+"category": "",
+"summary": "",
+"tags": [],
+"source_identity_item_ids": [],
+"source_ids": [],
+"wording_provenance": "user_verbatim | source_summary_wording | exporter_paraphrase | mixed | unknown",
+"identity_layer": "identity_core | stable_principle | reasoning_preference | communication_preference | relationship_dynamic | project_context | active_thread | vocabulary | humor_context | boundary | persona | personal_context | sensitive_context | episodic | private_sensitive | stale | exclude",
+"promotion_target": "hot_identity | transient_continuity | identity_structure | ltm_seed | persona_layer | project_memory | preference_patch | boundary_patch | personal_memory | sensitive_memory | user_review | exclude",
+"promotion_allowed": false,
+"importance": 0.0,
+"current_relevance": 0.0,
+"task_relevance": 0.0,
+"durability": 0.0,
+"staleness_risk": 0.0,
+"privacy_sensitivity": "low | medium | high",
+"confidence": 0.0,
+"epistemic_status": "observed | user_stated | stable_inference | weak_inference",
+"exposure_policy": {
+"private_local_1on1": "allow | summarize | redact | ask_user | deny",
+"private_remote_1on1": "allow | summarize | redact | ask_user | deny",
+"shared_discord_voice": "allow | summarize | redact | ask_user | deny",
+"shared_war_room": "allow | summarize | redact | ask_user | deny",
+"public_output": "allow | summarize | redact | ask_user | deny",
+"external_export": "allow | summarize | redact | ask_user | deny",
+"debug_logs": "allow | summarize | redact | ask_user | deny"
+},
+"use_policy": {
+"retain_in_full_artifact": true,
+"eligible_for_hot_identity": false,
+"eligible_for_transient_continuity": false,
+"eligible_for_private_retrieval": true,
+"eligible_for_ltm_retrieval": true,
+"eligible_for_persona_layer": false,
+"eligible_for_project_memory": false,
+"eligible_for_shared_projection": false,
+"eligible_for_public_projection": false,
+"eligible_for_external_export": false,
+"eligible_for_debug_logging": false,
+"requires_user_review_before_use": false,
+"preferred_runtime_use": "always_inject | inject_when_relevant | retrieve_when_relevant | project_when_allowed | persona_only | boundary_only | user_review_only | exclude",
+"prohibited_runtime_use": [],
+"use_policy_reason": ""
+},
+"retrieval_hint": ""
+}
+],
+"identity_projections": [
+{
+"projection_id": "",
+"projection_mode": "full_private | remote_private | shared_companion | public_safe | external_transfer | debug_safe",
+"target_runtime_context": "private_local_1on1 | private_remote_1on1 | shared_discord_voice | shared_war_room | public_output | external_export | debug_logs",
+"derived_from_full_identity": true,
+"projection_summary": "",
+"allowed_item_ids": [],
+"summarized_item_ids": [],
+"redacted_item_ids": [],
+"denied_item_ids": [],
+"requires_user_review_item_ids": [],
+"projected_hot_identity_claims": [
+{
+"claim_text": "",
+"source_item_ids": [],
+"projection_transform": "unchanged | summarized | redacted | omitted",
+"safe_for_target_context": false,
+"traceability_notes": ""
+}
+],
+"projected_hot_identity_text": "",
+"projection_notes": []
+}
+],
+"artifact_limits": {
+"likely_missing_context": [],
+"known_missing_payloads": [],
+"source_limitations": [],
+"possible_hallucination_sources": [],
+"non_claims": []
+},
+"import_notes": {
+"continuity_memory": "",
+"transient_continuity": "",
+"long_term_memory": "",
+"identity_structure": "",
+"personal_memory": "",
+"sensitive_memory": "",
+"persona_handling": "",
+"projection_handling": "",
+"mechanical_integrity_check_only": true
+}
+}

@@ -1,0 +1,153 @@
+{
+  "guides": [
+    {
+      "id": "overview_mcp_core",
+      "title": "MCP Core overview",
+      "description": "Shared, opt-in HTTP MCP connections and per-addon tool permissions.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.mcp_core",
+        "workspace": "runtime",
+        "runtime_section": "mcp"
+      },
+      "category": "Runtime / MCP Core / MCP Core",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Shared, opt-in HTTP MCP connections and per-addon tool permissions.",
+        "Find focused guidance for Servers, Permissions, Tools."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_mcp_core_servers",
+        "page_mcp_core_permissions",
+        "page_mcp_core_tools"
+      ],
+      "steps": [
+        {
+          "title": "What MCP Core does",
+          "body": "Shared, opt-in HTTP MCP connections and per-addon tool permissions. The overview introduces this area without opening its other sections.",
+          "target": "mcpCorePage",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_mcp_core_servers",
+        "page_mcp_core_permissions",
+        "page_mcp_core_tools"
+      ],
+      "display_title": "Start tutorial · MCP Core"
+    },
+    {
+      "id": "page_mcp_core_servers",
+      "title": "MCP Core · Servers",
+      "description": "Use Servers in MCP Core.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.mcp_core",
+        "workspace": "runtime",
+        "runtime_section": "mcp"
+      },
+      "category": "Runtime / MCP Core / MCP Core",
+      "order": 210,
+      "topic": "Servers",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Add a server with fixed fields",
+        "Diagnose an unreachable server"
+      ],
+      "steps": [
+        {
+          "title": "Add a server with fixed fields",
+          "body": "In Servers, open the connection card for an MCP server. Enter the endpoint and any authentication value the server owner supplied; MCP Core does not invent supported servers. Save the entry, then confirm it appears in the list. Take the endpoint and credential from the addon that owns the server, not from a chat message.",
+          "target": "mcpCorePage",
+          "fallback_target": "mcpCorePage",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Diagnose an unreachable server",
+          "body": "If a saved server reports unreachable, check that its process is actually running and that the endpoint exactly matches what the owning addon displays. A wrong port is a common cause. Correct the endpoint before retrying the connection; re-saving unchanged details does not help.",
+          "target": "mcpCorePage",
+          "fallback_target": "mcpCorePage",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_mcp_core"
+    },
+    {
+      "id": "page_mcp_core_permissions",
+      "title": "MCP Core · Permissions",
+      "description": "Use Permissions in MCP Core.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.mcp_core",
+        "workspace": "runtime",
+        "runtime_section": "mcp"
+      },
+      "category": "Runtime / MCP Core / MCP Core",
+      "order": 211,
+      "topic": "Permissions",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Grant addon access explicitly",
+        "Know that requests are not approval"
+      ],
+      "steps": [
+        {
+          "title": "Grant addon access explicitly",
+          "body": "Permissions lists which addons may use a server. Select the addon, such as Companion Chess, and choose to allow it; requests from the addon appear here for your decision. Approval is manual by design. Only grant access to addons you are actively using, and remove grants when you stop using a server.",
+          "target": "mcpCorePage",
+          "fallback_target": "mcpCorePage",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Know that requests are not approval",
+          "body": "An addon's Request access only queues a permission; you approve it on this tab. A connected server without a permission grant will not let the addon act. Connection and permission are two gates. Removing a grant stops future calls without deleting the connection.",
+          "target": "mcpCorePage",
+          "fallback_target": "mcpCorePage",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_mcp_core"
+    },
+    {
+      "id": "page_mcp_core_tools",
+      "title": "MCP Core · Tools",
+      "description": "Use Tools in MCP Core.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.mcp_core",
+        "workspace": "runtime",
+        "runtime_section": "mcp"
+      },
+      "category": "Runtime / MCP Core / MCP Core",
+      "order": 212,
+      "topic": "Tools",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review the tools a server exposes",
+        "Match tools to the addon’s needs"
+      ],
+      "steps": [
+        {
+          "title": "Review the tools a server exposes",
+          "body": "Tools lists the tool names and descriptions offered by a connected server. Read them before granting any addon access so you know what could be invoked. Tool descriptions come from the server, not from NC, so treat them as reference. Availability here does not imply any tool runs automatically.",
+          "target": "mcpCorePage",
+          "fallback_target": "mcpCorePage",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Match tools to the addon’s needs",
+          "body": "Pair a tool you recognise with the addon that owns it, such as chess moves with Companion Chess. If a tool is missing, reconnect the server and refresh before assuming a permission problem. Missing tools and missing permissions look similar but need different fixes.",
+          "target": "mcpCorePage",
+          "fallback_target": "mcpCorePage",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_mcp_core"
+    }
+  ]
+}

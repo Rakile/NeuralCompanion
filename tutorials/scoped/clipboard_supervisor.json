@@ -1,0 +1,131 @@
+{
+  "guides": [
+    {
+      "id": "overview_clipboard_supervisor",
+      "title": "Clipboard Supervisor overview",
+      "description": "Persona-driven clipboard image reactions for newly copied reference images.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.clipboard_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "clipboard",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Clipboard Supervisor",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Persona-driven clipboard image reactions for newly copied reference images.",
+        "Find focused guidance for prompts, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_clipboard_supervisor_prompts",
+        "page_clipboard_supervisor_advanced"
+      ],
+      "steps": [
+        {
+          "title": "What Clipboard Supervisor does",
+          "body": "Persona-driven clipboard image reactions for newly copied reference images. The overview introduces this area without opening its other sections.",
+          "target": "visionSourceSettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_clipboard_supervisor_prompts",
+        "page_clipboard_supervisor_advanced"
+      ],
+      "display_title": "Start tutorial · Clipboard Supervisor"
+    },
+    {
+      "id": "page_clipboard_supervisor_prompts",
+      "title": "Clipboard Supervisor · prompts",
+      "description": "Use prompts in Clipboard Supervisor.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.clipboard_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "clipboard",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Clipboard Supervisor",
+      "order": 210,
+      "topic": "prompts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Set up a reaction profile",
+        "Define a reaction rule",
+        "Understand how strictness and repeat mode interact"
+      ],
+      "steps": [
+        {
+          "title": "Set up a reaction profile",
+          "body": "In Reaction Profiles, use Add Profile to create one and give it a clear name with Rename Profile if needed. Read Active Reaction Profile to confirm which profile is in use. Speaking style shapes how the persona reacts. Delete Profile is available when a profile is no longer wanted; removing one affects only that profile.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Define a reaction rule",
+          "body": "In Reaction Rules, use Add Rule and read Reaction rule, Enabled, Action, Strictness, Emotion override, Repeat mode, and Nth match interval. Keep one simple rule for a first test so its effect is easy to read. Remove Rule deletes the rule. Disable it with Enabled rather than deleting when you only want to pause it.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand how strictness and repeat mode interact",
+          "body": "Strictness decides how closely copied content must match before a rule fires. Repeat mode with Nth match interval governs repeated matches. A rule that seems never to fire may be too strict; one that fires too often may need a longer interval. Adjust one control at a time.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_clipboard_supervisor"
+    },
+    {
+      "id": "page_clipboard_supervisor_advanced",
+      "title": "Clipboard Supervisor · advanced",
+      "description": "Use advanced in Clipboard Supervisor.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.clipboard_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "clipboard",
+        "sensory_tab": "advanced"
+      },
+      "category": "Runtime / Vision Sensors / Clipboard Supervisor",
+      "order": 211,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the advanced prompt before editing",
+        "Use the prompt preview as a check"
+      ],
+      "steps": [
+        {
+          "title": "Read the advanced prompt before editing",
+          "body": "Advanced Prompt Rules holds the instruction template for reactions. Read the current text first, since prompt changes affect every reaction. If you need to undo changes, Restore recommended prompt returns the suggested template. Use Review Prompt Preview to see the resulting prompt before relying on it.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Use the prompt preview as a check",
+          "body": "Press Review Prompt Preview after any edit to see how the template reads. The preview shows the prompt text, not a live reaction, so it is a formatting check rather than proof the addon will respond. If the preview looks wrong, restore the recommended prompt and edit again with a smaller change.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_clipboard_supervisor"
+    }
+  ]
+}

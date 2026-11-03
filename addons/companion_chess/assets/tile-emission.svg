@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs><filter id="soft"><feGaussianBlur stdDeviation="2"/></filter></defs>
+  <rect width="256" height="256" fill="#242424"/>
+  <rect x="7" y="7" width="242" height="242" rx="4" fill="white" filter="url(#soft)"/>
+</svg>

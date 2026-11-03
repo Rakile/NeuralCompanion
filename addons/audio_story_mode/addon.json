@@ -1,0 +1,33 @@
+{
+  "id": "nc.audio_story_mode",
+  "name": "Audio Story Mode",
+  "category": "visuals",
+  "version": "0.1.1",
+  "entry_point": "main.py",
+  "description": "Import story audio, turn JSON chatlogs into resumable novels, or narrate Markdown chapters with local-first Audio Story tools.",
+  "permissions": [
+    "ui.tabs",
+    "storage.read",
+    "storage.write"
+  ],
+  "runtime_defaults": {
+    "audio_story_analysis_mode": "scene_only"
+  },
+  "host_services": [],
+  "ui": [
+    {
+      "id": "audio_story_mode_runtime",
+      "title": "Audio Story Mode",
+      "area": "top_level",
+      "placeholder": "audio_story_mode_tab",
+      "icon_path": "../../ui_icons/side_tabs/story_visuals.png",
+      "order": 120,
+      "tooltip": "Use audio stories, the Chatlog Novel Workshop, Markdown narration, and synchronized visual replies.",
+      "metadata": {
+        "native_qml": true,
+        "runtime_role": "audio_story"
+      }
+    }
+  ],
+  "enabled": false
+}

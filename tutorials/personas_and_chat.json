@@ -1,0 +1,200 @@
+{
+  "id": "personas_and_chat",
+  "order": 6,
+  "title": "6. Personas and Visual Identity",
+  "description": "Create and save one text Persona, then add an optional voice and consistent visual identity in the visible tab order.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "persona"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "voice"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "overrides"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "visual"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "replies"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "library"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "relay"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "advanced"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Write a simple Persona in your own words",
+      "body": "A system prompt tells the model who the companion is and how to respond. On Persona, enter “Mira, a patient librarian. Explain one idea at a time in plain language” in Describe the persona.\n\nFor this first exercise, use Apply description as system prompt so your own text becomes the instructions. Refine is optional: it asks the configured draft service to propose a longer prompt, separate from your chat model. If drafting is unavailable, keep the direct description path. Next we will check what actually became active. Read aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "persona",
+      "target": "promptBuilderDescription"
+    },
+    {
+      "title": "Check the instructions that will actually be used",
+      "body": "Read Active persona system prompt and confirm it contains your intended librarian instructions. If you used Refine, first inspect Generated persona prompt, remove unwanted claims or behavior, then Apply as persona system prompt.\n\nYou can correct the active field directly with Apply active edits. Look for applied status and no Edits not applied warning. Text sitting in a draft is not active merely because it is visible. If the status still reports unapplied edits, apply the intended text before saving the Persona.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "persona",
+      "target": "promptBuilderCandidate"
+    },
+    {
+      "title": "Save Mira as a reusable Persona",
+      "body": "Choose Save persona…, give it a recognizable name such as “Mira - librarian”, and choose an unused quick slot. Review any replacement confirmation carefully. Keep optional portrait generation off for this text-first exercise.\n\nCheck that Mira’s named card appears in the shortcut pane. Select the card when you want that identity active; Persona name and Short bio label the saved card, while the system prompt supplies its behavior. Save before assigning voice or per-Persona options so those choices attach to the intended Persona. If the card is missing, confirm the save dialog completed.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "persona",
+      "target": "personaShortcutPane"
+    },
+    {
+      "title": "Optional: listen to a voice reference first",
+      "body": "Open Voice with Mira selected. Choose a recording from the library or Preview a voice, then Play original sample. You should hear the source recording without assigning it to Mira.\n\nTry your own words is a separate test: with its TTS engine loaded, enter a short sentence, Generate test, then Play test. If the original plays but generation is unavailable, read the engine status; it does not mean the recording is missing. Open Voice Studio if you need a new reference. You can keep the provider default and continue without a custom voice.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "voice",
+      "target": "personaVoiceSelector",
+      "fallback_target": "personaLiquidVoiceSelector",
+      "target_hint": "LiquidAI uses built-in or installed voices instead of reference recordings. Its Voice selector is highlighted here; choose Voice and Speech language, or keep provider defaults. Reference auditioning belongs to compatible speech providers such as Chatterbox."
+    },
+    {
+      "title": "Assign the reference to the intended Persona",
+      "body": "Check Assigned to names Mira and the selected recording is the one you heard. Choose Use this voice for Mira when enabled; the wording uses your Persona’s actual name. Confirm the assigned-voice label updates and Voice already assigned appears.\n\nUse this reference with compatible TTS providers controls whether the recording guides supported backends. Conversation currently uses identifies a difference from the live session. If no change is heard later, check that live line and backend reference support. A successful sample preview alone never assigns the voice; keep the default if no valid reference is available.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "voice",
+      "target": "personaVoiceApply",
+      "fallback_target": "personaLiquidApply",
+      "target_hint": "For LiquidAI, review Voice and Speech language, then choose Apply to Persona (or Apply to session). Other providers use the reference assignment above. Choosing a voice is a draft until applied; keep provider defaults if you do not want an override."
+    },
+    {
+      "title": "Inspect overrides without changing the working setup",
+      "body": "Overrides lets one saved Persona use settings that differ from the main defaults. Inspect Language model and Conversation memory; for a first Persona, keep inheritance so your tested Runtime connection and memory choices continue to apply.\n\nThe other inner tabs, Visual avatar tags and TTS voice provider tags, hold provider-specific technical formatting. Leave them until you need that behavior. If a card is absent, check the selected inner tab and that Mira’s saved card is active. A Persona override does not select the main Runtime provider. Return to your known working setup if an override prevents replies.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "overrides",
+      "target": "personaOverrideTabs"
+    },
+    {
+      "title": "Optional: describe a stable appearance",
+      "body": "Visual identity begins with Describe identity. Enter lasting traits in Visual identity prompt, for example “mid-length dark hair, round glasses, soft line-art style”. Finish editing and check the text remains with Mira selected.\n\nA neutral identity description helps later images resemble the same character. Put a park, a waving pose or a special outfit in the individual scene request instead. If the controls are disabled, select the saved Persona first. Text chat needs none of these visual steps; continue reading without adding images if that is your goal.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "visual",
+      "target": "personaVisualIdentityStep1"
+    },
+    {
+      "title": "Import one neutral reference before building a set",
+      "body": "In Create neutral reference, use Import portrait for a clear existing image, or Create neutral portrait to generate one with the configured image provider. Review the result and complete any acceptance/save controls in its dialog.\n\nCheck that the neutral preview appears for Mira and the reference status is ready before building mood portraits. A plain head-and-shoulders image is easier to reuse than a busy scene. If generation fails, check Runtime → Visual readiness or import a file instead. Selecting a Persona and describing it does not itself create a reference.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "visual",
+      "target": "personaVisualIdentityStep2"
+    },
+    {
+      "title": "Choose how self-images use the reference",
+      "body": "In Configure self-images, read Self-image method. Hybrid: prompt + portrait reference uses both inputs; Identity prompt only uses the written description; Portrait reference preferred prioritizes the portrait where supported.\n\nKeep the current choice for the first image unless you have a reason to change it. Scene influence adjusts how strongly a requested scene may affect the reference when the method supports it. A disabled slider can be expected for a method that does not use it. Reopen the tab to verify a deliberate choice, then judge likeness and scene fit from an actual generated image.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "visual",
+      "target": "personaVisualIdentityStep3"
+    },
+    {
+      "title": "Later: build and review mood portraits",
+      "body": "Mood portraits add expressions for conversation display. With the accepted neutral reference ready, use Build / refresh set and review the generation dialog before starting a set. Each generated portrait uses the configured image provider.\n\nAfter generation, compare the mood previews: do they still resemble Mira? Complete the dialog’s save controls before leaving; a preview alone is not a saved portrait set. If faces drift, review the neutral reference before generating again. If generation fails, check provider readiness. Keep a single neutral portrait until you want this optional extra work.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "visual",
+      "target": "personaMoodSetButton"
+    },
+    {
+      "title": "Allow images only when you want them",
+      "body": "Open Visual replies and read Generation behavior. Do not generate images keeps replies text-only. Generate when asked permits deliberate requests; Generate when asked or spontaneously also permits model-initiated images.\n\nFor an optional first test, choose Generate when asked, confirm Runtime → Visual is configured, then request one simple picture in Main Chat. Look for the image attached to its assistant message. If absent, check both provider readiness and the Persona behavior setting. Changing the policy permits generation; it does not start an image request. You can keep images disabled and still complete the text Persona exercise.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "replies",
+      "target": "personaVisualRepliesCard"
+    },
+    {
+      "title": "Recognize the separate prompt library",
+      "body": "Prompt library stores reusable prompt text separately from complete Personas. Select an entry and read Prompt preview; selection alone does not replace Mira’s instructions.\n\nLoad selected applies that prompt and returns to Persona, so use it only when you intend to change the active instructions. For now, inspect a prompt and leave it unloaded. Save applied prompt to library on Persona stores a prompt for reuse; it does not replace Save persona… for voice and portrait choices. If you load something unintentionally, select your saved Mira card and check Active persona system prompt before chatting.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "library",
+      "target": "personaPromptLibraryCard"
+    },
+    {
+      "title": "Leave imported identity for its own exercise",
+      "body": "Identity Relay can associate an imported assistant identity with this saved Persona. For the first Persona, leave it unused. You do not need an external export to make Mira respond as a librarian.\n\nIf you later need continuity from another session, use the Identity Relay guide to import and inspect it. Here, Imported identity starts an association review; Connected describes that connection, while conversation activation is separate. If Needs review or a blocked reason appears, read it before proceeding. Opening the tab alone does not enable continuity.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "relay",
+      "target": "personaIdentityRelayCard"
+    },
+    {
+      "title": "Test Mira in Main Chat",
+      "body": "Advanced shows Technical rules moved to Overrides. Open Overrides leads to provider-specific avatar/voice rules; leave those defaults for this exercise.\n\nReturn to Main chat with Mira selected and the chat runtime ready. Ask “Explain what a library catalogue is in two sentences.” Check the reply for the short, plain explanation you requested. If the style is wrong, inspect Mira’s active prompt and applied status before adding more rules. The basic exercise is complete when the named Persona is saved and produces a reply you can assess; optional voice and images count as tested only if you heard or saw them.",
+      "workspace": "addons",
+      "addon": "core.persona",
+      "section": "Overview",
+      "persona_tab": "advanced",
+      "target": "personaAdvancedCard"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "A Persona is the companion’s reusable instructions and optional voice/appearance choices. Start with a simple text Persona; a working chat provider is enough to test it. Refine uses the separately configured draft service, voice tests need loaded compatible TTS, and image generation needs Visual Reply. Reading never applies or saves a Persona or starts generation. Narration prefers selected, loaded Chatterbox and otherwise tries Windows TTS.",
+  "learning_outcomes": [
+    "Apply and save a simple Persona, then test its style in Main Chat.",
+    "Preview a voice separately from assigning it to the saved Persona.",
+    "Add optional portrait, image behavior and per-Persona overrides deliberately."
+  ],
+  "contextual_guides": [
+    "overview_persona_workspace"
+  ]
+}

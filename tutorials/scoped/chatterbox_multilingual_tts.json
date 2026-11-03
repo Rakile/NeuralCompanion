@@ -1,0 +1,250 @@
+{
+  "guides": [
+    {
+      "id": "overview_chatterbox_multilingual_tts",
+      "title": "Chatterbox Multilingual TTS overview",
+      "description": "Local Chatterbox Multilingual TTS backend exposed as a separate addon.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chatterbox_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox_multilingual",
+        "subsection": "Language"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox Multilingual TTS",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Local Chatterbox Multilingual TTS backend exposed as a separate addon.",
+        "Find focused guidance for Language, Generation, Voice, Startup."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_chatterbox_multilingual_tts_language",
+        "page_chatterbox_multilingual_tts_generation",
+        "page_chatterbox_multilingual_tts_voice",
+        "page_chatterbox_multilingual_tts_startup",
+        "page_chatterbox_multilingual_tts_voice_tag_rules",
+        "speech_and_streaming"
+      ],
+      "steps": [
+        {
+          "title": "What Chatterbox Multilingual TTS does",
+          "body": "Local Chatterbox Multilingual TTS backend exposed as a separate addon. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_chatterbox_multilingual_tts_language",
+        "page_chatterbox_multilingual_tts_generation",
+        "page_chatterbox_multilingual_tts_voice",
+        "page_chatterbox_multilingual_tts_startup",
+        "page_chatterbox_multilingual_tts_voice_tag_rules"
+      ],
+      "display_title": "Start tutorial · Chatterbox Multilingual TTS",
+      "optional_chapters": [
+        "speech_and_streaming"
+      ]
+    },
+    {
+      "id": "page_chatterbox_multilingual_tts_language",
+      "title": "Chatterbox Multilingual TTS · Language",
+      "description": "Use Language in Chatterbox Multilingual TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox_multilingual",
+        "subsection": "Language"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox Multilingual TTS",
+      "order": 210,
+      "topic": "Language",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Set the language for this backend",
+        "Match language to the active voice"
+      ],
+      "steps": [
+        {
+          "title": "Set the language for this backend",
+          "body": "Open the Language tab and read the language option for Chatterbox Multilingual. Choose the language matching the speech you expect before testing playback. Confirm the selected value is stored when you leave the tab. If output is silent or mispronounced, recheck this choice before changing other generation settings.",
+          "target": "providerSettingsSection_Language",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Match language to the active voice",
+          "body": "Language and voice are paired decisions: an unfamiliar language may change how selected speech is pronounced. Set the language first, then inspect the Voice tab so the two agree. Changing one alone can leave output inconsistent, so review the other when the result surprises you.",
+          "target": "providerSettingsSection_Language",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chatterbox_multilingual_tts"
+    },
+    {
+      "id": "page_chatterbox_multilingual_tts_generation",
+      "title": "Chatterbox Multilingual TTS · Generation",
+      "description": "Use Generation in Chatterbox Multilingual TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox_multilingual",
+        "subsection": "Generation"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox Multilingual TTS",
+      "order": 211,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review generation options",
+        "Test a change with short speech"
+      ],
+      "steps": [
+        {
+          "title": "Review generation options",
+          "body": "The Generation tab holds options that shape how speech is produced by Chatterbox Multilingual. Read each current value before changing anything, and adjust one option at a time. A setting change usually applies to new speech, so test with a short utterance rather than a long passage.",
+          "target": "providerSettingsSection_Generation",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Test a change with short speech",
+          "body": "After adjusting a generation option, trigger a short playback and listen for the difference. If nothing changes, confirm the backend is selected in the TTS configuration. If output fails, check the reported error before revising more settings. These tabs shape the backend; they do not select it.",
+          "target": "providerSettingsSection_Generation",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chatterbox_multilingual_tts"
+    },
+    {
+      "id": "page_chatterbox_multilingual_tts_voice",
+      "title": "Chatterbox Multilingual TTS · Voice",
+      "description": "Use Voice in Chatterbox Multilingual TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox_multilingual",
+        "subsection": "Voice"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox Multilingual TTS",
+      "order": 212,
+      "topic": "Voice",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose and inspect the voice",
+        "Confirm the voice persisted"
+      ],
+      "steps": [
+        {
+          "title": "Choose and inspect the voice",
+          "body": "Open the Voice tab and select the voice Chatterbox Multilingual should use. Read the available choices rather than assuming a particular voice exists. After selecting one, test a short phrase. If the voice sounds nothing like the description, recheck the selection and confirm the backend is active.",
+          "target": "providerSettingsSection_Voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm the voice persisted",
+          "body": "Return to the Voice tab after a short test and verify the same voice is still selected. A voice that reverts suggests the change was not kept; check whether Chatterbox Multilingual is the selected backend. Set one, test it, then adjust again only if the result calls for it.",
+          "target": "providerSettingsSection_Voice",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chatterbox_multilingual_tts"
+    },
+    {
+      "id": "page_chatterbox_multilingual_tts_startup",
+      "title": "Chatterbox Multilingual TTS · Startup",
+      "description": "Use Startup in Chatterbox Multilingual TTS.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox_multilingual",
+        "subsection": "Startup"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox Multilingual TTS",
+      "order": 213,
+      "topic": "Startup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Control when the backend loads",
+        "Check startup behavior after restart"
+      ],
+      "steps": [
+        {
+          "title": "Control when the backend loads",
+          "body": "The Startup tab determines whether Chatterbox Multilingual prepares when TTS starts. Read the option before changing it. A startup choice affects load time rather than the sound itself, so test it by restarting the TTS session and observing whether speech is ready promptly.",
+          "target": "providerSettingsSection_Startup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check startup behavior after restart",
+          "body": "After changing a startup option, restart the TTS session and inspect the reported state. If the backend is not ready, read any error and confirm the model files are present locally. Startup settings do not guarantee speech works until a test utterance succeeds.",
+          "target": "providerSettingsSection_Startup",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_chatterbox_multilingual_tts"
+    },
+    {
+      "id": "page_chatterbox_multilingual_tts_voice_tag_rules",
+      "title": "Chatterbox Multilingual TTS · Voice tag rules",
+      "description": "Understand the shared voice-tag rules alongside this TTS provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chatterbox_multilingual_tts",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "voice",
+        "provider_kind": "tts",
+        "provider_id": "chatterbox_multilingual",
+        "subsection": "voice-tag-rules"
+      },
+      "category": "Runtime / Text-to-speech / Chatterbox Multilingual TTS",
+      "order": 240,
+      "steps": [
+        {
+          "title": "Read the default voice guidance",
+          "body": "Voice tag rules describe how NC interprets voice tags alongside this backend. Read the default guidance before changing it; backend selection and reference-audio selection are separate choices. Keeping the existing rules gives you a known baseline for later speech comparisons.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        },
+        {
+          "title": "Distinguish rules from actual playback",
+          "body": "A saved rule expresses how voice tags should be interpreted, not proof that a backend accepted the reference or produced audio. A later controlled spoken reply is needed to verify routing. If output changes unexpectedly, compare the rules with their previous text before changing provider settings.",
+          "target": "ttsDefaultRulesCard",
+          "fallback_target": "runtimeProviderSettingsPanel"
+        }
+      ],
+      "course_id": "overview_chatterbox_multilingual_tts"
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "guides": [
+    {
+      "id": "overview_webcam_source",
+      "title": "Webcam Source overview",
+      "description": "Webcam-backed hidden Vision source for attaching webcam snapshots as ambient sensory context.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.webcam_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "webcam",
+        "sensory_tab": "setup"
+      },
+      "category": "Runtime / Vision Sensors / Webcam Source",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Webcam-backed hidden Vision source for attaching webcam snapshots as ambient sensory context.",
+        "Find focused guidance for setup, prompts, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_webcam_source_setup",
+        "page_webcam_source_prompts",
+        "page_webcam_source_advanced",
+        "presence_sources"
+      ],
+      "steps": [
+        {
+          "title": "What Webcam Source does",
+          "body": "Webcam-backed hidden Vision source for attaching webcam snapshots as ambient sensory context. The overview introduces this area without opening its other sections.",
+          "target": "visionSourceSettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_webcam_source_setup",
+        "page_webcam_source_prompts",
+        "page_webcam_source_advanced"
+      ],
+      "display_title": "Start tutorial · Webcam Source",
+      "optional_chapters": [
+        "presence_sources"
+      ]
+    },
+    {
+      "id": "page_webcam_source_setup",
+      "title": "Webcam Source · setup",
+      "description": "Use setup in Webcam Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.webcam_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "webcam",
+        "sensory_tab": "setup"
+      },
+      "category": "Runtime / Vision Sensors / Webcam Source",
+      "order": 210,
+      "topic": "setup",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Pick a camera",
+        "Confirm capture status"
+      ],
+      "steps": [
+        {
+          "title": "Pick a camera",
+          "body": "In the Camera card, read Camera status, then open Capture camera and choose your webcam. Refresh cameras reloads the device list. A device shown in the list is not proof it captures; only a status indicating readiness means the source can capture snapshots for chat turns or the hidden loop.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm capture status",
+          "body": "After choosing a camera, let the status settle and read it. On some systems another app holds the camera, producing a status that is not ready. Release that app and refresh cameras. Seeing a usable status means the source can capture; snapshot attachment still happens through chat turns or the hidden loop.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_webcam_source"
+    },
+    {
+      "id": "page_webcam_source_prompts",
+      "title": "Webcam Source · prompts",
+      "description": "Use prompts in Webcam Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.webcam_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "webcam",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Webcam Source",
+      "order": 211,
+      "topic": "prompts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Guide how snapshots are described"
+      ],
+      "steps": [
+        {
+          "title": "Guide how snapshots are described",
+          "body": "The prompts tab contains wording that shapes how webcam snapshots are interpreted in chat. Read existing text before editing. Base any change on the wording you can see. Afterward, check one turn to confirm the snapshot is described as intended.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_webcam_source"
+    },
+    {
+      "id": "page_webcam_source_advanced",
+      "title": "Webcam Source · advanced",
+      "description": "Use advanced in Webcam Source.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.webcam_source",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "webcam",
+        "sensory_tab": "advanced"
+      },
+      "category": "Runtime / Vision Sensors / Webcam Source",
+      "order": 212,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect advanced options in place"
+      ],
+      "steps": [
+        {
+          "title": "Inspect advanced options in place",
+          "body": "The advanced tab holds less common Webcam Source settings. Read them where they are instead of assuming names. Change one at a time and verify with a snapshot-bearing turn, since camera capture is stateful and a stale status can mislead you.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_webcam_source"
+    }
+  ]
+}

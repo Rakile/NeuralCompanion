@@ -1,0 +1,3 @@
+singleton NCTheme 1.0 NCTheme.qml
+singleton NCMetrics 1.0 NCMetrics.qml
+singleton NCTypography 1.0 NCTypography.qml

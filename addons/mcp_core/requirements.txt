@@ -1,0 +1,2 @@
+# Official SDK; evaluate with all installed runtime versions constrained before installing.
+mcp==1.26.0

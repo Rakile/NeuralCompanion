@@ -1,0 +1,120 @@
+{
+  "id": "companion_orb_overlay",
+  "order": 19,
+  "title": "19. Companion Orb",
+  "description": "Show the desktop Orb, choose a narrow capture target, and create then remove one watch.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "vision",
+      "sensory_tab": "watches",
+      "provider_kind": "vision",
+      "provider_id": "companion_orb_target"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Show the Orb without starting a watch",
+      "body": "Click Start / show Orb in Overview, or Orb beside the Conversation controls. Look for the circle on your desktop. This first result confirms the overlay is visible; it does not grant screen capture or background replies.\n\nRead the setup state and any reason shown here. Enable addon for next restart means the addon must be loaded before continuing. Start runtime means the large top-right power button must be switched OFF → ON when you are ready for chat and watches. Follow the specific missing requirement rather than repeatedly pressing Show Orb.\n\nRead aloud narrates the guide; Hear step reads only this step.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Choose one harmless window as the target",
+      "body": "Place a harmless window with a visible title on screen. Choose Window under Orb and right-drag the Orb onto that window. Read What the Orb can see here to confirm the window name. If it names the desktop instead, right-drag again onto the window itself.\n\nLeft-drag selects a region; Region around Orb uses the adjustable region size. Right-dropping on desktop background selects that screen, not every monitor. Entire screen is broader. All watches share the current target, so changing it changes the view for every watch. Selecting a target alone creates no watch.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Resolve the model requirement before watching",
+      "body": "If the setup state asks for vision configuration, open Vision settings. In Setup, use Provider and Refresh models, read Model availability, and choose an available vision-capable Vision model when using the auxiliary route. Configure provider opens its connection settings. Check whether the image recipient is local or remote.\n\nThe auxiliary model helps with images independently of the main chat model. If the list is empty, fix the endpoint or server model availability before refreshing again. Guide 20 explains optional grounding. Return here when the setup state no longer reports a missing model or runtime requirement.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Review and enable watching deliberately",
+      "body": "Click Enable watching to review the selected capture target, image recipients and any remote/API use. The summary also names other enabled sensors affected by shared background and reply permissions. Confirm only if those match the experiment you intend. Cancel leaves this consent step unchanged.\n\nTo perform the watch in the next step, choose Confirm enable watching after reviewing the summary, and check the setup state again. If you prefer reading only, cancel and continue without expecting a live result. Consent enables the capability; the ongoing task still needs to be requested.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Request one change you can cause",
+      "body": "With watching ready, use Watch a title to fill the helper or type “Tell me when the video title changes” in ordinary Main chat. Keep the video title inside the selected window, then send the request. The helper Send request submits it; filling the draft alone does not.\n\nCheck that a watch was registered before changing to another video in the same window. Wait for eligible checks and compare any notification with the new visible title. If there is no result, first check the current target, watch status and runtime. A one-off question asks for an answer; an ongoing request creates a watch.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Read status, then remove the test watch",
+      "body": "Find your request in the active-watch list here or in the Orb right-click menu. Read its actual status: registered does not always mean running. If the target window is unavailable, the watch can pause rather than silently widening its capture. Restore the intended window before retrying.\n\nUse X on your test watch, or ask in chat to stop that watch, then confirm its row is gone. This is the stop test for the exercise. Hiding the Orb is a separate display action and does not substitute for removing a watch or disabling background capture permissions you no longer want.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Optional: learn the action rail",
+      "body": "Right-click the desktop Orb to open its icon rail. Hover an icon to read its action, then use the bottom arrow to expand the labels. Pin keeps the rail available while you use it. These controls let you reach NC without repeatedly restoring the main window.\n\nDrag the center circle to move the rail out of your work area. Double-clicking the circle shows or minimizes the main NC window, so avoid double-clicking when you only want to reposition it. If an icon is unclear, expand labels before selecting it; opening the rail does not create another watch.",
+      "workspace": "addons",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Optional: chat from a floating window",
+      "body": "Use the Conversation icon in the Orb rail to open its floating window. Minimize the main NC window and confirm the floating conversation remains usable. Double-clicking an already open window icon closes that floating window. The MuseTalk icon similarly opens its preview.\n\nThe expanded rail also offers runtime ON/OFF. It controls the same runtime as the main top-right power button, so OFF stops the configured chat stack. The center circle shows states such as listening, thinking, speaking or fault. Read it as a status clue; a visible circle by itself is not proof the runtime is ON.",
+      "workspace": "addons",
+      "addon": "companion_orb_overlay_tab",
+      "section": "Overview",
+      "target": "addonSettingsContent"
+    },
+    {
+      "title": "Know where ongoing tasks and general rules live",
+      "body": "Vision Sensors → Companion Orb Target → Watches lists requested ongoing tasks such as your title-change experiment. Behavior holds general Orb personality rules and response triggers. You do not need to add a Behavior rule to repeat the watch exercise. Desktop map and Actions separately govern movement and confirmed clicking.\n\nCheck Watches now and confirm the test watch was removed. If other rows remain, leave intentional existing watches alone. Removing your watch does not disable other sensory sources; review shared permissions separately if you enabled them only for this experiment.",
+      "workspace": "runtime",
+      "target": "visionProviderWorkspace",
+      "runtime_section": "vision",
+      "vision_provider": "companion_orb_target",
+      "sensory_tab": "watches"
+    },
+    {
+      "title": "Optional: route a MuseTalk face to Unreal",
+      "body": "This integration is for an already working MuseTalk avatar and an external Unreal receiver. It is unnecessary for the ordinary desktop Orb or the watch you just tested. Under Runtime → Avatar, view MuseTalk → Performance and find Send MuseTalk face mask to Companion Orb.\n\nIf your receiver is ready, enable it and verify the face there during a short spoken reply. While enabled, normal MuseTalk preview routing is suppressed. Turn it off to restore normal preview and check a new spoken reply. If no external receiver is running, leave it off; this guide launches neither Unreal nor MuseTalk.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Enable the Companion Orb addon before its settings can appear. First get Main chat working. Showing the circle needs no watching permission; ongoing watches additionally need a running runtime, an image-capable route and explicit watching consent. Practise with a harmless visible window. The guide opens panels but never starts capture, selects a model or confirms watching for you.",
+  "learning_outcomes": [
+    "Show the Orb and verify its current window, region or screen target.",
+    "Review watching consent and test one observable ongoing request.",
+    "Find watch status, remove a watch and use optional desktop controls."
+  ],
+  "contextual_guides": [
+    "overview_companion_orb_overlay"
+  ]
+}

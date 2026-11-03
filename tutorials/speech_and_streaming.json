@@ -1,0 +1,120 @@
+{
+  "id": "speech_and_streaming",
+  "order": 7,
+  "title": "7. Speech and Streaming",
+  "description": "Hear one short reply, check its output device and playback controls, then compare streaming or try optional microphone input.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "voice"
+    },
+    {
+      "workspace": "addons",
+      "addon": "core.speech_timing",
+      "section": "Overview"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "session"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "workspace": "conversation"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "speech"
+    }
+  ],
+  "global_targets": [
+    "headerAudioButton"
+  ],
+  "steps": [
+    {
+      "title": "Choose and load the voice for replies",
+      "body": "Open Runtime → Text-to-speech. Single-click a provider to inspect its requirements. Local Chatterbox/PocketTTS variants need their installed environments; ElevenLabs and Gemini TTS Preview need their addon and API setup. Choose one you can run, then double-click it or use Make active.\n\nCheck Active provider. Selection does not load it: initialize with the large top-right power button OFF → ON and wait for readiness. If NC is already ON and needs a restart, save chat, switch OFF, wait for cleanup, then ON. Send “Say hello in one sentence” in Main Chat. Hearing that sentence is the first voice test; a selected row alone is not.\n\nRead aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "voice"
+    },
+    {
+      "title": "Understand speech chunks before tuning them",
+      "body": "Speech Timing in Operations splits text into manageable speech pieces. Smaller chunks can begin sooner but add joins; larger chunks can sound more continuous but take longer to prepare.\n\nFirst keep the defaults and listen to your short reply. If you later adjust timing, note the original value and change one character/chunk setting at a time, then request a new comparable reply. Judge the first sound and gaps between pieces. If the result worsens, restore that value. Do not tune timing to fix complete silence; check provider readiness and the audio output first.",
+      "workspace": "addons",
+      "target": "operationsWorkspace",
+      "addon": "core.speech_timing",
+      "section": "Overview"
+    },
+    {
+      "title": "Compare complete and progressive replies",
+      "body": "In Session setup → Input and profile, Stream mode Off waits for the complete model reply before sending it to speech. That completed text may still be spoken in chunks. On requests text progressively, allowing supported setups to begin speech before the answer finishes.\n\nAfter one Off reply works, try On for a new similar prompt. Compare first speech and pauses, then keep the mode that works better for you. Provider support, TTS speed and avatar buffering affect the result, so earlier speech is not guaranteed. If On stalls or sounds worse, return to Off. Speech Timing has separate normal and streaming settings; Stream mode does not enable microphone capture.",
+      "workspace": "runtime",
+      "target": "sessionStreamModeSelector",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "session"
+    },
+    {
+      "title": "Send speech to the intended device",
+      "body": "Open the speaker/audio menu in the header. Read the selected output device. If needed, choose your headphones or speakers, then replay the short reply and listen there.\n\nThe menu also selects the microphone and shows live levels. Input activity does not prove output is working. If the wrong device plays or nothing is heard, check the selected output, connection, mute and system volume before changing TTS. These device choices affect the shared runtime audio path, so check input again before a microphone test.",
+      "workspace": "runtime",
+      "target": "headerAudioButton",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Pause, resume and replay one reply",
+      "body": "Return to Conversation and use the action row on your spoken reply. During speech, click Pause and then Play; you should hear it stop and resume while its text remains. Replay speaks the response again.\n\nSkip speech moves past speech, and End waiting appears for a waiting state. These control playback rather than stopping the whole engine. If the row is absent, send a short message first. If text arrives but no sound plays, return to the provider and output checks before judging the playback buttons.",
+      "workspace": "conversation",
+      "target": "conversationResponseActions",
+      "fallback_target": "conversationComposer",
+      "target_hint": "If there is no assistant response yet, switch NC ON with the top-right power button and send a short message. Image actions require an image response; Edit opens the response editor. You can also continue reading without generating anything."
+    },
+    {
+      "title": "Optional: choose a transcription provider",
+      "body": "To speak your messages, open Runtime → Speech-to-text. This input provider is separate from the TTS voice. Whisper English and Whisper Multilingual use different models/language settings; None suits typed chat and still permits spoken replies.\n\nFor a microphone exercise, inspect the appropriate Whisper option, make it active and load its required runtime. Check its readiness before the next step. If missing, check the addon in Addon Manager and restart when requested. Selecting a row does not install or download its model. If you prefer typing, keep None and read the final step without recording.",
+      "workspace": "runtime",
+      "target": "speechProviderList",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "speech"
+    },
+    {
+      "title": "Try one controlled microphone message",
+      "body": "In Session setup → Input and profile, choose Push-to-Talk with your STT provider ready, Input role set to User Message and the intended microphone selected. Read the displayed key binding, hold it, say one short sentence, then release. Look for your words transcribed into the conversation.\n\nIf nothing arrives, check the audio menu’s input level, STT readiness and the binding in Hotkeys. Return to Text Only to stop transcription. Voice Activation waits for detected speech; Always On currently uses that same detection path rather than recording silence continuously. Streaming affects outgoing replies, not when the microphone records. Count microphone input as tested only after a transcript appears.",
+      "workspace": "runtime",
+      "target": "sessionSetupWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "session"
+    }
+  ],
+  "before_you_start": "First make Main Chat work with text. Use Text Only input while testing spoken replies; a microphone is unnecessary for that. TTS reads replies aloud, while STT turns your speech into text. Choose and load providers deliberately: reading never starts models or requests API speech. The large top-right power button OFF → ON initializes NC; ON → OFF stops it. Guide narration prefers selected, loaded Chatterbox and otherwise tries Windows TTS.",
+  "category": "Workflows",
+  "learning_outcomes": [
+    "Load a speech provider and hear a short reply through the intended device.",
+    "Compare streaming and chunk timing one change at a time.",
+    "Test playback and optional microphone input as separate paths."
+  ],
+  "contextual_guides": [
+    "runtime_session_overview",
+    "overview_chatterbox_tts",
+    "overview_chatterbox_multilingual_tts",
+    "overview_elevenlabs_tts",
+    "overview_gemini_tts_preview",
+    "overview_liquidai_tts",
+    "overview_pockettts",
+    "overview_pockettts_multilingual_tts",
+    "overview_whisper_english_stt",
+    "overview_whisper_multilingual_stt",
+    "overview_no_stt",
+    "page_speech_timing"
+  ]
+}

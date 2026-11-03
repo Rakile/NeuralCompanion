@@ -1,0 +1,55 @@
+{
+  "id": "remote_diagnostics",
+  "audience": "remote",
+  "order": 108,
+  "title": "Connection and diagnostics",
+  "category": "Connections & Tools",
+  "description": "Separate connection faults from playback faults and send useful troubleshooting evidence to your desktop.",
+  "speech_backend": "chatterbox",
+  "estimated_minutes": 5,
+  "before_you_start": "Keep the exact error visible if possible. Reading or opening Diagnostics sends nothing. Send diagnostic file uploads phone events to the connected NC desktop; it does not contact a support person. These Android Editorial screenshots show settings routes.",
+  "learning_outcomes": [
+    "Record a reproducible problem and its connection state.",
+    "Expand Diagnostics and interpret the send result."
+  ],
+  "steps": [
+    {
+      "title": "Identify which part stopped working",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.04,
+        0.5,
+        0.92,
+        0.1
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open Settings → Tools → Connection and read the status. A disconnected phone needs connection recovery first. A phone receiving text without sound needs a playback check. Those are different problems.\n\nRecord the time, what you tapped, what you expected, and what appeared. For example: “After sending a phone message, text arrived but I heard no audio.” Include whether images or an avatar were playing. This gives the next step a specific event to investigate.\n\nAvoid resetting the chat before recording the error. Hear step and Read aloud narrate this desktop lesson; they neither reproduce the fault nor send data.",
+      "expected": "You can describe one action, its unexpected result and the connection state.",
+      "recovery": "If the fault no longer occurs, record its original time and symptoms rather than repeatedly resetting the conversation.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    },
+    {
+      "title": "Expand Diagnostics and read the send result",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.04,
+        0.5,
+        0.92,
+        0.1
+      ],
+      "device": "On your phone",
+      "body": "On your phone, return to Settings → Tools and find Diagnostics. Tap Show if details are collapsed. If practical, reproduce the same problem once, then tap Send diagnostic file when you want those events copied to desktop.\n\nRead the result: Sent followed by an event count confirms an upload; No queued events to send means no waiting events. Uploading collects evidence; it does not confirm the problem is fixed. Keep your time and reproduction notes with the report.\n\nIf uploading fails, preserve the error and check the desktop connection. Do not repeatedly tap Send while it is sending. You can still describe the fault when an upload is unavailable.",
+      "expected": "Diagnostics reports a sent event count, no queued events, or a specific upload error.",
+      "recovery": "On failure, check the connection and keep the error, time and reproduction steps.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    }
+  ]
+}

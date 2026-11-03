@@ -1,0 +1,104 @@
+{
+  "id": "musetalk_preprocess",
+  "order": 24,
+  "title": "24. MuseTalk Avatar Creator",
+  "description": "Create one prepared MuseTalk avatar, inspect a mouth frame, and verify the pack with a short spoken reply.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Start with one avatar and a stopped chat",
+      "body": "Open Addons → MuseTalk Avatar Creator after saving chat and switching the large top-right power button ON → OFF if running. Wait for runtime cleanup. The creator prepares assets for later chat; it cannot safely share its render models with an active chat session.\n\nFind the source and pack controls, mask editor and Status area. Our first exercise uses one source and the default mask. Nothing is prepared by opening this page. If controls are blocked, read Status and any resource-release requirement before starting another job.\n\nRead aloud narrates the guide; Hear step reads only this step.",
+      "workspace": "addons",
+      "target": "musetalkCreatorWorkspace",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Give the source a clear destination",
+      "body": "Click New pack or select an intended Target avatar pack. For a first test use Choose still image with one clear visible face, or Choose video with a short clip. Choose frame folder is for an already extracted sequence. Set a recognizable Avatar ID and read Destination before continuing.\n\nCheck the selected source path and frame information. Use a new ID when you want a separate test asset, rather than casually reusing an existing one. Leave range overrides empty for this pass. If the source path is wrong or unreachable, reselect it now; preprocessing the wrong source wastes time and writes to the chosen destination.",
+      "workspace": "addons",
+      "target": "creatorSettingsGroup",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Preprocess once and confirm the output",
+      "body": "Click Preprocess avatar, review the named target in any confirmation, and wait for the job’s stage and progress to finish. Keep the source and destination unchanged during work. Faster avatar startup cache prepares acceleration data for later use; it is optional and adds work during preparation.\n\nAfter success, use Refresh avatars and select the new prepared entry in the intended pack. Its presence and completed status are the result to check, not simply a finished progress animation. If the job fails, read the stage and error first: missing models, an unreadable source and a bad destination need different corrections.",
+      "workspace": "addons",
+      "target": "preprocessButton",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Inspect one mouth frame before editing",
+      "body": "Use Render preview to load a frame and inspect the mask over the mouth. The mask identifies the area replaced during lip sync. If the default blend looks clean, keep it. If a small edit is needed, left-drag adds mask and right-drag removes it; middle-drag pans and Alt-wheel zooms at the pointer.\n\nRender with edited mask shows the clean result in Avatar Preview. Compare it with the source, especially cheeks and chin. Save edited mask as override keeps that exact-frame edit; Save mask metadata preserves reusable settings. If you painted too far, remove the excess and render again before saving.",
+      "workspace": "addons",
+      "target": "creatorMaskEditor",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Test one audio-driven frame before continuous rendering",
+      "body": "Leave Continuous Render off for the first check. In Audio frame test, click Choose to select a short Test audio file, then Run test. Inspect the resulting frame in Avatar Preview for mouth blending and clean edges. This test renders the first audio-driven frame, not a full speaking clip; actual lip-sync playback is checked in chat at the end.\n\nIf the frame has artifacts, adjust the mask and repeat this small test. Continuous Render can help later: it checks about once per second and skips busy ticks, rerendering previews as settings change. Turn it off when finished so iteration does not keep consuming resources.",
+      "workspace": "addons",
+      "target": "continuousRenderSwitch",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Release the creator without clearing useful data",
+      "body": "After the preview test, leave active jobs to finish and follow the creator resource-release prompt before starting chat. If release fails, use Retry creator cleanup and read its status. Do not begin another render while trying to release the same models.\n\nClear cache removes the selected avatar’s startup acceleration cache after confirmation. You do not need it for ordinary cleanup, and it does not delete the original source or replace model release. For this exercise keep a working cache. If you deliberately clear one later, check the exact named avatar before confirming.",
+      "workspace": "addons",
+      "target": "clearCacheButton",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Optional: label additional prepared looks",
+      "body": "One base avatar is enough to finish this guide. If you later prepare another look in the same pack, select it, enter comma-separated Emotion tags and press Save metadata. The tags map reply emotions to prepared looks; they do not create new frames by themselves.\n\nUse Make default on the intended base avatar and read Pack emotion summary to check the mapping. Additional variants must be enabled for chat to use them. If a tag is absent from the summary, reselect that entry and save its metadata before refreshing the pack in Runtime. Keep the first working base available while testing variants.",
+      "workspace": "addons",
+      "target": "creatorSettingsGroup",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Optional: correct only a difficult range",
+      "body": "For a clip whose head angle changes, first find a frame where the current mask fails. Range start and Range end use source-frame indices; frame 0 is the first source frame. Set the narrow interval, adjust mask settings and click Add range from current settings. Load a saved range before using Update on it.\n\nSave metadata, then render representative frames inside and just outside the range. An exact-frame edited mask override suits one isolated frame; Passthrough / no mask leaves a segment untouched. If a visible jump appears at a boundary, narrow or remove that saved range and compare again before preprocessing more assets.",
+      "workspace": "addons",
+      "target": "creatorMaskEditor",
+      "addon": "musetalk_preprocess_tab",
+      "section": "Overview"
+    },
+    {
+      "title": "Select the pack and test actual chat output",
+      "body": "After creator cleanup, view MuseTalk in Runtime → Avatar and click Refresh avatar packs. Choose the prepared Avatar pack, read Pack default avatar and Pack availability, then click Use this avatar. Keep optional emotions and Performance settings unchanged for the first reply.\n\nSwitch the top-right power button OFF → ON, wait for initialization and ask Main chat for one short spoken sentence. Confirm the selected face moves with audible speech in Avatar Preview. If speech is missing, fix TTS first; if only the face is missing, check active avatar and pack status. Stop chat before returning to creator renders.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "avatar"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Install the MuseTalk runtime and required models before preparation. Use one clear portrait or short face clip and enough disk space for its prepared pack. Save chat and stop the runtime before using the creator so it can own the models. Start with default mask settings and one avatar; continuous renders, emotion variants and range overrides are optional. Reading the guide starts no preprocessing or renders.",
+  "learning_outcomes": [
+    "Create a pack and confirm one preprocessing job produced its intended avatar.",
+    "Inspect a single mask frame and compare an audio-driven first-frame test.",
+    "Release creator resources and verify the prepared pack in chat."
+  ],
+  "contextual_guides": [
+    "overview_musetalk_preprocess"
+  ]
+}

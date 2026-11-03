@@ -1,0 +1,27 @@
+{
+  "id": "nc.scenic_pack_creator",
+  "name": "Scenic Pack Creator",
+  "category": "avatar",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Create portable Scenic image packs and edit their tags.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "host_services": [],
+  "native_qml": true,
+  "ui": [
+    {
+      "id": "scenic_pack_creator_tab",
+      "title": "Scenic Pack Creator",
+      "area": "top_level",
+      "order": 132,
+      "tooltip": "Create and edit tagged image packs for the Scenic avatar provider.",
+      "icon_path": "../../ui_icons/side_tabs/scenic.png",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "enabled": true
+}

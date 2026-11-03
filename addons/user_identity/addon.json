@@ -1,0 +1,28 @@
+{
+  "id": "nc.user_identity",
+  "name": "User Identity",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Local user profile, conversation avatar, and request-scoped Visual Reply identity reference.",
+  "permissions": [
+    "storage.read",
+    "storage.write",
+    "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "user_identity_tab",
+      "title": "User Identity",
+      "area": "top_level",
+      "order": 125,
+      "icon_path": "../../ui_icons/side_tabs/user_identity.svg",
+      "tooltip": "Describe the user and manage the user's conversation and Visual Reply portrait.",
+      "metadata": {
+        "native_qml": true
+      }
+    }
+  ],
+  "native_qml": true,
+  "enabled": true
+}

@@ -1,0 +1,16 @@
+{
+  "id": "nc.voice_studio",
+  "name": "Voice Studio",
+  "category": "tools",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Create character voice WAVs with ElevenLabs or local VoiceStudio; preview and test your voice library with Chatterbox.",
+  "permissions": ["ui.tabs", "services.consume", "storage.read", "storage.write"],
+  "ui": [{
+    "id": "voice_studio_tab", "title": "Voice Studio", "area": "top_level",
+    "order": 930, "tooltip": "Character voice creation and local WAV library",
+    "icon_path": "../../ui_icons/side_tabs/voice_studio.svg",
+    "metadata": {"native_qml": true}
+  }],
+  "enabled": true
+}

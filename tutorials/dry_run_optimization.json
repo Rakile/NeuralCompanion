@@ -1,0 +1,72 @@
+{
+  "id": "dry_run_optimization",
+  "order": 9,
+  "title": "9. Performance Check",
+  "description": "Measure three real replies, interpret timing tradeoffs, and compare a deliberate settings change.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "core.performance",
+      "section": "Overview"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Prepare a small manual measurement",
+      "body": "Open Performance Check → Overview. Find Reply samples, Generate automatic sample replies and Start check. Set Reply samples to 3 and leave Generate automatic sample replies off for this first exercise. This lets you supply the three inputs yourself and see what each measurement represents.\n\nSave the open conversation before starting: sample replies use the real chat pipeline. Start check arms the measurement; simply visiting Overview does nothing. If the controls are missing, confirm you opened Performance Check rather than a saved timing profile. Read aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "addons",
+      "target": "operationsWorkspace",
+      "addon": "core.performance",
+      "section": "Overview"
+    },
+    {
+      "title": "Know which setup the result describes",
+      "body": "Before starting, identify your active chat provider/model, speech provider, streaming choice and avatar route in Runtime. A performance result belongs to that combination on this computer. It does not compare every model or predict another computer’s speed.\n\nCheck that this exact setup can already answer a short message and, if configured, speak and animate it. Fix a failing provider before measuring. Write down what you care about most: time before the first sound, fewer pauses during speech, or lower memory use. That priority will help you judge the recommendation instead of accepting a faster-looking number blindly.",
+      "workspace": "runtime",
+      "target": "runtimeWorkspace",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Start the check and supply three replies",
+      "body": "Return to Overview and click Start check once. The status should become Running. With automatic samples off, go to Main Chat and send three short questions one at a time, waiting for each reply to finish. For example: “Name a season,” “Describe rain in one sentence,” and “Suggest a short greeting.” Starting the check alone does not supply those manual inputs.\n\nWatch the sample count advance. Keep other heavy tasks paused so their load does not distort the comparison. Completion or Stop ends measurement and restores the saved test settings; the recommendations remain. If the count stays still, check that replies actually completed through the intended pipeline. If an error names a provider, repair that provider before repeating.",
+      "workspace": "addons",
+      "target": "operationsWorkspace",
+      "addon": "core.performance",
+      "section": "Overview"
+    },
+    {
+      "title": "Read a recommendation as a tradeoff",
+      "body": "After completion, inspect the result and its reasons. Startup delay is the wait before output begins; chunking splits speech into pieces; buffering holds some output ready to reduce gaps. A setting that helps one can worsen another, so compare the recommendation with the priority you wrote down.\n\nNote the sample count and measured reason before changing anything. Three samples are a first check, not a guarantee for long replies. If the result is incomplete or reflects a different model, do another controlled run with the intended setup. You can leave the recommendation unapplied and keep your current settings.",
+      "workspace": "addons",
+      "target": "operationsWorkspace",
+      "addon": "core.performance",
+      "section": "Overview"
+    },
+    {
+      "title": "Apply the recommendation, then compare normal use",
+      "body": "Apply latest recommendation applies the recommended settings together; it is not a picker for individual suggestions. Record your current values first, then use it only when you understand and want the proposed set. Alternatively, change one relevant setting manually in its normal settings page to make a smaller comparison. Load profile applies a saved profile and is a separate action.\n\nSend another normal short message and listen for the improvement you chose: an earlier start or smoother speech. If it is worse, restore your recorded values. Repeating the same sample set under similar load gives a more useful comparison than changing provider, avatar and timing together.",
+      "workspace": "addons",
+      "target": "operationsWorkspace",
+      "addon": "core.performance",
+      "section": "Overview"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "First get an ordinary Main Chat reply working with the chat, speech and avatar setup you want to measure. Save your conversation and note your current timing settings. Performance Check runs real work, can use hosted-provider credits, and temporarily tries settings; it is not a simulation. Start with three manually supplied replies and leave automatic generation off. Reading the guide does not start a check or apply a recommendation.",
+  "learning_outcomes": [
+    "Run Performance Check against the configuration you actually intend to use.",
+    "Read a measured recommendation and understand the reason behind it.",
+    "Apply one setting change at a time and confirm it helped on a real conversation."
+  ],
+  "contextual_guides": [
+    "page_performance_check"
+  ]
+}

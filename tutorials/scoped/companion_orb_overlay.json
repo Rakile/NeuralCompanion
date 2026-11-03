@@ -1,0 +1,394 @@
+{
+  "guides": [
+    {
+      "id": "overview_companion_orb_overlay",
+      "title": "Companion Orb Overlay overview",
+      "description": "Configure and run the Companion Orb Overlay from its own addon tab.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "companion_orb_overlay_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Companion Orb Overlay",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Configure and run the Companion Orb Overlay from its own addon tab.",
+        "Find focused guidance for Overview, Look, Behavior, Eye Tracking, Reading, Hotkeys, Advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_companion_orb_overlay_look",
+        "page_companion_orb_overlay_behavior",
+        "page_companion_orb_overlay_eye_tracking",
+        "page_companion_orb_overlay_reading",
+        "page_companion_orb_overlay_hotkeys",
+        "page_companion_orb_overlay_advanced",
+        "companion_orb_overlay",
+        "companion_orb_lfm_interactive"
+      ],
+      "steps": [
+        {
+          "title": "What Companion Orb Overlay does",
+          "body": "Configure and run the Companion Orb Overlay from its own addon tab. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        },
+        {
+          "title": "Show the orb without starting a watch",
+          "body": "In Overview, use the show action to display the orb, or use Orb beside the Conversation controls. Look for the orb on your desktop: this confirms the overlay is visible, not that capture or background replies are granted. Read the setup state and any reason shown here before continuing.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Resolve a missing requirement before showing again",
+          "body": "Read the setup state in Overview. Enable addon for next restart means the addon must load before continuing; Start runtime means the top-right power button must be switched OFF and then ON when you are ready for chat and watches. Follow the specific missing requirement instead of repeatedly pressing Show Orb.",
+          "target": "tutorialControl_companion_orb_preset_load_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose a window as the capture target",
+          "body": "Place a harmless window with a visible title on screen, choose Window under Orb, and right-drag the Orb onto that window. Read What the Orb can see to confirm the window name. If it names the desktop instead, right-drag again onto the window itself. All watches share the current target.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand region and screen targets",
+          "body": "Left-drag selects a region; Region around Orb uses the adjustable region size. Right-dropping on desktop background selects that screen, not every monitor, while Entire screen is broader. Selecting a target alone creates no watch. Changing the target changes the view for every watch, so set it before enabling watching.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Resolve the vision model requirement",
+          "body": "If the setup state asks for vision configuration, open Vision settings. In Setup, use Provider and Refresh models, read Model availability, and choose an available vision-capable Vision model when using the auxiliary route. Configure provider opens its connection settings. Check whether the image recipient is local or remote; an empty list means fixing the endpoint first.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [
+        "page_companion_orb_overlay_look",
+        "page_companion_orb_overlay_behavior",
+        "page_companion_orb_overlay_eye_tracking",
+        "page_companion_orb_overlay_reading",
+        "page_companion_orb_overlay_hotkeys",
+        "page_companion_orb_overlay_advanced"
+      ],
+      "display_title": "Start tutorial · Companion Orb Overlay",
+      "optional_chapters": [
+        "companion_orb_overlay",
+        "companion_orb_lfm_interactive"
+      ]
+    },
+    {
+      "id": "page_companion_orb_overlay_overview",
+      "title": "Companion Orb Overlay · Overview",
+      "description": "Use Overview in Companion Orb Overlay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "companion_orb_overlay_tab",
+        "section": "Overview"
+      },
+      "category": "Addons / Companion Orb Overlay",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Show the orb without starting a watch",
+        "Resolve a missing requirement before showing again",
+        "Choose a window as the capture target"
+      ],
+      "steps": [
+        {
+          "title": "Show the orb without starting a watch",
+          "body": "In Overview, use the show action to display the orb, or use Orb beside the Conversation controls. Look for the orb on your desktop: this confirms the overlay is visible, not that capture or background replies are granted. Read the setup state and any reason shown here before continuing.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Resolve a missing requirement before showing again",
+          "body": "Read the setup state in Overview. Enable addon for next restart means the addon must load before continuing; Start runtime means the top-right power button must be switched OFF and then ON when you are ready for chat and watches. Follow the specific missing requirement instead of repeatedly pressing Show Orb.",
+          "target": "tutorialControl_companion_orb_preset_load_button",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose a window as the capture target",
+          "body": "Place a harmless window with a visible title on screen, choose Window under Orb, and right-drag the Orb onto that window. Read What the Orb can see to confirm the window name. If it names the desktop instead, right-drag again onto the window itself. All watches share the current target.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Understand region and screen targets",
+          "body": "Left-drag selects a region; Region around Orb uses the adjustable region size. Right-dropping on desktop background selects that screen, not every monitor, while Entire screen is broader. Selecting a target alone creates no watch. Changing the target changes the view for every watch, so set it before enabling watching.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Resolve the vision model requirement",
+          "body": "If the setup state asks for vision configuration, open Vision settings. In Setup, use Provider and Refresh models, read Model availability, and choose an available vision-capable Vision model when using the auxiliary route. Configure provider opens its connection settings. Check whether the image recipient is local or remote; an empty list means fixing the endpoint first.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_companion_orb_overlay",
+      "hidden": true
+    },
+    {
+      "id": "page_companion_orb_overlay_look",
+      "title": "Companion Orb Overlay · Look",
+      "description": "Use Look in Companion Orb Overlay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "companion_orb_overlay_tab",
+        "section": "Look"
+      },
+      "category": "Addons / Companion Orb Overlay",
+      "order": 211,
+      "topic": "Look",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect the orb's appearance controls",
+        "Record what a look change affects"
+      ],
+      "steps": [
+        {
+          "title": "Inspect the orb's appearance controls",
+          "body": "The Look tab holds the orb's visual presentation so you can set how the overlay appears on your desktop. Change one appearance option at a time and watch the on-desktop orb, since the overlay updates as you adjust. If the orb is hidden, show it from Overview before comparing changes.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Record what a look change affects",
+          "body": "Appearance settings shape the overlay only; they do not influence capture targets, watches, or vision use. Note the values you changed so you can revert a look you dislike. If the orb seems unaffected, confirm it is visible and that the runtime is on before assuming the setting failed.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_companion_orb_overlay"
+    },
+    {
+      "id": "page_companion_orb_overlay_behavior",
+      "title": "Companion Orb Overlay · Behavior",
+      "description": "Use Behavior in Companion Orb Overlay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "companion_orb_overlay_tab",
+        "section": "Behavior"
+      },
+      "category": "Addons / Companion Orb Overlay",
+      "order": 212,
+      "topic": "Behavior",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review behavior settings before enabling watches",
+        "Change one behavior option and observe"
+      ],
+      "steps": [
+        {
+          "title": "Inspect motion and response behavior",
+          "body": "Read the current Behavior options before changing them. Adjust one behavior choice at a time so its effect can be attributed to that value. Visual awareness permissions are separate from cosmetic behavior. Related setup guidance is available after this section if the Orb is not yet ready.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Change one behavior option and observe",
+          "body": "Adjust one behavior option at a time, then use the orb briefly to see whether the change matches your intent. Behavior settings do not replace the explicit watching consent in Overview, so a change here is not permission for capture. If a change appears ineffective, confirm the runtime is on.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_companion_orb_overlay_overview",
+        "page_orb_setup"
+      ],
+      "course_id": "overview_companion_orb_overlay"
+    },
+    {
+      "id": "page_companion_orb_overlay_eye_tracking",
+      "title": "Companion Orb Overlay · Eye Tracking",
+      "description": "Use Eye Tracking in Companion Orb Overlay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "companion_orb_overlay_tab",
+        "section": "Eye Tracking"
+      },
+      "category": "Addons / Companion Orb Overlay",
+      "order": 213,
+      "topic": "Eye Tracking",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Inspect eye tracking options",
+        "Check tracking after a change"
+      ],
+      "steps": [
+        {
+          "title": "Inspect eye tracking options",
+          "body": "The Eye Tracking tab controls how the orb's eyes follow or respond to your desktop activity. Read each option before changing it, because tracking behavior affects how the orb appears during normal work. Make one change and observe the orb rather than switching several at once.",
+          "target": "tutorialControl_companion_orb_eye_tracking_bounding_box_show_controls_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check tracking after a change",
+          "body": "After adjusting an eye tracking option, watch the visible orb for a short period to judge the effect. If tracking stops as expected, that confirms the setting; if the orb is hidden, show it from Overview first. Eye tracking is appearance-oriented and is separate from capture consent.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_companion_orb_overlay"
+    },
+    {
+      "id": "page_companion_orb_overlay_reading",
+      "title": "Companion Orb Overlay · Reading",
+      "description": "Use Reading in Companion Orb Overlay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "companion_orb_overlay_tab",
+        "section": "Reading"
+      },
+      "category": "Addons / Companion Orb Overlay",
+      "order": 214,
+      "topic": "Reading",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Set up reading behavior",
+        "Test reading on a short span"
+      ],
+      "steps": [
+        {
+          "title": "Set up reading behavior",
+          "body": "The Reading tab configures how the orb helps with text it can see on screen. Read the options here before asking the orb to read anything, and keep the first test short so the result is easy to judge. Reading behavior depends on the capture target set in Overview.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Know how to verify reading later",
+          "body": "A later explicit request to read a short visible span can test the selected reading behavior. Compare the result with the source text. If the target or permissions are not ready, complete their separate setup guide first. Keep the Reading values unchanged while diagnosing an unavailable capture source.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_orb_setup"
+      ],
+      "course_id": "overview_companion_orb_overlay"
+    },
+    {
+      "id": "page_companion_orb_overlay_hotkeys",
+      "title": "Companion Orb Overlay · Hotkeys",
+      "description": "Use Hotkeys in Companion Orb Overlay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "companion_orb_overlay_tab",
+        "section": "Hotkeys"
+      },
+      "category": "Addons / Companion Orb Overlay",
+      "order": 215,
+      "topic": "Hotkeys",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review hotkey assignments",
+        "Confirm a hotkey works"
+      ],
+      "steps": [
+        {
+          "title": "Review hotkey assignments",
+          "body": "The Hotkeys tab lists keyboard shortcuts for the orb. Read the current assignments before adding any, so you do not overwrite a shortcut you rely on. Change one hotkey at a time and test it while the orb is visible. A shortcut that reacts only when NC has focus needs the main window open.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Confirm a hotkey works",
+          "body": "Press the hotkey you assigned and observe the corresponding orb action. If nothing happens, check for a conflicting shortcut and whether the runtime is on. Assigned hotkeys are configuration; testing one is what confirms it works, so avoid treating a saved shortcut as proof of function.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_companion_orb_overlay"
+    },
+    {
+      "id": "page_companion_orb_overlay_advanced",
+      "title": "Companion Orb Overlay · Advanced",
+      "description": "Use Advanced in Companion Orb Overlay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "companion_orb_overlay_tab",
+        "section": "Advanced"
+      },
+      "category": "Addons / Companion Orb Overlay",
+      "order": 216,
+      "topic": "Advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Understand the debug recorder",
+        "Run a visual grounding test",
+        "Adjust rendering performance"
+      ],
+      "steps": [
+        {
+          "title": "Understand the debug recorder",
+          "body": "Orb pipeline debug recorder writes pipeline details for troubleshooting. Companion Orb Debug Log Path Preview shows where the log goes, and Open Debug Log Folder, Clear Debug Log, and Copy Debug Log Path act on it. Enable the recorder only while investigating a problem, then read the log rather than leaving it running.",
+          "target": "tutorialControl_companion_orb_debug_enabled_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Run a visual grounding test",
+          "body": "Keep the last desktop-map capture for diagnostics controls whether a capture is retained for analysis. Read Companion Orb Spatial Diagnostics Privacy Note before enabling it, then use Test Visual Grounding and read Companion Orb Spatial Diagnostics Status for the outcome. Retained captures can include screen content, so use Clear only as appropriate.",
+          "target": "tutorialControl_companion_orb_spatial_diagnostics_keep_last_capture_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Adjust rendering performance",
+          "body": "External runtime for orb animation and Reduced effects trade detail for smoothness on slower hardware. Orb Frame Rate and Orb Sync Rate tune how often the orb redraws and syncs. Lower one value at a time and observe the orb before lowering again. Keep selected-area debug crops only while diagnosing reading problems.",
+          "target": "tutorialControl_companion_orb_reading_keep_debug_crops_checkbox",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_companion_orb_overlay"
+    }
+  ]
+}

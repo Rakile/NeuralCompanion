@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "project": "pocket-tts",
+  "version": "3.3.0",
+  "upstream_repository": "https://github.com/kyutai-labs/pocket-tts",
+  "upstream_commit": "b94db177bc0f77517d9b124843e25605d6f9aed8",
+  "source_archive_sha256": "ea05521f39364a8fb1292ec149e4d56708cbdfcb250ff6831a7dc5c9bf50581c",
+  "wheel": {
+    "filename": "pocket_tts-3.3.0-py3-none-any.whl",
+    "size": 90469,
+    "sha256": "47e7fc8ef6fe2df9742adfa834ed2e36dff22b3320ccf1b16fb941c4e1341fd7"
+  },
+  "license": {
+    "filename": "LICENSE",
+    "size": 1023,
+    "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+  },
+  "build": {
+    "backend": "hatchling==1.32.4",
+    "python": "3.12.14",
+    "source_date_epoch": 315532800
+  },
+  "provenance_note": "Built from the original cached upstream source archive used by the existing NC runtime; archive checksum matches pip direct_url metadata. All 53 package files, METADATA, WHEEL, entry points and LICENSE are byte-identical to that installed snapshot. No NC package patches."
+}

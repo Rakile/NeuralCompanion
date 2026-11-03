@@ -1,0 +1,164 @@
+{
+  "guides": [
+    {
+      "id": "overview_voice_studio",
+      "title": "Voice Studio",
+      "description": "Create character voice WAVs with ElevenLabs or local VoiceStudio; preview and test your voice library with Chatterbox.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.voice_studio",
+        "workspace": "addons",
+        "addon": "voice_studio_tab",
+        "section": "Create Voices"
+      },
+      "category": "Addons / Voice Studio",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Create character voice WAVs with ElevenLabs or local VoiceStudio; preview and test your voice library with Chatterbox.",
+        "Find focused guidance for Create Voices, Voice Library, Settings."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "voice_studio",
+        "page_voice_studio_create_voices",
+        "page_voice_studio_voice_library",
+        "page_voice_studio_settings"
+      ],
+      "steps": [
+        {
+          "title": "What Voice Studio does",
+          "body": "Create character voice WAVs with ElevenLabs or local VoiceStudio; preview and test your voice library with Chatterbox. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "voice_studio"
+      ],
+      "display_title": "Start tutorial · Voice Studio",
+      "optional_chapters": [
+        "page_voice_studio_create_voices",
+        "page_voice_studio_voice_library",
+        "page_voice_studio_settings"
+      ]
+    },
+    {
+      "id": "page_voice_studio_create_voices",
+      "title": "Voice Studio · Create Voices",
+      "description": "Use Create Voices in Voice Studio.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.voice_studio",
+        "workspace": "addons",
+        "addon": "voice_studio_tab",
+        "section": "Create Voices"
+      },
+      "category": "Addons / Voice Studio",
+      "order": 210,
+      "topic": "Create Voices",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Generate and save one character’s sample",
+        "Recover a rejected or slow sample"
+      ],
+      "steps": [
+        {
+          "title": "Generate and save one character’s sample",
+          "body": "Choose your checked Creation provider and Add character. Name it and describe a calm, measured voice. Enter Sample text you want to hear; ElevenLabs needs 100–1,000 characters and local accepts 1–5,000. Use the sample-length guidance shown here for each provider before generating. Save selected WAV is the explicit save; use it after listening.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover a rejected or slow sample",
+          "body": "If generation is rejected, read the character’s State or error and correct sample length or provider readiness before retrying. A saved draft keeps names and text but is not a WAV. Draft characters with AI proposes descriptions, not audio. Keep one working reference before attempting a batch.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_voice_studio"
+    },
+    {
+      "id": "page_voice_studio_voice_library",
+      "title": "Voice Studio · Voice Library",
+      "description": "Use Voice Library in Voice Studio.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.voice_studio",
+        "workspace": "addons",
+        "addon": "voice_studio_tab",
+        "section": "Voice Library"
+      },
+      "category": "Addons / Voice Studio",
+      "order": 211,
+      "topic": "Voice Library",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Label and audition the saved recording",
+        "Hear your own sentence in that voice"
+      ],
+      "steps": [
+        {
+          "title": "Label and audition the saved recording",
+          "body": "In Voice Library select the new recording and Play original sample; you should hear the saved candidate. Add a useful Description or Notes such as “calm, low, measured,” then Save details. Select another entry and return to verify the details persisted. Notes do not change the sound.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Test an existing recording when speech is ready",
+          "body": "Generate test needs a loaded compatible Chatterbox backend; selecting a backend alone is insufficient. If it is ready, enter a short test sentence for the selected recording, then use Generate test and Play test. Save test recording exports separately. If speech is not ready, read the related TTS guide later.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "runtime_tts"
+      ],
+      "course_id": "overview_voice_studio"
+    },
+    {
+      "id": "page_voice_studio_settings",
+      "title": "Voice Studio · Settings",
+      "description": "Use Settings in Voice Studio.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.voice_studio",
+        "workspace": "addons",
+        "addon": "voice_studio_tab",
+        "section": "Settings"
+      },
+      "category": "Addons / Voice Studio",
+      "order": 212,
+      "topic": "Settings",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Check one creation route before starting",
+        "Recover connection errors before creating audio"
+      ],
+      "steps": [
+        {
+          "title": "Check one creation route before starting",
+          "body": "In Settings choose the route you already have. For ElevenLabs select Use NC ElevenLabs connection or a session-only API key, then Check ElevenLabs connection; generation uses account credits. For local, enter the running service’s loopback URL and Check local connection, confirming a detected engine says loaded. NC does not install that service. Save settings after deliberate edits.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Recover connection errors before creating audio",
+          "body": "A failed connection is a provider or service state, not a character problem. Resolve it before creating audio. Longer dialogue and temporary cloud voices use credits and are unnecessary for the basic reference exercise. If you try them later, inspect unresolved jobs before allowing a retry, because repeated requests can duplicate spend.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_voice_studio"
+    }
+  ]
+}

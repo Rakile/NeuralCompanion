@@ -1,0 +1,119 @@
+{
+  "id": "conversation",
+  "order": 5,
+  "title": "5. Conversation and Chat",
+  "description": "Practice with one short reply: control its speech, correct its text, save the chat, then explore optional conversation tools.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "conversation"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Find the message field and your chat history",
+      "body": "Start with Main chat selected in Conversation. Find the message history and the field at the bottom where you type. Save, Save as…, Load… and Memory sit above the history; Controls lets you show hidden buttons.\n\nWe will use one short reply to practice playback, editing and saving. You do not need to enable images or search to complete that exercise. If you are viewing a Local room, select Main chat before continuing.\n\nRead aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "conversation",
+      "target": "conversationWorkspace"
+    },
+    {
+      "title": "Send one short practice message",
+      "body": "With the top-right power button ON, type “Explain a rainbow in two sentences” and click Send or press Enter. Shift+Enter adds a line without sending.\n\nYour message should appear in the history, followed by an assistant reply. If no reply arrives, check the active provider and Test connection in Runtime → LLM before trying again. When NC is busy generating, speaking or editing, another message can wait in the queue; avoid repeatedly pressing Send.",
+      "workspace": "conversation",
+      "target": "conversationComposer"
+    },
+    {
+      "title": "Pause and replay the reply",
+      "body": "If speech is configured, wait until your rainbow reply begins speaking, then use Pause and Play in its action row. You should hear speech stop and resume while the text stays visible. Replay reads the reply again.\n\nSkip speech moves past speech; End waiting ends a waiting state when available. Skip speech turns red when a queued user reply is waiting. Controls appear only when valid, so a silent or finished reply will not show every action. If there is no reply row, complete the previous step; for silence, check TTS and the output device in Speech and Streaming.",
+      "workspace": "conversation",
+      "target": "conversationResponseActions",
+      "fallback_target": "conversationComposer",
+      "target_hint": "The action row appears on an assistant reply. Send the short practice message first; speech actions also depend on playback state."
+    },
+    {
+      "title": "Correct one word in the reply",
+      "body": "Click Edit on the rainbow reply. In the inline editor, change one word, then choose Save. Check that the history now shows your correction. Cancel closes the draft without applying it.\n\nOpening this editor does not pause speech already playing. Other response actions stay unavailable until you Save or Cancel, and new messages may wait. If Edit will not open, first exit any full conversation edit mode and confirm that an assistant reply exists.",
+      "workspace": "conversation",
+      "target": "conversationInlineResponseEditor",
+      "fallback_target": "conversationComposer",
+      "target_hint": "Click Edit on an existing assistant reply to reveal its inline editor. Exit full conversation edit mode first if necessary."
+    },
+    {
+      "title": "Optional: distinguish attached and generated images",
+      "body": "Add image attaches a picture you supply to your next user message. Ask about it only with a chat model that accepts images. A Visual Reply is a picture NC generates with an assistant response and needs a configured image provider.\n\nIf your history already contains a Visual Reply, open that image and inspect its own save, copy or variation controls. Otherwise continue the text exercise and use the Visual Reply guide later. A text-only reply does not mean image generation has been tested.",
+      "workspace": "conversation",
+      "target": "visualReplyAsset",
+      "fallback_target": "conversationComposer",
+      "target_hint": "A generated Visual Reply reveals the image target. Without one, stay at the composer and use the separate Visual Reply guide later."
+    },
+    {
+      "title": "Optional: add evidence from the web",
+      "body": "Web Search lets chat consult retrieved web information. If you already configured search servers, turn the Conversation Web Search switch on and ask a small current-information question. Look for source links in the response and open one to compare it with the claim.\n\nIf setup is offered, use the Web Search guide before continuing this test. If the switch is hidden, open Controls and show Web Search. Turning it off disables chat search and stops NC-managed search servers; outside services have their own lifecycle.",
+      "workspace": "conversation",
+      "target": "conversationWebSearchControl",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. If Web Search is hidden, open Controls and show the Web Search control first."
+    },
+    {
+      "title": "Choose how Persona portraits are displayed",
+      "body": "Find Persona avatar display in the conversation toolbar. Choose Single portrait or Mood portraits and compare the portraits beside assistant messages. This changes the reading view; it does not create or replace saved portrait files.\n\nTo change the replying Persona, right-click an assistant portrait and choose an available quick Persona. That changes the active identity for later replies. Keep the current Persona for this exercise if you have no saved alternatives. If portraits are hidden, use Persona avatar display first; widen the window if the toolbar is clipped.",
+      "workspace": "conversation",
+      "target": "conversationControlsButton"
+    },
+    {
+      "title": "Inspect reset without losing your practice chat",
+      "body": "Reset chat memory starts a fresh active conversation after confirmation. Save your chat first if you may want it again. Open the reset dialog, read it, then choose Cancel for this exercise.\n\nThe history should remain visible after cancelling. Confirm reset only when you intend to clear the active context and its pending summary work; this is separate from deleting a named saved file. If the button is hidden, show Reset chat memory from Controls.",
+      "workspace": "conversation",
+      "target": "conversationResetMemoryButton",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. If Reset chat memory is hidden, open Controls and show its button. Resetting is optional and requires confirmation."
+    },
+    {
+      "title": "Show a hidden control",
+      "body": "Open Controls in the Conversation header. Find a visibility option such as Memory button, turn it off, then on again. Check that the corresponding button disappears and returns. Its feature remains available even when its button is hidden.\n\nControls also holds timestamps, autoscroll, the console split and Quick Save/Quick Load. Quick Save uses its own quick-save file; our exercise will use a named Save instead. If the menu is clipped, widen or maximize NC.",
+      "workspace": "conversation",
+      "target": "conversationControlsButton",
+      "fallback_target": "conversationWorkspace",
+      "target_hint": "Controls is in the Conversation header. Widen or maximize the window if its header controls are clipped."
+    },
+    {
+      "title": "Inspect a command draft before sending",
+      "body": "Type “/” in the message field to inspect available slash commands. Choose one only if you understand its purpose, review any draft or required fields, then cancel or clear it for this exercise.\n\nSelecting a draft is a chance to review it before submission; do not send an unfamiliar command just to test the menu. Addons supply commands, so the list depends on what is loaded. If a command you expected is absent, check its addon in Addon Manager. Return to an empty composer before continuing.",
+      "workspace": "conversation",
+      "target": "conversationComposer"
+    },
+    {
+      "title": "Save and reopen your practice chat",
+      "body": "Click Save and choose a recognizable name if prompted. Save as… creates another named copy; Save updates the current file. Then use Load… to reopen the file you just saved and compare its messages and corrected word.\n\nIf NC warns about unsaved changes, choose Save to keep them or Cancel to remain in the current chat. A saved, loaded chat stays visible when the engine stops and can reopen on the next NC start while its file exists. A filename alone is not the test: confirm the expected messages returned.",
+      "workspace": "conversation",
+      "target": "conversationFileActions",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. If Save or Load is still missing, open Controls and enable its button visibility option."
+    },
+    {
+      "title": "Open this conversation’s memory settings",
+      "body": "Click Memory beside Save and Load. The page separates Conversation summary, Older messages and Memory search. The saved file preserves your dialogue; these memory tools help NC use earlier details when answering.\n\nFor now, identify the saved chat name and read the summary and archive status. An empty summary or archive is normal for a new short chat. Use Conversation Memory for a recall exercise, or Document Memory for imported files. If Memory is hidden, show Memory button in Controls.",
+      "workspace": "conversation",
+      "target": "conversationMemoryButton",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. Open Controls and turn on Memory button if hidden."
+    },
+    {
+      "title": "Later: repair more than one message",
+      "body": "Use Edit conversation for changes across the history. For a safe first look, open it, inspect the message selection controls, then Cancel. The original history should remain.\n\nWhen you need a real repair, select the affected messages, edit or mark deletions, review them and choose Apply changes. Accepted changes repair affected memory and attachment links; Save afterward to update the named file. Other retained messages or summaries may still mention a deleted detail, so inspect them too. Your basic exercise is complete when the corrected chat has been saved and reopened.",
+      "workspace": "conversation",
+      "target": "conversationControlsButton"
+    }
+  ],
+  "before_you_start": "Use a short practice chat you can safely edit. First Chat covers provider setup; sending needs a working chat provider and the top-right power button ON. Speech needs a loaded TTS provider, and image exercises need Visual Reply configured. You can read without doing the optional exercises. The guide only highlights controls. Read aloud narrates the guide; Hear step reads this step, preferring loaded Chatterbox and otherwise trying Windows TTS.",
+  "learning_outcomes": [
+    "Send, listen to and correct one assistant reply.",
+    "Save and reopen a named conversation and find its memory settings.",
+    "Recognize optional image, search, Persona and history controls."
+  ],
+  "category": "Workflows",
+  "contextual_guides": [
+    "page_conversation_overview"
+  ]
+}

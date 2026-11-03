@@ -1,0 +1,55 @@
+{
+  "id": "remote_connect",
+  "audience": "remote",
+  "order": 101,
+  "title": "Connect your phone",
+  "category": "Connections & Tools",
+  "description": "Prepare NC desktop, pair a phone on your home network, and confirm the connection with one short chat.",
+  "speech_backend": "chatterbox",
+  "estimated_minutes": 5,
+  "before_you_start": "First complete Get Started: Your First Chat on desktop. Practise with NC Remote on a phone and keep both devices on the same local network. These Android Editorial overview screenshots are illustrations, not live controls; nested pages may differ by version.",
+  "learning_outcomes": [
+    "Recognize ready desktop phone services.",
+    "Pair by QR code or LAN details and verify a real reply."
+  ],
+  "steps": [
+    {
+      "title": "Prepare NC desktop first",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.04,
+        0.5,
+        0.92,
+        0.1
+      ],
+      "device": "On NC desktop",
+      "body": "On NC desktop, open Addons → Main Chat Remote and click Connect phone. Wait for Phone setup ready, a Ready phone backend, and the pairing QR. Leave this page open for the next step. The screenshot highlights the later phone settings route, not this desktop button.\n\nThis is separate from starting your chat model. Confirm Main chat works before testing a phone message; pairing cannot make an unavailable model answer. If setup fails, read the service status and error here before retrying.\n\nHear step reads this instruction; Read aloud narrates as you advance. Both run on desktop and leave phone actions to you.",
+      "expected": "Main Chat Remote reports Phone setup ready and displays pairing information.",
+      "recovery": "Inspect desktop service status and errors. Resolve readiness before entering pairing details on the phone.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    },
+    {
+      "title": "Pair, then prove chat works",
+      "screenshot": "settings.png",
+      "highlight": [
+        0.04,
+        0.13,
+        0.92,
+        0.06
+      ],
+      "device": "On your phone",
+      "body": "On your phone, open Settings → Tools → Connection and choose LAN for the first test. Tap Scan QR code and scan the desktop QR, or copy the displayed LAN URL and numeric Code into the matching fields. Tap Connect and wait for the connected status.\n\nOpen Chat and send “Hello from my phone. Please reply in one sentence.” Your sent message and an assistant text reply confirm more than pairing alone. If connected chat has no reply, check the desktop power button and LLM connection.\n\nIf pairing fails, recheck the current URL/code, desktop backend status, and shared network without client isolation. Demo only previews the interface. Leave optional Internet/NC Relay setup until LAN chat works.",
+      "expected": "The phone reports a desktop connection and your message receives an assistant reply.",
+      "recovery": "For pairing errors, check LAN details and the shared network. For connected chat with no answer, check desktop engine and LLM readiness.",
+      "caption": "Android Editorial • Settings overview; nested controls are described in the instructions.",
+      "gesture": "",
+      "workspace": "addons",
+      "addon": "core.tutorials",
+      "target": "tutorialsWorkspace"
+    }
+  ]
+}

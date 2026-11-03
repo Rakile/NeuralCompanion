@@ -1,0 +1,47 @@
+{
+  "id": "runtime_visual_reply",
+  "title": "Visual Reply",
+  "description": "Locate the image generation provider area in Visual Reply and read which provider is highlighted, treating the workflow picker as optional.",
+  "kind": "section",
+  "scope": {
+    "workspace": "runtime",
+    "runtime_section": "runtime",
+    "runtime_responsibility": "visual"
+  },
+  "category": "Runtime / Runtime Session",
+  "order": 46,
+  "before_you_start": "You can read this guide with the engine stopped. It opens settings pages and highlights controls; changes and tests are explicit user actions.",
+  "learning_outcomes": [
+    "Find the image provider list",
+    "Know that a workflow picker appears only when ComfyUI is selected",
+    "Distinguish viewing a provider from activating it"
+  ],
+  "steps": [
+    {
+      "title": "Locate image-generation settings",
+      "body": "Visual reply configures images generated with assistant replies. It is separate from attaching your own image to a user message and from viewing an existing image. Read the selected provider and its configuration on this page; do not switch it unless you intend to change image generation.",
+      "target": "runtimeResponsibilityStack",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Read provider requirements",
+      "body": "Inspect the current provider's connection and generation options. Requirements differ between local services and cloud providers. An address or saved model name does not prove the service is ready. Leave settings unchanged during this tour; use any explicit test offered only when you are ready to contact that service.",
+      "target": "runtimeResponsibilityStack",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Recognize ComfyUI-specific choices",
+      "body": "If ComfyUI is selected, locate its workflow picker and folder controls. A workflow defines the generation graph and needs the appropriate models on the ComfyUI server. Other providers do not show this picker. Without ComfyUI, read the general settings area and continue; there is no need to switch providers.",
+      "target": "comfyuiWorkflowPicker",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Understand how to verify generation",
+      "body": "A successful generation must produce an image, not merely show a configured provider. That exercise belongs in the Visual Reply workflow after setup. Finish this page tour when you can identify the provider and its prerequisites. No image job is submitted by this tutorial.",
+      "target": "runtimeResponsibilityStack",
+      "fallback_target": "runtimeResponsibilityStack"
+    }
+  ],
+  "estimated_minutes": 3,
+  "course_id": "runtime_session_overview"
+}

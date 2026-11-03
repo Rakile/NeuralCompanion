@@ -1,0 +1,117 @@
+{
+  "id": "conversation_memory",
+  "order": 33,
+  "title": "33. Conversation Memory",
+  "description": "Save one chat, inspect its summary and stored messages, then search for a detail before relying on automatic recall.",
+  "category": "Workflows",
+  "estimated_minutes": 8,
+  "speech_backend": "chatterbox",
+  "before_you_start": "Start with a short saved chat containing a harmless fact you can recognize, such as a planned destination. A working chat provider is needed to create a summary. Keyword search needs no extra model; meaning-based search optionally uses an embedding provider. Document Memory and Local Room are separate workflows. Reading changes no settings or model state. Guide speech prefers selected, loaded Chatterbox; NC otherwise tries Windows TTS.",
+  "learning_outcomes": [
+    "Separate saving a chat, summarizing it and retrieving older messages.",
+    "Find a known detail in stored conversation messages.",
+    "Choose optional meaning-based search without replacing the chat provider."
+  ],
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "conversation"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    },
+    {
+      "workspace": "runtime",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Save a chat containing one memorable fact",
+      "body": "In Conversation, use a short exchange containing a fact such as “Our trip destination is Bergen.” Click Save and choose a recognizable name. The label above the messages should change from Unsaved conversation to your named context.\n\nSaving preserves the full dialogue. Memory is a separate way to make earlier details available when NC answers. If Save is hidden, open Controls and show Save button. Do not reset your chat for this exercise.\n\nRead aloud narrates the guide; Hear step reads this instruction.",
+      "workspace": "conversation",
+      "target": "conversationSaveButton",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. Open Controls and turn on Save button, Save as button, and Load button if they are hidden."
+    },
+    {
+      "title": "Find memory for the saved conversation",
+      "body": "Click Memory beside Save and Load. Confirm that its status refers to the chat you just saved. You can also reach this page through Runtime → Chat Behavior → Memory.\n\nWe will inspect three layers: a short summary, stored older messages and the search used to retrieve them. These are conversation memory, not imported Document Memory packages. If controls are disabled, check that the chat has a saved filename; show Memory button in Controls if its shortcut is hidden.",
+      "workspace": "conversation",
+      "target": "conversationMemoryButton",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. Show Memory button from Controls, then select it. You can also open Runtime > Chat Behavior > Memory."
+    },
+    {
+      "title": "Create and read short conversation notes",
+      "body": "Conversation summary keeps compact notes rather than every word. Its On switch maintains those notes; Use the summary in replies separately decides whether they are sent with model requests.\n\nWith your saved chat and provider ready, enable the summary if wanted and choose Update now. Wait for the result, then Read summary and compare the notes with your exchange. “No summary yet” means notes have not been created, not that the chat was lost. If updating fails, check the chat provider connection before retrying; the guide itself sends no request.",
+      "workspace": "runtime",
+      "target": "conversationMemorySummaryCard",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    },
+    {
+      "title": "Inspect what has actually been stored",
+      "body": "On Older messages, Automatically store older messages controls archiving. Allow NC to search stored messages separately allows retrieval into replies. You can store messages while leaving automatic recall off.\n\nChoose Browse stored messages and look for your known fact. A very short chat may not yet supply a complete archive batch; an empty list does not erase the saved chat. If empty, confirm archiving is enabled and continue the conversation normally, then inspect again. The next card helps explain messages still waiting to be indexed.",
+      "workspace": "runtime",
+      "target": "conversationMemoryArchiveCard",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    },
+    {
+      "title": "Read saved, indexed and waiting counts",
+      "body": "Memory search reports how much work is ready. Saved counts messages on disk; indexed counts messages prepared for search. With batches of 8, a 26-message chat can show 26 saved, 24 indexed and 2 waiting.\n\nThose last two messages are saved even though the next batch is incomplete. Read the status before trying repairs: waiting for a batch is different from an indexing error. Use Retry indexing when a failure is reported, not merely because the counts differ. For this exercise, confirm the entry you plan to search is in the ready portion.",
+      "workspace": "runtime",
+      "target": "conversationMemorySearchCard",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    },
+    {
+      "title": "Decide whether you need meaning-based search",
+      "body": "Keyword search can find exact words such as “Bergen” without another model. Try that basic route first if you do not want extra setup.\n\nOptional meaning-based search can match related wording. Its model turns text into searchable numerical representations, called embeddings. Choose Set up memory search… or Change setup… to inspect Providers. Opening setup installs nothing and does not change the active chat provider. If you keep keyword search, read the next step without applying a model and continue to Find a memory.",
+      "workspace": "runtime",
+      "target": "memorySearchSetupButton",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    },
+    {
+      "title": "Optional: test a separate search model",
+      "body": "Single-click LM Studio, Ollama or OpenAI in the provider list to view its Memory search model card. Do not double-click or use Make active: those actions change the chat provider. Read Setup instructions, choose an available embedding model using Refresh, then Test memory search.\n\nA successful test confirms that the selected server or API can embed text. Use for memory search opens a confirmation; review it before applying. OpenAI receives indexing text and can charge for it. If testing fails, check the local server and installed embedding model, or API credentials and access, before retrying. Confirm Used for memory search after applying.",
+      "workspace": "runtime",
+      "target": "providerEmbeddingSetup",
+      "runtime_section": "runtime",
+      "runtime_responsibility": "language"
+    },
+    {
+      "title": "Search for a fact you know is present",
+      "body": "Return to Older messages and choose Find a memory. Search for “Bergen”, or the exact detail you verified in Browse stored messages. Read the returned entry and compare it with the original exchange.\n\nA matching stored message proves this search path worked. To allow similar retrieval during normal replies, enable Allow NC to search stored messages and ask a related question in Conversation. A reply about a still-recent fact alone cannot prove archive recall. If no entry returns, check the archive, waiting/index status and query wording before changing the model.",
+      "workspace": "runtime",
+      "target": "conversationMemoryArchiveCard",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    },
+    {
+      "title": "Keep the advanced defaults for your first test",
+      "body": "Expand Advanced settings to locate summary frequency, archive batch size, recall limits and rebuild tools. These tune how much is stored, searched and supplied to the model; they are not needed to find your first known entry.\n\nRead the current values, then collapse the section without changing them. A warning about Context messages being smaller than the pending batch means recent messages may leave normal context before indexing catches up. It does not change either setting for you. Resolve actual errors first; avoid rebuilding a healthy index just to make all counts identical.",
+      "workspace": "runtime",
+      "target": "memoryAdvancedToggle",
+      "runtime_section": "chat",
+      "chat_tab": "memory"
+    },
+    {
+      "title": "Keep the saved chat and memory aligned",
+      "body": "After a real edit or deletion, Save the named chat. NC repairs memory associated with accepted history changes, including traceable attachment links. Review remaining notes if an old detail still appears elsewhere.\n\nFor this exercise, open Load… and locate your saved chat; cancel if you do not want to replace the current conversation. If you do reopen it, verify its messages and Memory status. Use Save or Cancel when warned about unsaved changes. The exercise succeeds when you have inspected real notes or stored entries and found your known detail—not merely reached Finish.",
+      "workspace": "conversation",
+      "target": "conversationLoadButton",
+      "fallback_target": "conversationActionRailButton",
+      "target_hint": "Hover over the + beside Controls to reveal actions, or click + to dock them. Show Load button from Controls if hidden. The guide never loads, edits, or resets your conversation automatically."
+    }
+  ],
+  "contextual_guides": [
+    "page_conversation_overview",
+    "overview_chat_behavior"
+  ]
+}

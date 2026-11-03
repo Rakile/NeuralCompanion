@@ -1,0 +1,33 @@
+{
+  "id": "nc.elevenlabs_tts",
+  "name": "ElevenLabs TTS",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "ElevenLabs cloud text-to-speech backend for Neural Companion.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "services": [
+    {
+      "id": "tts_backend_service",
+      "backend_id": "elevenlabs_tts"
+    }
+  ],
+  "host_services": [],
+  "ui": [
+    {
+      "id": "elevenlabs_tts_tab",
+      "title": "ElevenLabs TTS",
+      "area": "tts_runtime",
+      "order": 130,
+      "tooltip": "ElevenLabs cloud TTS settings.",
+      "metadata": {
+        "native_qml": true,
+        "backend_id": "elevenlabs_tts"
+      }
+    }
+  ],
+  "enabled": true
+}

@@ -1,0 +1,202 @@
+{
+  "guides": [
+    {
+      "id": "overview_visual_story_settings",
+      "title": "Visual Story Settings overview",
+      "description": "Controls story-mode visual reply generation, continuity, styles, and master prompt guards.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.visual_story_settings",
+        "workspace": "runtime",
+        "runtime_section": "story"
+      },
+      "category": "Runtime / Story Visuals / Visual Story Settings",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Controls story-mode visual reply generation, continuity, styles, and master prompt guards.",
+        "Find focused guidance for Story generation, Story styles, Master prompt, Summary."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_visual_story_settings_story_generation",
+        "page_visual_story_settings_story_styles",
+        "page_visual_story_settings_master_prompt",
+        "page_visual_story_settings_summary",
+        "visual_story_settings"
+      ],
+      "steps": [
+        {
+          "title": "What Visual Story Settings does",
+          "body": "Controls story-mode visual reply generation, continuity, styles, and master prompt guards. The overview introduces this area without opening its other sections.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_visual_story_settings_story_generation",
+        "page_visual_story_settings_story_styles",
+        "page_visual_story_settings_master_prompt",
+        "page_visual_story_settings_summary"
+      ],
+      "display_title": "Start tutorial · Visual Story Settings",
+      "optional_chapters": [
+        "visual_story_settings"
+      ]
+    },
+    {
+      "id": "page_visual_story_settings_story_generation",
+      "title": "Visual Story Settings · Story generation",
+      "description": "Use Story generation in Visual Story Settings.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.visual_story_settings",
+        "workspace": "runtime",
+        "runtime_section": "story"
+      },
+      "category": "Runtime / Story Visuals / Visual Story Settings",
+      "order": 210,
+      "topic": "Story generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Enable a single-image story test",
+        "Read the limit as a cap, not a target"
+      ],
+      "steps": [
+        {
+          "title": "Read story enablement and image limits",
+          "body": "Read Story mode and Maximum images per reply before changing them. A small cap keeps a later experiment easy to inspect; it is a limit rather than a guaranteed image count. Generating a story also requires the appropriate runtime and image permissions. The separate Story Visuals workflow provides that end-to-end exercise.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read the limit as a cap, not a target",
+          "body": "Maximum images per reply caps requests for one response. Short replies may supply fewer eligible chunks, so a missing second picture is not automatically an error. Keep 1 while first results are unreliable; provider completion and a relevant image matter more than reaching the cap. Avoid style edits to fix a provider error.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "visual_story_settings"
+      ],
+      "course_id": "overview_visual_story_settings"
+    },
+    {
+      "id": "page_visual_story_settings_story_styles",
+      "title": "Visual Story Settings · Story styles",
+      "description": "Use Story styles in Visual Story Settings.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.visual_story_settings",
+        "workspace": "runtime",
+        "runtime_section": "story"
+      },
+      "category": "Runtime / Story Visuals / Visual Story Settings",
+      "order": 211,
+      "topic": "Story styles",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Compare one enabled medium",
+        "Keep the style separate from the scene"
+      ],
+      "steps": [
+        {
+          "title": "Compare one enabled medium",
+          "body": "Story styles adds recurring visual instructions. Enable Use Cartoon and read Cartoon prompt, leaving conflicting presets off. Request another short story and compare outlines and overall treatment with your first picture. If treatment is inconsistent, review enabled styles and choose one coherent option before rewriting several prompts.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Keep the style separate from the scene",
+          "body": "A style prompt describes how scenes should look; the current narrative supplies what happens. Avoid putting a single scene’s props into a style used for every scene. If an unwanted object recurs, check the style entries before changing the story request.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_visual_story_settings"
+    },
+    {
+      "id": "page_visual_story_settings_master_prompt",
+      "title": "Visual Story Settings · Master prompt",
+      "description": "Use Master prompt in Visual Story Settings.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.visual_story_settings",
+        "workspace": "runtime",
+        "runtime_section": "story"
+      },
+      "category": "Runtime / Story Visuals / Visual Story Settings",
+      "order": 212,
+      "topic": "Master prompt",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Add a short shared visual anchor",
+        "Prevent visible text with guidance"
+      ],
+      "steps": [
+        {
+          "title": "Add a short shared visual anchor",
+          "body": "Master style prompt adds shared guidance to every story image. Use it only for repeats you want, such as a palette or a traveler’s blue coat. Keep actions and camera framing in the scene. Note the existing prompt, then compare the next small test. Leave it empty when a chosen style already gives the look.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Prevent visible text with guidance",
+          "body": "Add safe-content guidance and Prevent speech bubbles and visible text add instructions to the provider. Enable the no-text option before a next intended test and inspect the result. These guide generation; they do not inspect the finished image. If lettering appears, check for conflicting style or master wording.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_visual_story_settings"
+    },
+    {
+      "id": "page_visual_story_settings_summary",
+      "title": "Visual Story Settings · Summary",
+      "description": "Use Summary in Visual Story Settings.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.visual_story_settings",
+        "workspace": "runtime",
+        "runtime_section": "story"
+      },
+      "category": "Runtime / Story Visuals / Visual Story Settings",
+      "order": 213,
+      "topic": "Summary",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Compare Summary values with the actual result",
+        "Finish or restore deliberately"
+      ],
+      "steps": [
+        {
+          "title": "Compare Summary values with the actual result",
+          "body": "In Summary read Current story setup. Check Story mode, maximum image count, continuity percentage and enabled styles against your choices. This confirms configuration, while an audible story and appropriate picture confirm output. A summary saying on is not evidence that generation completed.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Use the summary as a configuration check",
+          "body": "Compare the summarized values with the experiment you intend to run. A summary reports configuration, not proof of generated pictures. If a previous attempt failed, note the reported stage before changing limits. Story generation has a separate related guide; this inspection does not start a story or request an image.",
+          "target": "runtimeWorkspace",
+          "fallback_target": "runtimeWorkspace",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "children": [
+        "page_visual_story_settings_story_generation"
+      ],
+      "course_id": "overview_visual_story_settings"
+    }
+  ]
+}

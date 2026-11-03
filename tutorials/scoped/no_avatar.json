@@ -1,0 +1,77 @@
+{
+  "guides": [
+    {
+      "id": "overview_no_avatar",
+      "title": "No Avatar overview",
+      "description": "Audio-only avatar provider.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.no_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "none"
+      },
+      "category": "Runtime / Avatar / No Avatar",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Audio-only avatar provider.",
+        "Find focused guidance for Overview."
+      ],
+      "estimated_minutes": 2,
+      "children": [],
+      "steps": [
+        {
+          "title": "What No Avatar does",
+          "body": "Audio-only avatar provider. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeWorkspace"
+        },
+        {
+          "title": "Recognize intentional audio-only",
+          "body": "Selecting No Avatar means NC speaks without a visual avatar. If you see no face or animation, that is the intended result rather than a configuration failure. Audio still requires a working speech provider, so silent speech points to text-to-speech, not to this avatar choice.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_chapters": [],
+      "display_title": "Start tutorial · No Avatar"
+    },
+    {
+      "id": "page_no_avatar_overview",
+      "title": "No Avatar · Overview",
+      "description": "Use Overview in No Avatar.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.no_avatar",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "avatar",
+        "provider_kind": "avatar",
+        "provider_id": "none"
+      },
+      "category": "Runtime / Avatar / No Avatar",
+      "order": 210,
+      "topic": "Overview",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Recognize intentional audio-only"
+      ],
+      "steps": [
+        {
+          "title": "Recognize intentional audio-only",
+          "body": "Selecting No Avatar means NC speaks without a visual avatar. If you see no face or animation, that is the intended result rather than a configuration failure. Audio still requires a working speech provider, so silent speech points to text-to-speech, not to this avatar choice.",
+          "target": "runtimeProviderSettingsPanel",
+          "fallback_target": "runtimeProviderSettingsPanel",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "redirect_to": "overview_no_avatar",
+      "hidden": true
+    }
+  ]
+}

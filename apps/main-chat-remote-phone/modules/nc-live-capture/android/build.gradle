@@ -1,0 +1,27 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.nclivecapture'
+version = '0.3.0'
+
+android {
+  namespace 'expo.modules.nclivecapture'
+  defaultConfig {
+    versionCode 1
+    versionName '0.3.0'
+  }
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation project(':expo-audio')
+  // Use the app's already-resolved RN version for its background-task API.
+  implementation 'com.facebook.react:react-android'
+  // Align Expo Modules Core's pinned graph; this does not introduce a new resolved dependency.
+  implementation 'androidx.core:core-ktx:1.13.1'
+}

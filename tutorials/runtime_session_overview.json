@@ -1,0 +1,70 @@
+{
+  "id": "runtime_session_overview",
+  "title": "Runtime Session Overview",
+  "description": "Orient yourself in Runtime Session: learn how the category rail, the Runtime Session section rail, and the loaded page fit together before taking any action.",
+  "kind": "overview",
+  "scope": {
+    "workspace": "runtime",
+    "runtime_section": "runtime",
+    "runtime_responsibility": "language"
+  },
+  "category": "Runtime / Runtime Session",
+  "order": 40,
+  "before_you_start": "You can read this guide with the engine stopped. It opens settings pages and highlights controls; changes and tests are explicit user actions.",
+  "learning_outcomes": [
+    "Recognize the category rail and the Runtime Session section rail as separate navigation levels",
+    "Tell which Runtime Session section is currently loaded",
+    "Know which sibling sections exist so you can pick the right one next"
+  ],
+  "steps": [
+    {
+      "title": "Understand Runtime Session",
+      "body": "Runtime Session brings together the parts NC uses for a conversation: session input, resources, language, transcription, speech output, images and avatars. This overview stays here. The Runtime settings rail also contains separate areas such as Vision Sensors and Document Memory; those have their own guides.",
+      "target": "runtimeSectionRail",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Read the section rail",
+      "body": "Find Session setup, Resources, LLM, Speech-to-text, Text-to-speech, Visual reply and Avatar in the inner rail. Each opens one configuration page. The values beneath the icons summarize your stack; opening a settings page does not mean its provider is active or loaded.",
+      "target": "runtimeResponsibilityRail",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Distinguish configuration from a running session",
+      "body": "A viewed provider, an active provider and a loaded model are different states. Read the active-stack summary before changing anything. This guide does not start NC or load models. Use Your first chat if you want the complete first-run exercise.",
+      "target": "runtimeResponsibilityRail",
+      "fallback_target": "runtimeResponsibilityStack"
+    }
+  ],
+  "estimated_minutes": 3,
+  "course_chapters": [
+    "runtime_session_setup",
+    "runtime_resources",
+    "runtime_llm",
+    "runtime_stt",
+    "runtime_tts",
+    "runtime_visual_reply",
+    "runtime_avatar"
+  ],
+  "children": [
+    "runtime_session_setup",
+    "runtime_resources",
+    "runtime_llm",
+    "runtime_stt",
+    "runtime_tts",
+    "runtime_visual_reply",
+    "runtime_avatar",
+    "installer_and_runtimes",
+    "startup_self_check",
+    "speech_and_streaming",
+    "window_layout",
+    "language_providers"
+  ],
+  "optional_chapters": [
+    "installer_and_runtimes",
+    "startup_self_check",
+    "speech_and_streaming",
+    "window_layout",
+    "language_providers"
+  ]
+}

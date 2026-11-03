@@ -1,0 +1,75 @@
+{
+  "guides": [
+    {
+      "id": "overview_ua_companion_orb_overlay",
+      "title": "Ua Companion Orb Overlay overview",
+      "description": "Streams MuseTalk grayscale face masks to the Unreal Companion Orb overlay.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.ua_companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "core.addons"
+      },
+      "category": "Addons / Ua Companion Orb Overlay",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Streams MuseTalk grayscale face masks to the Unreal Companion Orb overlay.",
+        "Find focused guidance for Stream service."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_ua_companion_orb_overlay_stream_service"
+      ],
+      "steps": [
+        {
+          "title": "What Ua Companion Orb Overlay does",
+          "body": "Streams MuseTalk grayscale face masks to the Unreal Companion Orb overlay. This integration uses the host page shown here rather than a separate settings tab.",
+          "target": "managedAddon_nc.ua_companion_orb_overlay",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "page_ua_companion_orb_overlay_stream_service"
+      ],
+      "display_title": "Start tutorial · Ua Companion Orb Overlay"
+    },
+    {
+      "id": "page_ua_companion_orb_overlay_stream_service",
+      "title": "Ua Companion Orb Overlay · Stream service",
+      "description": "Use Stream service in Ua Companion Orb Overlay.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.ua_companion_orb_overlay",
+        "workspace": "addons",
+        "addon": "core.addons"
+      },
+      "category": "Addons / Ua Companion Orb Overlay",
+      "order": 210,
+      "topic": "Stream service",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Understand what this service sends",
+        "Where to enable and explain it"
+      ],
+      "steps": [
+        {
+          "title": "Understand what this service sends",
+          "body": "Ua Companion Orb Overlay streams MuseTalk grayscale face masks to the Unreal Companion Orb overlay. It is a stream service, not a settings form, so there are no option tabs here. Read the Addon Manager entry to see how it is listed. Real operation requires MuseTalk and the Unreal overlay to be running.",
+          "target": "managedAddon_nc.ua_companion_orb_overlay",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Where to enable and explain it",
+          "body": "Because this entry has no settings, enablement and explanation belong in the Addon Manager. Look there for the listed service and its description. A running stream depends on MuseTalk providing face-mask frames and the Unreal overlay consuming them; without both, the service has nothing to carry. No settings appear on this page.",
+          "target": "managedAddon_nc.ua_companion_orb_overlay",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_ua_companion_orb_overlay"
+    }
+  ]
+}

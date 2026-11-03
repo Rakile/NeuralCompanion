@@ -1,0 +1,47 @@
+{
+  "id": "runtime_tts",
+  "title": "Text to Speech",
+  "description": "Read which text-to-speech provider is selected and where its controls appear, without changing voice output or activating providers.",
+  "kind": "section",
+  "scope": {
+    "workspace": "runtime",
+    "runtime_section": "runtime",
+    "runtime_responsibility": "voice"
+  },
+  "category": "Runtime / Runtime Session",
+  "order": 45,
+  "before_you_start": "You can read this guide with the engine stopped. It opens settings pages and highlights controls; changes and tests are explicit user actions.",
+  "learning_outcomes": [
+    "Find text-to-speech entries in the shared speech list",
+    "Read whichever settings the provider exposes",
+    "Understand that spoken quality comes from the active provider"
+  ],
+  "steps": [
+    {
+      "title": "Identify speech-output providers",
+      "body": "This page lists text-to-speech backends. Read which one is active and which one you are viewing. Browse with a single click to inspect settings. Voice generation may require local models or an external service; reading a guide does not load either.",
+      "target": "speechProviderList",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Explore the provider's tabs",
+      "body": "Read the available settings tabs. Their names depend on the backend: voice, language, generation or startup options may appear. Choose a tab only when you want to inspect it, then use its contextual tutorial for more detail. A tab selection changes the view; editing a value changes configuration.",
+      "target": "runtimeProviderSettingsPanel",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Keep voice selection deliberate",
+      "body": "Identify the voice or reference-audio controls available for this backend. Local cloning and cloud voice IDs use different setup. Preserve your current choice while learning. If the expected voice is missing, check the selected backend and its prerequisites before editing multiple settings.",
+      "target": "runtimeProviderSettingsPanel",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Distinguish activation from playback",
+      "body": "Make active selects a backend when it is not already active. Hearing speech also depends on initialization, the voice and the output device. Hear step uses the tutorial narration pipeline and is not a test of every TTS backend. Finish when you can find backend settings and identify the active voice path.",
+      "target": "speechProviderList",
+      "fallback_target": "runtimeResponsibilityStack"
+    }
+  ],
+  "estimated_minutes": 3,
+  "course_id": "runtime_session_overview"
+}

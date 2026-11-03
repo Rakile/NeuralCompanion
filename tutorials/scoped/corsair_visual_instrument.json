@@ -1,0 +1,321 @@
+{
+  "guides": [
+    {
+      "id": "overview_corsair_visual_instrument",
+      "title": "Corsair Visual Instrument",
+      "description": "Render NeuralCompanion state, mood, and speech energy on Corsair keyboards through iCUE.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.corsair_visual_instrument",
+        "workspace": "addons",
+        "addon": "corsair_visual_instrument_tab",
+        "section": "Connection"
+      },
+      "category": "Addons / Corsair Visual Instrument",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Render NeuralCompanion state, mood, and speech energy on Corsair keyboards through iCUE.",
+        "Find focused guidance for Connection, Devices, State colors & mood, Keyboard animation designer, Speech response, Global output, Advanced SDK."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "corsair_leds",
+        "page_corsair_visual_instrument_connection",
+        "page_corsair_visual_instrument_devices",
+        "page_corsair_visual_instrument_state_colors_mood",
+        "page_corsair_visual_instrument_keyboard_animation_designer",
+        "page_corsair_visual_instrument_speech_response",
+        "page_corsair_visual_instrument_global_output",
+        "page_corsair_visual_instrument_advanced_sdk"
+      ],
+      "steps": [
+        {
+          "title": "What Corsair Visual Instrument does",
+          "body": "Render NeuralCompanion state, mood, and speech energy on Corsair keyboards through iCUE. The overview introduces this area without opening its other sections.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent"
+        }
+      ],
+      "course_chapters": [
+        "corsair_leds"
+      ],
+      "display_title": "Start tutorial · Corsair Visual Instrument",
+      "optional_chapters": [
+        "page_corsair_visual_instrument_connection",
+        "page_corsair_visual_instrument_devices",
+        "page_corsair_visual_instrument_state_colors_mood",
+        "page_corsair_visual_instrument_keyboard_animation_designer",
+        "page_corsair_visual_instrument_speech_response",
+        "page_corsair_visual_instrument_global_output",
+        "page_corsair_visual_instrument_advanced_sdk"
+      ]
+    },
+    {
+      "id": "page_corsair_visual_instrument_connection",
+      "title": "Corsair Visual Instrument · Connection",
+      "description": "Use Connection in Corsair Visual Instrument.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.corsair_visual_instrument",
+        "workspace": "addons",
+        "addon": "corsair_visual_instrument_tab",
+        "section": "Connection"
+      },
+      "category": "Addons / Corsair Visual Instrument",
+      "order": 210,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Establish one SDK connection in iCUE",
+        "Read status before changing renderers"
+      ],
+      "steps": [
+        {
+          "title": "Establish one SDK connection in iCUE",
+          "body": "Keep iCUE running and read Keyboard discovery for Device Memory Mode and allow-SDK settings. If the SDK is not available, the addon cannot drive lighting. In Connection click Reconnect & Rescan once, then read Connection status and Status detail. A successful SDK connection is required before designing effects.",
+          "target": "tutorialControl_corsair_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Read status before changing renderers",
+          "body": "Connection status and Status detail name the actual SDK or device problem. If the link fails, follow that reason and rescan before touching Devices or Advanced SDK. Renderer overrides and previews are not evidence of a healthy connection.",
+          "target": "tutorialControl_corsair_status",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_corsair_visual_instrument"
+    },
+    {
+      "id": "page_corsair_visual_instrument_devices",
+      "title": "Corsair Visual Instrument · Devices",
+      "description": "Use Devices in Corsair Visual Instrument.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.corsair_visual_instrument",
+        "workspace": "addons",
+        "addon": "corsair_visual_instrument_tab",
+        "section": "Devices"
+      },
+      "category": "Addons / Corsair Visual Instrument",
+      "order": 211,
+      "topic": "Devices",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Check which keyboard will receive the effect",
+        "Force a renderer only for a detected layout problem"
+      ],
+      "steps": [
+        {
+          "title": "Check which keyboard will receive the effect",
+          "body": "Open Devices and read Detected keyboards. Leave Force zone renderer and Force per-key renderer on Automatic by LED layout for a first test. Locate your physical keyboard and note any offline warning. If absent or offline, wake it in iCUE and use Reconnect & Rescan.",
+          "target": "tutorialControl_corsair_detected_keyboards",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Force a renderer only for a detected layout problem",
+          "body": "Automatic can drive every supported discovered keyboard, so record all listed devices. Force a zone or per-key renderer only when a working connection shows a detected layout that needs correction. A forced renderer does not fix an SDK connection error.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_corsair_visual_instrument"
+    },
+    {
+      "id": "page_corsair_visual_instrument_state_colors_mood",
+      "title": "Corsair Visual Instrument · State colors & mood",
+      "description": "Use State colors & mood in Corsair Visual Instrument.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.corsair_visual_instrument",
+        "workspace": "addons",
+        "addon": "corsair_visual_instrument_tab",
+        "section": "State colors & mood"
+      },
+      "category": "Addons / Corsair Visual Instrument",
+      "order": 212,
+      "topic": "State colors & mood",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose four distinct base colors",
+        "A swatch is configuration, not output"
+      ],
+      "steps": [
+        {
+          "title": "Choose four distinct base colors",
+          "body": "Choose clearly different Idle, Listening, Thinking and Speaking swatches. A Text Only chat will not exercise Listening. For a first design use a quiet Idle and bright Speaking color. Leave Tint state colors with the current mood off so the base colors stay easy to tell apart.",
+          "target": "tutorialControl_idle_color",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "A swatch is configuration, not output",
+          "body": "Changing and saving four swatches does not prove the keyboard shows them. The animation designer preview and a real spoken reply provide that evidence. If the colors become hard to distinguish, return to simple hues before enabling mood tint.",
+          "target": "tutorialControl_mood_tint_strength",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_corsair_visual_instrument"
+    },
+    {
+      "id": "page_corsair_visual_instrument_keyboard_animation_designer",
+      "title": "Corsair Visual Instrument · Keyboard animation designer",
+      "description": "Use Keyboard animation designer in Corsair Visual Instrument.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.corsair_visual_instrument",
+        "workspace": "addons",
+        "addon": "corsair_visual_instrument_tab",
+        "section": "Keyboard animation designer"
+      },
+      "category": "Addons / Corsair Visual Instrument",
+      "order": 213,
+      "topic": "Keyboard animation designer",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Send your first Speaking hardware preview",
+        "Separate on-screen preview from hardware output"
+      ],
+      "steps": [
+        {
+          "title": "Send your first Speaking hardware preview",
+          "body": "Set State to edit to Speaking and choose one Animation. Speed controls movement, Intensity its strength, Animation size its extent and Trail / softness how long it fades. Change one value at a time while watching Keyboard preview, then use Preview Speaking and watch the physical keys. Test audio level supplies preview energy; it does not record your microphone.",
+          "target": "tutorialControl_corsair_keyboard_preview",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Separate on-screen preview from hardware output",
+          "body": "If Keyboard preview changes but hardware does not, revisit Connection status and Detected keyboards. A working hardware preview proves the lighting path; it does not prove runtime speech animation, which the next Speech response exercise checks separately.",
+          "target": "tutorialControl_corsair_keyboard_preview",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_corsair_visual_instrument"
+    },
+    {
+      "id": "page_corsair_visual_instrument_speech_response",
+      "title": "Corsair Visual Instrument · Speech response",
+      "description": "Use Speech response in Corsair Visual Instrument.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.corsair_visual_instrument",
+        "workspace": "addons",
+        "addon": "corsair_visual_instrument_tab",
+        "section": "Speech response"
+      },
+      "category": "Addons / Corsair Visual Instrument",
+      "order": 214,
+      "topic": "Speech response",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Compare preview energy with a real spoken reply",
+        "Use volume controls when the effect is too strong"
+      ],
+      "steps": [
+        {
+          "title": "Compare preview energy with a real spoken reply",
+          "body": "Speech sensitivity scales outgoing playback energy and Speech smoothing softens rapid changes; neither changes microphone recognition. Keep your preview values, then ask one short Main Chat question with the runtime ON and a working TTS provider. Watch for Speaking during audible output. Raise sensitivity slightly if motion is faint; add smoothing if it flickers.",
+          "target": "tutorialControl_sensitivity",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Use volume controls when the effect is too strong",
+          "body": "If the whole effect is overpowering, lower Brightness under Global output rather than changing microphone settings. Use Sensitivity and Smoothing for motion character only. If chat produces no response, confirm actual spoken playback before adjusting the speech response values.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_corsair_visual_instrument"
+    },
+    {
+      "id": "page_corsair_visual_instrument_global_output",
+      "title": "Corsair Visual Instrument · Global output",
+      "description": "Use Global output in Corsair Visual Instrument.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.corsair_visual_instrument",
+        "workspace": "addons",
+        "addon": "corsair_visual_instrument_tab",
+        "section": "Global output"
+      },
+      "category": "Addons / Corsair Visual Instrument",
+      "order": 215,
+      "topic": "Global output",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Bound the output for comfort",
+        "Choose the startup state, then close the loop"
+      ],
+      "steps": [
+        {
+          "title": "Bound the output for comfort",
+          "body": "Brightness sets the overall light level, Animation speed scales movement, and Frame cap limits updates per second. Lower Brightness first if distracting, then reduce Frame cap and confirm motion is still readable. These values apply to every runtime state.",
+          "target": "tutorialControl_brightness",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Choose the startup state, then close the loop",
+          "body": "Review Enable Corsair visual lighting at startup for the next NC session; changing it does not toggle current lighting. You are done when both a hardware preview and a real spoken reply produced expected lights. If only the preview worked, keep troubleshooting runtime speech.",
+          "target": "addonSettingsContent",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_corsair_visual_instrument"
+    },
+    {
+      "id": "page_corsair_visual_instrument_advanced_sdk",
+      "title": "Corsair Visual Instrument · Advanced SDK",
+      "description": "Use Advanced SDK in Corsair Visual Instrument.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.corsair_visual_instrument",
+        "workspace": "addons",
+        "addon": "corsair_visual_instrument_tab",
+        "section": "Advanced SDK"
+      },
+      "category": "Addons / Corsair Visual Instrument",
+      "order": 216,
+      "topic": "Advanced SDK",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read the required SDK before browsing",
+        "Change the SDK path only with a record to restore"
+      ],
+      "steps": [
+        {
+          "title": "Read the required SDK before browsing",
+          "body": "Advanced SDK shows the 64-bit SDK DLL path; a DLL is the library that lets NC talk to iCUE, not an effect file. If the preview worked, leave it alone. Use Connection status and Status detail to identify a missing or incompatible SDK before choosing Browse for SDK DLL.",
+          "target": "tutorialControl_sdk_dll_path",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Change the SDK path only with a record to restore",
+          "body": "Record the existing path first. If notes call for a change, use Browse for SDK DLL to select the 64-bit library, then Reconnect & Rescan. If connection worsens, restore the recorded path and rescan. Do not use renderer overrides to hide an SDK error.",
+          "target": "tutorialControl_corsair_select_sdk_dll",
+          "fallback_target": "addonSettingsContent",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_corsair_visual_instrument"
+    }
+  ]
+}

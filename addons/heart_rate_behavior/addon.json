@@ -1,0 +1,31 @@
+{
+  "id": "nc.heart_rate_behavior",
+  "name": "Heart Rate Behavior",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "enabled": true,
+  "permissions": [
+    "ui.tabs"
+  ],
+  "services": [
+    {
+      "id": "sensory_prompt_contributor",
+      "provider_id": "heart_rate"
+    }
+  ],
+  "ui": [
+    {
+      "id": "heart_rate_behavior_tab",
+      "title": "Threshold Rules",
+      "area": "vision_source",
+      "parent_tab_id": "heart_rate",
+      "order": 210,
+      "tooltip": "Persona-driven behavior rules that attach to the heart_rate sensory source.",
+      "metadata": {
+        "checkable": true
+      }
+    }
+  ],
+  "native_qml": true
+}

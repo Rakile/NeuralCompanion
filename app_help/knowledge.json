@@ -1,0 +1,455 @@
+{
+  "topics": [
+    {
+      "title": "Getting Started",
+      "keywords": [
+        "getting started",
+        "first run",
+        "initialize nc",
+        "initialize system",
+        "setup"
+      ],
+      "summary": "Start with a text-only conversation, then add speech and an avatar.",
+      "bullets": [
+        "Run INSTALL_NEURAL_COMPANION.bat, then launch run_neural_companion.bat.",
+        "In Runtime → Runtime Session → LLM, configure the provider and model, test the connection, then choose Make active.",
+        "In Session setup choose Text Only. Activate None for Text-to-speech and Avatar for a silent first test.",
+        "Use Initialize NC in the header, wait for readiness, then send a greeting in Conversation → Main chat.",
+        "Addons → Tutorials → First Run and docs/manual/first-run.md explain the setup."
+      ]
+    },
+    {
+      "title": "Navigation and Hidden Controls",
+      "keywords": [
+        "navigation",
+        "hidden",
+        "missing controls",
+        "workspaces",
+        "tabs",
+        "settings"
+      ],
+      "summary": "The native desktop has Runtime, Addons, Conversation, Visual Reply, and Avatar Preview views.",
+      "bullets": [
+        "Runtime contains Runtime Session, Vision Sensors, Chat Behavior, Story Visuals, Document Memory, and Appearance Themes.",
+        "Provider settings are inside Runtime Session. Viewing settings does not activate a provider.",
+        "Use the NeuralCompanion logo/name menu to restore hidden workspaces, and Unhide addon to restore hidden addon icons.",
+        "Conversation Controls manages which chat actions are visible. Workspaces can also be docked or floated."
+      ]
+    },
+    {
+      "title": "Language Providers",
+      "keywords": [
+        "llm",
+        "language model",
+        "no model selected",
+        "lm studio",
+        "ollama",
+        "claude",
+        "deepseek",
+        "openai",
+        "grok"
+      ],
+      "summary": "Configure the connection and select an active provider in Runtime → Runtime Session → LLM.",
+      "bullets": [
+        "LM Studio and Ollama need a running server and an available model. Check the base URL, refresh the models, and test the connection.",
+        "Hosted providers need API credentials and a model your account can access.",
+        "Choose Make active; merely opening a provider's settings does not switch normal chat.",
+        "A saved Persona override can select another provider/model. Check its effective settings if normal Runtime settings do not explain a reply."
+      ]
+    },
+    {
+      "title": "Speech Output and Streaming",
+      "keywords": [
+        "stream mode",
+        "tts backend",
+        "speech",
+        "chatterbox",
+        "gemini tts",
+        "elevenlabs",
+        "streaming"
+      ],
+      "summary": "Select and activate speech output separately from the language model and microphone.",
+      "bullets": [
+        "Open Runtime → Runtime Session → Text-to-speech, configure a provider and choose Use for voice output.",
+        "None intentionally gives silent text replies. Check the header Audio menu for the output device and level.",
+        "Assign a compatible voice in Persona. Previewing a sample does not assign it.",
+        "Streaming splits speech into chunks; latency and expressive tags depend on the selected backend and settings.",
+        "In rooms the full reply can appear before its audio is ready; speech highlighting tracks playback separately."
+      ]
+    },
+    {
+      "title": "Microphone Input",
+      "keywords": [
+        "microphone",
+        "push to talk",
+        "push-to-talk",
+        "voice activation",
+        "no stt",
+        "whisper",
+        "text only"
+      ],
+      "summary": "Microphone transcription depends on the session input mode and active speech-to-text provider.",
+      "bullets": [
+        "Choose the input mode in Runtime → Runtime Session → Session setup. Text Only disables microphone transcription.",
+        "Configure and activate a provider in Speech-to-text with Use for speech input.",
+        "Select the input device in the header Audio menu and check Windows microphone permissions.",
+        "For Push-to-Talk, check your configured binding in Addons → Hotkeys.",
+        "Discord mode receives voice from Discord, with separate incoming-voice and room-routing controls."
+      ]
+    },
+    {
+      "title": "PocketTTS",
+      "keywords": [
+        "pockettts",
+        "pockettts multilingual",
+        "voice cloning"
+      ],
+      "summary": "PocketTTS providers use a separate local speech runtime.",
+      "bullets": [
+        "Install the PocketTTS target with the NC installer, then configure it under Runtime → Runtime Session → Text-to-speech.",
+        "Cloning can require accepting model terms and logging in to Hugging Face inside the isolated PocketTTS environment.",
+        "Check model access and the voice reference before changing generation settings.",
+        "See docs/manual/pockettts.md for setup and troubleshooting."
+      ]
+    },
+    {
+      "title": "Personas and Overrides",
+      "keywords": [
+        "persona",
+        "brain tab",
+        "persona tab",
+        "character",
+        "persona overrides",
+        "model override"
+      ],
+      "summary": "Persona stores a character's prompt, voice, portraits, and optional reply-setting overrides.",
+      "bullets": [
+        "Open Addons → Persona and save the character you want to use.",
+        "Voice, visual identity, and language-model settings are separate choices.",
+        "Persona Overrides can change the provider/model, conversation context limit, and Document Memory behavior.",
+        "An unavailable override provider/model reports an error; it does not silently select another model.",
+        "Switching personas in main chat does not create a new conversation history."
+      ]
+    },
+    {
+      "title": "User Identity",
+      "keywords": [
+        "user identity",
+        "my name",
+        "user name",
+        "human name",
+        "alias"
+      ],
+      "summary": "User Identity describes you for supported main-chat and image workflows.",
+      "bullets": [
+        "Open the User Identity addon to edit the local user profile and optional portrait.",
+        "Discord human participants use their Discord identity. A local User Identity change does not rename your Discord account.",
+        "Use Discord's own profile/server nickname controls to change your Discord display name.",
+        "In a Discord room the sender chooser distinguishes a connected human from NC operator input."
+      ]
+    },
+    {
+      "title": "Conversation and Document Memory",
+      "keywords": [
+        "memory",
+        "summary",
+        "archive",
+        "document memory",
+        "knowledge package"
+      ],
+      "summary": "Saved-chat memory and Document Memory are different features.",
+      "bullets": [
+        "Save or load a named main chat before using its conversation summary and older-message memory controls.",
+        "Keeping summaries or storing messages and allowing them to influence replies are separate controls.",
+        "Runtime → Document Memory manages document packages and recall. Select a package, check indexing, and test search before enabling it in chat.",
+        "Imported document snapshots do not follow edits to original files automatically; use Refresh from sources.",
+        "See docs/manual/memory.md for settings, persona overrides, and data handling."
+      ]
+    },
+    {
+      "title": "Avatar Engines",
+      "keywords": [
+        "avatar engine",
+        "musetalk",
+        "ditto",
+        "scenic",
+        "vseeface",
+        "no avatar"
+      ],
+      "summary": "Choose an avatar provider under Runtime → Runtime Session → Avatar.",
+      "bullets": [
+        "MuseTalk and Ditto need their own runtime, models, and prepared engine-specific assets.",
+        "Scenic uses expression images; VSeeFace uses an external application and configured receiver.",
+        "Choose Use this avatar to activate the selected route. Opening Avatar Preview alone does not start a model.",
+        "None disables animated-avatar rendering and works with silent or spoken chat.",
+        "See docs/manual/avatars.md for engine-specific setup."
+      ]
+    },
+    {
+      "title": "MuseTalk Preparation and Performance",
+      "keywords": [
+        "musetalk vram",
+        "low vram",
+        "avatar pack",
+        "preprocess",
+        "hand doctor",
+        "body tab",
+        "dynamics tab"
+      ],
+      "summary": "Prepare an avatar asset separately from selecting it for conversation playback.",
+      "bullets": [
+        "Use the MuseTalk or Ditto creator appropriate to the target engine; their packages are not interchangeable.",
+        "Select the prepared asset in the corresponding Runtime Avatar provider and activate it.",
+        "MuseTalk performance and supported emotion variants depend on the runtime configuration and prepared pack.",
+        "Older Body, Dynamics, and Hand Doctor instructions describe earlier interfaces; use the current provider and creator guides.",
+        "See docs/manual/musetalk.md, docs/manual/ditto.md, and docs/avatar_packs.md."
+      ]
+    },
+    {
+      "title": "Performance and Chunking",
+      "keywords": [
+        "dry run",
+        "performance profile",
+        "performance profiles",
+        "chunking",
+        "target chars",
+        "quickstart"
+      ],
+      "summary": "Measure the active model, speech, and avatar stack before adjusting performance.",
+      "bullets": [
+        "Use the available Dry Run and Performance controls for bounded timing checks and saved performance profiles.",
+        "A first reply can include downloads, model loading, and cold caches; compare later replies too.",
+        "Smaller speech chunks can begin earlier but may make phrasing less natural; change one setting at a time.",
+        "Performance profiles and Persona settings have different purposes.",
+        "See docs/manual/performance.md for the controls available in your build."
+      ]
+    },
+    {
+      "title": "Expressive Tags",
+      "keywords": [
+        "emotional tags",
+        "voice tags",
+        "laugh",
+        "chuckle",
+        "neutral",
+        "angry",
+        "sad"
+      ],
+      "summary": "Expression and vocal tags are interpreted by the selected speech/avatar providers.",
+      "bullets": [
+        "Prepared avatar variants determine which visual emotions can be shown.",
+        "Supported vocal tags and the resulting sounds differ between speech backends.",
+        "A text tag is not a guarantee that every provider will render the same action.",
+        "Use short examples with your active voice and avatar before relying on a tag in a longer conversation."
+      ]
+    },
+    {
+      "title": "Visual Reply",
+      "keywords": [
+        "visual reply",
+        "generate image",
+        "comfyui",
+        "image provider",
+        "appearance freedom"
+      ],
+      "summary": "Visual Reply generates images using the configured image provider.",
+      "bullets": [
+        "Configure and activate the provider in Runtime → Runtime Session → Visual reply.",
+        "ComfyUI is a separate local or LAN server and needs the workflow's models and nodes installed.",
+        "The Visual Reply workspace browses images; provider configuration and image display are separate.",
+        "Persona visual-identity references and appearance settings affect eligible generated images.",
+        "See docs/manual/visual-reply-and-sensory.md and docs/visual_reply_toolbar.md."
+      ]
+    },
+    {
+      "title": "Vision Sensors and Companion Orb",
+      "keywords": [
+        "vision sensors",
+        "screen",
+        "webcam",
+        "clipboard",
+        "companion orb",
+        "watch"
+      ],
+      "summary": "Observation and proactive reactions require their own source and awareness controls.",
+      "bullets": [
+        "Configure sources and permissions in Runtime → Vision Sensors.",
+        "Showing the Companion Orb does not automatically start a watch or capture your desktop.",
+        "Choose the target and review which background reactions are enabled.",
+        "Captured context is sent through the model routes you configure, including hosted providers when selected."
+      ]
+    },
+    {
+      "title": "AI Presence",
+      "keywords": [
+        "ai presence",
+        "desktop sound",
+        "desktop audio",
+        "living voice thread",
+        "default preset"
+      ],
+      "summary": "AI Presence provides audio-reactive floating or fullscreen visuals.",
+      "bullets": [
+        "Open the AI Presence addon and choose the visual mode and audio-sync settings.",
+        "Desktop audio sync analyzes the default playback output. Confirm sound is playing on that device.",
+        "Check sensitivity and noise gate if the visual does not react.",
+        "The Living Voice Thread preset controls load, save, and restore its tuning. Presets are distinct from Persona or performance profiles."
+      ]
+    },
+    {
+      "title": "Local and Discord Rooms",
+      "keywords": [
+        "local room",
+        "discord room",
+        "participants",
+        "moderator"
+      ],
+      "summary": "Rooms run moderated discussions with linked Personas and their own saved conversation state.",
+      "bullets": [
+        "Open Addons → Discord Voice → Local room and choose Local or Discord mode.",
+        "Configure participants and their effective providers/voices before starting.",
+        "You can change participants during a conversation; current speech finishes before a removal is applied.",
+        "Participants retain what they heard while present; returning does not give them speech delivered while absent.",
+        "Follow stop/save prompts when switching between main chat and a room."
+      ]
+    },
+    {
+      "title": "Discord Bot Accounts",
+      "keywords": [
+        "discord bot",
+        "bot token",
+        "prepared bot",
+        "bot accounts",
+        "server nickname"
+      ],
+      "summary": "Reusable Discord bot accounts are assigned to Personas in the room.",
+      "bullets": [
+        "Add accounts in the Discord tab's Bot accounts section. Saving checks a token; Check all accounts refreshes account verification.",
+        "Checking an account is separate from inviting it to a server or connecting to voice.",
+        "Choose a prepared account on the Persona's room card. A running/reserved account may not be free for another participant.",
+        "The server nickname follows the assigned Persona; it does not rename the Discord account globally.",
+        "See docs/addons/discord_voice.md for setup and permissions."
+      ]
+    },
+    {
+      "title": "Discord Incoming Voice and Sender",
+      "keywords": [
+        "discord allowed users",
+        "listed users",
+        "incoming voice",
+        "nc operator",
+        "interrupt"
+      ],
+      "summary": "Discord admission, NC incoming-voice acceptance, and room routing are separate controls.",
+      "bullets": [
+        "Discord determines who can join a channel.",
+        "Everyone ignores the optional user-ID list. Listed users uses it; an empty list accepts everyone's incoming voice.",
+        "Separate IDs with commas, spaces, or semicolons. Save settings and restart the bridge to apply voice-filter changes.",
+        "Room speaker controls and protected-speech settings determine whether accepted speech is routed during a reply.",
+        "Typed room input enters NC's conversation. Choose a connected human or NC operator; it is not a Discord user-account text post."
+      ]
+    },
+    {
+      "title": "Buddy Chat",
+      "keywords": [
+        "buddy chat",
+        "buddies",
+        "refine with llm",
+        "avery"
+      ],
+      "summary": "Buddy Chat adds several companions to main chat using a staged setup preview.",
+      "bullets": [
+        "Choose the refinement scope and the intended Persona/field, then give a specific instruction.",
+        "Refine with LLM updates valid editable fields in the staged preview, not an unrelated saved Persona automatically.",
+        "Read Current status for completion or validation feedback, inspect the preview, and apply the staged setup when ready.",
+        "See docs/addons/buddy_chat.md for setup, voice assignment, and refinement controls."
+      ]
+    },
+    {
+      "title": "Stories and Roleplay",
+      "keywords": [
+        "audio story",
+        "roleplay",
+        "mprc",
+        "novel workshop"
+      ],
+      "summary": "Audio Story Mode and Multi Persona Roleplay have their own project and playback workflows.",
+      "bullets": [
+        "Roleplay builds a cast and scenes, with a separate Play view.",
+        "Audio Story Mode organizes chapters, transcripts, planning, illustrations, and narration.",
+        "Configure the required model, speech, and optional image services before a long production run.",
+        "Start with a short scene or chapter and read the relevant addon guide."
+      ]
+    },
+    {
+      "title": "Phone and Internet Remote",
+      "keywords": [
+        "main chat remote",
+        "phone",
+        "internet relay",
+        "webrtc",
+        "turn"
+      ],
+      "summary": "Main Chat Remote connects a compatible phone client to the desktop's main conversation.",
+      "bullets": [
+        "Keep the desktop and required runtime running; the phone does not run the desktop models.",
+        "Use LAN pairing locally, or configure Internet mode with NC Relay and a matching native phone build.",
+        "Internet signaling and the selected WebRTC media route are different: media can be direct or relayed depending on the connection.",
+        "Check diagnostics for the selected route rather than assuming that Internet mode always uses TURN.",
+        "See docs/addons/main_chat_remote.md and docs/addons/main_chat_remote_internet_setup.md."
+      ]
+    },
+    {
+      "title": "Addons and Tutorials",
+      "keywords": [
+        "addon",
+        "addons",
+        "tutorial",
+        "getting started guide",
+        "enabled after restart"
+      ],
+      "summary": "Addons provide tools, experiences, and provider choices; Tutorials explains the current interface.",
+      "bullets": [
+        "Find addon workspaces under Addons; provider addons also appear in their Runtime role.",
+        "Use Addon Manager for enabled state and follow any after-restart notice.",
+        "A hidden icon is different from a disabled addon; use Unhide addon when appropriate.",
+        "Start with Tutorials → First Run, or use the written manual and addon catalog under docs/."
+      ]
+    },
+    {
+      "title": "Presets and Saved State",
+      "keywords": [
+        "preset",
+        "presets",
+        "tutorial persona",
+        "session restore",
+        "save current"
+      ],
+      "summary": "Persona presets, performance profiles, addon presets, and saved conversations have different scopes.",
+      "bullets": [
+        "A Persona preset does not select every machine-specific runtime/provider option.",
+        "Save conversations separately when you want to reopen their transcript.",
+        "AI Presence and other tools can have their own preset selectors; check which tool's Save action you are using.",
+        "Session settings and logs can contain credentials or private data. Do not publish them."
+      ]
+    },
+    {
+      "title": "Limitations and Troubleshooting",
+      "keywords": [
+        "known limitations",
+        "troubleshooting",
+        "error",
+        "missing model",
+        "privacy"
+      ],
+      "summary": "Test a small working configuration and diagnose the failing component before changing the whole setup.",
+      "bullets": [
+        "Read readiness/status messages and the Conversation console.",
+        "Test an active chat provider with Text Only input, None speech, and None avatar.",
+        "Optional runtimes, models, assets, external servers, and API credentials are separate prerequisites.",
+        "Windows and Python 3.11 are the expected desktop baseline; hardware and service availability affect optional features.",
+        "See docs/troubleshooting.md and docs/known_limitations.md."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  "guides": [
+    {
+      "id": "overview_webcam_supervisor",
+      "title": "Webcam Supervisor overview",
+      "description": "Persona-driven webcam behavior rules that can react to posture, expression, and attention cues.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.webcam_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "webcam",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Webcam Supervisor",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Persona-driven webcam behavior rules that can react to posture, expression, and attention cues.",
+        "Find focused guidance for prompts, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_webcam_supervisor_prompts",
+        "page_webcam_supervisor_advanced"
+      ],
+      "steps": [
+        {
+          "title": "What Webcam Supervisor does",
+          "body": "Persona-driven webcam behavior rules that can react to posture, expression, and attention cues. The overview introduces this area without opening its other sections.",
+          "target": "visionSourceSettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_webcam_supervisor_prompts",
+        "page_webcam_supervisor_advanced"
+      ],
+      "display_title": "Start tutorial · Webcam Supervisor"
+    },
+    {
+      "id": "page_webcam_supervisor_prompts",
+      "title": "Webcam Supervisor · prompts",
+      "description": "Use prompts in Webcam Supervisor.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.webcam_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "webcam",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Webcam Supervisor",
+      "order": 210,
+      "topic": "prompts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Manage reaction profiles",
+        "Build rules for a profile"
+      ],
+      "steps": [
+        {
+          "title": "Manage reaction profiles",
+          "body": "In Prompts, read the Status and Active Reaction Profile. Use Add Profile, Rename Profile or Delete Profile to manage records. Select a profile and set Speaking style. Confirm Active Reaction Profile reflects the one you intend to use before adding rules.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Build rules for a profile",
+          "body": "Under Reaction Rules, use Add Rule and set Reaction rule, Enabled, Action, Strictness, Emotion override, Repeat mode and Nth match interval. Remove Rule deletes one. Enable rules deliberately, since a broad rule can fire often and surprise you during a session.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_webcam_supervisor"
+    },
+    {
+      "id": "page_webcam_supervisor_advanced",
+      "title": "Webcam Supervisor · advanced",
+      "description": "Use advanced in Webcam Supervisor.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.webcam_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "webcam",
+        "sensory_tab": "advanced"
+      },
+      "category": "Runtime / Vision Sensors / Webcam Supervisor",
+      "order": 211,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review the advanced prompt template",
+        "Preview before relying on the template"
+      ],
+      "steps": [
+        {
+          "title": "Review the advanced prompt template",
+          "body": "In Advanced, read Advanced Prompt Rules as the template shaping how rules become a prompt. Restore recommended prompt returns it to the supplied baseline. Review Prompt Preview shows the result; use it before making further edits, so you can see the effect of the template.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Preview before relying on the template",
+          "body": "Choose Review Prompt Preview and read the generated text. Confirm the selected profile, rules and template together produce the behavior you expect. If the preview looks wrong, change the rule or template rather than assuming the webcam cue will be interpreted differently.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_webcam_supervisor"
+    }
+  ]
+}

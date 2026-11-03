@@ -1,0 +1,139 @@
+{
+  "id": "audio_story_mode",
+  "order": 14,
+  "title": "14. Audio Story Mode",
+  "description": "Import audio, adapt chatlogs into novels, narrate Markdown, and play synchronized story images.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "audio_story_mode_runtime",
+      "section": "Project"
+    },
+    {
+      "workspace": "addons",
+      "addon": "audio_story_mode_runtime",
+      "section": "Audio"
+    },
+    {
+      "workspace": "addons",
+      "addon": "audio_story_mode_runtime",
+      "section": "Novel"
+    },
+    {
+      "workspace": "addons",
+      "addon": "audio_story_mode_runtime",
+      "section": "Story"
+    },
+    {
+      "workspace": "addons",
+      "addon": "audio_story_mode_runtime",
+      "section": "Images"
+    },
+    {
+      "workspace": "addons",
+      "addon": "audio_story_mode_runtime",
+      "section": "Review"
+    },
+    {
+      "workspace": "addons",
+      "addon": "audio_story_mode_runtime",
+      "section": "Play / Cast"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Story project",
+      "body": "Create a New Project or select a saved project and Open it. In Project & chapters, select the chapter you intend to work on and check its status. Audio import, chatlog adaptation and Markdown narration are separate starting routes; choose one for a short first test. Use Read aloud for automatic narration, or Hear step for only the current instruction.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Project"
+    },
+    {
+      "title": "Audio",
+      "body": "In Audio & transcript, use Import Audio Files and Move Up / Move Down to set the source order. Test a short Selected Range before a whole audiobook. Transcribe Audio runs local Whisper and builds the story timeline; wait for progress to finish. The console shows activity and errors: its Copy and Clear buttons affect that log. Read the actual transcript in Scene review.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Audio"
+    },
+    {
+      "title": "Novel import",
+      "body": "Novel workshop offers New Novel Project, Choose Chatlog JSON and Choose Markdown. Chatlogs need source inspection and confirmation before adaptation; Markdown can go directly to chapter narration. Start with a small export or a Markdown file containing one or two chapter headings, then follow the import steps later in this guide.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Novel"
+    },
+    {
+      "title": "Story settings",
+      "body": "In Story planner, set image cadence and optionally enable Use LLM scene planner. Select its Planner provider and Planner model, then Apply Planner Changes and wait for Saved. Scene Only keeps per-scene planning; Story Bible persists character, location, prop and style memory for continuity across the story. Begin with the default depth and a short source before processing a long project.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Story"
+    },
+    {
+      "title": "Images",
+      "body": "In Image style, choose a visual direction such as Cartoon and use Apply Style Changes; check Saved before playing. Final images use the active Runtime > Visual reply provider, model and workflow, independently of the scene-planning model. The xAI output controls apply only to xAI / Grok. For a first test, keep generate-ahead small and verify one scene before a long playback.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Images"
+    },
+    {
+      "title": "Review",
+      "body": "In Scene review, read the transcript and check the current scene. Correct its Image focus or Avoid in the image fields, then use Apply image focus or Apply avoid list. Pin Location, Force Fresh Scene and Force Continuation are optional overrides for a mistaken scene boundary. These scene edits feed later visual continuity; inspect the next generated image to confirm the correction.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Review"
+    },
+    {
+      "title": "Play and cast",
+      "body": "In Play & cast, press Play for a short local test: audio should advance and images should follow the story timeline. Pause or Stop before changing playback settings. Voice rendering shows buffer progress and offers Retry for failed speech. For a Chromecast, use Find Casts, choose a device and Cast To; inspect cast status, then Stop Cast when finished. LAN sharing is optional and exposes the visual stream to other devices on your local network.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Play / Cast"
+    },
+    {
+      "title": "Inspect and import a chatlog",
+      "body": "In Novel workshop, create a novel project and Choose Chatlog JSON. Inspect the detected messages before Import Confirmed Source. If detection is wrong, map Message collection, Speaker field and Text field, with role, timestamp or thread fields when needed; use Inspect with this mapping again. Confirm only when the preview contains the intended conversation. The status should report the imported source.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Novel"
+    },
+    {
+      "title": "Review the novel before prose generation",
+      "body": "Choose Adaptation style and enter Novel instructions, for example: Keep the original dialogue and write in third person. Build Story Map, then Build Outline. Review the chapter and scene order; use Move Up, Move Down, Split Selected or Merge with Next as needed. Save Outline before Approve and Generate. Follow stage progress; Retry Selected Scene repairs a failed scene without starting the entire novel again.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Novel"
+    },
+    {
+      "title": "Narrate Markdown or finished chapters",
+      "body": "Choose Markdown and confirm the inspected source; headings become narration chapters. Select a chapter and use Narrate Selected Chapter with a working Text-to-speech provider. For adapted chatlogs, Assemble Novel combines finished prose; Assemble Partial Preview lets you inspect incomplete work. Use in Story / Images sends the selected material into the visual story workflow. A successful test produces chapter audio you can play before continuing.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Novel"
+    },
+    {
+      "title": "Resume saved work",
+      "body": "Return to Project & chapters and Open the saved project. Verify the selected chapter and recovery status before Resume All or Retry Selected in Project maintenance. Relink Audio repairs a moved chapter source. Story Bible continuity belongs to this story project; keep chapters in the intended order and review recurring character details after resuming. These controls do not provide an editor for the companion's conversation memories.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "audio_story_mode_runtime",
+      "section": "Project"
+    }
+  ],
+  "category": "Workflows",
+  "contextual_guides": [
+    "overview_audio_story_mode"
+  ]
+}

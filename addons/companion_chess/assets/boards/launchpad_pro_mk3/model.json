@@ -1,0 +1,17 @@
+{
+  "name": "Launchpad Pro MK3",
+  "author": "NeuralCompanion original procedural geometry",
+  "grid_pads": 64,
+  "controls": 42,
+  "pad_top_y": 19,
+  "triangles": 13735,
+  "part_triangles": {
+    "housing": 108,
+    "controls": 4536,
+    "details": 1835,
+    "accent": 216,
+    "pad": 110
+  },
+  "geometry": "Simplified visualization, not dimensional manufacturing CAD",
+  "reference": "https://userguides.novationmusic.com/hc/en-gb/articles/25494505681042-Launchpad-Pro-MK3-hardware-overview"
+}

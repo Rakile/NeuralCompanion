@@ -1,0 +1,47 @@
+{
+  "id": "runtime_resources",
+  "title": "Resources",
+  "description": "Read what memory resources are loaded right now and what they measure, without loading or unloading anything.",
+  "kind": "section",
+  "scope": {
+    "workspace": "runtime",
+    "runtime_section": "runtime",
+    "runtime_responsibility": "resources"
+  },
+  "category": "Runtime / Runtime Session",
+  "order": 42,
+  "before_you_start": "You can read this guide with the engine stopped. It opens settings pages and highlights controls; changes and tests are explicit user actions.",
+  "learning_outcomes": [
+    "Read the RAM usage display",
+    "Read the resources list",
+    "Recognize the refresh and free-unused controls and what each does"
+  ],
+  "steps": [
+    {
+      "title": "Read memory usage",
+      "body": "Find the RAM usage and available GPU memory information. These figures describe current resource usage; they do not prove a particular provider is ready. Compare the totals with the resources list below. If values are unavailable, read the feedback area before trying resource actions.",
+      "target": "resourcesMemoryCard",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Inspect tracked resources",
+      "body": "Read the resource rows and their status, RAM and VRAM columns. An empty list means NC has no tracked entries to display at this moment; it is not a connection test. Loading, unloading and cleanup actions affect real resources, so leave them untouched while learning the page.",
+      "target": "resourcesListCard",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Refresh the display deliberately",
+      "body": "If you want a fresh snapshot, click Refresh. Expect updated figures or a feedback message on this page. Refreshing the display is different from loading a model. If collection reports an error, read the error details instead of repeatedly clicking refresh.",
+      "target": "resourcesRefreshButton",
+      "fallback_target": "runtimeResponsibilityStack"
+    },
+    {
+      "title": "Recognize cleanup actions",
+      "body": "Locate Free unused and the per-resource controls without pressing them. Those actions can unload resources and affect availability. Before using them, identify what is loaded and why. This tour ends with the resource state unchanged unless you explicitly chose a resource action.",
+      "target": "resourcesWorkspace",
+      "fallback_target": "runtimeResponsibilityStack"
+    }
+  ],
+  "estimated_minutes": 3,
+  "course_id": "runtime_session_overview"
+}

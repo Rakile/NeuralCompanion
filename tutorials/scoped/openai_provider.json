@@ -1,0 +1,153 @@
+{
+  "guides": [
+    {
+      "id": "overview_openai_provider",
+      "title": "OpenAI Chat Provider overview",
+      "description": "Hosted OpenAI chat provider addon for NC's dynamic chat-provider registry.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.chat_provider_openai",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "openai"
+      },
+      "category": "Runtime / LLM / OpenAI Chat Provider",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Hosted OpenAI chat provider addon for NC's dynamic chat-provider registry.",
+        "Find focused guidance for Connection, Model, Generation."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_openai_provider_connection",
+        "page_openai_provider_model",
+        "page_openai_provider_generation",
+        "language_providers"
+      ],
+      "steps": [
+        {
+          "title": "What OpenAI Chat Provider does",
+          "body": "Hosted OpenAI chat provider addon for NC's dynamic chat-provider registry. The overview introduces this area without opening its other sections.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_openai_provider_connection",
+        "page_openai_provider_model",
+        "page_openai_provider_generation"
+      ],
+      "display_title": "Start tutorial · OpenAI Chat Provider",
+      "optional_chapters": [
+        "language_providers"
+      ]
+    },
+    {
+      "id": "page_openai_provider_connection",
+      "title": "OpenAI Chat Provider · Connection",
+      "description": "Use Connection in OpenAI Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_openai",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "openai"
+      },
+      "category": "Runtime / LLM / OpenAI Chat Provider",
+      "order": 210,
+      "topic": "Connection",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Open the connection card",
+        "Test the connection"
+      ],
+      "steps": [
+        {
+          "title": "Open the connection card",
+          "body": "Enable OpenAI Chat Provider in Addon Manager if needed, then open the Connection area on this provider page. Read the connection card to see what it requires. Use whatever fields the card presents rather than inventing setting names.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Test the connection",
+          "body": "Once the connection details reflect your intended setup, use Test connection. A passing test shows the endpoint is reachable with the supplied configuration; it does not prove a model produces good replies. If the test fails, re-read the connection card before changing model or generation areas.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_openai_provider"
+    },
+    {
+      "id": "page_openai_provider_model",
+      "title": "OpenAI Chat Provider · Model",
+      "description": "Use Model in OpenAI Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_openai",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "openai"
+      },
+      "category": "Runtime / LLM / OpenAI Chat Provider",
+      "order": 211,
+      "topic": "Model",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Choose a hosted model"
+      ],
+      "steps": [
+        {
+          "title": "Choose a hosted model",
+          "body": "The model selector lists models this provider offers. Choose one deliberately and note its name. A hosted provider depends on network access, so a slow or failed first reply can be a connectivity symptom rather than a model fault. Re-test the connection if the selector behaves oddly.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_openai_provider"
+    },
+    {
+      "id": "page_openai_provider_generation",
+      "title": "OpenAI Chat Provider · Generation",
+      "description": "Use Generation in OpenAI Chat Provider.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.chat_provider_openai",
+        "workspace": "runtime",
+        "runtime_section": "runtime",
+        "runtime_responsibility": "language",
+        "provider_kind": "language",
+        "provider_id": "openai"
+      },
+      "category": "Runtime / LLM / OpenAI Chat Provider",
+      "order": 212,
+      "topic": "Generation",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Read generation options before editing"
+      ],
+      "steps": [
+        {
+          "title": "Read generation options before editing",
+          "body": "Generation options shape hosted replies. Inspect them in place and change one value at a time. Use a short chat exchange after each change to judge the effect, and avoid attributing odd replies to the model until you have ruled out your own setting changes.",
+          "target": "runtimeProviderConnectionCard",
+          "fallback_target": "runtimeProviderConnectionCard",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_openai_provider"
+    }
+  ]
+}

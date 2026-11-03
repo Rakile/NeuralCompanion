@@ -1,0 +1,3 @@
+# runtime-manifest.json pins exact upstream/bundled bytes, including CRLF.
+# Do not let platform checkout normalization invalidate installer checksums.
+* -text

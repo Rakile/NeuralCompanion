@@ -1,0 +1,131 @@
+{
+  "guides": [
+    {
+      "id": "overview_screen_supervisor",
+      "title": "Screen Supervisor overview",
+      "description": "Playful screen-based behavior rules that can interrupt when noteworthy on-screen content appears.",
+      "kind": "overview",
+      "scope": {
+        "owner_addon": "nc.screen_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "screen",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Screen Supervisor",
+      "order": 200,
+      "before_you_start": "Read with the engine stopped if you prefer. Any setup, setting change, service action or test is an explicit choice you make.",
+      "learning_outcomes": [
+        "Playful screen-based behavior rules that can interrupt when noteworthy on-screen content appears.",
+        "Find focused guidance for prompts, advanced."
+      ],
+      "estimated_minutes": 2,
+      "children": [
+        "page_screen_supervisor_prompts",
+        "page_screen_supervisor_advanced"
+      ],
+      "steps": [
+        {
+          "title": "What Screen Supervisor does",
+          "body": "Playful screen-based behavior rules that can interrupt when noteworthy on-screen content appears. The overview introduces this area without opening its other sections.",
+          "target": "visionSourceSettings",
+          "fallback_target": "runtimeWorkspace"
+        }
+      ],
+      "course_chapters": [
+        "page_screen_supervisor_prompts",
+        "page_screen_supervisor_advanced"
+      ],
+      "display_title": "Start tutorial · Screen Supervisor"
+    },
+    {
+      "id": "page_screen_supervisor_prompts",
+      "title": "Screen Supervisor · prompts",
+      "description": "Use prompts in Screen Supervisor.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.screen_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "screen",
+        "sensory_tab": "prompts"
+      },
+      "category": "Runtime / Vision Sensors / Screen Supervisor",
+      "order": 210,
+      "topic": "prompts",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Create a reaction profile",
+        "Define and enable one screen rule",
+        "Reduce an over-eager rule"
+      ],
+      "steps": [
+        {
+          "title": "Create a reaction profile",
+          "body": "In Reaction Profiles, use Add Profile and give it a recognizable name with Rename Profile. Read Active Reaction Profile to see which one is in use. Speaking style shapes how the persona reacts. Delete Profile removes a profile when no longer wanted. Use one profile for an initial test so reactions are easy to attribute.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Define and enable one screen rule",
+          "body": "In Reaction Rules, use Add Rule and read Reaction rule, Enabled, Action, Strictness, Emotion override, Repeat mode, and Nth match interval. Keep one rule for a first test. Remove Rule deletes it; use Enabled to pause instead. An unexpected interruption often means a rule is too permissive.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Reduce an over-eager rule",
+          "body": "If reactions interrupt too often, raise Strictness or lengthen Nth match interval rather than deleting the rule. Repeat mode explains how repeated matches are handled. Make one adjustment and watch for the same screen situation, so you can tell whether the change reduced interruptions as intended.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_screen_supervisor"
+    },
+    {
+      "id": "page_screen_supervisor_advanced",
+      "title": "Screen Supervisor · advanced",
+      "description": "Use advanced in Screen Supervisor.",
+      "kind": "section",
+      "scope": {
+        "owner_addon": "nc.screen_supervisor",
+        "workspace": "runtime",
+        "runtime_section": "vision",
+        "provider_kind": "vision",
+        "provider_id": "screen",
+        "sensory_tab": "advanced"
+      },
+      "category": "Runtime / Vision Sensors / Screen Supervisor",
+      "order": 211,
+      "topic": "advanced",
+      "estimated_minutes": 2,
+      "before_you_start": "Keep your existing values for a read-only tour. Opening this guide does not activate a provider, start services or apply settings.",
+      "learning_outcomes": [
+        "Review the prompt template",
+        "Check the preview instead of assuming"
+      ],
+      "steps": [
+        {
+          "title": "Review the prompt template",
+          "body": "Advanced Prompt Rules holds the instruction template used for screen reactions. Read it before changing, because it affects every rule. Restore recommended prompt returns the suggested text. After editing, use Review Prompt Preview to read the resulting prompt. Keep edits small and reversible.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        },
+        {
+          "title": "Check the preview instead of assuming",
+          "body": "Review Prompt Preview shows the composed prompt, not a live test on screen content. Use it to catch placeholders or wording mistakes before the next interruption. If the preview looks wrong, restore the recommended prompt and reapply changes one at a time.",
+          "target": "visionSourceSettings",
+          "fallback_target": "visionSourceSettings",
+          "target_hint": "This control may depend on available content or a loaded addon. Read the step here; no service or provider is enabled by the guide."
+        }
+      ],
+      "course_id": "overview_screen_supervisor"
+    }
+  ]
+}

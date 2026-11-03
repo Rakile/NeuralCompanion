@@ -1,0 +1,105 @@
+{
+  "guides": [
+    {
+      "scope": {
+        "owner_addon": "nc.scenic_pack_creator",
+        "workspace": "addons",
+        "addon": "scenic_pack_creator_tab"
+      },
+      "category": "Addons / Scenic Pack Creator",
+      "before_you_start": "Stop the chat engine before editing a pack. You can read this guide without changing any files; the tutorial does not create, replace or delete images for you.",
+      "estimated_minutes": 3,
+      "id": "overview_scenic_pack_creator",
+      "title": "Scenic Pack Creator overview",
+      "description": "Create portable still-image packs and choose images with reply tags.",
+      "kind": "overview",
+      "order": 200,
+      "learning_outcomes": [
+        "Understand the difference between the pack editor and the Scenic provider.",
+        "Find the image and tag editing controls."
+      ],
+      "children": [
+        "page_scenic_pack_creator_editor"
+      ],
+      "course_chapters": [
+        "page_scenic_pack_creator_editor"
+      ],
+      "display_title": "Start tutorial · Scenic Pack Creator",
+      "steps": [
+        {
+          "title": "What the creator does",
+          "body": "Scenic packs contain still images and tags such as neutral, happy or panic. This editor copies chosen images into a portable pack. The separate Scenic Avatar provider displays those images during chat; no avatar AI model or lip-sync preparation is needed.",
+          "target": "scenicPackCreator",
+          "fallback_target": "scenicPackCreator",
+          "target_hint": "Pack controls appear after you choose or create a pack. Keep reading here if you only want a tour."
+        }
+      ]
+    },
+    {
+      "scope": {
+        "owner_addon": "nc.scenic_pack_creator",
+        "workspace": "addons",
+        "addon": "scenic_pack_creator_tab"
+      },
+      "category": "Addons / Scenic Pack Creator",
+      "before_you_start": "Stop the chat engine before editing a pack. You can read this guide without changing any files; the tutorial does not create, replace or delete images for you.",
+      "estimated_minutes": 3,
+      "id": "page_scenic_pack_creator_editor",
+      "title": "Scenic Pack Creator · Editor",
+      "description": "Create a pack, manage its images and tags, then select it for Scenic.",
+      "kind": "section",
+      "topic": "Editor",
+      "order": 210,
+      "course_id": "overview_scenic_pack_creator",
+      "learning_outcomes": [
+        "Create a named pack and add images with custom tags.",
+        "Replace, rename or remove an image safely.",
+        "Select the pack without switching avatar providers."
+      ],
+      "steps": [
+        {
+          "title": "Choose or create a pack",
+          "body": "Open an existing pack in the list, or choose New pack and enter a unique name. Opening a pack here is for editing and does not change the pack selected for chat. Stop the chat engine to enable editing.",
+          "target": "scenicCreatorPackChoice",
+          "fallback_target": "scenicPackCreator",
+          "target_hint": "Pack controls appear after you choose or create a pack. Keep reading here if you only want a tour."
+        },
+        {
+          "title": "Give each image a tag",
+          "body": "Enter an Image tag such as neutral, happy, panic or Santa Claus. Tags become lowercase and spaces become underscores, so Santa Claus becomes santa_claus. Including neutral gives the provider a useful fallback image.",
+          "target": "scenicCreatorTag",
+          "fallback_target": "scenicPackCreator",
+          "target_hint": "Pack controls appear after you choose or create a pack. Keep reading here if you only want a tour."
+        },
+        {
+          "title": "Add or replace an image",
+          "body": "Choose Add / replace image and select a supported picture. NC copies it into the pack and keeps the original source file. An existing tag asks before replacing its managed image. The preview updates after the change. Image edits save automatically.",
+          "target": "scenicCreatorAddImage",
+          "fallback_target": "scenicPackCreator",
+          "target_hint": "Pack controls appear after you choose or create a pack. Keep reading here if you only want a tour."
+        },
+        {
+          "title": "Rename or remove an entry",
+          "body": "Select an image first. Edit Image tag and choose Rename selected tag to rename it. Remove image asks before permanently removing that entry and its managed image; an image still referenced by another tag is preserved. Files outside the pack are kept.",
+          "target": "scenicCreatorRemoveImage",
+          "fallback_target": "scenicPackCreator",
+          "target_hint": "Pack controls appear after you choose or create a pack. Keep reading here if you only want a tour."
+        },
+        {
+          "title": "Name and share the pack",
+          "body": "Pack display name changes the name shown in lists when you choose Save name; the folder ID stays the same. Open pack folder lets you copy the complete package. Keep scenic_pack.json and the images folder together. Refresh after making changes outside NC.",
+          "target": "scenicCreatorName",
+          "fallback_target": "scenicPackCreator",
+          "target_hint": "Pack controls appear after you choose or create a pack. Keep reading here if you only want a tour."
+        },
+        {
+          "title": "Select it for the Scenic provider",
+          "body": "Select for Scenic saves this pack as the provider choice. It does not activate an avatar engine. After this guide, choose Scenic under Runtime → Avatar, use that avatar provider and initialize NC. Its still images appear in Avatar Preview and change when the corresponding speech chunk starts.",
+          "target": "scenicCreatorSelectRuntime",
+          "fallback_target": "scenicPackCreator",
+          "target_hint": "Pack controls appear after you choose or create a pack. Keep reading here if you only want a tour."
+        }
+      ]
+    }
+  ]
+}

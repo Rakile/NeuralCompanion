@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "fps": 25,
+  "model_signature": "dc1eaa474728e222acac4ad1f14fe76e176929f27c632d98cc4142127259a0c6",
+  "signature_kind": "content-v1",
+  "prepare_options": {
+    "max_size": 1920,
+    "crop_scale": 2.3,
+    "crop_vx_ratio": 0.0,
+    "crop_vy_ratio": -0.175,
+    "crop_flag_do_rot": true,
+    "loop_mode": "pingpong",
+    "sequence_fps": 25.0,
+    "source_frames": -1,
+    "video_fps_policy": "ask",
+    "canvas": null
+  },
+  "source_path": "",
+  "source_order": [
+    0
+  ],
+  "unique_frame_count": 1,
+  "frame_paths": [
+    "frames/00000000.png"
+  ],
+  "is_image": true,
+  "source_video_fps": null
+}

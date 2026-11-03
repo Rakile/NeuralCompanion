@@ -1,0 +1,68 @@
+{
+  "source": "23-launchpad-.rar / Launchpad .blend (user supplied)",
+  "author": "Not identified in supplied archive",
+  "license": "Not included in supplied archive; no redistribution rights inferred",
+  "conversion": "Offline Blender evaluated world geometry to OBJ, then Qt mesh. Z-up to Y-up; pad spacing100; pad topY19. Single shared pad from Cube.000 reused at64 grid positions.",
+  "grid_center": [
+    -0.00967213867988903,
+    0.0005908718594582751
+  ],
+  "parts": {
+    "housing": {
+      "triangles": 140,
+      "vertices": 72,
+      "min": [
+        -526.065640928573,
+        -49.614596128463745,
+        -527.8820373438066
+      ],
+      "max": [
+        529.9346871353919,
+        9.870106220245361,
+        528.1183860875899
+      ]
+    },
+    "controls": {
+      "triangles": 7500,
+      "vertices": 3818,
+      "min": [
+        -473.6229472182458,
+        -4.043516278266907,
+        -471.9701148889726
+      ],
+      "max": [
+        468.7339253403479,
+        17.22143018245697,
+        478.2250068761641
+      ]
+    },
+    "details": {
+      "triangles": 182,
+      "vertices": 118,
+      "min": [
+        -526.3919882796472,
+        -39.74149054288864,
+        -385.63080805761274
+      ],
+      "max": [
+        -477.86756086570676,
+        10.037017107009888,
+        387.0755336858565
+      ]
+    },
+    "pad": {
+      "triangles": 44,
+      "vertices": 24,
+      "min": [
+        -43.80996227264404,
+        -3.3349839448928833,
+        -43.80996227264404
+      ],
+      "max": [
+        43.80996227264404,
+        19.0,
+        43.80996227264404
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["NcLiveCaptureModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.nclivecapture.NcLiveCaptureModule", "expo.modules.nclivecapture.NcFrameShimmerModule"]
+  }
+}

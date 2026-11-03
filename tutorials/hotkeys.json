@@ -1,0 +1,69 @@
+{
+  "id": "hotkeys",
+  "order": 23,
+  "title": "23. Hotkeys",
+  "description": "Learn shortcut scope, make a small binding change, and verify a hold-to-record or window action.",
+  "speech_backend": "chatterbox",
+  "kind": "workflow",
+  "allowed_routes": [
+    {
+      "workspace": "addons",
+      "addon": "hotkeys_tab",
+      "section": "Input"
+    },
+    {
+      "workspace": "addons",
+      "addon": "hotkeys_tab",
+      "section": "Window controls"
+    },
+    {
+      "workspace": "addons",
+      "addon": "hotkeys_tab",
+      "section": "Conversation controls"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Read a binding and its scope",
+      "body": "Open Addons → Hotkeys → Input and find Push-to-Talk. A binding is the key or combination assigned to an action; scope tells you where it works. Global shortcuts can work while another application has focus. Application shortcuts require NC to have focus.\n\nRead the displayed binding and group heading before editing. Right Ctrl is the default Push-to-Talk key, but your saved value may differ. Conversation controls and Window controls contain the other action groups. If Input is absent, enable the Hotkeys addon and restart if requested. Read aloud narrates the guide; Hear step reads this step.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "hotkeys_tab",
+      "section": "Input"
+    },
+    {
+      "title": "Hold, speak, then release",
+      "body": "Prepare Runtime → Speech-to-text and your microphone first, then select Push-to-Talk in Session setup → Input and profile. With the runtime running, hold the key shown in Hotkeys → Input, say “Please answer in one sentence,” then release. Release ends the recording; a quick tap provides little audio to recognize.\n\nLook for the recognized text and then a reply. This uses your real conversation, so use a harmless phrase. If nothing is recognized, confirm Push-to-Talk mode, the saved key, input device and speech-recognition readiness before rebinding. If text appears but no reply follows, troubleshoot the chat provider separately.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "hotkeys_tab",
+      "section": "Input"
+    },
+    {
+      "title": "Try a window shortcut with NC focused",
+      "body": "In Window controls, read the description for Show Visual Reply or Show MuseTalk Preview. These bring forward an existing feature window; they do not create an image or load an avatar. Choose a feature you already have available, click Record, press the unused keys together and release them, then check the displayed binding. Escape cancels recording; typing a value and leaving the field also saves it. Note the old value first.\n\nClick back into NC and press the combination. The intended window should appear or come forward. If there is no content/window yet, create it through that feature’s normal controls and retry. If the keys do nothing, check NC focus and collisions. Companion Orb shortcuts are configured in the Orb addon.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "hotkeys_tab",
+      "section": "Window controls"
+    },
+    {
+      "title": "Test a conversation action and keep a way back",
+      "body": "In Conversation controls, read Pause or resume speech. While a normal spoken reply is playing, press its displayed binding with NC focused: speech should pause; press again to resume. With no active speech, this action has nothing to pause. Regenerate response creates another reply, and Retry user input changes the last turn, so avoid those as idle key tests.\n\nFor any binding you changed, confirm the displayed value and test its intended action once. Test outside NC only when the group says Global shortcuts. Restore your recorded old value or clear an optional conflicting binding if needed. Restore default hotkeys in Window controls resets all groups, so use it only when you want that wider reset.",
+      "workspace": "addons",
+      "target": "addonSettingsContent",
+      "addon": "hotkeys_tab",
+      "section": "Conversation controls"
+    }
+  ],
+  "category": "Workflows",
+  "before_you_start": "Enable Hotkeys in Addon Manager and restart NC if requested. Begin by reading a saved binding; then test one shortcut with a visible result. Speech input needs a working microphone and speech-to-text provider, while window shortcuts need the relevant window/content. Keep the old binding written down before changing it. This guide never presses shortcuts or resets bindings for you.",
+  "learning_outcomes": [
+    "Read a shortcut’s saved binding and distinguish global from application scope.",
+    "Use hold and release for Push-to-Talk after preparing speech recognition.",
+    "Test window and conversation actions and restore a conflicting binding."
+  ],
+  "contextual_guides": [
+    "overview_hotkeys"
+  ]
+}
