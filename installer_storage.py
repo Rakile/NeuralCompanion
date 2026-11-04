@@ -14,7 +14,8 @@ GB = 1_000_000_000
 # Rounded upward from the Windows cu128 installation measured 2026-11-03.
 # Working/temp allowances are conservative estimates, not measured peak usage.
 COMPONENTS = {
-    'main': dict(label='Main runtime + LiquidAI', final=16_500_000_000, work=18*GB, temp=12*GB),
+    'main': dict(label='Main runtime', final=7_500_000_000, work=18*GB, temp=12*GB),
+    'liquidai': dict(label='LiquidAI TTS', final=9_500_000_000, work=10*GB, temp=8*GB),
     'musetalk': dict(label='MuseTalk', final=16*GB, work=10*GB, temp=10*GB),
     'ditto': dict(label='Ditto', final=10_500_000_000, work=10*GB, temp=10*GB),
     'pockettts': dict(label='PocketTTS', final=GB, work=2*GB, temp=2*GB),
@@ -159,7 +160,8 @@ def prepare_component_environments(root, selected, *, build_python=None, validat
     """A selected component gets a fresh environment, never user models/data."""
     root = plain_path(root)
     relative_paths = {
-        'main': ('.venv', '.venvs/liquidai_tts'),
+        'main': ('.venv',),
+        'liquidai': ('.venvs/liquidai_tts',),
         'musetalk': ('MuseTalk/.venv',),
         'ditto': ('Ditto/.venv',),
         'pockettts': ('.venvs/pockettts',),

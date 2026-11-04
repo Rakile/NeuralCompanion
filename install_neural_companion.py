@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -636,7 +638,7 @@ class Installer:
             self.download_file(public_url, destination)
             return
         except SystemExit as public_exc:
-            if not token:
+            if self.certificate_failure(public_exc) or not token:
                 raise
             warn(f"Public avatar pack download failed; trying authenticated GitHub release asset: {public_exc}")
         try:
@@ -659,7 +661,7 @@ class Installer:
 
     def download_github_release_asset(self, filename: str, destination: Path, token: str) -> None:
         release_request = urllib.request.Request(AVATAR_PACK_RELEASE_API_URL, headers=self.github_headers(token))
-        with urllib.request.urlopen(release_request, timeout=120) as response:
+        with self.urlopen_verified(release_request) as response:
             release = json.loads(response.read().decode("utf-8"))
 
         assets = release.get("assets") or []
@@ -673,12 +675,69 @@ class Installer:
         note(f"Using authenticated GitHub release asset download for {filename}.")
         self.download_file(asset_url, destination, headers=self.github_headers(token, octet_stream=True))
 
+    @staticmethod
+    def certificate_failure(error: BaseException) -> bool:
+        seen = set()
+        while isinstance(error, BaseException) and id(error) not in seen:
+            seen.add(id(error))
+            if isinstance(error, ssl.SSLCertVerificationError):
+                return True
+            reason = getattr(error, 'reason', None)
+            error = reason if isinstance(reason, BaseException) else error.__cause__
+        return False
+
+    @staticmethod
+    def ca_bundle_paths() -> list[Path]:
+        # Read certificate data only; never import code from another environment.
+        paths = []
+        for library in (COMPANION_VENV / 'Lib' / 'site-packages',
+                        COMPANION_VENV / 'lib' / 'python3.11' / 'site-packages'):
+            paths.extend((library / 'certifi' / 'cacert.pem',
+                          library / 'pip' / '_vendor' / 'certifi' / 'cacert.pem'))
+        for package in ('certifi', 'pip'):
+            try:
+                spec = importlib.util.find_spec(package)
+            except (ImportError, ValueError):
+                spec = None
+            for folder in (spec.submodule_search_locations or ()) if spec else ():
+                base = Path(folder)
+                paths.append(base / ('cacert.pem' if package == 'certifi' else '_vendor/certifi/cacert.pem'))
+        return list(dict.fromkeys(paths))
+
+    def urlopen_verified(self, request):
+        try:
+            return urllib.request.urlopen(request, timeout=120)
+        except (urllib.error.URLError, ssl.SSLError) as error:
+            if not self.certificate_failure(error):
+                raise
+            context = ssl.create_default_context()
+            loaded = False
+            for bundle in self.ca_bundle_paths():
+                try:
+                    if bundle.is_file():
+                        context.load_verify_locations(cafile=str(bundle))
+                        loaded = True
+                except (OSError, ssl.SSLError):
+                    continue
+            message = ('HTTPS certificate verification failed. Update the trusted CA certificates '
+                       'for Python or check your network HTTPS inspection settings. '
+                       'Certificate and hostname verification remain enabled.')
+            if not loaded:
+                raise RuntimeError(message) from error
+            warn('Default certificate verification failed; retrying with installed trusted CA certificates.')
+            try:
+                return urllib.request.urlopen(request, timeout=120, context=context)
+            except (urllib.error.URLError, ssl.SSLError) as retry_error:
+                if self.certificate_failure(retry_error):
+                    raise RuntimeError(message) from retry_error
+                raise
+
     def download_file(self, url: str, destination: Path, headers: dict[str, str] | None = None) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         headers = headers or {"User-Agent": "NeuralCompanionInstaller"}
         request = urllib.request.Request(str(url), headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as handle:
+            with self.urlopen_verified(request) as response, destination.open("wb") as handle:
                 total = int(response.headers.get("Content-Length") or 0)
                 if total:
                     require_free_space(destination.parent, total + 256*1024**2)
@@ -781,13 +840,12 @@ class Installer:
         )
         self.verify_torch_cuda(python_exe, "Main app")
         self.ensure_ffmpeg()
-        self.install_liquidai()
 
     def install_liquidai(self) -> None:
-        """Include LiquidAI using the addon's existing isolated setup pipeline."""
+        """Install optional LiquidAI using the addon's existing isolated setup pipeline."""
         from addons.liquidai_tts.installer import LiquidAIInstaller
 
-        headline("Installing LiquidAI TTS (included with main runtime)")
+        headline("Installing LiquidAI TTS")
         setup = LiquidAIInstaller(REPO_ROOT)
         state = setup.snapshot()
         if state.get('busy'):
@@ -1121,13 +1179,14 @@ for job in jobs:
         else:
             warn(f"{label} torch CUDA check: {detail}")
 
-    def final_summary(self, install_main: bool, install_musetalk: bool, install_pockettts: bool, avatar_pack_keys: list[str], *, install_ditto: bool = False) -> None:
+    def final_summary(self, install_main: bool, install_musetalk: bool, install_pockettts: bool, avatar_pack_keys: list[str], *, install_ditto: bool = False, install_liquidai: bool = False) -> None:
         headline("Installer Summary")
         ok("Unified installer finished.")
         note(f"Python 3.11 source: {self.selected_python_label()}")
 
         if install_main:
             ok(f"Main app runtime ready at {COMPANION_VENV}")
+        if install_liquidai:
             from addons.liquidai_tts.config import managed_paths
             liquidai_paths = managed_paths(REPO_ROOT)
             ok(f"LiquidAI TTS runtime ready at {liquidai_paths.environment}")
@@ -1165,14 +1224,19 @@ def build_parser() -> argparse.ArgumentParser:
         description="Unified installer for the Neural Companion Git release.",
     )
     parser.add_argument("--python-exe", default="", help="Path to a Python 3.11 interpreter")
-    parser.add_argument("--main", action="store_true", help="Install the main Neural Companion runtime including LiquidAI TTS and private Python 3.12 when missing")
+    parser.add_argument("--main", action="store_true", help="Install the main Neural Companion runtime; LiquidAI defaults on unless --no-liquidai is given")
+    liquidai = parser.add_mutually_exclusive_group()
+    liquidai.add_argument("--liquidai", dest="liquidai", action="store_true", default=None,
+                         help="Install the optional LiquidAI TTS environment and model (also enabled by default with --main)")
+    liquidai.add_argument("--no-liquidai", dest="liquidai", action="store_false",
+                         help="Skip LiquidAI setup and preserve any existing LiquidAI installation")
     parser.add_argument("--musetalk", action="store_true", help="Install the isolated MuseTalk runtime")
     parser.add_argument("--ditto", action="store_true", help="Install the isolated Ditto runtime (standard RTX and Blackwell, CUDA 12.8)")
     parser.add_argument("--pockettts", action="store_true", help="Install the isolated PocketTTS runtime")
     parser.add_argument("--avatar-pack-echo", action="store_true", help="Download and install the default Echo avatar pack")
     parser.add_argument("--avatar-pack-eon", action="store_true", help="Download and install the default Eon avatar pack")
     parser.add_argument("--avatar-packs", action="store_true", help="Download and install all default avatar packs")
-    parser.add_argument("--all", action="store_true", help="Install main app, MuseTalk, Ditto, and PocketTTS")
+    parser.add_argument("--all", action="store_true", help="Install main app, LiquidAI, MuseTalk, Ditto, and PocketTTS")
     parser.add_argument("--skip-main-torch", action="store_true", help="Skip the main app torch install")
     parser.add_argument(
         "--torch-stack",
@@ -1197,7 +1261,7 @@ def resolve_requested_components(args: argparse.Namespace) -> tuple[bool, bool, 
     if args.all:
         return True, True, True, avatar_pack_keys, True
 
-    requested_any = args.main or args.musetalk or args.pockettts or args.ditto or bool(avatar_pack_keys)
+    requested_any = args.main or args.musetalk or args.pockettts or args.ditto or bool(avatar_pack_keys) or args.liquidai is True
     if requested_any:
         return args.main, args.musetalk, args.pockettts, avatar_pack_keys, args.ditto
 
@@ -1209,6 +1273,8 @@ def resolve_requested_components(args: argparse.Namespace) -> tuple[bool, bool, 
 
     headline("Installation Selection")
     install_main = prompt_yes_no("Install the main Neural Companion runtime?", True)
+    if args.liquidai is None:
+        args.liquidai = prompt_yes_no("Install optional LiquidAI TTS?", True)
     install_musetalk = prompt_yes_no("Install the isolated MuseTalk runtime too?", True)
     install_ditto = prompt_yes_no("Install the isolated Ditto runtime too?", True)
     install_pockettts = prompt_yes_no("Install the isolated PocketTTS runtime too?", True)
@@ -1228,8 +1294,9 @@ def main() -> int:
     installer.preflight()
 
     install_main, install_musetalk, install_pockettts, avatar_pack_keys, install_ditto = resolve_requested_components(args)
+    install_liquidai = install_main if args.liquidai is None else args.liquidai
     selected = [key for key, enabled in (
-        ('main', install_main), ('musetalk', install_musetalk),
+        ('main', install_main), ('liquidai', install_liquidai), ('musetalk', install_musetalk),
         ('ditto', install_ditto), ('pockettts', install_pockettts),
     ) if enabled] + avatar_pack_keys
     if not selected:
@@ -1246,13 +1313,14 @@ def main() -> int:
             return 0
         jobs = []
         for enabled, label, action in (
-            (install_main, 'Main runtime + LiquidAI', installer.install_main),
+            (install_main, 'Main runtime', installer.install_main),
+            (install_liquidai, 'LiquidAI TTS', installer.install_liquidai),
             (install_musetalk, 'MuseTalk', installer.install_musetalk),
             (install_ditto, 'Ditto', installer.install_ditto),
             (install_pockettts, 'PocketTTS', installer.install_pockettts),
         ):
             if enabled:
-                jobs.append((('main' if label.startswith('Main') else label.lower()), label, action))
+                jobs.append((('main' if label.startswith('Main') else 'liquidai' if label.startswith('LiquidAI') else label.lower()), label, action))
         for key in avatar_pack_keys:
             jobs.append((key, DEFAULT_AVATAR_PACKS[key]['label'] + ' avatar pack',
                          lambda key=key: installer.install_avatar_packs([key])))
@@ -1292,7 +1360,7 @@ def main() -> int:
         fail(f"Installation failed: {exc}")
         return 1
 
-    installer.final_summary(install_main, install_musetalk, install_pockettts, avatar_pack_keys, install_ditto=install_ditto)
+    installer.final_summary(install_main, install_musetalk, install_pockettts, avatar_pack_keys, install_ditto=install_ditto, install_liquidai=install_liquidai)
     return 0
 
 

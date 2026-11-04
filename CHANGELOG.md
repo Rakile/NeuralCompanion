@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Neural Companion are documented here.
 
+## v0.5.1
+
+### Installer fixes
+
+- LiquidAI TTS is an optional install target, checked by default. Uncheck it to skip its environment, Python 3.12 setup and model download; existing LiquidAI files remain intact when it is unselected.
+- Installer HTTPS downloads retry certificate-verification failures with trusted CA data already installed with Python, pip or NC. Hostname and certificate-chain verification stay enabled; certificate failures no longer trigger an unrelated GitHub authentication retry.
+- Component space estimates, installation progress, command-line options and installation guidance follow the separate LiquidAI choice.
+
 ## v0.5.0
 
 ### Added

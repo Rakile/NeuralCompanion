@@ -6,9 +6,9 @@ Installation only puts components on disk. It does not choose a chat model, acti
 
 ## Before you begin
 
-- **Windows x64 and Python 3.11.** Select installed Python 3.11 for NC's main environment. LiquidAI TTS is included with the main runtime. If no usable Python 3.12 is found, the main installer automatically downloads a verified private copy for LiquidAI. It does not change NC's Python 3.11 environment, system Python, PATH or registry settings.
+- **Windows x64 and Python 3.11.** Select installed Python 3.11 for NC's main environment. LiquidAI TTS is optional and checked by default in Install targets. If selected and no usable Python 3.12 is found, the installer automatically downloads a verified private copy for LiquidAI. It does not change NC's Python 3.11 environment, system Python, PATH or registry settings.
 - **A chat provider for your first reply.** LM Studio or Ollama needs its server running and a model available. A hosted provider needs its own API credentials and available credit.
-- **Disk space and time.** Main runtime installation includes LiquidAI's private environment and roughly 4.2 GB pinned model. MuseTalk models, Ditto models, and prepared avatar packs add further downloads.
+- **Disk space and time.** Selecting LiquidAI adds its private environment and roughly 4.2 GB pinned model; uncheck it to skip that setup and download. MuseTalk models, Ditto models, and prepared avatar packs add further downloads.
 - **An NVIDIA CUDA GPU for local talking avatars.** MuseTalk requires a CUDA setup. Ditto uses its own environment and a CUDA 12.8 stack for standard RTX and Blackwell cards. Neither is needed for text chat or ordinary speech.
 - **Media tools if you plan to use media workflows.** Audio Story Mode and some media utilities need FFmpeg and ffprobe. The installer can place bundled tools under `tools/ffmpeg/bin` when they are missing from `PATH`.
 
@@ -28,7 +28,8 @@ instead of copying the new source over the old installation.
 
 | Install target | What it adds | Notes |
 | --- | --- | --- |
-| **Main runtime** | The application, native QML interface, local speech stack including isolated LiquidAI TTS, MCP Core, and phone-pairing QR support | Required. Automatically provisions private Python 3.12 for LiquidAI when missing and downloads its pinned model. |
+| **Main runtime** | The application, native QML interface, standard local speech stack, MCP Core, and phone-pairing QR support | Required. LiquidAI is selected separately. |
+| **LiquidAI TTS** | Optional local speech in its own environment, with a roughly 4.2 GB model | Checked by default. Uncheck to skip setup; install later from LiquidAI Setup. Provisions private Python 3.12 only when needed. |
 | **MuseTalk runtime** | Local MuseTalk talking-head engine | Separate environment, NVIDIA CUDA, model weights, and a prepared MuseTalk pack. |
 | **Ditto runtime** | Local Ditto talking-head engine | Separate environment, models, and prepared Ditto packages. Ditto packages are not MuseTalk packs. |
 | **PocketTTS runtime** | Local PocketTTS and PocketTTS Multilingual speech | Separate environment. Reference cloning may need Hugging Face terms and a login. |
@@ -42,7 +43,7 @@ stops before PocketTTS environment changes and must be restored from the same NC
 release. An existing package with the same version is refreshed from the bundled
 wheel without forcing its dependencies to reinstall.
 
-The main runtime includes Chatterbox and Whisper-based local speech plus LiquidAI TTS. LiquidAI uses the same addon-owned setup pipeline as its in-app **Setup → Install / Repair** action, keeping its Python 3.12 environment at `.venvs/liquidai_tts` and pinned model at `models/LFM3-Audio-2B`. An existing ready installation is reused; missing dependencies or model files are prepared by the main installer. If Python 3.12 is unavailable, the Windows x64 main installer downloads a pinned standalone interpreter into `.venvs/liquidai_python312`, verifies its size, SHA-256 and runtime imports, and uses it only for LiquidAI. Keep this private base interpreter alongside the LiquidAI environment. Unknown folder contents are preserved instead of overwritten. Setup failures stop installation instead of reporting success. The Setup tab still provides **Check setup**, **Install / Repair**, and **Cancel setup**, and can reuse the private interpreter afterward. Installing LiquidAI does not make it the active voice provider. Add the optional MuseTalk, Ditto and PocketTTS runtimes only when needed.
+The main runtime includes Chatterbox and Whisper-based local speech. **LiquidAI TTS** is a separate install target, checked by default. Unchecking it skips its environment, Python 3.12 bootstrap and model download; existing LiquidAI environments, models and settings are preserved when only Main runtime is repaired. LiquidAI uses the same addon-owned setup pipeline as its in-app **Setup → Install / Repair** action, keeping its Python 3.12 environment at `.venvs/liquidai_tts` and pinned model at `models/LFM3-Audio-2B`. Selecting LiquidAI rebuilds its managed environment while retaining existing downloaded model files; missing or invalid model files are prepared by its setup pipeline. If LiquidAI is selected and Python 3.12 is unavailable, the Windows x64 installer downloads a pinned standalone interpreter into `.venvs/liquidai_python312`, verifies its size, SHA-256 and runtime imports, and uses it only for LiquidAI. Keep this private base interpreter alongside the LiquidAI environment. Unknown folder contents are preserved instead of overwritten. Setup failures stop installation instead of reporting success. The Setup tab still provides **Check setup**, **Install / Repair**, and **Cancel setup**, and can reuse the private interpreter afterward. Installing LiquidAI does not make it the active voice provider. Add the optional MuseTalk, Ditto and PocketTTS runtimes only when needed.
 
 The main installer includes the tested `mcp==1.26.0` SDK through
 `addons/mcp_core/requirements.txt`, JSON Schema validation, chess rules, and
@@ -92,6 +93,14 @@ Run commands from the project folder. A minimal main-runtime installation is:
 ```powershell
 py -3.11 install_neural_companion.py --main --non-interactive
 ```
+
+LiquidAI remains enabled by default with `--main`. To install NC without it:
+
+```powershell
+py -3.11 install_neural_companion.py --main --no-liquidai --non-interactive
+```
+
+To install or repair only LiquidAI later, use `--liquidai --non-interactive`. The PowerShell wrapper also accepts `-SkipLiquidAI`.
 
 Install optional runtimes individually:
 
@@ -165,3 +174,12 @@ Do not delete `voices/`, `avatar_packs/`, `runtime/`, or `MuseTalk/runtime/` as 
 - [Chat and speech](manual/chat-and-tts.md) for speech output and microphone input.
 - [PocketTTS](manual/pockettts.md) for its isolated runtime and cloning access.
 - [Troubleshooting](troubleshooting.md) if a component is missing or initialization fails.
+
+## HTTPS certificate recovery
+
+If Python cannot verify a download certificate, the installer retries once using
+trusted CA certificate data already installed with Python, pip or NC. Certificate
+chain and hostname verification remain enabled. This covers avatar downloads and
+the GitHub release API; no GitHub token is required for a public download. If the
+retry also fails, installation stops with certificate-trust guidance instead of
+trying account authentication for a certificate error.

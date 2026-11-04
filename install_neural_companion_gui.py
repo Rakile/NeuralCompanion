@@ -165,6 +165,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         self.python_path = tk.StringVar(value="")
         self.install_main = tk.BooleanVar(value=True)
+        self.install_liquidai = tk.BooleanVar(value=True)
         self.install_musetalk = tk.BooleanVar(value=True)
         self.install_ditto = tk.BooleanVar(value=True)
         self.install_pockettts = tk.BooleanVar(value=True)
@@ -186,7 +187,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self._feature_status_index = 0
         self._feature_status_messages = [
             "Local realtime chat keeps the companion experience on your machine.",
-            "Main runtime includes LiquidAI TTS alongside Chatterbox; additional voice providers remain available.",
+            "LiquidAI TTS is optional and selected by default; uncheck it to skip its environment and model download.",
             "Avatar output can run through MuseTalk, Scenic, VSeeFace, or no-avatar mode.",
             "MuseTalk adds local talking-head avatar generation with prepared avatar packs.",
             "Visual replies and story visuals can generate image-based responses when enabled.",
@@ -647,7 +648,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self._card_heading(card, "01", "Python 3.11", "RUNTIME DETECT")
         ttk.Label(
             card,
-            text="Choose Python 3.11 for NC. LiquidAI uses a separate Python 3.12 environment; the installer downloads Python 3.12 if missing.",
+            text="Choose Python 3.11 for NC. If LiquidAI TTS is selected, it uses separate Python 3.12, downloaded if missing.",
             style="CardText.TLabel",
             wraplength=275,
         ).pack(anchor=tk.W, pady=(2, 10))
@@ -683,7 +684,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self._card_heading(card, "02", "Install targets", "COMPONENT MATRIX")
         ttk.Label(
             card,
-            text="Main runtime includes isolated LiquidAI TTS. MuseTalk, Ditto and PocketTTS also use separate environments. Sizes shown are approximate installed sizes after cache cleanup.",
+            text="LiquidAI TTS is optional and selected by default. LiquidAI, MuseTalk, Ditto and PocketTTS use separate environments. Sizes are approximate installed sizes after cache cleanup.",
             style="CardText.TLabel",
             wraplength=275,
         ).pack(anchor=tk.W, pady=(2, 10))
@@ -691,8 +692,14 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self._runtime_tile(
             card,
             title=f"Main runtime (~{COMPONENTS['main']['final']/GB:g} GB)",
-            description="NC dependencies plus LiquidAI TTS in its own environment. Python 3.12 is downloaded if missing; roughly 4.2 GB model.",
+            description="NC application, chat and standard speech dependencies. LiquidAI TTS is a separate optional component.",
             variable=self.install_main,
+        )
+        self._runtime_tile(
+            card,
+            title=f"LiquidAI TTS (~{COMPONENTS['liquidai']['final']/GB:g} GB)",
+            description="Optional local speech provider. Own Python 3.12 environment and roughly 4.2 GB model. Uncheck to skip setup; install later from LiquidAI Setup.",
+            variable=self.install_liquidai,
         )
         self._runtime_tile(
             card,
@@ -1294,7 +1301,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
     def _selected_install_components(self) -> list[str]:
         return [key for key, variable in (
-            ('main', self.install_main), ('musetalk', self.install_musetalk),
+            ('main', self.install_main), ('liquidai', self.install_liquidai), ('musetalk', self.install_musetalk),
             ('ditto', self.install_ditto), ('pockettts', self.install_pockettts),
             ('echo', self.install_avatar_echo), ('eon', self.install_avatar_eon),
         ) if variable.get()]
@@ -1336,6 +1343,8 @@ class NeuralCompanionInstallerGui(tk.Tk):
             selected = []
             if self.install_main.get():
                 selected.append("--main")
+            if self.install_liquidai.get():
+                selected.append("--liquidai")
             if self.install_musetalk.get():
                 selected.append("--musetalk")
             if self.install_ditto.get():
@@ -1401,6 +1410,8 @@ class NeuralCompanionInstallerGui(tk.Tk):
             command.extend(["--torch-stack", torch_stack])
         if self.skip_main_torch.get():
             command.append("--skip-main-torch")
+        if not self.install_liquidai.get():
+            command.append("--no-liquidai")
         return command
 
     def _torch_stack_value(self) -> str:
@@ -1416,6 +1427,8 @@ class NeuralCompanionInstallerGui(tk.Tk):
         command = self._installer_base_command()
         if self.install_main.get():
             command.append("--main")
+        if self.install_liquidai.get():
+            command.append("--liquidai")
         if self.install_musetalk.get():
             command.append("--musetalk")
         if self.install_ditto.get():
@@ -1428,6 +1441,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
             command.append("--avatar-pack-eon")
         if not any((
             self.install_main.get(),
+            self.install_liquidai.get(),
             self.install_musetalk.get(),
             self.install_ditto.get(),
             self.install_pockettts.get(),

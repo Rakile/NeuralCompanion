@@ -1,5 +1,6 @@
 param(
     [switch]$SkipTorch,
+    [switch]$SkipLiquidAI,
     [string]$PythonExe = ''
 )
 
@@ -12,6 +13,9 @@ if (-not $launcher) {
 }
 
 $args = @('install_neural_companion.py', '--main')
+if ($SkipLiquidAI) {
+    $args += '--no-liquidai'
+}
 if ($SkipTorch) {
     $args += '--skip-main-torch'
 }

@@ -5,7 +5,7 @@ This page walks through installation. For command-line examples and environment 
 ## What you need first
 
 - Windows.
-- Installed Python **3.11** for NC. Keep the installer's Python selector on 3.11; the main installer automatically provisions a private Python **3.12** for LiquidAI if no usable installation is found (Windows x64).
+- Installed Python **3.11** for NC. Keep the installer's Python selector on 3.11; when the optional LiquidAI TTS component is selected, the installer provisions private Python **3.12** if needed (Windows x64).
 - Enough disk space for the runtimes and models you select.
 - A chat provider for the first reply: a running LM Studio or Ollama server with a model, or credentials for a supported API provider.
 - An NVIDIA CUDA GPU for the supported MuseTalk or Ditto installation. Hardware needs for chat and speech depend on your selected providers; use hosted providers or compatible local models for your machine.
@@ -16,7 +16,8 @@ Linux work is maintained in the separate [NeuralCompanion-Linux repository](http
 
 | Component | Required? | What it is for |
 | --- | --- | --- |
-| **Main runtime** | Yes | The app, native QML interface, standard chat/speech stack including isolated LiquidAI TTS and its pinned model, MCP Core and phone-pairing QR support. Stockfish is optional: install it or select an existing engine in Companion Chess → Setup. |
+| **Main runtime** | Yes | The app, native QML interface, standard chat/speech stack, MCP Core and phone-pairing QR support. Stockfish is optional: install it or select an existing engine in Companion Chess → Setup. |
+| **LiquidAI TTS** | Optional; checked by default | Local speech with a dedicated environment and model. Uncheck to skip setup and install later from LiquidAI Setup. |
 | **MuseTalk runtime** | Optional | Prepared talking-face avatars. Needs CUDA, models, and a MuseTalk pack. |
 | **Ditto runtime** | Optional | Talking avatars prepared from a portrait or short video. Uses its own environment and packages. |
 | **PocketTTS runtime** | Optional | Local PocketTTS speech. Reference cloning may need a Hugging Face login. |
@@ -24,9 +25,11 @@ Linux work is maintained in the separate [NeuralCompanion-Linux repository](http
 
 Adding a runtime does not activate it, and installing a pack does not select it. Configuration happens in the app.
 
-LiquidAI is installed as part of **Main runtime**, using its existing private
-environment and roughly 4.2 GB model download. Existing downloaded models are retained.
-If Python 3.12 is missing, the installer verifies and installs a private copy at
+LiquidAI has its own **LiquidAI TTS** checkbox, enabled by default. Uncheck it
+to skip its private environment and roughly 4.2 GB model download. Reinstalling
+only Main runtime preserves an existing LiquidAI setup. Selecting LiquidAI
+rebuilds its environment while retaining downloaded models.
+If LiquidAI is selected and Python 3.12 is missing, the installer verifies and installs a private copy at
 `.venvs/liquidai_python312`. System Python and PATH stay unchanged. Retain this private base interpreter with the LiquidAI environment.
 Its in-app **Setup** tab remains available for checks and **Install / Repair**;
 the main installer does not change your voice, language or provider selection.
@@ -40,7 +43,7 @@ before rerunning the installer. The installer does not fetch application updates
 
 1. Open `INSTALL_NEURAL_COMPANION.bat` from the project folder, or run `py -3.11 install_neural_companion_gui.py`.
 2. On the Python card, confirm the detected interpreter is Python 3.11. Use **Detect** or **Browse** to correct it, or **Get Python 3.11** to install the right version.
-3. Under **Install targets**, review the preselected runtimes. The current installer preselects the main runtime, MuseTalk, Ditto, PocketTTS, Echo, and Eon. Change those choices to match what you actually intend to use.
+3. Under **Install targets**, review the preselected runtimes. The current installer preselects the main runtime, LiquidAI TTS, MuseTalk, Ditto, PocketTTS, Echo, and Eon. Change those choices to match what you actually intend to use.
 4. Under **Default avatar packs**, keep Echo and Eon only if you are installing MuseTalk and want those prepared packs.
 5. Choose **RUN PREFLIGHT ONLY** and read the warnings.
 6. Choose **INSTALL SELECTED** and wait for each component.
@@ -56,7 +59,7 @@ budgets separately, or combines them when they share a drive. **Refresh space**
 updates the available-space reading without changing your choices.
 
 Sizes are approximate Windows CUDA figures, rounded upward from a measured
-installation: main runtime including LiquidAI about **16.5 GB**, MuseTalk
+installation: main runtime about **7.5 GB**, optional LiquidAI about **9.5 GB** (environment and model), MuseTalk
 **16 GB**, Ditto **10.5 GB**, PocketTTS **1 GB**, Echo **0.9 GB**, and Eon
 **0.8 GB** (decimal GB). The installer budgets additional safety and working
 space. These are estimates, not a guarantee of peak usage. Other models fetched
